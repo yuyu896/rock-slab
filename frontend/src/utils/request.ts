@@ -30,8 +30,16 @@ request.interceptors.response.use(
       // 只在非登录请求时重定向，登录页的 401 错误需要正常处理以显示错误提示
       const isLoginRequest = error.config?.url?.includes('/auth/login')
       if (!isLoginRequest) {
+        // 检查是否是 Token 过期
+        const detail = error.response?.data?.detail || ''
+        if (detail.includes('过期')) {
+          sessionStorage.setItem('token_expired', 'true')
+        }
         window.location.href = '/login'
       }
+    }
+    if (error.response?.status === 429) {
+      // 请求过于频繁 - 由调用方处理
     }
     return Promise.reject(error)
   },

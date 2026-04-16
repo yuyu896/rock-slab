@@ -14,6 +14,12 @@ const loading = ref(false)
 const showPassword = ref(false)
 const errorMessage = ref('')
 
+// Check if redirected due to token expiry
+if (sessionStorage.getItem('token_expired')) {
+  sessionStorage.removeItem('token_expired')
+  errorMessage.value = '登录已过期，请重新登录'
+}
+
 // 清除输入时清除错误
 function clearError() {
   errorMessage.value = ''

@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
 from core.permissions import IsRoleMin, CanApprove, DataScopeMixin
+from apps.audit.decorators import audit_log
 from .models import Transfer
 from .serializers import TransferSerializer, TransferActionSerializer, ApproveSerializer
 from .filters import TransferFilterSet
@@ -67,36 +68,43 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         )
 
     @action(detail=False, methods=['post'])
+    @audit_log(action='purchase', resource_type='Transfer', description_template='采购入库')
     def purchase(self, request):
         """采购入库"""
         return self._create_action(request, Transfer.ACTION_PURCHASE)
 
     @action(detail=False, methods=['post'])
+    @audit_log(action='assign', resource_type='Transfer', description_template='资产领用')
     def assign(self, request):
         """资产领用"""
         return self._create_action(request, Transfer.ACTION_ASSIGN)
 
     @action(detail=False, methods=['post'], url_path='return')
+    @audit_log(action='return', resource_type='Transfer', description_template='资产归还')
     def return_asset(self, request):
         """资产归还 - mapped as 'return' on the frontend."""
         return self._create_action(request, Transfer.ACTION_RETURN)
 
     @action(detail=False, methods=['post'])
+    @audit_log(action='transfer', resource_type='Transfer', description_template='资产调拨')
     def transfer(self, request):
         """资产调拨"""
         return self._create_action(request, Transfer.ACTION_TRANSFER)
 
     @action(detail=False, methods=['post'])
+    @audit_log(action='repair', resource_type='Transfer', description_template='资产维修')
     def repair(self, request):
         """资产维修"""
         return self._create_action(request, Transfer.ACTION_REPAIR)
 
     @action(detail=False, methods=['post'])
+    @audit_log(action='scrap', resource_type='Transfer', description_template='资产报废')
     def scrap(self, request):
         """资产报废"""
         return self._create_action(request, Transfer.ACTION_SCRAP)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanApprove])
+    @audit_log(action='approve', resource_type='Transfer', description_template='审批流转单')
     def approve(self, request, pk=None):
         """审批调拨单"""
         transfer = self.get_object()

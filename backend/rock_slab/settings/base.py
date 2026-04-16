@@ -3,7 +3,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-insecure-key-change-in-production')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-insecure-key-change-in-production')
 
 DEBUG = False
 
@@ -77,7 +77,7 @@ AUTHENTICATION_BACKENDS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'apps.authentication.backends.ExpiringTokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -104,6 +104,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/hour',
+        'login': '5/minute',
     },
 }
 
@@ -119,3 +120,12 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'apps.authentication.validators.MinimumLengthValidator',
+    },
+]
+
+# Token expiration (days)
+TOKEN_EXPIRATION_DAYS = 30

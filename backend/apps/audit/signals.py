@@ -5,14 +5,14 @@
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
-from rest_framework.authtoken.models import Token
+from apps.authentication.models import ExpiringToken
 from .models import AuditLog
 from .utils import get_client_ip, get_request_info
 
 User = get_user_model()
 
 
-@receiver(post_save, sender=Token)
+@receiver(post_save, sender=ExpiringToken)
 def log_login(sender, instance, created, **kwargs):
     """记录用户登录"""
     if created:

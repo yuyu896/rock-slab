@@ -1,6 +1,7 @@
 /* 磐盘 - 盘点 Store */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   getInventoryTasks,
   getInventoryTask,
@@ -15,6 +16,7 @@ import {
   startInventory,
   submitInventory,
 } from '@/api/inventories'
+import request, { handleApiError } from '@/utils/request'
 import type {
   InventoryTask,
   InventoryReport,
@@ -28,6 +30,7 @@ export const useInventoryStore = defineStore('inventory', () => {
   const tasks = ref<InventoryTask[]>([])
   const total = ref(0)
   const loading = ref(false)
+  const error = ref<string | null>(null)
   const currentTask = ref<InventoryTask | null>(null)
   const currentReport = ref<InventoryReport | null>(null)
   const currentProgress = ref<InventoryProgress | null>(null)
@@ -39,10 +42,14 @@ export const useInventoryStore = defineStore('inventory', () => {
     branchId?: string
   }) {
     loading.value = true
+    error.value = null
     try {
       const { data } = await getInventoryTasks(params)
       tasks.value = data.results
       total.value = data.count
+    } catch (err) {
+      error.value = handleApiError(err)
+      ElMessage.error(error.value)
     } finally {
       loading.value = false
     }
@@ -50,9 +57,13 @@ export const useInventoryStore = defineStore('inventory', () => {
 
   async function fetchTask(id: string) {
     loading.value = true
+    error.value = null
     try {
       const { data } = await getInventoryTask(id)
       currentTask.value = data
+    } catch (err) {
+      error.value = handleApiError(err)
+      ElMessage.error(error.value)
     } finally {
       loading.value = false
     }
@@ -64,12 +75,7 @@ export const useInventoryStore = defineStore('inventory', () => {
   }
 
   async function deleteTask(id: string) {
-    const { data } = await getInventoryTask(id)
-    // Use the API endpoint to delete - fallback to re-fetching list
-    // If a dedicated deleteInventoryTask API function exists, use it instead
-    const { default: request } = await import('@/utils/request')
-    await request.delete(`/api/inventories/${id}`)
-    // Refresh the list after deletion
+    await request.delete(`/inventories/${id}`)
     await fetchTasks()
   }
 
@@ -82,7 +88,6 @@ export const useInventoryStore = defineStore('inventory', () => {
   async function cancelTask(id: string) {
     const response = await cancelInventory(id)
     currentTask.value = response.data
-    // Refresh list
     await fetchTasks()
     return response.data
   }
@@ -96,7 +101,6 @@ export const useInventoryStore = defineStore('inventory', () => {
   async function approveTask(id: string) {
     const response = await approveInventory(id)
     currentTask.value = response.data
-    // Refresh list
     await fetchTasks()
     return response.data
   }
@@ -104,7 +108,6 @@ export const useInventoryStore = defineStore('inventory', () => {
   async function rejectTask(id: string, reason: string) {
     const response = await rejectInventory(id, { reason })
     currentTask.value = response.data
-    // Refresh list
     await fetchTasks()
     return response.data
   }
@@ -112,17 +115,20 @@ export const useInventoryStore = defineStore('inventory', () => {
   async function recountTask(id: string) {
     const response = await recountInventory(id)
     currentTask.value = response.data
-    // Refresh list
     await fetchTasks()
     return response.data
   }
 
   async function fetchReport(id: string) {
     loading.value = true
+    error.value = null
     try {
       const { data } = await getInventoryReport(id)
       currentReport.value = data
       return data
+    } catch (err) {
+      error.value = handleApiError(err)
+      ElMessage.error(error.value)
     } finally {
       loading.value = false
     }
@@ -145,6 +151,7 @@ export const useInventoryStore = defineStore('inventory', () => {
     tasks,
     total,
     loading,
+    error,
     currentTask,
     currentReport,
     currentProgress,

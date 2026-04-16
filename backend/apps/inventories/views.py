@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from core.pagination import StandardPagination
 from core.permissions import IsRoleMin, CanApprove, DataScopeMixin
+from apps.audit.decorators import audit_log
 from .models import InventoryTask, InventoryItem, InventoryCheck
 from .serializers import (
     InventoryTaskSerializer,
@@ -41,6 +42,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     # ---- State transition actions ----
 
     @action(detail=True, methods=['post'])
+    @audit_log(action='start', resource_type='InventoryTask', description_template='开始盘点')
     def start(self, request, pk=None):
         """开始盘点: pending -> in_progress"""
         task = self.get_object()
@@ -127,6 +129,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(InventoryCheckSerializer(check_record).data)
 
     @action(detail=True, methods=['post'])
+    @audit_log(action='submit', resource_type='InventoryTask', description_template='提交盘点审核')
     def submit(self, request, pk=None):
         """提交审核: in_progress -> pending_review"""
         task = self.get_object()
@@ -143,6 +146,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanApprove])
+    @audit_log(action='approve', resource_type='InventoryTask', description_template='审批盘点任务')
     def approve(self, request, pk=None):
         """审核通过: pending_review -> completed"""
         task = self.get_object()
@@ -159,6 +163,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanApprove])
+    @audit_log(action='reject', resource_type='InventoryTask', description_template='驳回盘点任务')
     def reject(self, request, pk=None):
         """审核驳回: pending_review -> rejected"""
         task = self.get_object()
@@ -212,6 +217,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
+    @audit_log(action='cancel', resource_type='InventoryTask', description_template='作废盘点任务')
     def cancel(self, request, pk=None):
         """作废: pending/in_progress/rejected -> cancelled"""
         task = self.get_object()

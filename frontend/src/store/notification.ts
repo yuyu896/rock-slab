@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import * as notificationApi from '@/api/notifications'
+import { handleApiError } from '@/utils/request'
 import type { Notification, NotificationStats } from '@/api/notifications'
 
 export const useNotificationStore = defineStore('notification', () => {
@@ -8,6 +10,7 @@ export const useNotificationStore = defineStore('notification', () => {
   const unreadCount = ref(0)
   const stats = ref<NotificationStats[]>([])
   const loading = ref(false)
+  const error = ref<string | null>(null)
 
   // 分组后的通知
   const groupedNotifications = computed(() => {
@@ -28,10 +31,14 @@ export const useNotificationStore = defineStore('notification', () => {
   // 获取通知列表
   async function fetchNotifications(params?: { isRead?: boolean }) {
     loading.value = true
+    error.value = null
     try {
       const { data } = await notificationApi.getNotifications(params)
       notifications.value = data.results || []
       return data
+    } catch (err) {
+      error.value = handleApiError(err)
+      ElMessage.error(error.value)
     } finally {
       loading.value = false
     }
@@ -79,6 +86,7 @@ export const useNotificationStore = defineStore('notification', () => {
     unreadCount,
     stats,
     loading,
+    error,
     groupedNotifications,
     fetchNotifications,
     fetchUnreadCount,

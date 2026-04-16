@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from core.permissions import IsRoleMin, ROLE_LEVELS
+from apps.audit.decorators import audit_log
 from .models import User
 from .serializers import UserSerializer
 from .filters import UserFilterSet
@@ -73,6 +74,7 @@ class UserViewSet(viewsets.ModelViewSet):
             self.min_role = 'staff'
         return super().get_permissions()
 
+    @audit_log(action='create', resource_type='User', description_template='创建用户')
     def perform_create(self, serializer):
         """Validate that the creator can assign the given role."""
         creator = self.request.user
@@ -97,6 +99,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
         serializer.save(created_by=creator)
 
+    @audit_log(action='update', resource_type='User', description_template='更新用户')
     def perform_update(self, serializer):
         """Validate that the updater can modify the target user's role."""
         updater = self.request.user
@@ -113,6 +116,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
         serializer.save()
 
+    @audit_log(action='delete', resource_type='User', description_template='停用用户')
     def perform_destroy(self, instance):
         """Only allow deleting users within your management scope."""
         self._validate_in_scope(self.request.user, instance)

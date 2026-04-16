@@ -1,6 +1,10 @@
 import re
 
 from django.contrib.auth.backends import ModelBackend
+from rest_framework import authentication
+from rest_framework import exceptions
+
+from apps.authentication.models import ExpiringToken
 
 
 class PhoneModelBackend(ModelBackend):
@@ -17,3 +21,23 @@ class PhoneModelBackend(ModelBackend):
         if user.check_password(password) and self.user_can_authenticate(user):
             return user
         return None
+
+
+class ExpiringTokenAuthentication(authentication.TokenAuthentication):
+    """Token authentication that checks expiration."""
+
+    model = ExpiringToken
+
+    def authenticate_credentials(self, key):
+        try:
+            token = self.model.objects.select_related('user').get(key=key)
+        except self.model.DoesNotExist:
+            raise exceptions.AuthenticationFailed('无效的认证令牌')
+
+        if not token.user.is_active:
+            raise exceptions.AuthenticationFailed('用户已被禁用')
+
+        if token.is_expired:
+            raise exceptions.AuthenticationFailed('认证令牌已过期，请重新登录')
+
+        return (token.user, token)
