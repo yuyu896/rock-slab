@@ -1,0 +1,145 @@
+/*磐盘 - Rock Slab 资产管理系统
+ * 设计系统变量
+ * 风格：温暖友好 | 绿色系
+ */
+
+:root {
+  /* 品牌主色 - 温暖的绿色系 */
+  --color-primary-50: oklch(0.98 0.02 145);
+  --color-primary-100: oklch(0.94 0.04 145);
+  --color-primary-200: oklch(0.88 0.08 145);
+  --color-primary-300: oklch(0.78 0.12 145);
+  --color-primary-400: oklch(0.68 0.16 145);
+  --color-primary-500: oklch(0.58 0.18 145);
+  --color-primary-600: oklch(0.48 0.16 145);
+  --color-primary-700: oklch(0.40 0.14 145);
+  --color-primary-800: oklch(0.32 0.10 145);
+  --color-primary-900: oklch(0.26 0.08 145);
+
+  /* 背景色 - 带绿色调的温暖背景 */
+  --color-bg-page: oklch(0.985 0.008 145);
+  --color-bg-card: oklch(0.995 0.005 145);
+  --color-bg-elevated: oklch(0.998 0.002 145);
+  --color-bg-sidebar: oklch(0.28 0.06 145);
+
+  /* 文字色 */
+  --color-text-primary: oklch(0.20 0.02 145);
+  --color-text-secondary: oklch(0.40 0.02 145);
+  --color-text-tertiary: oklch(0.58 0.02 145);
+  --color-text-inverse: oklch(0.98 0.01 145);
+
+  /* 边框色 */
+  --color-border: oklch(0.90 0.02 145);
+  --color-border-light: oklch(0.94 0.01 145);
+
+  /* 状态色 */
+  --color-success: oklch(0.65 0.18 145);
+  --color-warning: oklch(0.75 0.16 85);
+  --color-danger: oklch(0.60 0.20 25);
+  --color-info: oklch(0.60 0.15 240);
+
+  /* ===== 状态颜色令牌 ===== */
+
+  /* 资产状态 */
+  --color-status-in-stock-bg: var(--color-primary-100);
+  --color-status-in-stock-text: var(--color-primary-700);
+
+  --color-status-in-use-bg: oklch(0.93 0.04 240);
+  --color-status-in-use-text: oklch(0.45 0.15 240);
+
+  --color-status-repair-bg: oklch(0.93 0.06 85);
+  --color-status-repair-text: oklch(0.50 0.16 85);
+
+  --color-status-scrapped-bg: oklch(0.93 0.04 25);
+  --color-status-scrapped-text: oklch(0.50 0.18 25);
+
+  /* 审批状态 */
+  --color-approval-pending-bg: oklch(0.93 0.06 85);
+  --color-approval-pending-text: oklch(0.50 0.16 85);
+
+  --color-approval-approved-bg: var(--color-primary-100);
+  --color-approval-approved-text: var(--color-primary-700);
+
+  --color-approval-rejected-bg: oklch(0.93 0.04 25);
+  --color-approval-rejected-text: oklch(0.50 0.18 25);
+
+  /* 盘点结果 */
+  --color-inventory-matched-bg: var(--color-primary-100);
+  --color-inventory-matched-text: var(--color-primary-700);
+
+  --color-inventory-surplus-bg: oklch(0.93 0.04 240);
+  --color-inventory-surplus-text: oklch(0.45 0.15 240);
+
+  --color-inventory-missing-bg: oklch(0.93 0.04 25);
+  --color-inventory-missing-text: oklch(0.50 0.18 25);
+
+  --color-inventory-unchecked-bg: oklch(0.93 0.01 0);
+  --color-inventory-unchecked-text: oklch(0.50 0.02 0);
+
+  /* 字体 */
+  --font-sans: "Noto Sans SC", "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: "Noto Sans SC", "PingFang SC", var(--font-sans);
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  /* 字号 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+
+  /* 间距 */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* 圆角 */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px oklch(0.20 0.02 145 / 0.05);
+  --shadow-md: 0 4px 6px -1px oklch(0.20 0.02 145 / 0.08);
+  --shadow-lg: 0 10px 15px -3px oklch(0.20 0.02 145 / 0.08);
+  --shadow-xl: 0 20px 25px -5px oklch(0.20 0.02 145 / 0.1);
+
+  /* 过渡 */
+  --transition-fast: 150ms ease-out;
+  --transition-base: 200ms ease-out;
+  --transition-slow: 300ms ease-out;
+
+  /* 布局 */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 64px;
+  --header-height: 60px;
+}
+
+/* 深色模式 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg-page: oklch(0.16 0.02 145);
+    --color-bg-card: oklch(0.20 0.02 145);
+    --color-bg-elevated: oklch(0.24 0.02 145);
+    --color-bg-sidebar: oklch(0.12 0.04 145);
+    --color-text-primary: oklch(0.92 0.02 145);
+    --color-text-secondary: oklch(0.72 0.02 145);
+    --color-text-tertiary: oklch(0.54 0.02 145);
+    --color-text-inverse: oklch(0.16 0.02 145);
+    --color-border: oklch(0.30 0.02 145);
+    --color-border-light: oklch(0.26 0.02 145);
+  }
+}

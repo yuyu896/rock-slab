@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+backend/staticfiles/
+backend/media/uploads/
+
+# Environment
+.env
+.env.local
+.env.production.local
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Screenshots (local only)
+screenshots/
