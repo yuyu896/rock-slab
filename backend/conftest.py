@@ -2,8 +2,14 @@
 Pytest configuration and shared fixtures for Rock Slab backend tests.
 """
 import pytest
+import django
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
+
+# Ensure Django is set up before importing models
+import os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'rock_slab.settings.development')
+django.setup()
 
 User = get_user_model()
 

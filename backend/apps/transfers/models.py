@@ -28,7 +28,23 @@ class Transfer(UUIDModel, TimestampedModel):
     调拨日期 = models.DateField('调拨日期')
     调出分公司 = models.CharField('调出分公司', max_length=100, blank=True, default='')
     调出部门 = models.CharField('调出部门', max_length=100, blank=True, default='')
+    from_branch = models.ForeignKey(
+        'organizations.Branch',
+        on_delete=models.PROTECT,
+        related_name='transfers_from',
+        null=True,
+        blank=True,
+        verbose_name='调出分公司(FK)',
+    )
     调入分公司 = models.CharField('调入分公司', max_length=100, blank=True, default='')
+    to_branch = models.ForeignKey(
+        'organizations.Branch',
+        on_delete=models.PROTECT,
+        related_name='transfers_to',
+        null=True,
+        blank=True,
+        verbose_name='调入分公司(FK)',
+    )
     调入部门 = models.CharField('调入部门', max_length=100, blank=True, default='')
     资产编号 = models.CharField('资产编号', max_length=100)
     资产名称 = models.CharField('资产名称', max_length=200)

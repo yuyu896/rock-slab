@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { getAssets, createAsset, exportAssets, importAssets } from '@/api/assets'
+import { ref, computed, onMounted, watch } from 'vue'
+import { getAssets, createAsset, exportAssets } from '@/api/assets'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { getTransfers } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
-import { formatMoney, formatDate } from '@/utils/format'
-import { ASSET_STATUS_OPTIONS, ASSET_STATUS_COLORS } from '@/constants'
+import { formatMoney } from '@/utils/format'
+import { ASSET_STATUS_OPTIONS } from '@/constants'
 import { ElMessage } from 'element-plus'
 import type { Asset, Category, Transfer } from '@/types'
-import JsBarcode from 'jsbarcode'
+import BasePagination from '@/components/BasePagination.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import AssetDetailDrawer from './assets/AssetDetailDrawer.vue'
+import AssetImportDialog from './assets/AssetImportDialog.vue'
+import AssetCreateForm from './assets/AssetCreateForm.vue'
+import AssetPrintDialog from './assets/AssetPrintDialog.vue'
 
 // 筛选条件
 const filters = ref({
@@ -41,7 +46,7 @@ function applyQuickFilter(type: string) {
 const pagination = ref({
   page: 1,
   pageSize: 20,
-  total: 0
+  total: 0,
 })
 
 // 加载状态
@@ -83,72 +88,14 @@ async function viewDetail(asset: Asset) {
 // ===== 新增资产弹窗 =====
 const showCreateModal = ref(false)
 const creating = ref(false)
-const newAsset = ref<Partial<Asset>>({
-  分公司: '',
-  资产编号: '',
-  资产类目: '',
-  物品分类: '',
-  资产名称: '',
-  规格: '',
-  数量: 1,
-  单价: 0,
-  供应商: '',
-  是否租用: false,
-  所属部门: '',
-  使用人: '',
-  备注: '',
-})
-
-// 当前选中分类的属性模板
-const currentCategoryAttrs = computed(() => {
-  if (!newAsset.value.物品分类) return []
-  const cat = allCategories.value.find(c => c.物品分类 === newAsset.value.物品分类)
-  if (!cat || !(cat as any).attributes) return []
-  return (cat as any).attributes
-})
-
-// 动态属性值
-const dynamicAttrValues = ref<Record<string, string>>({})
 
 function openCreateModal() {
-  newAsset.value = {
-    分公司: '',
-    资产编号: '',
-    资产类目: '',
-    物品分类: '',
-    资产名称: '',
-    规格: '',
-    数量: 1,
-    单价: 0,
-    供应商: '',
-    是否租用: false,
-    所属部门: '',
-    使用人: '',
-    备注: '',
-  }
-  dynamicAttrValues.value = {}
   showCreateModal.value = true
 }
 
-async function submitCreateAsset() {
-  const a = newAsset.value
-  if (!a.分公司 || !a.资产编号 || !a.资产名称 || !a.资产类目 || !a.物品分类 || !a.数量) {
-    ElMessage.warning('请填写所有必填字段')
-    return
-  }
+async function handleCreateAsset(payload: Partial<Asset>) {
   creating.value = true
   try {
-    const payload: Partial<Asset> = {
-      ...a,
-      购入金额: (a.数量 ?? 0) * (a.单价 ?? 0),
-      当前状态: '在库',
-      入库日期: new Date().toISOString().slice(0, 10),
-    }
-    // 合并动态属性到备注字段
-    if (Object.keys(dynamicAttrValues.value).length > 0) {
-      const attrParts = Object.entries(dynamicAttrValues.value).map(([k, v]) => `${k}:${v}`)
-      payload.备注 = (a.备注 ? a.备注 + '\n' : '') + '[属性]' + attrParts.join('; ')
-    }
     await createAsset(payload)
     ElMessage.success('资产创建成功')
     showCreateModal.value = false
@@ -162,62 +109,9 @@ async function submitCreateAsset() {
 
 // ===== 批量导入 =====
 const showImportModal = ref(false)
-const importLoading = ref(false)
-const importResult = ref<{ imported: number; errors: string[] } | null>(null)
 
 function openImportModal() {
-  importResult.value = null
-  importLoading.value = false
   showImportModal.value = true
-}
-
-async function handleDownloadTemplate() {
-  try {
-    const { data } = await exportAssets()
-    const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = '资产导入模板.xlsx'
-    link.click()
-    URL.revokeObjectURL(url)
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  }
-}
-
-async function handleImportFile(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  // 校验文件格式
-  const ext = file.name.split('.').pop()?.toLowerCase()
-  if (ext !== 'xlsx' && ext !== 'xls') {
-    ElMessage.warning('请上传 Excel 文件（.xlsx 或 .xls）')
-    input.value = ''
-    return
-  }
-
-  importLoading.value = true
-  importResult.value = null
-  try {
-    const { data } = await importAssets(file)
-    importResult.value = data
-
-    if (data.errors.length === 0) {
-      ElMessage.success(`成功导入 ${data.imported} 条资产`)
-      setTimeout(() => {
-        showImportModal.value = false
-        fetchAssets()
-      }, 1200)
-    }
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    importLoading.value = false
-    input.value = ''
-  }
 }
 
 // ===== 条码打印 =====
@@ -231,45 +125,14 @@ function handlePrintLabels() {
   }
   printAssets.value = assets.value.filter(a => selectedAssets.value.includes(a.id))
   showPrintModal.value = true
-  nextTick(() => renderBarcodes())
 }
 
 function printSingleLabel(asset: Asset) {
   printAssets.value = [asset]
   showPrintModal.value = true
-  nextTick(() => renderBarcodes())
-}
-
-function renderBarcodes() {
-  nextTick(() => {
-    printAssets.value.forEach(asset => {
-      const el = document.getElementById(`barcode-${asset.id}`)
-      if (el) {
-        try {
-          JsBarcode(el, asset.资产编号 || '', {
-            format: 'CODE128',
-            width: 2,
-            height: 60,
-            displayValue: true,
-            fontSize: 14,
-            margin: 5,
-          })
-        } catch {
-          // barcode generation failed silently
-        }
-      }
-    })
-  })
-}
-
-function executePrint() {
-  window.print()
 }
 
 // 获取状态样式
-const getStatusStyle = (status: string) => {
-  return ASSET_STATUS_COLORS[status as keyof typeof ASSET_STATUS_COLORS] || { bg: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)' }
-}
 
 // 全选/取消全选
 const selectAll = computed({
@@ -379,28 +242,11 @@ const resetFilters = () => {
 }
 
 // 翻页
-const handlePageChange = (page: number) => {
+const handlePaginationChange = (page: number, pageSize: number) => {
   pagination.value.page = page
+  pagination.value.pageSize = pageSize
   fetchAssets()
 }
-
-// 获取物品分类选项（根据已选资产类目过滤，去重）
-const itemCategoryOptions = computed(() => {
-  if (!newAsset.value.资产类目) return []
-  const seen = new Set<string>()
-  return allCategories.value
-    .filter(c => c.资产类目 === newAsset.value.资产类目)
-    .filter(c => {
-      if (seen.has(c.物品分类)) return false
-      seen.add(c.物品分类)
-      return true
-    })
-})
-
-// 新增弹窗 - 资产类目选项（从数据库动态获取）
-const createMainCategoryOptions = computed(() => {
-  return categoryOptions.value.filter(o => o.value !== '')
-})
 
 // 监听筛选条件变化
 watch(filters, () => {
@@ -614,15 +460,7 @@ onMounted(() => {
             <td class="col-dept">{{ asset.所属部门 || '-' }}</td>
             <td class="col-user">{{ asset.使用人 || '-' }}</td>
             <td class="col-status">
-              <span
-                class="status-badge"
-                :style="{
-                  background: getStatusStyle(asset.当前状态).bg,
-                  color: getStatusStyle(asset.当前状态).color
-                }"
-              >
-                {{ asset.当前状态 }}
-              </span>
+              <StatusBadge :status="asset.当前状态" />
             </td>
             <td class="col-stock">
               <div class="stock-cell">
@@ -660,305 +498,43 @@ onMounted(() => {
     </div>
 
     <!-- 分页 -->
-    <div class="pagination-section">
-      <div class="pagination-info">
-        显示 1-20 条，共 {{ pagination.total }} 条
-      </div>
-      <div class="pagination-controls">
-        <button class="page-btn" :disabled="pagination.page === 1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-        </button>
-        <button class="page-btn active">1</button>
-        <button class="page-btn">2</button>
-        <button class="page-btn">3</button>
-        <span class="page-ellipsis">...</span>
-        <button class="page-btn">18</button>
-        <button class="page-btn" :disabled="pagination.page === 18">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        </button>
-      </div>
-      <div class="pagination-size">
-        <select class="size-select">
-          <option value="20">20条/页</option>
-          <option value="50">50条/页</option>
-          <option value="100">100条/页</option>
-        </select>
-      </div>
-    </div>
+    <BasePagination
+      :total="pagination.total"
+      :current-page="pagination.page"
+      :page-size="pagination.pageSize"
+      @change="handlePaginationChange"
+    />
 
     <!-- 资产详情抽屉 -->
-    <div v-if="showDetailDrawer" class="drawer-overlay" @click.self="showDetailDrawer = false">
-      <div class="drawer-panel">
-        <div class="drawer-header">
-          <h3>资产详情</h3>
-          <button class="drawer-close" @click="showDetailDrawer = false">&times;</button>
-        </div>
-        <div v-if="detailAsset" class="drawer-body">
-          <!-- 基本信息 -->
-          <div class="detail-section">
-            <h4 class="detail-section-title">基本信息</h4>
-            <div class="detail-grid">
-              <div class="detail-field"><span class="detail-label">资产编号</span><span class="detail-value code">{{ detailAsset.资产编号 }}</span></div>
-              <div class="detail-field"><span class="detail-label">资产名称</span><span class="detail-value">{{ detailAsset.资产名称 }}</span></div>
-              <div class="detail-field"><span class="detail-label">资产类目</span><span class="detail-value">{{ detailAsset.资产类目 }}</span></div>
-              <div class="detail-field"><span class="detail-label">物品分类</span><span class="detail-value">{{ detailAsset.物品分类 }}</span></div>
-              <div class="detail-field"><span class="detail-label">规格</span><span class="detail-value">{{ detailAsset.规格 || '-' }}</span></div>
-              <div class="detail-field"><span class="detail-label">供应商</span><span class="detail-value">{{ detailAsset.供应商 || '-' }}</span></div>
-              <div class="detail-field"><span class="detail-label">采购方式</span><span class="detail-value">{{ detailAsset.是否租用 ? '租用' : '自购' }}</span></div>
-              <div class="detail-field"><span class="detail-label">分公司</span><span class="detail-value">{{ detailAsset.分公司 }}</span></div>
-              <div class="detail-field"><span class="detail-label">所属部门</span><span class="detail-value">{{ detailAsset.所属部门 || '-' }}</span></div>
-              <div class="detail-field"><span class="detail-label">使用人</span><span class="detail-value">{{ detailAsset.使用人 || '-' }}</span></div>
-              <div class="detail-field"><span class="detail-label">当前状态</span><span class="detail-value"><span class="status-badge" :style="getStatusStyle(detailAsset.当前状态)">{{ detailAsset.当前状态 }}</span></span></div>
-              <div class="detail-field"><span class="detail-label">是否充足</span><span class="detail-value">{{ detailAsset.是否充足 ? '充足' : '不足' }}</span></div>
-            </div>
-          </div>
-          <!-- 数量与价值 -->
-          <div class="detail-section">
-            <h4 class="detail-section-title">数量与价值</h4>
-            <div class="detail-grid">
-              <div class="detail-field"><span class="detail-label">数量</span><span class="detail-value">{{ detailAsset.数量 }}</span></div>
-              <div class="detail-field"><span class="detail-label">警戒线</span><span class="detail-value">{{ detailAsset.警戒线 ?? '-' }}</span></div>
-              <div class="detail-field"><span class="detail-label">单价</span><span class="detail-value">{{ formatMoney(detailAsset.单价 ?? 0) }}</span></div>
-              <div class="detail-field"><span class="detail-label">购入金额</span><span class="detail-value">{{ formatMoney(detailAsset.购入金额 ?? 0) }}</span></div>
-            </div>
-          </div>
-          <!-- 日期信息 -->
-          <div class="detail-section">
-            <h4 class="detail-section-title">日期信息</h4>
-            <div class="detail-grid">
-              <div class="detail-field"><span class="detail-label">入库日期</span><span class="detail-value">{{ detailAsset.入库日期 || '-' }}</span></div>
-              <div class="detail-field"><span class="detail-label">出库日期</span><span class="detail-value">{{ detailAsset.出库日期 || '-' }}</span></div>
-            </div>
-          </div>
-          <!-- 图片 -->
-          <div v-if="detailAsset.图片" class="detail-section">
-            <h4 class="detail-section-title">资产图片</h4>
-            <img :src="detailAsset.图片" alt="资产图片" class="detail-image" />
-          </div>
-          <!-- 备注 -->
-          <div v-if="detailAsset.备注" class="detail-section">
-            <h4 class="detail-section-title">备注</h4>
-            <p class="detail-remarks">{{ detailAsset.备注 }}</p>
-          </div>
-          <!-- 流转历史 -->
-          <div class="detail-section">
-            <h4 class="detail-section-title">流转历史</h4>
-            <div v-if="detailLoading" class="detail-loading">加载中...</div>
-            <div v-else-if="detailTransfers.length === 0" class="detail-empty">暂无流转记录</div>
-            <div v-else class="transfer-timeline">
-              <div v-for="t in detailTransfers" :key="t.id" class="timeline-item">
-                <div class="timeline-dot"></div>
-                <div class="timeline-content">
-                  <div class="timeline-header">
-                    <span class="timeline-type">{{ t.action_type === 'assign' ? '领用' : t.action_type === 'return' ? '归还' : t.action_type === 'transfer' ? '调拨' : t.action_type === 'repair' ? '维修' : '报废' }}</span>
-                    <span class="timeline-date">{{ t.createdAt }}</span>
-                  </div>
-                  <div class="timeline-detail">{{ t.资产名称 }} × {{ t.调拨数量 }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- 资产详情抽屉 -->
+    <AssetDetailDrawer
+      v-if="showDetailDrawer"
+      :asset="detailAsset"
+      :transfers="detailTransfers"
+      :loading="detailLoading"
+      @close="showDetailDrawer = false"
+    />
 
     <!-- 新增资产弹窗 -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>新增资产</h3>
-          <button class="modal-close" @click="showCreateModal = false">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-grid">
-            <div class="form-item">
-              <label class="form-label">分公司 <span class="required">*</span></label>
-              <select v-model="newAsset.分公司" class="form-select">
-                <option value="">请选择</option>
-                <option v-for="b in branchOptions.filter(b => b.value)" :key="b.value" :value="b.value">{{ b.label }}</option>
-              </select>
-            </div>
-            <div class="form-item">
-              <label class="form-label">资产编号 <span class="required">*</span></label>
-              <input v-model="newAsset.资产编号" type="text" class="form-input" placeholder="如：A-a00001" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">资产类目 <span class="required">*</span></label>
-              <select v-model="newAsset.资产类目" class="form-select" @change="newAsset.物品分类 = ''">
-                <option value="">请选择</option>
-                <option v-for="opt in createMainCategoryOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-            </div>
-            <div class="form-item">
-              <label class="form-label">物品分类 <span class="required">*</span></label>
-              <select v-model="newAsset.物品分类" class="form-select">
-                <option value="">请选择</option>
-                <option v-for="c in itemCategoryOptions" :key="c.id" :value="c.物品分类">{{ c.物品分类 }}</option>
-              </select>
-            </div>
-            <div class="form-item">
-              <label class="form-label">资产名称 <span class="required">*</span></label>
-              <input v-model="newAsset.资产名称" type="text" class="form-input" placeholder="请输入资产名称" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">规格</label>
-              <input v-model="newAsset.规格" type="text" class="form-input" placeholder="规格型号" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">数量 <span class="required">*</span></label>
-              <input v-model.number="newAsset.数量" type="number" class="form-input" min="1" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">单价</label>
-              <input v-model.number="newAsset.单价" type="number" class="form-input" min="0" step="0.01" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">供应商</label>
-              <input v-model="newAsset.供应商" type="text" class="form-input" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">所属部门</label>
-              <input v-model="newAsset.所属部门" type="text" class="form-input" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">使用人</label>
-              <input v-model="newAsset.使用人" type="text" class="form-input" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">采购方式</label>
-              <div class="form-toggle">
-                <label><input type="radio" :value="false" v-model="newAsset.是否租用" /> 自购</label>
-                <label><input type="radio" :value="true" v-model="newAsset.是否租用" /> 租用</label>
-              </div>
-            </div>
-            <!-- 动态分类属性 -->
-            <template v-if="currentCategoryAttrs.length > 0">
-              <div v-for="attr in currentCategoryAttrs" :key="attr.name" class="form-item">
-                <label class="form-label">{{ attr.name }} <span v-if="attr.required" class="required">*</span></label>
-                <input v-if="attr.type === 'text'" v-model="dynamicAttrValues[attr.name]" type="text" class="form-input" :placeholder="'请输入' + attr.name" />
-                <input v-else-if="attr.type === 'number'" v-model.number="dynamicAttrValues[attr.name]" type="number" class="form-input" :placeholder="'请输入' + attr.name" />
-                <select v-else-if="attr.type === 'select'" v-model="dynamicAttrValues[attr.name]" class="form-select">
-                  <option value="">请选择</option>
-                  <option v-for="opt in (attr.options || '').split(',')" :key="opt" :value="opt.trim()">{{ opt.trim() }}</option>
-                </select>
-              </div>
-            </template>
-            <div class="form-item full">
-              <label class="form-label">备注</label>
-              <textarea v-model="newAsset.备注" class="form-textarea" rows="3" placeholder="备注信息"></textarea>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="showCreateModal = false">取消</button>
-          <button class="btn-confirm" @click="submitCreateAsset" :disabled="creating">{{ creating ? '创建中...' : '确定创建' }}</button>
-        </div>
-      </div>
-    </div>
+    <AssetCreateForm
+      :visible="showCreateModal"
+      :saving="creating"
+      :branch-options="branchOptions"
+      :category-options="categoryOptions"
+      :all-categories="allCategories"
+      @close="showCreateModal = false"
+      @save="handleCreateAsset"
+    />
 
     <!-- 标签打印弹窗 -->
-    <div v-if="showPrintModal" class="modal-overlay" @click.self="showPrintModal = false">
-      <div class="modal-content print-modal">
-        <div class="modal-header">
-          <h3>打印标签 ({{ printAssets.length }} 项)</h3>
-          <button class="modal-close" @click="showPrintModal = false">&times;</button>
-        </div>
-        <div class="modal-body print-body">
-          <div id="print-area" class="print-labels">
-            <div v-for="asset in printAssets" :key="asset.id" class="print-label">
-              <div class="label-barcode">
-                <svg :id="'barcode-' + asset.id"></svg>
-              </div>
-              <div class="label-info">
-                <div class="label-name">{{ asset.资产名称 }}</div>
-                <div class="label-code">{{ asset.资产编号 }}</div>
-                <div class="label-branch">{{ asset.分公司 }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="showPrintModal = false">关闭</button>
-          <button class="btn-confirm" @click="executePrint">打印</button>
-        </div>
-      </div>
-    </div>
+    <AssetPrintDialog
+      :visible="showPrintModal"
+      :assets="printAssets"
+      @close="showPrintModal = false"
+    />
 
     <!-- 批量导入弹窗 -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>批量导入资产</h3>
-          <button class="modal-close" @click="showImportModal = false">&times;</button>
-        </div>
-        <div class="modal-body">
-          <!-- 下载模板 -->
-          <div class="import-step">
-            <div class="import-step-header">
-              <span class="import-step-num">1</span>
-              <span class="import-step-title">下载导入模板</span>
-            </div>
-            <p class="import-step-desc">请先下载模板文件，按格式填写资产数据后上传</p>
-            <button class="btn-secondary import-template-btn" @click="handleDownloadTemplate">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-              下载模板
-            </button>
-          </div>
-
-          <!-- 上传文件 -->
-          <div class="import-step">
-            <div class="import-step-header">
-              <span class="import-step-num">2</span>
-              <span class="import-step-title">上传填写好的 Excel 文件</span>
-            </div>
-            <label class="import-upload-area" :class="{ 'upload-loading': importLoading }">
-              <input type="file" accept=".xlsx,.xls" class="import-file-input" @change="handleImportFile" :disabled="importLoading" />
-              <template v-if="importLoading">
-                <div class="import-spinner"></div>
-                <span>正在导入...</span>
-              </template>
-              <template v-else>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                <span>点击选择文件或拖拽到此处</span>
-                <span class="import-upload-hint">支持 .xlsx / .xls 格式</span>
-              </template>
-            </label>
-          </div>
-
-          <!-- 导入结果 -->
-          <div v-if="importResult" class="import-result">
-            <div class="import-result-header">
-              <span :class="importResult.errors.length === 0 ? 'result-success' : 'result-partial'">
-                成功导入 {{ importResult.imported }} 条
-              </span>
-              <span v-if="importResult.errors.length > 0" class="result-fail-count">
-                失败 {{ importResult.errors.length }} 条
-              </span>
-            </div>
-            <div v-if="importResult.errors.length > 0" class="import-errors">
-              <div v-for="(err, idx) in importResult.errors" :key="idx" class="import-error-item">
-                {{ err }}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="showImportModal = false">关闭</button>
-        </div>
-      </div>
-    </div>
+    <AssetImportDialog :visible="showImportModal" @close="showImportModal = false" @success="fetchAssets" />
   </div>
 </template>
 
@@ -1439,529 +1015,6 @@ onMounted(() => {
   font-size: var(--text-sm);
   color: var(--color-text-primary);
   cursor: pointer;
-}
-
-/* 抽屉 */
-.drawer-overlay {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.drawer-panel {
-  width: 520px;
-  background: var(--color-bg-card);
-  height: 100vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.drawer-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-5);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.drawer-header h3 {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  margin: 0;
-}
-
-.drawer-close {
-  width: 32px;
-  height: 32px;
-  background: transparent;
-  border: none;
-  font-size: 20px;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.drawer-close:hover {
-  background: var(--color-bg-elevated);
-}
-
-.drawer-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-5);
-}
-
-.detail-section {
-  margin-bottom: var(--space-6);
-}
-
-.detail-section-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0 0 var(--space-3) 0;
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-border-light);
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-3);
-}
-
-.detail-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.detail-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-}
-
-.detail-value {
-  font-size: var(--text-sm);
-  color: var(--color-text-primary);
-  font-weight: 500;
-}
-
-.detail-value.code {
-  font-family: var(--font-mono);
-  color: var(--color-primary-600);
-}
-
-.detail-image {
-  max-width: 100%;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-}
-
-.detail-remarks {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin: 0;
-  line-height: 1.6;
-}
-
-.detail-loading, .detail-empty {
-  text-align: center;
-  padding: var(--space-4);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-}
-
-/* 流转时间线 */
-.transfer-timeline {
-  padding-left: var(--space-4);
-  border-left: 2px solid var(--color-border);
-}
-
-.timeline-item {
-  position: relative;
-  padding-bottom: var(--space-4);
-  padding-left: var(--space-4);
-}
-
-.timeline-dot {
-  position: absolute;
-  left: calc(-1 * var(--space-4) - 5px);
-  top: 4px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-primary-500);
-}
-
-.timeline-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.timeline-type {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.timeline-date {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-}
-
-.timeline-detail {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin-top: 2px;
-}
-
-/* 弹窗通用 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  width: 640px;
-  max-height: 85vh;
-  background: var(--color-bg-card);
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-content.print-modal {
-  width: 800px;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-5);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.modal-header h3 {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  margin: 0;
-}
-
-.modal-close {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  font-size: 18px;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  border-radius: 8px;
-}
-
-.modal-close:hover {
-  background: var(--color-bg-elevated);
-}
-
-.modal-body {
-  padding: var(--space-5);
-  overflow-y: auto;
-}
-
-.print-body {
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-4);
-}
-
-.form-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.form-item.full {
-  grid-column: span 2;
-}
-
-.form-label {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.required {
-  color: var(--color-danger);
-}
-
-.form-input, .form-select, .form-textarea {
-  height: 40px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-page);
-  font-size: var(--text-sm);
-  color: var(--color-text-primary);
-}
-
-.form-textarea {
-  height: auto;
-  padding: var(--space-3);
-  resize: vertical;
-}
-
-.form-toggle {
-  display: flex;
-  gap: var(--space-4);
-  height: 40px;
-  align-items: center;
-}
-
-.form-toggle label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  border-top: 1px solid var(--color-border);
-}
-
-.btn-cancel, .btn-confirm {
-  height: 40px;
-  padding: 0 var(--space-5);
-  border-radius: 8px;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.btn-cancel {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.btn-confirm {
-  background: var(--color-primary-500);
-  border: none;
-  color: white;
-}
-
-.btn-confirm:disabled {
-  opacity: 0.6;
-}
-
-/* 打印标签 */
-.print-labels {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-4);
-}
-
-.print-label {
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.label-barcode {
-  display: flex;
-  justify-content: center;
-}
-
-.label-info {
-  text-align: center;
-}
-
-.label-name {
-  font-weight: 600;
-  font-size: var(--text-sm);
-}
-
-.label-code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-}
-
-.label-branch {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-}
-
-/* 批量导入弹窗 */
-.import-step {
-  margin-bottom: var(--space-5);
-}
-
-.import-step-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.import-step-num {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-primary-500);
-  color: white;
-  border-radius: 50%;
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-
-.import-step-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.import-step-desc {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  margin: 0 0 var(--space-3) 32px;
-}
-
-.import-template-btn {
-  margin-left: 32px;
-}
-
-.import-template-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.import-upload-area {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-8) var(--space-4);
-  border: 2px dashed var(--color-border);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  margin-left: 32px;
-}
-
-.import-upload-area:hover {
-  border-color: var(--color-primary-300);
-  background: var(--color-primary-50);
-  color: var(--color-primary-500);
-}
-
-.import-upload-area.upload-loading {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.import-upload-area svg {
-  width: 32px;
-  height: 32px;
-  color: var(--color-text-tertiary);
-}
-
-.import-upload-area:hover svg {
-  color: var(--color-primary-500);
-}
-
-.import-upload-hint {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-}
-
-.import-file-input {
-  display: none;
-}
-
-.import-spinner {
-  width: 24px;
-  height: 24px;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-primary-500);
-  border-radius: 50%;
-  animation: import-spin 0.8s linear infinite;
-}
-
-@keyframes import-spin {
-  to { transform: rotate(360deg); }
-}
-
-.import-result {
-  margin-left: 32px;
-  padding: var(--space-4);
-  background: var(--color-bg-page);
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-}
-
-.import-result-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.result-success {
-  color: var(--color-primary-600);
-}
-
-.result-partial {
-  color: var(--color-text-primary);
-}
-
-.result-fail-count {
-  color: var(--color-danger);
-  font-weight: 500;
-}
-
-.import-errors {
-  margin-top: var(--space-3);
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.import-error-item {
-  font-size: var(--text-xs);
-  color: var(--color-danger);
-  padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--color-border-light);
-}
-
-.import-error-item:last-child {
-  border-bottom: none;
-}
-
-@media print {
-  body * { visibility: hidden; }
-  #print-area, #print-area * { visibility: visible; }
-  #print-area { position: absolute; left: 0; top: 0; }
-  .modal-header, .modal-footer { display: none !important; }
-  .print-labels { grid-template-columns: repeat(3, 1fr); }
 }
 
 /* 响应式 */

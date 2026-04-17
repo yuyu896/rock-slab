@@ -53,7 +53,7 @@ class InventoryTaskListSerializer(serializers.ModelSerializer):
 
 class CheckItemSerializer(serializers.Serializer):
     """Serializer for the check action (single item check)."""
-    assetId = serializers.CharField()
+    asset_id = serializers.CharField()
     qty = serializers.IntegerField()
     remarks = serializers.CharField(required=False, default='')
 

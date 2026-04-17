@@ -28,15 +28,22 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
 
-    def _check_inventory_lock(self, branch_name):
+    def _check_inventory_lock(self, branch_name=None, branch_id=None):
         """Raise ValidationError if branch has active inventory tasks."""
-        if not branch_name:
-            return
         from apps.inventories.models import InventoryTask
         from apps.organizations.models import Branch
-        try:
-            branch = Branch.objects.get(name=branch_name)
-        except Branch.DoesNotExist:
+        branch = None
+        if branch_id:
+            try:
+                branch = Branch.objects.get(id=branch_id)
+            except Branch.DoesNotExist:
+                return
+        elif branch_name:
+            try:
+                branch = Branch.objects.get(name=branch_name)
+            except Branch.DoesNotExist:
+                return
+        if not branch:
             return
         if InventoryTask.objects.filter(
             branch=branch,
@@ -44,7 +51,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ).exists():
             from rest_framework.exceptions import ValidationError
             raise ValidationError({
-                'detail': f'分公司「{branch_name}」正在进行盘点，暂时无法进行此操作',
+                'detail': f'分公司「{branch.name}」正在进行盘点，暂时无法进行此操作',
                 'code': 'INVENTORY_LOCKED',
             })
 
@@ -57,11 +64,37 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if not data.get('创建人'):
             data['创建人'] = request.user.name or request.user.phone
 
-        # Check inventory lock on both source and target branches
-        self._check_inventory_lock(data.get('调出分公司', ''))
-        self._check_inventory_lock(data.get('调入分公司', ''))
+        # Auto-fill FK from CharField if not provided
+        from apps.organizations.models import Branch
+        from_branch = data.pop('from_branch', None)
+        to_branch = data.pop('to_branch', None)
 
-        transfer = Transfer.objects.create(**data)
+        if not from_branch and data.get('调出分公司'):
+            try:
+                from_branch = Branch.objects.get(name=data['调出分公司'])
+            except Branch.DoesNotExist:
+                pass
+        if not to_branch and data.get('调入分公司'):
+            try:
+                to_branch = Branch.objects.get(name=data['调入分公司'])
+            except Branch.DoesNotExist:
+                pass
+
+        # Check inventory lock on both source and target branches
+        self._check_inventory_lock(
+            branch_name=data.get('调出分公司', ''),
+            branch_id=from_branch.id if from_branch else None,
+        )
+        self._check_inventory_lock(
+            branch_name=data.get('调入分公司', ''),
+            branch_id=to_branch.id if to_branch else None,
+        )
+
+        transfer = Transfer.objects.create(
+            from_branch=from_branch,
+            to_branch=to_branch,
+            **data,
+        )
         return Response(
             TransferSerializer(transfer).data,
             status=status.HTTP_201_CREATED,

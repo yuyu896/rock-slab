@@ -14,6 +14,14 @@ class Asset(UUIDModel, TimestampedModel):
     序号 = models.IntegerField('序号')
     分公司 = models.CharField('分公司', max_length=100)
     分公司编号 = models.CharField('分公司编号', max_length=50)
+    branch = models.ForeignKey(
+        'organizations.Branch',
+        on_delete=models.PROTECT,
+        related_name='assets',
+        null=True,
+        blank=True,
+        verbose_name='所属分公司',
+    )
     资产编号 = models.CharField('资产编号', max_length=100, unique=True)
     资产类目 = models.CharField('资产类目', max_length=100)
     物品分类 = models.CharField('物品分类', max_length=100)

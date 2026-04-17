@@ -36,15 +36,13 @@ describe('Asset Store', () => {
     })
 
     it('sets error on failure', async () => {
-      vi.mocked(assetsApi.getAssets).mockRejectedValue({
-        response: { data: { detail: 'Server error' } },
-      })
+      vi.mocked(assetsApi.getAssets).mockRejectedValue(new Error('Network failure'))
 
       const store = useAssetStore()
       await store.fetchAssets()
 
       expect(store.assets).toHaveLength(0)
-      expect(store.error).toBe('Server error')
+      expect(store.error).toBe('Network failure')
       expect(store.loading).toBe(false)
     })
   })

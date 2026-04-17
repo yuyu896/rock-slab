@@ -11,6 +11,10 @@ import { usePermission } from '@/hooks/usePermission'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Region, Branch, User, Team } from '@/types'
 import { UserRole } from '@/types'
+import OrganizationRegion from '@/views/organization/OrganizationRegion.vue'
+import OrganizationBranch from '@/views/organization/OrganizationBranch.vue'
+import TeamManager from '@/views/organization/TeamManager.vue'
+import PersonnelManager from '@/views/organization/PersonnelManager.vue'
 type UserRoleType = typeof UserRole[keyof typeof UserRole]
 
 // 加载状态
@@ -115,30 +119,6 @@ interface OrgTreeNode {
 }
 
 const supervisorUsers = computed(() => users.value.filter(u => u.role === 'supervisor' && u.status === 'active'))
-
-// 人员管理搜索和筛选
-const personnelKeyword = ref('')
-const personnelRoleFilter = ref('')
-const personnelRegionFilter = ref('')
-const personnelStatusFilter = ref('')
-
-const filteredUsers = computed(() => {
-  let result = users.value
-  if (personnelKeyword.value) {
-    const kw = personnelKeyword.value.toLowerCase()
-    result = result.filter(u => u.name.toLowerCase().includes(kw) || u.phone.includes(kw))
-  }
-  if (personnelRoleFilter.value) {
-    result = result.filter(u => u.role === personnelRoleFilter.value)
-  }
-  if (personnelRegionFilter.value) {
-    result = result.filter(u => u.region === personnelRegionFilter.value)
-  }
-  if (personnelStatusFilter.value) {
-    result = result.filter(u => u.status === personnelStatusFilter.value)
-  }
-  return result
-})
 
 // 构建组织架构树：行政经理+区域 → 行政主管+行政组 → 组长+组员
 function buildOrgTree(): OrgTreeNode[] {
@@ -449,11 +429,6 @@ function getBranchName(id?: string) {
 function getUserName(id?: string) {
   if (!id) return '-'
   return users.value.find(u => u.id === id)?.name || '-'
-}
-
-function getTeamName(id?: string) {
-  if (!id) return '-'
-  return teams.value.find(t => t.id === id)?.name || '-'
 }
 
 // 编辑弹窗
@@ -1195,290 +1170,52 @@ onMounted(async () => {
 
       <!-- 区域管理内容 -->
       <div v-else-if="canManageOrg && activeTab === 'regions'" class="tab-content">
-        <div class="region-grid">
-          <div v-for="region in regions" :key="region.id" class="region-card">
-            <div class="region-header">
-              <div class="region-info">
-                <h3 class="region-name">{{ region.name }}</h3>
-                <span class="region-code">{{ region.code }}</span>
-              </div>
-              <div class="region-actions">
-                <button class="card-action-btn" title="编辑" @click="editItem(region, 'region')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </button>
-                <button class="card-action-btn" title="删除" @click="deleteItem(region, 'region')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div class="region-manager">
-              <div class="manager-avatar">{{ getUserName(region.manager).charAt(0) }}</div>
-              <div class="manager-info">
-                <span class="manager-name">{{ getUserName(region.manager) }}</span>
-                <span class="manager-role">{{ ROLE_LABELS[users.find(u => u.id === region.manager)?.role ?? 'staff'] || '' }}</span>
-              </div>
-            </div>
-
-            <div class="region-stats">
-              <div class="region-stat">
-                <span class="stat-num">{{ branches.filter(b => b.region === region.id).length }}</span>
-                <span class="stat-label">分公司</span>
-              </div>
-              <div class="region-stat">
-                <span class="stat-num">{{ users.filter(u => u.region === region.id).length }}</span>
-                <span class="stat-label">人员</span>
-              </div>
-              <div class="region-stat">
-                <span class="stat-num">-</span>
-                <span class="stat-label">资产</span>
-              </div>
-            </div>
-
-            <div class="region-footer">
-              <label class="status-toggle">
-                <input type="checkbox" :checked="region.status === 'active'" @change="toggleStatus(region, 'region')" class="toggle-input" />
-                <span class="toggle-slider"></span>
-                <span class="toggle-label">{{ region.status === 'active' ? '运营中' : '已停用' }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
+        <OrganizationRegion
+          :regions="regions"
+          :users="users"
+          :branches="branches"
+          @edit="(item) => editItem(item, 'region')"
+          @delete="(item) => deleteItem(item, 'region')"
+          @toggle-status="(item) => toggleStatus(item, 'region')"
+        />
       </div>
 
       <!-- 分公司管理内容 -->
       <div v-else-if="canManageOrg && activeTab === 'branches'" class="tab-content">
-        <div class="table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>分公司</th>
-                <th>编码</th>
-                <th>所属区域</th>
-                <th>负责人</th>
-                <th>人员数</th>
-                <th>资产数</th>
-                <th>联系方式</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="branch in branches" :key="branch.id">
-                <td>
-                  <div class="branch-name-cell">
-                    <span class="branch-name">{{ branch.name }}</span>
-                    <span class="branch-address">{{ branch.address }}</span>
-                  </div>
-                </td>
-                <td>
-                  <span class="branch-code">{{ branch.code }}</span>
-                </td>
-                <td>
-                  <span class="region-tag">{{ getRegionName(branch.region) }}</span>
-                </td>
-                <td>
-                  <div class="leader-cell">
-                    <span class="leader-name">{{ getUserName(branch.manager) }}</span>
-                  </div>
-                </td>
-                <td>-</td>
-                <td>-</td>
-                <td>{{ branch.phone }}</td>
-                <td>
-                  <label class="status-toggle">
-                    <input type="checkbox" :checked="branch.status === 'active'" @change="toggleStatus(branch, 'branch')" class="toggle-input" />
-                    <span class="toggle-slider"></span>
-                  </label>
-                </td>
-                <td>
-                  <div class="action-buttons">
-                    <button class="action-btn" title="编辑" @click="editItem(branch, 'branch')">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                      </svg>
-                    </button>
-                    <button class="action-btn" title="删除" @click="deleteItem(branch, 'branch')">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                      </svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <OrganizationBranch
+          :branches="branches"
+          :regions="regions"
+          :users="users"
+          @edit="(item) => editItem(item, 'branch')"
+          @delete="(item) => deleteItem(item, 'branch')"
+          @toggle-status="(item) => toggleStatus(item, 'branch')"
+        />
       </div>
 
       <!-- 行政组管理内容 -->
       <div v-else-if="canManageOrg && activeTab === 'teams'" class="tab-content">
-        <div v-if="teams.length === 0" class="empty-main">
-          <div class="empty-content">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-            <h3>暂无行政组</h3>
-            <p>点击"新增行政组"按钮创建第一个行政组</p>
-          </div>
-        </div>
-        <div v-else class="region-grid">
-          <div v-for="team in teams" :key="team.id" class="region-card">
-            <div class="region-header">
-              <div class="region-info">
-                <h3 class="region-name">{{ team.name }}</h3>
-                <span class="region-code">{{ getRegionName(team.region) }}</span>
-              </div>
-              <div class="region-actions">
-                <button class="card-action-btn" title="编辑" @click="editItem(team, 'team')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </button>
-                <button class="card-action-btn" title="删除" @click="deleteTeamItem(team)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div class="region-manager">
-              <div class="manager-avatar">{{ getUserName(team.leader).charAt(0) }}</div>
-              <div class="manager-info">
-                <span class="manager-name">{{ getUserName(team.leader) }}</span>
-                <span class="manager-role">组长</span>
-              </div>
-            </div>
-
-            <div class="region-stats">
-              <div class="region-stat">
-                <span class="stat-num">{{ users.filter(u => u.team === team.id && u.status === 'active').length }}</span>
-                <span class="stat-label">组员</span>
-              </div>
-            </div>
-
-            <div class="region-footer">
-              <label class="status-toggle">
-                <input type="checkbox" :checked="team.status === 'active'" @change="toggleTeamStatus(team)" class="toggle-input" />
-                <span class="toggle-slider"></span>
-                <span class="toggle-label">{{ team.status === 'active' ? '运营中' : '已停用' }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
+        <TeamManager
+          :teams="teams"
+          :users="users"
+          :can-manage-org="canManageOrg"
+          @edit="(item) => editItem(item, 'team')"
+          @delete="(item) => deleteTeamItem(item)"
+          @toggle-status="(item) => toggleTeamStatus(item)"
+        />
       </div>
 
       <!-- 人员管理内容 -->
       <div v-else-if="canManageOrg && activeTab === 'personnel'" class="tab-content">
-        <!-- 搜索和筛选 -->
-        <div class="personnel-filters">
-          <div class="filter-search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/>
-              <path d="M21 21l-4.35-4.35"/>
-            </svg>
-            <input v-model="personnelKeyword" type="text" placeholder="搜索姓名或手机号..." class="search-input" />
-          </div>
-          <select v-model="personnelRoleFilter" class="filter-select">
-            <option value="">全部角色</option>
-            <option value="admin">超级管理员</option>
-            <option value="manager">行政经理</option>
-            <option value="supervisor">行政主管</option>
-            <option value="leader">行政组长</option>
-            <option value="staff">行政专员</option>
-          </select>
-          <select v-model="personnelRegionFilter" class="filter-select">
-            <option value="">全部区域</option>
-            <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
-          </select>
-          <select v-model="personnelStatusFilter" class="filter-select">
-            <option value="">全部状态</option>
-            <option value="active">在职</option>
-            <option value="inactive">停用</option>
-          </select>
-        </div>
-
-        <div v-if="filteredUsers.length === 0" class="empty-main">
-          <div class="empty-content">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-              <circle cx="12" cy="7" r="4"/>
-            </svg>
-            <h3>暂无人员数据</h3>
-            <p>{{ personnelKeyword || personnelRoleFilter || personnelRegionFilter || personnelStatusFilter ? '没有匹配的筛选结果' : '点击"新增人员"按钮添加第一个人员' }}</p>
-          </div>
-        </div>
-        <div v-else class="table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>姓名</th>
-                <th>手机号</th>
-                <th>角色</th>
-                <th>所属区域</th>
-                <th>所属分公司</th>
-                <th>所属组</th>
-                <th>直属上级</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="user in filteredUsers" :key="user.id">
-                <td>
-                  <div class="branch-name-cell">
-                    <span class="branch-name">{{ user.name }}</span>
-                  </div>
-                </td>
-                <td>{{ user.phone }}</td>
-                <td>
-                  <span class="node-role" :style="getRoleStyle(user.role)">
-                    {{ ROLE_LABELS[user.role] || user.role }}
-                  </span>
-                </td>
-                <td>{{ getRegionName(user.region) }}</td>
-                <td>{{ getBranchName(user.branch) }}</td>
-                <td>{{ getTeamName(user.team) }}</td>
-                <td>{{ getUserName(user.leader) }}</td>
-                <td>
-                  <label class="status-toggle">
-                    <input type="checkbox" :checked="user.status === 'active'" @change="toggleUserStatus(user)" class="toggle-input" />
-                    <span class="toggle-slider"></span>
-                  </label>
-                </td>
-                <td>
-                  <div v-if="canManageOrg" class="action-buttons">
-                    <button class="action-btn" title="编辑" @click="editItem(user, 'users')">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                      </svg>
-                    </button>
-                    <button class="action-btn danger" title="删除" @click="deleteUserItem(user)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                      </svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <PersonnelManager
+          :users="users"
+          :regions="regions"
+          :branches="branches"
+          :teams="teams"
+          :can-manage-org="canManageOrg"
+          @edit="(item) => editItem(item, 'users')"
+          @delete="(item) => deleteUserItem(item)"
+          @toggle-status="(item) => toggleUserStatus(item)"
+        />
       </div>
     </main>
 

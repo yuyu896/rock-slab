@@ -1,29 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { getCategories, createCategory, updateCategory, deleteCategory as deleteCategoryApi, importCategories, downloadCategoryTemplate, exportCategories } from '@/api/categories'
+import { ref, computed, onMounted, watch } from 'vue'
+import { getCategories, createCategory, updateCategory, deleteCategory as deleteCategoryApi, exportCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Category, CategoryRequest } from '@/types'
-import { useFocusTrap } from '@/composables/useFocusTrap'
+import CategoryForm from './categories/CategoryForm.vue'
+import CategoryImportDialog from './categories/CategoryImportDialog.vue'
 
 // 当前选中的分类
 const selectedCategory = ref<any>(null)
-const modalRef = ref<HTMLElement | null>(null)
 const triggerElement = ref<HTMLElement | null>(null)
-
-// 使用焦点陷阱
-const { activateTrap, deactivateTrap } = useFocusTrap(modalRef)
-
-// 监听模态框状态，管理焦点陷阱
-watch(selectedCategory, (newVal) => {
-  nextTick(() => {
-    if (newVal) {
-      activateTrap()
-    } else {
-      deactivateTrap()
-    }
-  })
-})
 const viewMode = ref<'table' | 'card'>('table')
 const loading = ref(false)
 const saving = ref(false)
@@ -195,9 +181,7 @@ const addCategory = () => {
 
 // 关闭模态框
 const closeModal = () => {
-  deactivateTrap()
   selectedCategory.value = null
-  // 恢复焦点到触发元素
   if (triggerElement.value) {
     triggerElement.value.focus()
     triggerElement.value = null
@@ -238,55 +222,15 @@ async function saveCategory() {
 
 // 导入分类
 const showImportModal = ref(false)
-const importFile = ref<File | null>(null)
-const importing = ref(false)
 
 const openImportModal = () => {
-  importFile.value = null
   showImportModal.value = true
 }
 
-const handleFileChange = (e: Event) => {
-  const input = e.target as HTMLInputElement
-  if (input.files && input.files[0]) {
-    importFile.value = input.files[0]
-  }
-}
-
-const handleImport = async () => {
-  if (!importFile.value) {
-    ElMessage.warning('请选择文件')
-    return
-  }
-  importing.value = true
-  try {
-    const { data } = await importCategories(importFile.value)
-    ElMessage.success(`导入成功 ${data.imported} 条${data.errors.length > 0 ? `，失败 ${data.errors.length} 条` : ''}`)
-    showImportModal.value = false
-    await fetchCategories()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    importing.value = false
-  }
-}
-
-const handleDownloadTemplate = async () => {
-  try {
-    const { data } = await downloadCategoryTemplate()
-    const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = '分类导入模板.xlsx'
-    link.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    const link = document.createElement('a')
-    link.href = '/xx分公司行政资产盘点系统-模版.xlsx'
-    link.download = '分类导入模板.xlsx'
-    link.click()
-  }
+const handleImportSuccess = async () => {
+  showImportModal.value = false
+  await fetchCategories()
+  fetchAllCategories()
 }
 
 // 属性模板操作
@@ -601,207 +545,22 @@ onMounted(() => {
     </div>
 
     <!-- 编辑弹窗 -->
-    <Teleport to="body">
-      <div
-        v-if="selectedCategory"
-        ref="modalRef"
-        class="modal-overlay"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="category-modal-title"
-        @click.self="closeModal"
-        @keydown.esc="closeModal"
-      >
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3 id="category-modal-title" class="modal-title">
-              {{ selectedCategory.id ? '编辑分类' : '新增分类' }}
-            </h3>
-            <button
-              class="modal-close"
-              aria-label="关闭"
-              @click="closeModal"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-          <div class="modal-body">
-            <div class="form-grid">
-              <div class="form-item">
-                <label class="form-label" for="category-asset-type">
-                  资产类目 <span class="required">*</span>
-                </label>
-                <select
-                  id="category-asset-type"
-                  v-model="selectedCategory.资产类目"
-                  class="form-select"
-                  aria-required="true"
-                >
-                  <option value="">请选择</option>
-                  <option value="固定资产类">固定资产类</option>
-                  <option value="低值易耗品">低值易耗品</option>
-                  <option value="无形资产类">无形资产类</option>
-                  <option value="文档资料类">文档资料类</option>
-                  <option value="特殊设备类">特殊设备类</option>
-                  <option value="其他资产">其他资产</option>
-                </select>
-              </div>
-              <div class="form-item">
-                <label class="form-label" for="category-item-type">
-                  物品分类 <span class="required">*</span>
-                </label>
-                <input
-                  id="category-item-type"
-                  v-model="selectedCategory.物品分类"
-                  type="text"
-                  class="form-input"
-                  placeholder="请输入物品分类"
-                  aria-required="true"
-                />
-              </div>
-              <div class="form-item">
-                <label class="form-label" for="category-asset-name">
-                  资产名称 <span class="required">*</span>
-                </label>
-                <input
-                  id="category-asset-name"
-                  v-model="selectedCategory.资产名称"
-                  type="text"
-                  class="form-input"
-                  placeholder="请输入资产名称"
-                  aria-required="true"
-                />
-              </div>
-              <div class="form-item">
-                <label class="form-label" for="category-asset-code">
-                  资产编号 <span class="required">*</span>
-                </label>
-                <input
-                  id="category-asset-code"
-                  v-model="selectedCategory.资产编号"
-                  type="text"
-                  class="form-input"
-                  placeholder="如：A-a00001"
-                  aria-required="true"
-                />
-              </div>
-              <div class="form-item">
-                <label class="form-label" for="category-unit">
-                  计量单位 <span class="required">*</span>
-                </label>
-                <input
-                  id="category-unit"
-                  v-model="selectedCategory.计量单位"
-                  type="text"
-                  class="form-input"
-                  placeholder="如：台、个、张"
-                  aria-required="true"
-                />
-              </div>
-              <div class="form-item">
-                <label class="form-label" for="category-warning-line">
-                  警戒线
-                </label>
-                <input
-                  id="category-warning-line"
-                  v-model="selectedCategory.警戒线"
-                  type="number"
-                  class="form-input"
-                  placeholder="库存警戒数量"
-                />
-              </div>
-              <div class="form-item full">
-                <label class="form-label" for="category-remarks">
-                  备注
-                </label>
-                <textarea
-                  id="category-remarks"
-                  v-model="selectedCategory.备注"
-                  class="form-textarea"
-                  placeholder="备注信息"
-                  rows="3"
-                />
-              </div>
-              <!-- 属性模板配置 -->
-              <div class="form-item full">
-                <div class="attr-template-header">
-                  <label class="form-label">属性模板</label>
-                  <button type="button" class="attr-add-btn" @click="addAttribute">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                      <line x1="12" y1="5" x2="12" y2="19"/>
-                      <line x1="5" y1="12" x2="19" y2="12"/>
-                    </svg>
-                    添加属性
-                  </button>
-                </div>
-                <div v-if="selectedCategory.attributes && selectedCategory.attributes.length > 0" class="attr-list">
-                  <div v-for="(attr, idx) in selectedCategory.attributes" :key="idx" class="attr-item">
-                    <input v-model="attr.name" type="text" class="form-input attr-input" placeholder="属性名称" />
-                    <select v-model="attr.type" class="form-select attr-input">
-                      <option value="text">文本</option>
-                      <option value="number">数字</option>
-                      <option value="select">下拉选择</option>
-                    </select>
-                    <label class="attr-required-label">
-                      <input type="checkbox" v-model="attr.required" /> 必填
-                    </label>
-                    <input
-                      v-if="attr.type === 'select'"
-                      v-model="attr.options"
-                      type="text"
-                      class="form-input attr-input"
-                      placeholder="选项（逗号分隔）"
-                    />
-                    <button type="button" class="attr-del-btn" @click="removeAttribute(idx)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div v-else class="attr-empty">暂无自定义属性，点击"添加属性"配置</div>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="closeModal">取消</button>
-            <button class="btn-confirm" @click="saveCategory" :disabled="saving">
-              {{ saving ? '保存中...' : '确定保存' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <CategoryForm
+      v-if="selectedCategory"
+      ref="modalRef"
+      :category="selectedCategory"
+      :saving="saving"
+      @close="closeModal"
+      @save="saveCategory"
+      @add-attribute="addAttribute"
+      @remove-attribute="removeAttribute"
+    />
     <!-- 导入弹窗 -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title">导入分类</h3>
-          <button class="modal-close" @click="showImportModal = false">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="import-area">
-            <button class="btn-secondary" style="margin-bottom: 16px" @click="handleDownloadTemplate">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              下载模板
-            </button>
-            <div class="upload-zone">
-              <input type="file" accept=".xlsx,.xls" @change="handleFileChange" class="file-input" />
-              <p v-if="importFile" class="file-name">{{ importFile.name }}</p>
-              <p v-else class="upload-hint">点击或拖拽上传 Excel 文件</p>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="showImportModal = false">取消</button>
-          <button class="btn-confirm" @click="handleImport" :disabled="importing || !importFile">{{ importing ? '导入中...' : '确认导入' }}</button>
-        </div>
-      </div>
-    </div>
+    <CategoryImportDialog
+      :visible="showImportModal"
+      @close="showImportModal = false"
+      @success="handleImportSuccess"
+    />
   </div>
 </template>
 
@@ -1289,234 +1048,6 @@ onMounted(() => {
   background: var(--color-primary-100);
 }
 
-/* 弹窗 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  width: 560px;
-  background: var(--color-bg-card);
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-5);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.modal-title {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0;
-}
-
-.modal-close {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-}
-
-.modal-close:hover {
-  background: var(--color-bg-elevated);
-}
-
-.modal-close svg {
-  width: 18px;
-  height: 18px;
-}
-
-.modal-body {
-  padding: var(--space-5);
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-4);
-}
-
-.form-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.form-item.full {
-  grid-column: span 2;
-}
-
-.form-label {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.required {
-  color: var(--color-danger);
-}
-
-.form-input,
-.form-select,
-.form-textarea {
-  height: 40px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-page);
-  font-size: var(--text-sm);
-  color: var(--color-text-primary);
-}
-
-.form-textarea {
-  height: auto;
-  padding: var(--space-3);
-  resize: vertical;
-}
-
-.form-input:focus,
-.form-select:focus,
-.form-textarea:focus {
-  outline: none;
-  border-color: var(--color-primary-400);
-  box-shadow: 0 0 0 3px var(--color-primary-100);
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-page);
-}
-
-.btn-cancel {
-  height: 40px;
-  padding: 0 var(--space-5);
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  font-size: var(--text-sm);
-  color: var(--color-text-primary);
-  cursor: pointer;
-}
-
-.btn-confirm {
-  height: 40px;
-  padding: 0 var(--space-5);
-  background: var(--color-primary-500);
-  border: none;
-  border-radius: 8px;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: white;
-  cursor: pointer;
-}
-
-/* 属性模板 */
-.attr-template-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-2);
-}
-
-.attr-add-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 4px 12px;
-  background: var(--color-primary-50);
-  border: 1px solid var(--color-primary-200);
-  border-radius: 6px;
-  font-size: var(--text-xs);
-  color: var(--color-primary-600);
-  cursor: pointer;
-}
-
-.attr-add-btn:hover {
-  background: var(--color-primary-100);
-}
-
-.attr-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.attr-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg-page);
-  border-radius: 8px;
-}
-
-.attr-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.attr-required-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
-
-.attr-del-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.attr-del-btn:hover {
-  background: oklch(0.92 0.10 25);
-  color: var(--color-danger);
-}
-
-.attr-empty {
-  padding: var(--space-3);
-  text-align: center;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-  background: var(--color-bg-page);
-  border-radius: 8px;
-}
-
 /* 分页 */
 .pagination-section {
   display: flex;
@@ -1607,14 +1138,6 @@ onMounted(() => {
 
   .stats-row {
     grid-template-columns: 1fr;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .form-item.full {
-    grid-column: span 1;
   }
 }
 </style>

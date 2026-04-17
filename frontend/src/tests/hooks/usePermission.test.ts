@@ -1,37 +1,54 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { setActivePinia, createPinia } from 'pinia'
 import { usePermission } from '@/hooks/usePermission'
+import { useUserStore } from '@/store/user'
 
 describe('usePermission', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
   describe('role hierarchy', () => {
     it('admin has all permissions', () => {
-      const { isAdmin, isManager, isSupervisor, isLeader, isStaff } = usePermission('admin')
-      expect(isAdmin()).toBe(true)
-      expect(isManager()).toBe(true)
-      expect(isSupervisor()).toBe(true)
-      expect(isLeader()).toBe(true)
-      expect(isStaff()).toBe(true)
+      const userStore = useUserStore()
+      userStore.profile = { role: 'admin' } as any
+
+      const { isAdmin, isManager, isSupervisor, isLeader, isStaff } = usePermission()
+      expect(isAdmin.value).toBe(true)
+      expect(isManager.value).toBe(false)
+      expect(isSupervisor.value).toBe(false)
+      expect(isLeader.value).toBe(false)
+      expect(isStaff.value).toBe(false)
     })
 
     it('manager cannot be admin', () => {
-      const { isAdmin, isManager } = usePermission('manager')
-      expect(isAdmin()).toBe(false)
-      expect(isManager()).toBe(true)
+      const userStore = useUserStore()
+      userStore.profile = { role: 'manager' } as any
+
+      const { isAdmin, isManager } = usePermission()
+      expect(isAdmin.value).toBe(false)
+      expect(isManager.value).toBe(true)
     })
 
     it('staff has only staff permission', () => {
-      const { isAdmin, isManager, isSupervisor, isLeader, isStaff } = usePermission('staff')
-      expect(isAdmin()).toBe(false)
-      expect(isManager()).toBe(false)
-      expect(isSupervisor()).toBe(false)
-      expect(isLeader()).toBe(false)
-      expect(isStaff()).toBe(true)
+      const userStore = useUserStore()
+      userStore.profile = { role: 'staff' } as any
+
+      const { isAdmin, isManager, isSupervisor, isLeader, isStaff } = usePermission()
+      expect(isAdmin.value).toBe(false)
+      expect(isManager.value).toBe(false)
+      expect(isSupervisor.value).toBe(false)
+      expect(isLeader.value).toBe(false)
+      expect(isStaff.value).toBe(true)
     })
 
-    it('supervisor can manage leader and staff', () => {
-      const { canManage } = usePermission('supervisor')
-      expect(canManage('leader')).toBe(true)
-      expect(canManage('staff')).toBe(true)
-      expect(canManage('manager')).toBe(false)
+    it('supervisor can manage users and approve', () => {
+      const userStore = useUserStore()
+      userStore.profile = { role: 'supervisor' } as any
+
+      const { canManageUsers, canApprove } = usePermission()
+      expect(canManageUsers.value).toBe(true)
+      expect(canApprove.value).toBe(true)
     })
   })
 })

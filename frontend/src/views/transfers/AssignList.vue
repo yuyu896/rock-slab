@@ -4,6 +4,7 @@ import { useTransferList } from '@/composables/useTransferList'
 import { assignAsset } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import BasePagination from '@/components/BasePagination.vue'
 
 const {
   typeLabel, typeColor,
@@ -143,18 +144,12 @@ async function submitCreate() {
       </table>
     </div>
 
-    <div class="pagination-section">
-      <div class="pagination-info">共 {{ pagination.total }} 条记录</div>
-      <div class="pagination-controls">
-        <button class="page-btn" :disabled="pagination.page <= 1" @click="pagination.page--; fetchTransfers()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <button class="page-btn active">{{ pagination.page }}</button>
-        <button class="page-btn" :disabled="pagination.page * pagination.pageSize >= pagination.total" @click="pagination.page++; fetchTransfers()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-      </div>
-    </div>
+    <BasePagination
+      :total="pagination.total"
+      :current-page="pagination.page"
+      :page-size="pagination.pageSize"
+      @change="(page, pageSize) => { pagination.page = page; pagination.pageSize = pageSize; fetchTransfers() }"
+    />
 
     <!-- 详情弹窗 -->
     <div v-if="showDetailModal" class="modal-overlay" @click.self="showDetailModal = false">

@@ -85,7 +85,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         from apps.assets.models import Asset
         try:
-            asset = Asset.objects.get(id=serializer.validated_data['assetId'])
+            asset = Asset.objects.get(id=serializer.validated_data['asset_id'])
         except Asset.DoesNotExist:
             return Response(
                 {'detail': '资产不存在'},

@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework.permissions import BasePermission
 
 ROLE_LEVELS = {
@@ -42,22 +43,46 @@ class DataScopeMixin:
         model = queryset.model
 
         if user.role == 'supervisor' and getattr(user, 'region', None):
-            if hasattr(model, 'branch'):
-                return queryset.filter(branch__region=user.region)
-            # Asset model uses CharField 分公司 instead of FK branch
-            if hasattr(model, '分公司') and hasattr(user, 'region'):
+            # Prefer FK-based query if branch field exists
+            if hasattr(model, 'branch') and not isinstance(
+                getattr(model, 'branch', None), property
+            ):
+                try:
+                    from django.db.models.fields.related import ForeignKey
+                    field = model._meta.get_field('branch')
+                    if isinstance(field, ForeignKey):
+                        return queryset.filter(branch__region=user.region)
+                except Exception:
+                    pass
+            # Fallback: Asset model CharField 分公司
+            if hasattr(model, '分公司'):
                 from apps.organizations.models import Branch
                 branch_names = list(
                     Branch.objects.filter(region=user.region).values_list('name', flat=True)
                 )
                 return queryset.filter(分公司__in=branch_names)
+            # Transfer model FK
+            if hasattr(model, 'from_branch'):
+                return queryset.filter(from_branch__region=user.region)
             return queryset
 
         if getattr(user, 'branch', None):
-            if hasattr(model, 'branch'):
-                return queryset.filter(branch=user.branch)
+            if hasattr(model, 'branch') and not isinstance(
+                getattr(model, 'branch', None), property
+            ):
+                try:
+                    from django.db.models.fields.related import ForeignKey
+                    field = model._meta.get_field('branch')
+                    if isinstance(field, ForeignKey):
+                        return queryset.filter(branch=user.branch)
+                except Exception:
+                    pass
             if hasattr(model, '分公司') and user.branch:
                 return queryset.filter(分公司=user.branch.name)
+            if hasattr(model, 'from_branch') and user.branch:
+                return queryset.filter(
+                    models.Q(from_branch=user.branch) | models.Q(to_branch=user.branch)
+                )
             return queryset
 
         return queryset

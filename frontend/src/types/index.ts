@@ -130,6 +130,8 @@ export interface Asset {
   序号: number
   分公司: string
   分公司编号: string
+  branch?: string
+  branchName?: string
   资产编号: string
   资产类目: string
   物品分类: string
@@ -196,6 +198,10 @@ export interface Transfer {
   调出部门?: string
   调入分公司?: string
   调入部门?: string
+  from_branch?: string
+  to_branch?: string
+  fromBranchName?: string
+  toBranchName?: string
   资产编号: string
   资产名称: string
   规格型号?: string

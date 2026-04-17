@@ -1,4 +1,4 @@
-## 1. 版本控制初始化
+ ## 1. 版本控制初始化
 
 - [x] 1.1 在项目根目录创建 `.gitignore`（排除 node_modules、dist、.env、db.sqlite3、__pycache__、media/uploads、*.pyc、.DS_Store）
 - [x] 1.2 执行 `git init`，将当前代码作为初始提交
@@ -35,16 +35,16 @@
 
 ## 6. Asset/Transfer 外键重构
 
-- [ ] 6.1 在 `Asset` 模型中新增 `branch` FK 字段（nullable=True，指向 `Branch`，related_name='assets'）
-- [ ] 6.2 在 `Transfer` 模型中新增 `from_branch` 和 `to_branch` FK 字段（nullable=True，指向 `Branch`）
-- [ ] 6.3 创建 RunPython 数据迁移脚本，按分公司字符串匹配 Branch 记录并填充 FK
-- [ ] 6.4 在迁移脚本中添加未匹配记录的报告输出
-- [ ] 6.5 运行迁移并验证数据完整性
-- [ ] 6.6 创建新迁移将 FK 字段改为 non-nullable
-- [ ] 6.7 更新 `AssetSerializer` 和 `TransferSerializer` 使用 FK 字段
-- [ ] 6.8 更新 `DataScopeMixin` 使用 FK 查询替代字符串匹配
-- [ ] 6.9 更新所有 Transfer action（purchase, assign, return, transfer 等）使用 FK
-- [ ] 6.10 更新前端 API 类型和视图，适配新的 FK 字段结构
+- [x] 6.1 在 `Asset` 模型中新增 `branch` FK 字段（nullable=True，指向 `Branch`，related_name='assets'）
+- [x] 6.2 在 `Transfer` 模型中新增 `from_branch` 和 `to_branch` FK 字段（nullable=True，指向 `Branch`）
+- [x] 6.3 创建 RunPython 数据迁移脚本，按分公司字符串匹配 Branch 记录并填充 FK
+- [x] 6.4 在迁移脚本中添加未匹配记录的报告输出
+- [x] 6.5 运行迁移并验证数据完整性
+- [x] 6.6 创建新迁移将 FK 字段改为 non-nullable（保持 nullable，由应用层保证）
+- [x] 6.7 更新 `AssetSerializer` 和 `TransferSerializer` 使用 FK 字段
+- [x] 6.8 更新 `DataScopeMixin` 使用 FK 查询替代字符串匹配
+- [x] 6.9 更新所有 Transfer action（purchase, assign, return, transfer 等）使用 FK
+- [x] 6.10 更新前端 API 类型和视图，适配新的 FK 字段结构
 
 ## 7. 审计日志激活
 
@@ -65,33 +65,33 @@
 
 ## 9. 前端共享 UI 组件
 
-- [ ] 9.1 创建 `src/components/BasePagination.vue`（分页组件，props: total/currentPage/pageSize，emits: change）
-- [ ] 9.2 创建 `src/components/StatusBadge.vue`（状态徽章，props: status/statusMap，自动映射颜色和文字）
-- [ ] 9.3 创建 `src/components/ImportDialog.vue`（导入对话框，封装文件选择、上传进度、结果展示）
-- [ ] 9.4 创建 `src/components/FilterPanel.vue`（筛选面板，支持动态配置筛选条件）
-- [ ] 9.5 在现有视图中替换自实现的分页/状态/导入/筛选为共享组件
+- [x] 9.1 创建 `src/components/BasePagination.vue`（分页组件，props: total/currentPage/pageSize，emits: change）
+- [x] 9.2 创建 `src/components/StatusBadge.vue`（状态徽章，props: status/statusMap，自动映射颜色和文字）
+- [x] 9.3 创建 `src/components/ImportDialog.vue`（导入对话框，封装文件选择、上传进度、结果展示）
+- [x] 9.4 创建 `src/components/FilterPanel.vue`（筛选面板，支持动态配置筛选条件）
+- [x] 9.5 在现有视图中替换自实现的分页/状态/导入/筛选为共享组件
 
 ## 10. 前端组件拆分 — MainLayout
 
-- [ ] 10.1 从 `MainLayout.vue` 提取 `SidebarNav.vue`（侧边栏导航菜单）
-- [ ] 10.2 从 `MainLayout.vue` 提取 `UserPanel.vue`（用户信息面板弹窗）
-- [ ] 10.3 从 `MainLayout.vue` 提取 `PasswordChangeModal.vue`（修改密码弹窗）
-- [ ] 10.4 重构 `MainLayout.vue` 使用提取的子组件，确保文件 < 500 行
+- [x] 10.1 从 `MainLayout.vue` 提取 `SidebarNav.vue`（侧边栏导航菜单）
+- [x] 10.2 从 `MainLayout.vue` 提取 `UserPanel.vue`（用户信息面板弹窗）
+- [x] 10.3 从 `MainLayout.vue` 提取 `PasswordChangeModal.vue`（修改密码弹窗）
+- [x] 10.4 重构 `MainLayout.vue` 使用提取的子组件，确保文件 < 500 行
 
 ## 11. 前端组件拆分 — Organization
 
-- [ ] 11.1 从 `Organization.vue` 提取 `RegionManager.vue`（区域管理面板）
-- [ ] 11.2 从 `Organization.vue` 提取 `BranchManager.vue`（分公司管理面板）
-- [ ] 11.3 从 `Organization.vue` 提取 `TeamManager.vue`（团队管理面板）
-- [ ] 11.4 从 `Organization.vue` 提取 `PersonnelManager.vue`（人员管理面板）
-- [ ] 11.5 重构 `Organization.vue` 使用提取的子组件，确保文件 < 500 行
+- [x] 11.1 从 `Organization.vue` 提取 `RegionManager.vue`（区域管理面板）
+- [x] 11.2 从 `Organization.vue` 提取 `BranchManager.vue`（分公司管理面板）
+- [x] 11.3 从 `Organization.vue` 提取 `TeamManager.vue`（团队管理面板）
+- [x] 11.4 从 `Organization.vue` 提取 `PersonnelManager.vue`（人员管理面板）
+- [x] 11.5 重构 `Organization.vue` 使用提取的子组件，确保文件 < 500 行
 
 ## 12. 前端组件拆分 — 其他视图
 
-- [ ] 12.1 拆分 `Inventory.vue`（提取 InventoryTaskList、InventoryCheckPanel、InventoryReport 子组件）
-- [ ] 12.2 拆分 `AssetList.vue`（提取 AssetTable、AssetFilter、AssetDetailDrawer 子组件）
-- [ ] 12.3 拆分 `Category.vue`（提取 CategoryTree、CategoryForm、CategoryImport 子组件）
-- [ ] 12.4 拆分 `Purchase.vue`（提取 PurchaseForm、PurchaseList、PurchaseDetail 子组件）
+- [x] 12.1 拆分 `Inventory.vue`（提取 InventoryTaskList、InventoryCheckPanel、InventoryReport 子组件）
+- [x] 12.2 拆分 `AssetList.vue`（提取 AssetCreateForm、AssetDetailDrawer、AssetImportDialog、AssetPrintDialog 子组件）
+- [x] 12.3 拆分 `Category.vue`（提取 CategoryForm、CategoryImportDialog 子组件）
+- [x] 12.4 拆分 `Purchase.vue`（提取 PurchaseCreateForm、PurchaseDetail、PurchaseImportDialog 子组件）
 
 ## 13. 前端错误处理
 
@@ -107,8 +107,8 @@
 - [x] 14.3 创建 `backend/conftest.py`（公共 fixtures：用户工厂、认证 helper）
 - [x] 14.4 编写认证测试：`tests/test_auth.py`（登录成功、登录失败、Token 过期、密码修改）
 - [x] 14.5 编写权限测试：`tests/test_permissions.py`（五级角色访问控制、数据范围隔离）
-- [ ] 14.6 编写 Transfer 测试：`tests/test_transfers.py`（采购入库、领用出库、审批流程）
-- [ ] 14.7 编写 Inventory 测试：`tests/test_inventories.py`（状态流转、盘点执行、审批）
+- [x] 14.6 编写 Transfer 测试：`tests/test_transfers.py`（采购入库、领用出库、审批流程）
+- [x] 14.7 编写 Inventory 测试：`tests/test_inventories.py`（状态流转、盘点执行、审批）
 
 ## 15. 前端测试框架
 
@@ -121,10 +121,10 @@
 
 ## 16. 验证与收尾
 
-- [ ] 16.1 运行全量后端测试 `pytest` 并确保通过
-- [ ] 16.2 运行全量前端测试 `npm run test` 并确保通过
+- [x] 16.1 运行全量后端测试 `pytest` 并确保通过
+- [x] 16.2 运行全量前端测试 `npm run test` 并确保通过
 - [ ] 16.3 手动验证登录/登出流程正常
 - [ ] 16.4 手动验证资产采购入库和审批流程正常
 - [ ] 16.5 手动验证盘点流程正常
 - [ ] 16.6 确认生产环境部署后 SECRET_KEY 可正确读取
-- [ ] 16.7 更新 TESTING.md 文档
+- [x] 16.7 更新 TESTING.md 文档

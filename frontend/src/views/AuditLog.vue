@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as auditApi from '@/api/audit'
 import type { AuditLog, AuditLogStats } from '@/api/audit'
+import BasePagination from '@/components/BasePagination.vue'
 
 const loading = ref(false)
 const logs = ref<AuditLog[]>([])
@@ -106,8 +107,9 @@ function handleReset() {
   fetchLogs()
 }
 
-function handlePageChange(val: number) {
-  page.value = val
+function handlePageChange(newPage: number, newPageSize: number) {
+  page.value = newPage
+  pageSize.value = newPageSize
   fetchLogs()
 }
 
@@ -260,14 +262,12 @@ onMounted(() => {
     </div>
 
     <!-- 分页 -->
-    <div class="pagination-section">
-      <span class="total-count">共 {{ total }} 条记录</span>
-      <div class="pagination-controls">
-        <button :disabled="page === 1" @click="handlePageChange(page - 1)">上一页</button>
-        <span class="current-page">第 {{ page }} 页</span>
-        <button :disabled="page * pageSize >= total" @click="handlePageChange(page + 1)">下一页</button>
-      </div>
-    </div>
+    <BasePagination
+      :total="total"
+      :current-page="page"
+      :page-size="pageSize"
+      @change="handlePageChange"
+    />
   </div>
 </template>
 

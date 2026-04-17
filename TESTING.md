@@ -87,3 +87,39 @@
 2. 操作步骤
 3. 期望的结果 vs 实际结果
 4. 截图（如有）
+
+---
+
+## 自动化测试
+
+### 后端测试 (pytest)
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest                        # 运行全部测试
+pytest --cov=apps             # 带覆盖率报告
+pytest tests/test_auth.py     # 运行单个文件
+```
+
+| 测试文件 | 覆盖范围 |
+|---|---|
+| `tests/test_auth.py` | 登录/登出、Token 过期、密码修改、限流 |
+| `tests/test_permissions.py` | 五级角色权限、数据范围隔离 |
+| `tests/test_transfers.py` | 采购入库、领用出库、审批流程 |
+| `tests/test_inventories.py` | 盘点任务状态流转、盘点执行、审批 |
+
+### 前端测试 (vitest)
+
+```bash
+cd frontend
+npm install
+npm run test                  # 运行全部测试
+npm run test:coverage         # 带覆盖率报告
+```
+
+| 测试文件 | 覆盖范围 |
+|---|---|
+| `tests/store/user.test.ts` | 登录、登出、fetchProfile、角色判断 |
+| `tests/store/asset.test.ts` | fetchAssets、筛选、分页、错误处理 |
+| `tests/hooks/usePermission.test.ts` | 角色层级、权限判断 |

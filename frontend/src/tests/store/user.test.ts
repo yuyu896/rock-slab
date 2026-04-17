@@ -64,23 +64,24 @@ describe('User Store', () => {
       vi.mocked(authApi.logout).mockRejectedValue(new Error('Network error'))
 
       const store = useUserStore()
-      await store.logout()
+      // logout has try/finally so state clears even on error, but error propagates
+      await expect(store.logout()).rejects.toThrow('Network error')
 
       expect(localStorage.getItem('rock_slab_token')).toBeNull()
     })
   })
 
   describe('role checks', () => {
-    it('isAdmin returns true for admin role', () => {
+    it('hasRole returns true for matching role', () => {
       const store = useUserStore()
       store.profile = { role: 'admin' } as any
-      expect(store.isAdmin).toBe(true)
+      expect(store.hasRole('admin')).toBe(true)
+      expect(store.hasRole('staff')).toBe(false)
     })
 
-    it('isAdmin returns false for staff role', () => {
+    it('hasRole returns false when no profile', () => {
       const store = useUserStore()
-      store.profile = { role: 'staff' } as any
-      expect(store.isAdmin).toBe(false)
+      expect(store.hasRole('admin')).toBe(false)
     })
   })
 })
