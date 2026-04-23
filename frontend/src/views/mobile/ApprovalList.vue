@@ -20,8 +20,6 @@ const actionLabels: Record<string, string> = {
   assign: '领用',
   return: '归还',
   transfer: '调拨',
-  repair: '维修',
-  scrap: '报废',
 }
 
 function getActionType(transfer: Transfer): string {

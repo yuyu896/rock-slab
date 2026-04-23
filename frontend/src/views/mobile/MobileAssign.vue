@@ -13,12 +13,11 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const form = ref({
+  调拨日期: '',
   资产编号: '',
   资产名称: '',
-  调出分公司: '',
-  调入分公司: '',
+  fromBranch: '',
   调拨数量: 1,
-  所属部门: '',
   使用人: '',
   备注: '',
 })
@@ -40,7 +39,7 @@ async function fetchOptions() {
     categories.value = Array.isArray(catRes.data) ? catRes.data : (catRes.data as any).results || []
     branches.value = Array.isArray(branchRes.data) ? branchRes.data : (branchRes.data as any).results || []
     if (currentBranch.value) {
-      form.value.调出分公司 = currentBranch.value
+      form.value.fromBranch = currentBranch.value
     }
   } catch {
     // options loading failure is non-fatal
@@ -62,13 +61,13 @@ async function handleSubmit() {
   submitting.value = true
   try {
     await assignAsset({
+      调拨日期: form.value.调拨日期 || new Date().toISOString().slice(0, 10),
       资产编号: form.value.资产编号.trim(),
       资产名称: form.value.资产名称.trim(),
-      调出分公司: form.value.调出分公司,
+      fromBranch: form.value.fromBranch || undefined,
       调拨数量: form.value.调拨数量,
-      调出部门: form.value.所属部门,
       备注: `使用人: ${form.value.使用人}${form.value.备注 ? '；' + form.value.备注 : ''}`,
-    } as any)
+    })
     ElMessage.success('领用申请已提交')
     router.back()
   } catch (error) {
@@ -124,9 +123,9 @@ onMounted(() => {
 
       <div class="form-group">
         <label class="form-label">所属分公司</label>
-        <select v-model="form.调出分公司" class="form-select">
+        <select v-model="form.fromBranch" class="form-select">
           <option value="">请选择分公司</option>
-          <option v-for="branch in branches" :key="branch.id" :value="branch.name">
+          <option v-for="branch in branches" :key="branch.id" :value="branch.id">
             {{ branch.name }}
           </option>
         </select>
@@ -139,16 +138,6 @@ onMounted(() => {
           <input v-model.number="form.调拨数量" type="number" class="form-input qty-input" min="1" />
           <button class="qty-btn" @click="form.调拨数量++">+</button>
         </div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">使用部门</label>
-        <input
-          v-model="form.所属部门"
-          type="text"
-          class="form-input"
-          placeholder="请输入使用部门"
-        />
       </div>
 
       <div class="form-group">

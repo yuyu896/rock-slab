@@ -32,6 +32,9 @@ export function usePermission() {
   /** 可管理类目：主管及以上 */
   const canManageCategories = computed(() => roleLevel.value <= 3)
 
+  /** 可编辑/删除资产：主管及以上 */
+  const canManageAssets = computed(() => roleLevel.value <= 3)
+
   /** 检查是否达到指定角色级别 */
   function hasMinRole(role: UserRoleType): boolean {
     return userStore.hasMinRole(role)
@@ -49,6 +52,7 @@ export function usePermission() {
     canManageUsers,
     canCreateDocument,
     canManageCategories,
+    canManageAssets,
     hasMinRole,
   }
 }

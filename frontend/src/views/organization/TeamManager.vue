@@ -37,11 +37,6 @@ function getUserName(users: UserUI[], id?: string) {
   if (!id) return '-'
   return users.find(u => u.id === id)?.name || '-'
 }
-
-function getRegionName(regions: any[], id?: string) {
-  if (!id) return '-'
-  return regions.find(r => r.id === id)?.name || '-'
-}
 </script>
 
 <template>

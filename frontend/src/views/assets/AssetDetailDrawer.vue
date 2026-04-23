@@ -14,7 +14,7 @@ const emit = defineEmits<{
 }>()
 
 const actionLabel = (type: string) => {
-  const map: Record<string, string> = { assign: '领用', return: '归还', transfer: '调拨', repair: '维修', scrap: '报废', purchase: '采购入库' }
+  const map: Record<string, string> = { assign: '领用', return: '归还', transfer: '调拨', purchase: '采购入库' }
   return map[type] || type
 }
 </script>
@@ -83,7 +83,7 @@ const actionLabel = (type: string) => {
               <div class="timeline-dot"></div>
               <div class="timeline-content">
                 <div class="timeline-header">
-                  <span class="timeline-type">{{ actionLabel(t.action_type) }}</span>
+                  <span class="timeline-type">{{ actionLabel(t.action_type ?? '') }}</span>
                   <span class="timeline-date">{{ t.createdAt }}</span>
                 </div>
                 <div class="timeline-detail">{{ t.资产名称 }} × {{ t.调拨数量 }}</div>

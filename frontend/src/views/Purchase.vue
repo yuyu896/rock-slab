@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { createAsset } from '@/api/assets'
-import { getTransfers, getTransfer, approveTransfer, rejectTransfer, exportTransfers } from '@/api/transfers'
+import { ref, computed, onMounted, watch } from 'vue'
+import { getTransfers, getTransfer, approveTransfer, rejectTransfer, exportTransfers, purchaseAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { formatMoney } from '@/utils/format'
@@ -52,24 +51,24 @@ const getStatusStyle = (status: string) => {
   return styles[status as keyof typeof styles] || { bg: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)' }
 }
 
+async function submitPurchaseItems(order: any) {
+  for (const item of order.items) {
+    await purchaseAsset({
+      调拨日期: order.purchaseDate,
+      资产编号: item.code,
+      资产名称: item.name,
+      调拨数量: item.qty,
+      toBranch: order.branch || undefined,
+      调拨原因: order.supplier || '',
+      备注: order.remark || '',
+    })
+  }
+}
+
 // 提交采购单
 const submitOrder = async (order: any) => {
   try {
-    for (const item of order.items) {
-      await createAsset({
-        资产编号: item.code,
-        资产名称: item.name,
-        规格: item.spec,
-        数量: item.qty,
-        单价: item.price,
-        购入金额: item.qty * item.price,
-        分公司: order.branch,
-        供应商: order.supplier,
-        入库日期: order.purchaseDate,
-        是否租用: order.isRent,
-        备注: order.remark,
-      })
-    }
+    await submitPurchaseItems(order)
     ElMessage.success('采购单提交成功')
     currentView.value = 'list'
     fetchPurchaseOrders()
@@ -138,22 +137,7 @@ const rejectOrder = async (order: any) => {
 // 保存草稿
 const saveDraft = async (order: any) => {
   try {
-    for (const item of order.items) {
-      await createAsset({
-        资产编号: item.code,
-        资产名称: item.name,
-        规格: item.spec,
-        数量: item.qty,
-        单价: item.price,
-        购入金额: item.qty * item.price,
-        分公司: order.branch,
-        供应商: order.supplier,
-        入库日期: order.purchaseDate,
-        是否租用: order.isRent,
-        备注: order.remark,
-        当前状态: '在库',
-      })
-    }
+    await submitPurchaseItems(order)
     ElMessage.success('草稿保存成功')
     currentView.value = 'list'
     fetchPurchaseOrders()
@@ -179,13 +163,31 @@ const stats = computed(() => ({
 // 获取采购单列表
 async function fetchPurchaseOrders() {
   try {
-    const { data } = await getTransfers({ type: 'purchase' })
-    purchaseOrders.value = data.results.map((t: any) => ({
+    const params: Record<string, string> = { type: 'purchase' }
+    if (filters.value.status) params.status = filters.value.status
+    if (filters.value.branch) {
+      const branch = branchOptions.value.find(b => b.value === filters.value.branch)
+      if (branch) params.fromBranch = branch.label
+    }
+    const { data } = await getTransfers(params)
+    let results = data.results
+    // Client-side keyword filter — backend lacks a search filter for this endpoint,
+    // so pagination count won't reflect filtered results.
+    if (filters.value.keyword) {
+      const kw = filters.value.keyword.toLowerCase()
+      results = results.filter((t: any) =>
+        (t.资产编号 || '').toLowerCase().includes(kw) ||
+        (t.资产名称 || '').toLowerCase().includes(kw) ||
+        (t.调拨原因 || '').toLowerCase().includes(kw) ||
+        (t.备注 || '').toLowerCase().includes(kw)
+      )
+    }
+    purchaseOrders.value = results.map((t: any) => ({
       id: t.id,
       orderNo: t.id,
-      branch: t.调出分公司 || t.调入分公司 || '',
-      supplier: t.备注 || '',
-      totalCount: t.资产数量 || 0,
+      branch: t.toBranchName || t.fromBranchName || t.调出分公司 || t.调入分公司 || '',
+      supplier: t.调拨原因 || '',
+      totalCount: t.调拨数量 || 0,
       totalAmount: t.备注 || 0,
       status: t.审批状态,
       submitter: t.创建人,
@@ -202,7 +204,7 @@ async function fetchBranches() {
     const { data } = await getBranches()
     branchOptions.value = [
       { value: '', label: '全部分公司' },
-      ...data.map((b: any) => ({ value: b.name, label: b.name }))
+      ...data.map((b: any) => ({ value: b.id, label: b.name }))
     ]
   } catch (error) {
     console.error('Failed to fetch branches:', error)
@@ -225,6 +227,11 @@ async function handleExport() {
     ElMessage.error(handleApiError(error))
   }
 }
+
+// 筛选变化时重新请求
+watch(filters, () => {
+  fetchPurchaseOrders()
+}, { deep: true })
 
 // 初始化
 onMounted(() => {
@@ -362,14 +369,14 @@ onMounted(() => {
                   <button class="action-btn" @click="viewDetail(order)">详情</button>
                   <button
                     v-if="order.status === '待审批'"
-                    class="action-btn primary"
+                    class="action-btn approve"
                     @click="approveOrder(order)"
                   >
-                    审批
+                    通过
                   </button>
                   <button
                     v-if="order.status === '待审批'"
-                    class="action-btn danger"
+                    class="action-btn reject"
                     @click="rejectOrder(order)"
                   >
                     驳回
@@ -614,30 +621,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
-.action-buttons {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.action-btn {
-  padding: var(--space-1) var(--space-3);
-  background: var(--color-bg-elevated);
-  border: none;
-  border-radius: 6px;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.action-btn.primary {
-  background: var(--color-primary-500);
-  color: white;
-}
-
-.action-btn.danger {
-  background: oklch(0.92 0.10 25);
-  color: var(--color-danger);
-}
+@import '@/styles/action-buttons.css';
 
 /* 响应式 */
 @media (max-width: 768px) {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getInventoryTasks } from '@/api/inventories'
 
 interface NavItem {
   icon: string
@@ -19,8 +20,18 @@ const router = useRouter()
 
 const activeMenu = computed(() => route.path)
 const expandedMenu = ref<string | null>(null)
+const inventoryCount = ref(0)
 
-const navItems: NavItem[] = [
+onMounted(async () => {
+  try {
+    const res = await getInventoryTasks({ status: 'pending,in_progress', pageSize: 1 })
+    inventoryCount.value = res.data?.count || 0
+  } catch {
+    inventoryCount.value = 0
+  }
+})
+
+const navItems = computed<NavItem[]>(() => [
   {
     icon: 'dashboard',
     label: '工作台',
@@ -55,14 +66,14 @@ const navItems: NavItem[] = [
     icon: 'scan',
     label: '资产盘点',
     path: '/inventory',
-    badge: 3
+    ...(inventoryCount.value > 0 ? { badge: inventoryCount.value } : {})
   },
   {
     icon: 'organization',
     label: '组织架构',
     path: '/organization'
   }
-]
+])
 
 const navigateTo = (path: string) => {
   router.push(path)

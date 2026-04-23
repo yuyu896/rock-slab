@@ -6,7 +6,7 @@ import { getUsers, createUser, updateUser, deleteUser } from '@/api/users'
 import { getTeams, createTeam, updateTeam, deleteTeam } from '@/api/teams'
 import { handleApiError } from '@/utils/request'
 import { getSystemAvatarSvg, hasSystemAvatar } from '@/utils/avatar'
-import { ROLE_LABELS } from '@/constants'
+import { ROLE_LABELS, BRANCH_CODE_PATTERN, BRANCH_CODE_HINT } from '@/constants'
 import { usePermission } from '@/hooks/usePermission'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Region, Branch, User, Team } from '@/types'
@@ -436,6 +436,10 @@ const editingItem = ref<any>(null)
 const showModal = ref(false)
 const saving = ref(false)
 
+function onCodeInput(e: Event) {
+  editingItem.value.code = (e.target as HTMLInputElement).value.toUpperCase()
+}
+
 const editItem = (item: any, type: string) => {
   editingItem.value = { ...item, type }
   showModal.value = true
@@ -507,6 +511,11 @@ async function saveItem() {
       ElMessage.success(item.isNew ? '创建成功' : '保存成功')
       await fetchRegions()
     } else if (item.type === 'branch') {
+      if (item.code && !new RegExp(BRANCH_CODE_PATTERN).test(item.code)) {
+        ElMessage.warning(`分公司编码格式错误：${BRANCH_CODE_HINT}`)
+        saving.value = false
+        return
+      }
       const payload: Record<string, unknown> = {
         name: item.name,
         code: item.code,
@@ -561,6 +570,7 @@ async function saveItem() {
       }
       ElMessage.success(item.isNew ? '创建成功' : '保存成功')
       await fetchTeams()
+      await fetchUsers()
     }
     showModal.value = false
   } catch (error) {
@@ -662,10 +672,14 @@ async function deleteItem(item: RegionUI | BranchUI | UserUI, type: string) {
     if (type === 'region') {
       await deleteRegion(item.id)
       ElMessage.success('删除成功')
+      if (selectedNodeId.value?.startsWith('region-') && selectedNodeId.value === `region-${item.id}`) {
+        selectedNodeId.value = null
+      }
       await fetchRegions()
     } else if (type === 'branch') {
       await deleteBranch(item.id)
       ElMessage.success('删除成功')
+      selectedNodeId.value = null
       await fetchBranches()
     } else if (type === 'user') {
       await deleteUser(item.id)
@@ -1264,7 +1278,7 @@ onMounted(async () => {
               </div>
               <div class="form-item">
                 <label class="form-label">分公司编码 <span class="required">*</span></label>
-                <input v-model="editingItem.code" type="text" class="form-input" />
+                <input v-model="editingItem.code" type="text" class="form-input" :pattern="BRANCH_CODE_PATTERN" :placeholder="BRANCH_CODE_HINT" @input="onCodeInput" />
               </div>
               <div class="form-item">
                 <label class="form-label">所属区域 <span class="required">*</span></label>

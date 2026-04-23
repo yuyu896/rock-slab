@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   total: number
@@ -15,7 +15,11 @@ const emit = defineEmits<{
   (e: 'change', page: number, pageSize: number): void
 }>()
 
-const internalPageSize = computed(() => props.pageSize)
+const internalPage = ref(props.currentPage)
+const internalPageSize = ref(props.pageSize)
+
+watch(() => props.currentPage, v => internalPage.value = v)
+watch(() => props.pageSize, v => internalPageSize.value = v)
 
 function handleCurrentChange(page: number) {
   emit('change', page, internalPageSize.value)
@@ -29,8 +33,8 @@ function handleSizeChange(size: number) {
 <template>
   <div class="base-pagination">
     <el-pagination
-      v-model:current-page="currentPage"
-      :page-size="internalPageSize"
+      v-model:current-page="internalPage"
+      v-model:page-size="internalPageSize"
       :page-sizes="pageSizes"
       :total="total"
       layout="total, sizes, prev, pager, next, jumper"

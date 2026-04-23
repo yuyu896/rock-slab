@@ -19,23 +19,24 @@ const {
 const showCreateModal = ref(false)
 const creating = ref(false)
 const form = ref({
-  资产编号: '', 资产名称: '', 数量: 1,
-  调出分公司: '', 调入分公司: '', 调出部门: '', 调入部门: '',
+  调拨日期: '', 资产编号: '', 资产名称: '', 调拨数量: 1,
+  fromBranch: '', toBranch: '',
+  调出部门: '', 调入部门: '',
   调出负责人: '', 调入负责人: '', 调拨原因: '', 备注: ''
 })
 
 function openCreateModal() {
-  form.value = { 资产编号: '', 资产名称: '', 数量: 1, 调出分公司: '', 调入分公司: '', 调出部门: '', 调入部门: '', 调出负责人: '', 调入负责人: '', 调拨原因: '', 备注: '' }
+  form.value = { 调拨日期: '', 资产编号: '', 资产名称: '', 调拨数量: 1, fromBranch: '', toBranch: '', 调出部门: '', 调入部门: '', 调出负责人: '', 调入负责人: '', 调拨原因: '', 备注: '' }
   showCreateModal.value = true
 }
 
 async function submitCreate() {
   const f = form.value
-  if (!f.资产编号 || !f.资产名称 || !f.数量) {
+  if (!f.调拨日期 || !f.资产编号 || !f.资产名称 || !f.调拨数量) {
     ElMessage.warning('请填写必填字段')
     return
   }
-  if (f.调出分公司 && f.调出分公司 === f.调入分公司) {
+  if (f.fromBranch && f.toBranch && f.fromBranch === f.toBranch) {
     ElMessage.warning('调出与调入分公司不能相同')
     return
   }
@@ -122,9 +123,9 @@ async function submitCreate() {
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
             <td>
               <div class="action-buttons">
-                <button class="action-btn" title="查看详情" @click="viewDetail(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-                <button v-if="item.审批状态 === '待审批'" class="action-btn primary" title="通过" @click="handleApprove(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>
-                <button v-if="item.审批状态 === '待审批'" class="action-btn danger" title="驳回" @click="handleReject(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <button class="action-btn" @click="viewDetail(item)">详情</button>
+                <button v-if="item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
+                <button v-if="item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
               </div>
             </td>
           </tr>
@@ -176,19 +177,20 @@ async function submitCreate() {
         <div class="modal-header"><h3>新建{{ typeLabel }}</h3><button class="modal-close" @click="showCreateModal = false">&times;</button></div>
         <div class="modal-body">
           <div class="form-grid">
+            <div class="form-item"><label class="form-label">调拨日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
             <div class="form-item"><label class="form-label">资产编号 <span class="required">*</span></label><input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" /></div>
             <div class="form-item"><label class="form-label">资产名称 <span class="required">*</span></label><input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" /></div>
-            <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.数量" type="number" class="form-input" min="1" /></div>
+            <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.调拨数量" type="number" class="form-input" min="1" /></div>
             <div class="form-item">
               <label class="form-label">调出分公司 <span class="required">*</span></label>
-              <select v-model="form.调出分公司" class="form-select">
+              <select v-model="form.fromBranch" class="form-select">
                 <option value="">请选择</option>
                 <option v-for="b in branchOptions.filter(x => x.value)" :key="b.value" :value="b.value">{{ b.label }}</option>
               </select>
             </div>
             <div class="form-item">
               <label class="form-label">调入分公司 <span class="required">*</span></label>
-              <select v-model="form.调入分公司" class="form-select">
+              <select v-model="form.toBranch" class="form-select">
                 <option value="">请选择</option>
                 <option v-for="b in branchOptions.filter(x => x.value)" :key="b.value" :value="b.value">{{ b.label }}</option>
               </select>
@@ -277,12 +279,8 @@ async function submitCreate() {
 .flow-text { font-size: var(--text-sm); color: var(--color-text-secondary); }
 .qty-value { font-weight: 600; font-size: var(--text-base); }
 .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: var(--text-xs); font-weight: 500; }
-.action-buttons { display: flex; gap: var(--space-1); }
-.action-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 6px; color: var(--color-text-tertiary); cursor: pointer; }
-.action-btn:hover { background: var(--color-bg-elevated); color: var(--color-primary-500); }
-.action-btn.primary:hover { background: var(--color-primary-50); color: var(--color-primary-500); }
-.action-btn.danger:hover { background: oklch(0.92 0.10 25); color: var(--color-danger); }
-.action-btn svg { width: 16px; height: 16px; }
+@import '@/styles/action-buttons.css';
+
 .pagination-section { display: flex; justify-content: space-between; align-items: center; }
 .pagination-info { font-size: var(--text-sm); color: var(--color-text-tertiary); }
 .pagination-controls { display: flex; gap: var(--space-1); }
@@ -292,13 +290,13 @@ async function submitCreate() {
 .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .page-btn svg { width: 16px; height: 16px; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { width: 600px; background: var(--color-bg-card); border-radius: 16px; overflow: hidden; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: var(--space-5); border-bottom: 1px solid var(--color-border); }
+.modal-content { width: 640px; background: var(--color-bg-card); border-radius: 16px; overflow: hidden; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--color-border); }
 .modal-header h3 { font-size: var(--text-lg); font-weight: 600; margin: 0; }
 .modal-close { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; font-size: 20px; color: var(--color-text-tertiary); cursor: pointer; border-radius: 6px; }
 .modal-close:hover { background: var(--color-bg-elevated); }
-.modal-body { padding: var(--space-5); }
-.modal-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: var(--space-5); border-top: 1px solid var(--color-border); }
+.modal-body { padding: 20px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: 12px 20px; border-top: 1px solid var(--color-border); }
 .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
 .detail-field { display: flex; flex-direction: column; gap: 4px; }
 .detail-label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
@@ -314,22 +312,21 @@ async function submitCreate() {
 .btn-cancel { height: 40px; padding: 0 var(--space-5); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; }
 .btn-confirm { height: 40px; padding: 0 var(--space-5); background: var(--color-primary-500); border: none; border-radius: 8px; font-size: var(--text-sm); font-weight: 500; color: white; cursor: pointer; }
 .btn-reject { height: 40px; padding: 0 var(--space-5); background: oklch(0.92 0.10 25); border: none; border-radius: 8px; font-size: var(--text-sm); font-weight: 500; color: var(--color-danger); cursor: pointer; }
-.import-step { margin-bottom: var(--space-5); }
+.import-step { margin-bottom: 16px; }
 .import-step-header { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
-.import-step-num { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: var(--color-primary-500); color: white; border-radius: 50%; font-size: var(--text-xs); font-weight: 600; }
+.import-step-num { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: var(--color-primary-500); color: white; border-radius: 50%; font-size: var(--text-xs); font-weight: 600; }
 .import-step-title { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
-.import-step-desc { font-size: var(--text-xs); color: var(--color-text-tertiary); margin: 0 0 var(--space-3) 32px; }
-.import-template-btn { margin-left: 32px; }
+.import-step-desc { font-size: var(--text-xs); color: var(--color-text-tertiary); margin: 0 0 var(--space-2); }
 .import-template-btn svg { width: 16px; height: 16px; }
-.import-upload-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); border: 2px dashed var(--color-border); border-radius: 12px; cursor: pointer; color: var(--color-text-secondary); font-size: var(--text-sm); margin-left: 32px; }
+.import-upload-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px; border: 2px dashed var(--color-border); border-radius: 12px; cursor: pointer; color: var(--color-text-secondary); font-size: var(--text-sm); }
 .import-upload-area:hover { border-color: var(--color-primary-300); background: var(--color-primary-50); }
 .import-upload-area.upload-loading { cursor: not-allowed; opacity: 0.7; }
-.import-upload-area svg { width: 32px; height: 32px; }
+.import-upload-area svg { width: 24px; height: 24px; }
 .import-upload-hint { font-size: var(--text-xs); color: var(--color-text-tertiary); }
 .import-file-input { display: none; }
-.import-spinner { width: 24px; height: 24px; border: 3px solid var(--color-border); border-top-color: var(--color-primary-500); border-radius: 50%; animation: import-spin 0.8s linear infinite; }
+.import-spinner { width: 20px; height: 20px; border: 2px solid var(--color-border); border-top-color: var(--color-primary-500); border-radius: 50%; animation: import-spin 0.8s linear infinite; }
 @keyframes import-spin { to { transform: rotate(360deg); } }
-.import-result { margin-left: 32px; padding: var(--space-4); background: var(--color-bg-page); border-radius: 8px; border: 1px solid var(--color-border); }
+.import-result { padding: var(--space-3); background: var(--color-bg-page); border-radius: 8px; border: 1px solid var(--color-border); }
 .import-result-header { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); font-weight: 600; }
 .result-success { color: var(--color-primary-600); }
 .result-partial { color: var(--color-text-primary); }

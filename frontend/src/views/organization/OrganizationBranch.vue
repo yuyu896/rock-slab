@@ -23,7 +23,18 @@ function getUserName(users: any[], id?: string) {
 </script>
 
 <template>
-  <div class="table-container">
+  <div>
+    <div v-if="branches.length === 0" class="empty-main">
+      <div class="empty-content">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        <h3>暂无分公司数据</h3>
+        <p>点击"新增分公司"按钮创建第一个分公司</p>
+      </div>
+    </div>
+    <div v-else class="table-container">
     <table class="data-table">
       <thead>
         <tr>
@@ -85,6 +96,7 @@ function getUserName(users: any[], id?: string) {
         </tr>
       </tbody>
     </table>
+    </div>
   </div>
 </template>
 
@@ -241,5 +253,35 @@ function getUserName(users: any[], id?: string) {
 
 .toggle-input:checked + .toggle-slider::after {
   transform: translateX(16px);
+}
+
+.empty-main {
+  height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-content {
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+
+.empty-content svg {
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--space-4);
+  opacity: 0.4;
+}
+
+.empty-content h3 {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.empty-content p {
+  font-size: var(--text-sm);
+  margin: 0;
 }
 </style>

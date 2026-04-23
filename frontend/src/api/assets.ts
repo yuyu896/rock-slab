@@ -13,7 +13,7 @@ export function getAssets(params?: PaginationParams & {
 }
 
 export function getAsset(id: string) {
-  return request.get<Asset>(`/api/assets/${id}/`)
+  return request.get<Asset>(`/api/assets/${id}`)
 }
 
 export function createAsset(data: Partial<Asset>) {
@@ -21,18 +21,18 @@ export function createAsset(data: Partial<Asset>) {
 }
 
 export function updateAsset(id: string, data: Partial<Asset>) {
-  return request.put<Asset>(`/api/assets/${id}/`, data)
+  return request.put<Asset>(`/api/assets/${id}`, data)
 }
 
 export function deleteAsset(id: string) {
-  return request.delete(`/api/assets/${id}/`)
+  return request.delete(`/api/assets/${id}`)
 }
 
 /** Excel 批量导入 */
 export function importAssets(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<{ imported: number; errors: string[] }>('/api/assets/import/', formData, {
+  return request.post<{ imported: number; errors: string[] }>('/api/assets/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }

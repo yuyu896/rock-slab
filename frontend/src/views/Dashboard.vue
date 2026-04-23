@@ -72,8 +72,6 @@ function getTransferTypeName(actionType?: string): string {
     assign: '领用出库',
     return: '资产归还',
     transfer: '调拨申请',
-    repair: '维修申请',
-    scrap: '报废申请',
   }
   return typeMap[actionType || ''] || '流转单据'
 }
@@ -173,8 +171,6 @@ const getTaskTypeColor = (type: string) => {
     '领用出库': 'var(--color-warning)',
     '资产盘点': 'var(--color-info)',
     '调拨申请': 'var(--color-primary-500)',
-    '维修申请': '#8b5cf6',
-    '报废申请': 'var(--color-danger)',
     '资产归还': '#06b6d4',
   }
   return colors[type] || 'var(--color-text-tertiary)'
@@ -186,8 +182,6 @@ const getActionColor = (action: string) => {
     '出库': 'var(--color-warning)',
     '调拨': 'var(--color-primary-500)',
     '盘点': 'var(--color-info)',
-    '报废': 'var(--color-danger)',
-    '维修': '#8b5cf6',
     '归还': '#06b6d4',
   }
   return colors[action] || 'var(--color-text-tertiary)'

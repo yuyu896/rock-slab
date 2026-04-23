@@ -50,12 +50,14 @@ export const APPROVAL_STATUS_OPTIONS: { value: ApprovalStatusType; label: string
   { value: '待审批', label: '待审批' },
   { value: '已通过', label: '已通过' },
   { value: '已驳回', label: '已驳回' },
+  { value: '已入库', label: '已入库' },
 ]
 
 export const APPROVAL_STATUS_COLORS: Record<ApprovalStatusType, { bg: string; color: string }> = {
   '待审批': { bg: 'var(--color-approval-pending-bg)', color: 'var(--color-approval-pending-text)' },
   '已通过': { bg: 'var(--color-approval-approved-bg)', color: 'var(--color-approval-approved-text)' },
   '已驳回': { bg: 'var(--color-approval-rejected-bg)', color: 'var(--color-approval-rejected-text)' },
+  '已入库': { bg: 'var(--color-status-in-stock-bg)', color: 'var(--color-status-in-stock-text)' },
 }
 
 // ============ 盘点任务状态 ============
@@ -147,3 +149,8 @@ export const REPEAT_RULE_LABELS: Record<RepeatRuleType, string> = {
   last: '以最后一次为准',
   accumulate: '累计数量',
 }
+
+// ============ 分公司编号格式 ============
+
+export const BRANCH_CODE_PATTERN = '^[A-Z]{2,4}[0-9]{3}$'
+export const BRANCH_CODE_HINT = '2-4位大写字母(城市缩写)+3位数字，如 SH001'

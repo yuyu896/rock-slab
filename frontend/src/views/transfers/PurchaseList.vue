@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useTransferList } from '@/composables/useTransferList'
-import { purchaseAsset } from '@/api/transfers'
+import { purchaseAsset, warehouseTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import type { Transfer } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 
 const {
@@ -18,22 +19,29 @@ const {
 
 const showCreateModal = ref(false)
 const creating = ref(false)
-const form = ref({ 资产编号: '', 资产名称: '', 数量: 1, 规格型号: '', 备注: '' })
+const form = ref({ 调拨日期: '', 资产编号: '', 资产名称: '', 调拨数量: 1, toBranch: '', 备注: '' })
 
 function openCreateModal() {
-  form.value = { 资产编号: '', 资产名称: '', 数量: 1, 规格型号: '', 备注: '' }
+  form.value = { 调拨日期: '', 资产编号: '', 资产名称: '', 调拨数量: 1, toBranch: '', 备注: '' }
   showCreateModal.value = true
 }
 
 async function submitCreate() {
   const f = form.value
-  if (!f.资产编号 || !f.资产名称 || !f.数量) {
+  if (!f.调拨日期 || !f.资产编号 || !f.资产名称 || !f.调拨数量 || !f.toBranch) {
     ElMessage.warning('请填写必填字段')
     return
   }
   creating.value = true
   try {
-    await purchaseAsset({ ...f })
+    await purchaseAsset({
+      调拨日期: f.调拨日期,
+      资产编号: f.资产编号,
+      资产名称: f.资产名称,
+      调拨数量: f.调拨数量,
+      toBranch: f.toBranch,
+      备注: f.备注,
+    })
     ElMessage.success('提交成功')
     showCreateModal.value = false
     await fetchTransfers()
@@ -41,6 +49,16 @@ async function submitCreate() {
     ElMessage.error(handleApiError(error))
   } finally {
     creating.value = false
+  }
+}
+
+async function handleWarehouse(item: Transfer) {
+  try {
+    await warehouseTransfer(item.id)
+    ElMessage.success('入库成功')
+    await fetchTransfers()
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
   }
 }
 </script>
@@ -72,7 +90,7 @@ async function submitCreate() {
       <div class="stat-card"><div class="stat-content"><span class="stat-value">{{ stats.total }}</span><span class="stat-label">流转总数</span></div></div>
       <div class="stat-card pending"><div class="stat-content"><span class="stat-value">{{ stats.pending }}</span><span class="stat-label">待审批</span></div></div>
       <div class="stat-card success"><div class="stat-content"><span class="stat-value">{{ stats.approved }}</span><span class="stat-label">已通过</span></div></div>
-      <div class="stat-card danger"><div class="stat-content"><span class="stat-value">{{ stats.rejected }}</span><span class="stat-label">已驳回</span></div></div>
+      <div class="stat-card warehoused"><div class="stat-content"><span class="stat-value">{{ stats.warehoused }}</span><span class="stat-label">已入库</span></div></div>
     </div>
 
     <div class="filter-section">
@@ -103,9 +121,10 @@ async function submitCreate() {
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
             <td>
               <div class="action-buttons">
-                <button class="action-btn" title="查看详情" @click="viewDetail(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-                <button v-if="item.审批状态 === '待审批'" class="action-btn primary" title="通过" @click="handleApprove(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>
-                <button v-if="item.审批状态 === '待审批'" class="action-btn danger" title="驳回" @click="handleReject(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <button class="action-btn" @click="viewDetail(item)">详情</button>
+                <button v-if="item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
+                <button v-if="item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
+                <button v-if="item.审批状态 === '已通过'" class="action-btn warehouse" @click="handleWarehouse(item)">入库</button>
               </div>
             </td>
           </tr>
@@ -131,6 +150,7 @@ async function submitCreate() {
             <div class="detail-field"><span class="detail-label">资产编号</span><span class="detail-value code">{{ detailItem.资产编号 }}</span></div>
             <div class="detail-field"><span class="detail-label">资产名称</span><span class="detail-value">{{ detailItem.资产名称 }}</span></div>
             <div class="detail-field"><span class="detail-label">数量</span><span class="detail-value">{{ detailItem.调拨数量 || '-' }}</span></div>
+            <div class="detail-field"><span class="detail-label">入库分公司</span><span class="detail-value">{{ detailItem.toBranchName || detailItem.调入分公司 || '-' }}</span></div>
             <div class="detail-field"><span class="detail-label">备注</span><span class="detail-value">{{ detailItem.备注 || '-' }}</span></div>
             <div v-if="detailItem.审批人" class="detail-field"><span class="detail-label">审批人</span><span class="detail-value">{{ detailItem.审批人 }}</span></div>
             <div class="detail-field"><span class="detail-label">创建时间</span><span class="detail-value">{{ detailItem.createdAt?.slice(0, 10) }}</span></div>
@@ -139,6 +159,7 @@ async function submitCreate() {
         <div class="modal-footer">
           <button v-if="detailItem?.审批状态 === '待审批'" class="btn-reject" @click="handleReject(detailItem); showDetailModal = false">驳回</button>
           <button v-if="detailItem?.审批状态 === '待审批'" class="btn-confirm" @click="handleApprove(detailItem); showDetailModal = false">通过</button>
+          <button v-if="detailItem?.审批状态 === '已通过'" class="btn-confirm" @click="handleWarehouse(detailItem); showDetailModal = false">入库</button>
           <button class="btn-cancel" @click="showDetailModal = false">关闭</button>
         </div>
       </div>
@@ -150,10 +171,17 @@ async function submitCreate() {
         <div class="modal-header"><h3>新建{{ typeLabel }}</h3><button class="modal-close" @click="showCreateModal = false">&times;</button></div>
         <div class="modal-body">
           <div class="form-grid">
+            <div class="form-item"><label class="form-label">日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
+            <div class="form-item">
+              <label class="form-label">入库分公司 <span class="required">*</span></label>
+              <select v-model="form.toBranch" class="form-select">
+                <option value="">请选择分公司</option>
+                <option v-for="b in branchOptions.filter(x => x.value)" :key="b.value" :value="b.value">{{ b.label }}</option>
+              </select>
+            </div>
             <div class="form-item"><label class="form-label">资产编号 <span class="required">*</span></label><input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" /></div>
             <div class="form-item"><label class="form-label">资产名称 <span class="required">*</span></label><input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" /></div>
-            <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.数量" type="number" class="form-input" min="1" /></div>
-            <div class="form-item"><label class="form-label">规格型号</label><input v-model="form.规格型号" type="text" class="form-input" /></div>
+            <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.调拨数量" type="number" class="form-input" min="1" /></div>
             <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
           </div>
         </div>
@@ -209,6 +237,7 @@ async function submitCreate() {
 .stat-card.pending { border-left: 4px solid oklch(0.60 0.14 85); }
 .stat-card.success { border-left: 4px solid var(--color-success); }
 .stat-card.danger { border-left: 4px solid var(--color-danger); }
+.stat-card.warehoused { border-left: 4px solid var(--color-success); }
 .stat-content { display: flex; flex-direction: column; }
 .stat-value { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-primary); }
 .stat-label { font-size: var(--text-sm); color: var(--color-text-tertiary); margin-top: var(--space-1); }
@@ -231,12 +260,8 @@ async function submitCreate() {
 .asset-name { font-weight: 500; }
 .qty-value { font-weight: 600; }
 .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: var(--text-xs); font-weight: 500; }
-.action-buttons { display: flex; gap: var(--space-1); }
-.action-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 6px; color: var(--color-text-tertiary); cursor: pointer; }
-.action-btn:hover { background: var(--color-bg-elevated); color: var(--color-primary-500); }
-.action-btn.primary:hover { background: var(--color-primary-50); color: var(--color-primary-500); }
-.action-btn.danger:hover { background: oklch(0.92 0.10 25); color: var(--color-danger); }
-.action-btn svg { width: 16px; height: 16px; }
+@import '@/styles/action-buttons.css';
+
 .pagination-section { display: flex; justify-content: space-between; align-items: center; }
 .pagination-info { font-size: var(--text-sm); color: var(--color-text-tertiary); }
 .pagination-controls { display: flex; gap: var(--space-1); }
@@ -246,12 +271,13 @@ async function submitCreate() {
 .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .page-btn svg { width: 16px; height: 16px; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { width: 600px; background: var(--color-bg-card); border-radius: 16px; overflow: hidden; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: var(--space-5); border-bottom: 1px solid var(--color-border); }
+.modal-content { width: 640px; background: var(--color-bg-card); border-radius: 16px; overflow: hidden; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--color-border); }
 .modal-header h3 { font-size: var(--text-lg); font-weight: 600; margin: 0; }
 .modal-close { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; font-size: 20px; color: var(--color-text-tertiary); cursor: pointer; border-radius: 6px; }
-.modal-body { padding: var(--space-5); }
-.modal-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: var(--space-5); border-top: 1px solid var(--color-border); }
+.modal-close:hover { background: var(--color-bg-elevated); }
+.modal-body { padding: 20px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: 12px 20px; border-top: 1px solid var(--color-border); }
 .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
 .detail-field { display: flex; flex-direction: column; gap: 4px; }
 .detail-label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
@@ -262,27 +288,26 @@ async function submitCreate() {
 .form-item.full { grid-column: span 2; }
 .form-label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-primary); }
 .required { color: var(--color-danger); }
-.form-input, .form-textarea { height: 40px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); }
+.form-input, .form-select, .form-textarea { height: 40px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); }
 .form-textarea { height: auto; padding: var(--space-3); resize: vertical; }
 .btn-cancel { height: 40px; padding: 0 var(--space-5); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; }
 .btn-confirm { height: 40px; padding: 0 var(--space-5); background: var(--color-primary-500); border: none; border-radius: 8px; font-size: var(--text-sm); font-weight: 500; color: white; cursor: pointer; }
 .btn-reject { height: 40px; padding: 0 var(--space-5); background: oklch(0.92 0.10 25); border: none; border-radius: 8px; font-size: var(--text-sm); font-weight: 500; color: var(--color-danger); cursor: pointer; }
-.import-step { margin-bottom: var(--space-5); }
+.import-step { margin-bottom: 16px; }
 .import-step-header { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
-.import-step-num { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: var(--color-primary-500); color: white; border-radius: 50%; font-size: var(--text-xs); font-weight: 600; }
+.import-step-num { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: var(--color-primary-500); color: white; border-radius: 50%; font-size: var(--text-xs); font-weight: 600; }
 .import-step-title { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
-.import-step-desc { font-size: var(--text-xs); color: var(--color-text-tertiary); margin: 0 0 var(--space-3) 32px; }
-.import-template-btn { margin-left: 32px; }
+.import-step-desc { font-size: var(--text-xs); color: var(--color-text-tertiary); margin: 0 0 var(--space-2); }
 .import-template-btn svg { width: 16px; height: 16px; }
-.import-upload-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); border: 2px dashed var(--color-border); border-radius: 12px; cursor: pointer; color: var(--color-text-secondary); font-size: var(--text-sm); margin-left: 32px; }
+.import-upload-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px; border: 2px dashed var(--color-border); border-radius: 12px; cursor: pointer; color: var(--color-text-secondary); font-size: var(--text-sm); }
 .import-upload-area:hover { border-color: var(--color-primary-300); background: var(--color-primary-50); }
 .import-upload-area.upload-loading { cursor: not-allowed; opacity: 0.7; }
-.import-upload-area svg { width: 32px; height: 32px; }
+.import-upload-area svg { width: 24px; height: 24px; }
 .import-upload-hint { font-size: var(--text-xs); color: var(--color-text-tertiary); }
 .import-file-input { display: none; }
-.import-spinner { width: 24px; height: 24px; border: 3px solid var(--color-border); border-top-color: var(--color-primary-500); border-radius: 50%; animation: import-spin 0.8s linear infinite; }
+.import-spinner { width: 20px; height: 20px; border: 2px solid var(--color-border); border-top-color: var(--color-primary-500); border-radius: 50%; animation: import-spin 0.8s linear infinite; }
 @keyframes import-spin { to { transform: rotate(360deg); } }
-.import-result { margin-left: 32px; padding: var(--space-4); background: var(--color-bg-page); border-radius: 8px; border: 1px solid var(--color-border); }
+.import-result { padding: var(--space-3); background: var(--color-bg-page); border-radius: 8px; border: 1px solid var(--color-border); }
 .import-result-header { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); font-weight: 600; }
 .result-success { color: var(--color-primary-600); }
 .result-partial { color: var(--color-text-primary); }

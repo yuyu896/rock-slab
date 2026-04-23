@@ -36,7 +36,7 @@ const emit = defineEmits<{
 const personnelKeyword = ref('')
 const personnelRoleFilter = ref('')
 const personnelRegionFilter = ref('')
-const personnelStatusFilter = ref('')
+const personnelStatusFilter = ref('active')
 
 const filteredUsers = computed(() => {
   let result = props.users

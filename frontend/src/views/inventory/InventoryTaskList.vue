@@ -112,7 +112,20 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
             class="filter-select"
             aria-label="筛选任务状态"
           >
+            <option value="">全部状态</option>
             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <select
+            :value="filters.branch"
+            @change="emit('update:filters', { ...filters, branch: ($event.target as HTMLSelectElement).value })"
+            class="filter-select"
+            aria-label="筛选分公司"
+          >
+            <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>
           </select>

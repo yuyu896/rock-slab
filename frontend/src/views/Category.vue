@@ -418,8 +418,8 @@ onMounted(() => {
             <th>资产名称</th>
             <th>资产编号</th>
             <th>计量单位</th>
-            <th>资产数量</th>
-            <th>在库数量</th>
+            <th>资产总数量</th>
+            <th>在库总数量</th>
             <th>警戒线</th>
             <th>库存状态</th>
             <th>操作</th>
@@ -439,7 +439,8 @@ onMounted(() => {
               <span class="asset-code">{{ item.资产编号 }}</span>
             </td>
             <td>{{ item.计量单位 }}</td>
-            <td>{{ item.资产数量 }}</td>
+            <td>{{ item.资产总数量 }}</td>
+            <td>{{ item.在库总数量 }}</td>
             <td>{{ item.在库数量 }}</td>
             <td>{{ item.警戒线 }}</td>
             <td>
@@ -494,12 +495,12 @@ onMounted(() => {
         </div>
         <div class="card-stats">
           <div class="stat-item">
-            <span class="stat-num">{{ item.在库数量 }}</span>
+            <span class="stat-num">{{ item.在库总数量 }}</span>
             <span class="stat-label">在库</span>
           </div>
           <div class="stat-divider" />
           <div class="stat-item">
-            <span class="stat-num">{{ item.资产数量 }}</span>
+            <span class="stat-num">{{ item.资产总数量 }}</span>
             <span class="stat-label">总数</span>
           </div>
           <div class="stat-divider" />

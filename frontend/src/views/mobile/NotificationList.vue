@@ -28,9 +28,9 @@ async function fetchNotifications(loadMore = false) {
       isRead: filterUnreadOnly.value ? false : undefined,
     })
     if (!loadMore) {
-      notifications.value = result.results || []
+      notifications.value = result?.results || []
     }
-    const results = result.results || []
+    const results = result?.results || []
     hasMore.value = results.length >= pageSize
   } catch {
     ElMessage.error('获取通知列表失败')

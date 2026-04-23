@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { getAssets, createAsset, exportAssets } from '@/api/assets'
+import { getAssets, createAsset, updateAsset, deleteAsset, exportAssets } from '@/api/assets'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { getTransfers } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { formatMoney } from '@/utils/format'
 import { ASSET_STATUS_OPTIONS } from '@/constants'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { usePermission } from '@/hooks/usePermission'
 import type { Asset, Category, Transfer } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -15,6 +16,9 @@ import AssetDetailDrawer from './assets/AssetDetailDrawer.vue'
 import AssetImportDialog from './assets/AssetImportDialog.vue'
 import AssetCreateForm from './assets/AssetCreateForm.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
+import AssetEditDrawer from './assets/AssetEditDrawer.vue'
+
+const { canManageAssets } = usePermission()
 
 // 筛选条件
 const filters = ref({
@@ -31,12 +35,8 @@ function applyQuickFilter(type: string) {
   quickFilter.value = type
   if (type === 'lowStock') {
     filters.value.status = ''
-    // 库存不足的筛选需要后端支持，暂时用关键词过滤
-  } else if (type === 'repair') {
-    filters.value.status = '维修中'
   } else if (type === 'newMonth') {
     filters.value.status = ''
-    // 本月新增需要后端支持
   } else {
     filters.value.status = ''
   }
@@ -82,6 +82,46 @@ async function viewDetail(asset: Asset) {
     detailTransfers.value = []
   } finally {
     detailLoading.value = false
+  }
+}
+
+// ===== 编辑资产 =====
+const showEditDrawer = ref(false)
+const editingAsset = ref<Asset | null>(null)
+
+function openEdit(asset: Asset) {
+  editingAsset.value = { ...asset }
+  showEditDrawer.value = true
+}
+
+async function handleUpdateAsset(payload: Partial<Asset>) {
+  if (!editingAsset.value) return
+  try {
+    await updateAsset(editingAsset.value.id, payload)
+    ElMessage.success('资产更新成功')
+    showEditDrawer.value = false
+    editingAsset.value = null
+    await fetchAssets()
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  }
+}
+
+// ===== 删除资产 =====
+async function handleDelete(asset: Asset) {
+  try {
+    await ElMessageBox.confirm(
+      '确定删除该资产？此操作不可恢复',
+      '删除确认',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    await deleteAsset(asset.id)
+    ElMessage.success('资产已删除')
+    await fetchAssets()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(handleApiError(error))
+    }
   }
 }
 
@@ -357,7 +397,6 @@ onMounted(() => {
       <div class="quick-filters">
         <span class="quick-filter-label">快捷筛选：</span>
         <button class="quick-filter-tag" :class="{ active: quickFilter === 'lowStock' }" @click="applyQuickFilter('lowStock')">库存不足</button>
-        <button class="quick-filter-tag" :class="{ active: quickFilter === 'repair' }" @click="applyQuickFilter('repair')">待维修</button>
         <button class="quick-filter-tag" :class="{ active: quickFilter === 'newMonth' }" @click="applyQuickFilter('newMonth')">本月新增</button>
         <button class="quick-filter-tag" :class="{ active: quickFilter === '' }" @click="applyQuickFilter('')">全部</button>
       </div>
@@ -387,13 +426,6 @@ onMounted(() => {
             <line x1="1" y1="10" x2="23" y2="10"/>
           </svg>
           批量调拨
-        </button>
-        <button class="batch-btn danger">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-          </svg>
-          批量报废
         </button>
       </div>
     </div>
@@ -483,11 +515,16 @@ onMounted(() => {
                     <rect x="6" y="14" width="12" height="8"/>
                   </svg>
                 </button>
-                <button class="action-btn" title="更多">
+                <button v-if="canManageAssets" class="action-btn" title="编辑" @click="openEdit(asset)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="1"/>
-                    <circle cx="19" cy="12" r="1"/>
-                    <circle cx="5" cy="12" r="1"/>
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+                <button v-if="canManageAssets" class="action-btn danger" title="删除" @click="handleDelete(asset)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                   </svg>
                 </button>
               </div>
@@ -513,6 +550,16 @@ onMounted(() => {
       :transfers="detailTransfers"
       :loading="detailLoading"
       @close="showDetailDrawer = false"
+    />
+
+    <!-- 编辑资产抽屉 -->
+    <AssetEditDrawer
+      v-if="showEditDrawer && editingAsset"
+      :visible="showEditDrawer"
+      :asset="editingAsset"
+      :branch-options="branchOptions"
+      @close="showEditDrawer = false"
+      @update="handleUpdateAsset"
     />
 
     <!-- 新增资产弹窗 -->
@@ -932,6 +979,11 @@ onMounted(() => {
 .action-btn:hover {
   background: var(--color-bg-elevated);
   color: var(--color-primary-500);
+}
+
+.action-btn.danger:hover {
+  background: oklch(0.97 0.02 25);
+  color: var(--color-danger);
 }
 
 .action-btn:focus-visible {

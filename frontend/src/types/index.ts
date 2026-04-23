@@ -26,6 +26,7 @@ export const ApprovalStatus = {
   PENDING: '待审批',
   APPROVED: '已通过',
   REJECTED: '已驳回',
+  WAREHOUSED: '已入库',
 } as const
 export type ApprovalStatusType = (typeof ApprovalStatus)[keyof typeof ApprovalStatus]
 
@@ -109,6 +110,8 @@ export interface Category {
   备注?: string
   资产数量?: number
   在库数量?: number
+  资产总数量?: number
+  在库总数量?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -189,7 +192,7 @@ export interface Team {
 }
 
 /** 调拨/流转记录 */
-export type TransferActionType = 'purchase' | 'assign' | 'return' | 'transfer' | 'repair' | 'scrap'
+export type TransferActionType = 'purchase' | 'assign' | 'return' | 'transfer'
 
 export interface Transfer {
   id: string
@@ -200,6 +203,8 @@ export interface Transfer {
   调入部门?: string
   from_branch?: string
   to_branch?: string
+  fromBranch?: string
+  toBranch?: string
   fromBranchName?: string
   toBranchName?: string
   资产编号: string
@@ -211,8 +216,6 @@ export interface Transfer {
   调入负责人?: string
   使用人?: string
   所属部门?: string
-  维修原因?: string
-  报废原因?: string
   备注?: string
   审批状态: ApprovalStatusType
   审批人?: string

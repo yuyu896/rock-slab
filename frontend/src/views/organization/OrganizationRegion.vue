@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ROLE_LABELS } from '@/constants'
+import type { UserRoleType } from '@/types'
+
+const getRoleLabel = (role: string | undefined) => ROLE_LABELS[(role ?? 'staff') as UserRoleType] || ''
 
 interface RegionUI {
   id: string
@@ -55,7 +58,18 @@ function getUserName(users: UserUI[], id?: string) {
 </script>
 
 <template>
-  <div class="region-grid">
+  <div>
+    <div v-if="regions.length === 0" class="empty-main">
+      <div class="empty-content">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+        <h3>暂无区域数据</h3>
+        <p>点击"新增区域"按钮创建第一个区域</p>
+      </div>
+    </div>
+    <div v-else class="region-grid">
     <div v-for="region in regions" :key="region.id" class="region-card">
       <div class="region-header">
         <div class="region-info">
@@ -82,7 +96,7 @@ function getUserName(users: UserUI[], id?: string) {
         <div class="manager-avatar">{{ getUserName(users, region.manager).charAt(0) }}</div>
         <div class="manager-info">
           <span class="manager-name">{{ getUserName(users, region.manager) }}</span>
-          <span class="manager-role">{{ ROLE_LABELS[users.find(u => u.id === region.manager)?.role ?? 'staff'] || '' }}</span>
+          <span class="manager-role">{{ getRoleLabel(users.find(u => u.id === region.manager)?.role) }}</span>
         </div>
       </div>
 
@@ -108,6 +122,7 @@ function getUserName(users: UserUI[], id?: string) {
           <span class="toggle-label">{{ region.status === 'active' ? '运营中' : '已停用' }}</span>
         </label>
       </div>
+    </div>
     </div>
   </div>
 </template>
@@ -302,5 +317,35 @@ function getUserName(users: UserUI[], id?: string) {
 .toggle-label {
   font-size: var(--text-xs);
   color: var(--color-text-secondary);
+}
+
+.empty-main {
+  height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-content {
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+
+.empty-content svg {
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--space-4);
+  opacity: 0.4;
+}
+
+.empty-content h3 {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.empty-content p {
+  font-size: var(--text-sm);
+  margin: 0;
 }
 </style>

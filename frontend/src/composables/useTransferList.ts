@@ -4,6 +4,7 @@ import {
   approveTransfer as approveTransferApi, rejectTransfer as rejectTransferApi,
   importTransfers, exportTransfers
 } from '@/api/transfers'
+import { generateTransferTemplate } from '@/utils/importTemplate'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { APPROVAL_STATUS_OPTIONS, APPROVAL_STATUS_COLORS } from '@/constants'
@@ -45,7 +46,8 @@ export function useTransferList(type: TransferType) {
     total: pagination.value.total,
     pending: transfers.value.filter(t => t.审批状态 === '待审批').length,
     approved: transfers.value.filter(t => t.审批状态 === '已通过').length,
-    rejected: transfers.value.filter(t => t.审批状态 === '已驳回').length
+    rejected: transfers.value.filter(t => t.审批状态 === '已驳回').length,
+    warehoused: transfers.value.filter(t => t.审批状态 === '已入库').length,
   }))
 
   async function fetchTransfers() {
@@ -73,7 +75,7 @@ export function useTransferList(type: TransferType) {
       const { data } = await getBranches()
       branchOptions.value = [
         { value: '', label: '全部分公司' },
-        ...data.map((b: any) => ({ value: b.name, label: b.name }))
+        ...data.map((b: any) => ({ value: b.id, label: b.name }))
       ]
     } catch (error) {
       console.error('Failed to fetch branches:', error)
@@ -137,19 +139,14 @@ export function useTransferList(type: TransferType) {
     showImportModal.value = true
   }
 
-  async function handleDownloadTemplate() {
-    try {
-      const { data } = await exportTransfers()
-      const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = '流转记录导入模板.xlsx'
-      link.click()
-      URL.revokeObjectURL(url)
-    } catch (error) {
-      ElMessage.error(handleApiError(error))
+  function handleDownloadTemplate() {
+    const templateConfig: Record<TransferType, { filename: string }> = {
+      purchase: { filename: '采购入库导入模板' },
+      assign: { filename: '领用出库导入模板' },
+      transfer: { filename: '调拨导入模板' },
     }
+    const { filename } = templateConfig[type]
+    generateTransferTemplate(filename, type)
   }
 
   async function handleImportFile(event: Event) {
@@ -167,7 +164,7 @@ export function useTransferList(type: TransferType) {
     importLoading.value = true
     importResult.value = null
     try {
-      const { data } = await importTransfers(file)
+      const { data } = await importTransfers(file, type)
       importResult.value = data
       if (data.errors.length === 0) {
         ElMessage.success(`成功导入 ${data.imported} 条流转记录`)

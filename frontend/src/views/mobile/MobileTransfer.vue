@@ -13,10 +13,11 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const form = ref({
+  调拨日期: '',
   资产编号: '',
   资产名称: '',
-  调出分公司: '',
-  调入分公司: '',
+  fromBranch: '',
+  toBranch: '',
   调拨数量: 1,
   调拨原因: '',
   备注: '',
@@ -41,7 +42,7 @@ async function fetchOptions() {
     branches.value = Array.isArray(branchRes.data) ? branchRes.data : (branchRes.data as any).results || []
     // 默认调出分公司为当前用户所属分公司
     if (currentBranch.value) {
-      form.value.调出分公司 = currentBranch.value
+      form.value.fromBranch = currentBranch.value
     }
   } catch {
     // options loading failure is non-fatal
@@ -55,7 +56,7 @@ async function handleSubmit() {
     ElMessage.warning('请输入资产编号')
     return
   }
-  if (!form.value.调入分公司) {
+  if (!form.value.toBranch) {
     ElMessage.warning('请选择调入分公司')
     return
   }
@@ -67,10 +68,11 @@ async function handleSubmit() {
   submitting.value = true
   try {
     await transferAsset({
+      调拨日期: form.value.调拨日期 || new Date().toISOString().slice(0, 10),
       资产编号: form.value.资产编号.trim(),
       资产名称: form.value.资产名称.trim(),
-      调出分公司: form.value.调出分公司,
-      调入分公司: form.value.调入分公司,
+      fromBranch: form.value.fromBranch || undefined,
+      toBranch: form.value.toBranch || undefined,
       调拨数量: form.value.调拨数量,
       调拨原因: form.value.调拨原因,
       备注: form.value.备注,
@@ -130,9 +132,9 @@ onMounted(() => {
 
       <div class="form-group">
         <label class="form-label">调出分公司</label>
-        <select v-model="form.调出分公司" class="form-select">
+        <select v-model="form.fromBranch" class="form-select">
           <option value="">请选择调出分公司</option>
-          <option v-for="branch in branches" :key="branch.id" :value="branch.name">
+          <option v-for="branch in branches" :key="branch.id" :value="branch.id">
             {{ branch.name }}
           </option>
         </select>
@@ -140,9 +142,9 @@ onMounted(() => {
 
       <div class="form-group">
         <label class="form-label">调入分公司 <span class="required">*</span></label>
-        <select v-model="form.调入分公司" class="form-select">
+        <select v-model="form.toBranch" class="form-select">
           <option value="">请选择调入分公司</option>
-          <option v-for="branch in branches" :key="branch.id" :value="branch.name">
+          <option v-for="branch in branches" :key="branch.id" :value="branch.id">
             {{ branch.name }}
           </option>
         </select>
