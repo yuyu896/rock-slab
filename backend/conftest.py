@@ -88,7 +88,7 @@ def branch(db, region):
     from apps.organizations.models import Branch
     return Branch.objects.create(
         name='测试分公司',
-        code='TEST-001',
+        code='CS001',
         region=region,
         status='active',
     )

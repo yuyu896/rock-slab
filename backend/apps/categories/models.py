@@ -19,6 +19,8 @@ class Category(UUIDModel, TimestampedModel):
     attribute_template = models.JSONField('属性模板', default=dict, blank=True)
     asset_count = models.IntegerField('资产数量', default=0)
     in_stock_count = models.IntegerField('在库数量', default=0)
+    asset_total_quantity = models.IntegerField('资产总数量', default=0)
+    in_stock_quantity = models.IntegerField('在库总数量', default=0)
 
     class Meta:
         db_table = 'categories_category'

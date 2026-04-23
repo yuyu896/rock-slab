@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q, Max
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth import get_user_model
@@ -41,9 +42,9 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         # 按日期分组统计
         daily_stats = AuditLog.objects.filter(
             created_at__date__gte=week_ago,
-        ).extra({
-            'date': "date(created_at)"
-        }).values('date').annotate(
+        ).annotate(
+            date=TruncDate('created_at')
+        ).values('date').annotate(
             total=Count('id'),
             success=Count('id', filter=Q(is_success=True)),
             failed=Count('id', filter=Q(is_success=False)),

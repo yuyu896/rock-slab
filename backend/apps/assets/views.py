@@ -5,14 +5,19 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
-from core.permissions import IsAdmin, IsRoleMin, DataScopeMixin
+from core.permissions import IsRoleMin, DataScopeMixin
 from .models import Asset
 from .serializers import AssetSerializer
 from .filters import AssetFilterSet
 
 
-class AssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
-    """资产管理 - 只读视图，资产信息通过【资产流转】模块的单据流转自动更新。"""
+class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
+    """资产管理视图。
+
+    读取：所有角色可查看数据范围内的资产。
+    编辑/删除：supervisor(L3) 及以上角色可操作自己区域/分公司内的资产。
+    资产信息也通过【资产流转】模块的单据流转自动更新。
+    """
     queryset = Asset.objects.all()
     serializer_class = AssetSerializer
     filterset_class = AssetFilterSet
@@ -24,10 +29,58 @@ class AssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
 
+    def get_permissions(self):
+        if self.action in ('update', 'partial_update', 'destroy'):
+            self.min_role = 'supervisor'
+        else:
+            self.min_role = 'staff'
+        return super().get_permissions()
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+
+    @action(detail=False, methods=['get'], url_path='template')
+    def download_template(self, request):
+        """下载空白导入模板。"""
+        import openpyxl
+        from django.http import HttpResponse
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '资产列表'
+
+        headers = [
+            '序号', '分公司', '资产编号', '分公司编号', '资产类目',
+            '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
+            '入库日期', '是否租用', '数量', '规格', '单价',
+            '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
+            '警戒线', '是否充足', '备注',
+        ]
+        ws.append(headers)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="assets_template.xlsx"'
+        return response
+
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
             permission_classes=[IsAuthenticated, IsRoleMin], min_role='supervisor')
     def import_excel(self, request):
         """Excel batch import via openpyxl."""
+        from apps.assets.utils.import_helpers import (
+            excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
+        )
+        from django.db import IntegrityError
+
         file = request.FILES.get('file')
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
@@ -44,40 +97,85 @@ class AssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
 
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         imported = 0
-        errors = []
+        raw_errors = []
 
         for i, row in enumerate(rows, start=2):
+            row_errors = []
+
+            if not row or not row[2]:
+                raw_errors.append((i, '资产编号为空，跳过该行'))
+                continue
+
+            asset_code = str(row[2] or '').strip()
+            if Asset.objects.filter(资产编号=asset_code).exists():
+                raw_errors.append((i, f'资产编号 {asset_code} 已存在，请修改或删除重复行'))
+                continue
+
+            # Pre-process fields
+            入库日期 = excel_date_to_python(row[10] if len(row) > 10 else None)
+            出库日期 = excel_date_to_python(row[16] if len(row) > 16 else None)
+            是否租用 = parse_bool_cn(row[11] if len(row) > 11 else None)
+            是否充足 = parse_bool_cn(row[21] if len(row) > 21 else '是')
+
+            单价, err = parse_decimal_safe(row[14] if len(row) > 14 else None, '单价')
+            if err:
+                row_errors.append(err)
+            购入金额, err = parse_decimal_safe(row[15] if len(row) > 15 else None, '购入金额')
+            if err:
+                row_errors.append(err)
+
+            警戒线 = None
+            if len(row) > 20 and row[20]:
+                try:
+                    警戒线 = int(row[20])
+                except (ValueError, TypeError):
+                    row_errors.append(f'警戒线字段值 "{row[20]}" 不是有效整数')
+
+            数量 = 1
+            if len(row) > 12 and row[12]:
+                try:
+                    数量 = int(row[12])
+                except (ValueError, TypeError):
+                    row_errors.append(f'数量字段值 "{row[12]}" 不是有效整数')
+
+            if row_errors:
+                for e in row_errors:
+                    raw_errors.append((i, e))
+                continue
+
             try:
-                asset_data = {
-                    '序号': int(row[0]) if row[0] else 0,
-                    '分公司': str(row[1] or ''),
-                    '分公司编号': str(row[2] or ''),
-                    '资产编号': str(row[3] or ''),
-                    '资产类目': str(row[4] or ''),
-                    '物品分类': str(row[5] or ''),
-                    '资产名称': str(row[6] or ''),
-                    '规格': str(row[7] or ''),
-                    '供应商': str(row[8] or ''),
-                    '入库日期': row[9] if row[9] else None,
-                    '是否租用': bool(row[10]) if row[10] else False,
-                    '数量': int(row[11]) if row[11] else 1,
-                    '单价': row[12] if row[12] else None,
-                    '购入金额': row[13] if row[13] else None,
-                    '出库日期': row[14] if row[14] else None,
-                    '所属部门': str(row[15] or ''),
-                    '使用人': str(row[16] or ''),
-                    '当前状态': str(row[17] or '在库'),
-                    '警戒线': int(row[18]) if row[18] else None,
-                    '是否充足': bool(row[19]) if row[19] else True,
-                    '电脑序列号': str(row[20] or ''),
-                    '备注': str(row[21] or ''),
-                }
-                Asset.objects.create(**asset_data)
+                Asset.objects.create(
+                    序号=int(row[0]) if row[0] else 0,
+                    分公司=str(row[1] or ''),
+                    资产编号=asset_code,
+                    分公司编号=str(row[3] or ''),
+                    资产类目=str(row[4] or ''),
+                    电脑序列号=str(row[5] or ''),
+                    供应商=str(row[6] or ''),
+                    物品分类=str(row[7] or ''),
+                    资产名称=str(row[8] or ''),
+                    入库日期=入库日期,
+                    是否租用=是否租用,
+                    数量=数量,
+                    规格=str(row[13] or '') if len(row) > 13 else '',
+                    单价=单价,
+                    购入金额=购入金额,
+                    出库日期=出库日期,
+                    所属部门=str(row[17] or '') if len(row) > 17 else '',
+                    使用人=str(row[18] or '') if len(row) > 18 else '',
+                    当前状态=str(row[19] or '在库') if len(row) > 19 else '在库',
+                    警戒线=警戒线,
+                    是否充足=是否充足,
+                    备注=str(row[22] or '') if len(row) > 22 else '',
+                )
                 imported += 1
+            except IntegrityError:
+                raw_errors.append((i, f'资产编号 {asset_code} 已存在'))
             except Exception as e:
-                errors.append(f'第 {i} 行: {str(e)}')
+                raw_errors.append((i, f'保存失败: {str(e)}'))
 
         wb.close()
+        errors = merge_errors(raw_errors)
         return Response({'imported': imported, 'errors': errors})
 
     @action(detail=False, methods=['get'], url_path='export')
@@ -93,23 +191,26 @@ class AssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         ws.title = '资产列表'
 
         headers = [
-            '序号', '分公司', '分公司编号', '资产编号', '资产类目',
-            '物品分类', '资产名称', '规格', '供应商', '入库日期',
-            '是否租用', '数量', '单价', '购入金额', '出库日期',
-            '所属部门', '使用人', '当前状态', '警戒线', '是否充足',
-            '电脑序列号', '备注',
+            '序号', '分公司', '资产编号', '分公司编号', '资产类目',
+            '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
+            '入库日期', '是否租用', '数量', '规格', '单价',
+            '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
+            '警戒线', '是否充足', '备注',
         ]
         ws.append(headers)
 
         for asset in queryset:
             ws.append([
-                asset.序号, asset.分公司, asset.分公司编号, asset.资产编号,
-                asset.资产类目, asset.物品分类, asset.资产名称, asset.规格,
-                asset.供应商, str(asset.入库日期) if asset.入库日期 else '',
-                asset.是否租用, asset.数量, asset.单价, asset.购入金额,
+                asset.序号, asset.分公司, asset.资产编号, asset.分公司编号,
+                asset.资产类目, asset.电脑序列号, asset.供应商,
+                asset.物品分类, asset.资产名称,
+                asset.图片.url if hasattr(asset, '图片') and asset.图片 else '',
+                str(asset.入库日期) if asset.入库日期 else '',
+                asset.是否租用, asset.数量, asset.规格, asset.单价,
+                asset.购入金额,
                 str(asset.出库日期) if asset.出库日期 else '',
                 asset.所属部门, asset.使用人, asset.当前状态,
-                asset.警戒线, asset.是否充足, asset.电脑序列号, asset.备注,
+                asset.警戒线, asset.是否充足, asset.备注,
             ])
 
         output = io.BytesIO()

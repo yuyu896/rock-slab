@@ -19,4 +19,11 @@ class AssetSerializer(serializers.ModelSerializer):
             'branch', 'branch_name',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', '分公司', '分公司编号']
+
+    def update(self, instance, validated_data):
+        branch = validated_data.get('branch')
+        if branch is not None:
+            validated_data['分公司'] = branch.name
+            validated_data['分公司编号'] = branch.code
+        return super().update(instance, validated_data)

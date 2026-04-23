@@ -3,7 +3,7 @@ Category counter signals.
 Automatically update asset_count and in_stock_count on Category when assets change.
 """
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Sum, Q
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 
@@ -14,9 +14,18 @@ from apps.categories.models import Category
 def _update_category_count(category):
     """Recount assets for a single category."""
     assets = Asset.objects.filter(资产编号=category.asset_code)
+    agg = assets.aggregate(
+        total_qty=Sum('数量'),
+        in_stock_qty=Sum('数量', filter=Q(当前状态='在库')),
+    )
     category.asset_count = assets.count()
     category.in_stock_count = assets.filter(当前状态='在库').count()
-    category.save(update_fields=['asset_count', 'in_stock_count'])
+    category.asset_total_quantity = agg['total_qty'] or 0
+    category.in_stock_quantity = agg['in_stock_qty'] or 0
+    category.save(update_fields=[
+        'asset_count', 'in_stock_count',
+        'asset_total_quantity', 'in_stock_quantity',
+    ])
 
 
 def _schedule_category_update(category_code):
@@ -39,11 +48,6 @@ def asset_saved_update_category(sender, instance, created, **kwargs):
     code = _get_category_code(instance)
     if code:
         _schedule_category_update(code)
-
-    # If status changed, also update the old category code
-    if not created and kwargs.get('update_fields'):
-        # Check if 当前状态 changed — need to update counts
-        pass  # on_commit handles this via full recount
 
 
 @receiver(post_delete, sender=Asset)

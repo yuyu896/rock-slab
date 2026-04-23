@@ -1,5 +1,7 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.db.models import ProtectedError
 from core.permissions import IsRoleMin
 from .models import Region, Branch, Team
 from .serializers import RegionSerializer, BranchSerializer, TeamSerializer
@@ -20,6 +22,17 @@ class RegionViewSet(viewsets.ModelViewSet):
             self.min_role = 'admin'
         return super().get_permissions()
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            instance.delete()
+        except ProtectedError:
+            return Response(
+                {'detail': '该区域下存在关联数据，无法删除。请先处理关联分公司。'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class BranchViewSet(viewsets.ModelViewSet):
     queryset = Branch.objects.select_related('region', 'manager').all()
@@ -34,6 +47,17 @@ class BranchViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             self.min_role = 'admin'
         return super().get_permissions()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            instance.delete()
+        except ProtectedError:
+            return Response(
+                {'detail': '该分公司下存在关联资产，无法删除。请先将资产转移至其他分公司。'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TeamViewSet(viewsets.ModelViewSet):

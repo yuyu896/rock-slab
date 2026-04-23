@@ -8,21 +8,18 @@ class Transfer(UUIDModel, TimestampedModel):
         ('待审批', '待审批'),
         ('已通过', '已通过'),
         ('已驳回', '已驳回'),
+        ('已入库', '已入库'),
     ]
 
     ACTION_ASSIGN = 'assign'
     ACTION_RETURN = 'return'
     ACTION_TRANSFER = 'transfer'
-    ACTION_REPAIR = 'repair'
-    ACTION_SCRAP = 'scrap'
     ACTION_PURCHASE = 'purchase'
     ACTION_CHOICES = [
         (ACTION_PURCHASE, '采购入库'),
         (ACTION_ASSIGN, '领用'),
         (ACTION_RETURN, '归还'),
         (ACTION_TRANSFER, '调拨'),
-        (ACTION_REPAIR, '维修'),
-        (ACTION_SCRAP, '报废'),
     ]
 
     调拨日期 = models.DateField('调拨日期')
@@ -53,6 +50,12 @@ class Transfer(UUIDModel, TimestampedModel):
     调拨原因 = models.TextField('调拨原因', blank=True, default='')
     调出负责人 = models.CharField('调出负责人', max_length=100, blank=True, default='')
     调入负责人 = models.CharField('调入负责人', max_length=100, blank=True, default='')
+    供应商 = models.CharField('供应商', max_length=200, blank=True, default='')
+    单价 = models.DecimalField('单价', max_digits=12, decimal_places=2, null=True, blank=True)
+    总金额 = models.DecimalField('总金额', max_digits=14, decimal_places=2, null=True, blank=True)
+    需求部门 = models.CharField('需求部门', max_length=100, blank=True, default='')
+    采购经办人 = models.CharField('采购经办人', max_length=100, blank=True, default='')
+    用途 = models.CharField('用途', max_length=200, blank=True, default='')
     备注 = models.TextField('备注', blank=True, default='')
     审批状态 = models.CharField('审批状态', max_length=20, choices=APPROVAL_CHOICES, default='待审批')
     审批人 = models.CharField('审批人', max_length=100, blank=True, default='')

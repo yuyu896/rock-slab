@@ -116,13 +116,11 @@ class UserViewSet(viewsets.ModelViewSet):
 
         serializer.save()
 
-    @audit_log(action='delete', resource_type='User', description_template='停用用户')
+    @audit_log(action='delete', resource_type='User', description_template='删除用户')
     def perform_destroy(self, instance):
         """Only allow deleting users within your management scope."""
         self._validate_in_scope(self.request.user, instance)
-        # Soft-delete: set status to inactive instead of actual delete
-        instance.status = 'inactive'
-        instance.save(update_fields=['status', 'updated_at'])
+        instance.delete()
 
     def _validate_role_assignment(self, creator, target_role):
         """Check if creator is allowed to assign the target role."""

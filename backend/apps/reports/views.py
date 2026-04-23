@@ -1,11 +1,10 @@
-from django.db.models import Count, Sum, Q, F
+from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.assets.models import Asset
 from apps.transfers.models import Transfer
-from core.permissions import ROLE_LEVELS
 from .serializers import (
     ReportOverviewSerializer,
     BranchStatSerializer,

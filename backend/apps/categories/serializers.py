@@ -19,6 +19,8 @@ class CategorySerializer(serializers.ModelSerializer):
     备注 = serializers.CharField(source='remarks', read_only=True)
     资产数量 = serializers.IntegerField(source='asset_count', read_only=True, default=0)
     在库数量 = serializers.IntegerField(source='in_stock_count', read_only=True, default=0)
+    资产总数量 = serializers.IntegerField(source='asset_total_quantity', read_only=True, default=0)
+    在库总数量 = serializers.IntegerField(source='in_stock_quantity', read_only=True, default=0)
     属性模板 = serializers.JSONField(source='attribute_template', read_only=True)
 
     class Meta:
@@ -30,10 +32,12 @@ class CategorySerializer(serializers.ModelSerializer):
             'warning_line', 'remarks', 'attribute_template',
             # 输出字段（中文名）
             '资产类目', '物品分类', '资产名称', '资产编号',
-            '计量单位', '警戒线', '备注', '资产数量', '在库数量', '属性模板',
+            '计量单位', '警戒线', '备注', '资产数量', '在库数量',
+            '资产总数量', '在库总数量', '属性模板',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at', 'asset_count', 'in_stock_count']
+        read_only_fields = ['created_at', 'updated_at', 'asset_count', 'in_stock_count',
+                            'asset_total_quantity', 'in_stock_quantity']
         extra_kwargs = {
             'asset_category': {'write_only': True},
             'item_category': {'write_only': True},

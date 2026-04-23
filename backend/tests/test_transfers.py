@@ -1,5 +1,5 @@
 """
-Tests for Transfer flow: purchase, assign, return, transfer, repair, scrap, approve.
+Tests for Transfer flow: purchase, assign, return, transfer, approve, asset sync.
 """
 import pytest
 from django.urls import reverse
@@ -134,10 +134,10 @@ class TestTransferFlow:
 
 
 @pytest.mark.django_db
-class TestRepairFlow:
-    """维修流程"""
+class TestRepairScrapRemoved:
+    """维修/报废端点已移除，应返回 404"""
 
-    def test_repair_success(self, authenticated_client):
+    def test_repair_returns_405(self, authenticated_client):
         payload = {
             '调拨日期': '2026-01-19',
             '资产编号': 'AST-TEST-001',
@@ -145,18 +145,11 @@ class TestRepairFlow:
             '调拨数量': 1,
             '调拨原因': '维修测试',
             '调出分公司': '测试分公司',
-            'action_type': 'repair',
         }
         resp = authenticated_client.post(_action_url('repair'), payload, format='json')
-        assert resp.status_code == status.HTTP_201_CREATED
-        assert resp.data['action_type'] == 'repair'
+        assert resp.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-
-@pytest.mark.django_db
-class TestScrapFlow:
-    """报废流程"""
-
-    def test_scrap_success(self, authenticated_client):
+    def test_scrap_returns_405(self, authenticated_client):
         payload = {
             '调拨日期': '2026-01-20',
             '资产编号': 'AST-TEST-001',
@@ -164,11 +157,9 @@ class TestScrapFlow:
             '调拨数量': 1,
             '调拨原因': '报废测试',
             '调出分公司': '测试分公司',
-            'action_type': 'scrap',
         }
         resp = authenticated_client.post(_action_url('scrap'), payload, format='json')
-        assert resp.status_code == status.HTTP_201_CREATED
-        assert resp.data['action_type'] == 'scrap'
+        assert resp.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
 
 @pytest.mark.django_db
@@ -252,3 +243,161 @@ class TestTransferList:
         assert resp.status_code == status.HTTP_200_OK
         results = resp.data.get('results', resp.data)
         assert all(t['action_type'] == 'purchase' for t in results)
+
+
+@pytest.mark.django_db
+class TestApproveAssetSync:
+    """审批通过后自动同步 Asset 状态"""
+
+    def _create_asset(self, asset_code='AST-SYNC-001', qty=5, status='在库'):
+        from apps.assets.models import Asset
+        return Asset.objects.create(
+            序号=9999,
+            分公司='测试分公司',
+            分公司编号='CS001',
+            资产编号=asset_code,
+            资产类目='固定资产',
+            物品分类='办公设备',
+            资产名称='同步测试资产',
+            数量=qty,
+            当前状态=status,
+        )
+
+    def test_assign_approve_updates_asset_status(self, authenticated_client):
+        asset = self._create_asset()
+        payload = {
+            '调拨日期': '2026-02-01',
+            '资产编号': asset.资产编号,
+            '资产名称': asset.资产名称,
+            '调拨数量': 1,
+            '调出分公司': '测试分公司',
+        }
+        resp = authenticated_client.post(_action_url('assign'), payload, format='json')
+        transfer_id = resp.data['id']
+
+        authenticated_client.post(
+            _action_url('approve', transfer_id),
+            {'approved': True},
+            format='json',
+        )
+
+        asset.refresh_from_db()
+        assert asset.当前状态 == '使用中'
+
+    def test_return_approve_updates_asset_status(self, authenticated_client):
+        asset = self._create_asset(status='使用中')
+        payload = {
+            '调拨日期': '2026-02-02',
+            '资产编号': asset.资产编号,
+            '资产名称': asset.资产名称,
+            '调拨数量': 1,
+            '调入分公司': '测试分公司',
+        }
+        resp = authenticated_client.post(_action_url('return'), payload, format='json')
+        transfer_id = resp.data['id']
+
+        authenticated_client.post(
+            _action_url('approve', transfer_id),
+            {'approved': True},
+            format='json',
+        )
+
+        asset.refresh_from_db()
+        assert asset.当前状态 == '在库'
+
+    def test_transfer_approve_updates_asset_branch(self, authenticated_client, branch, db):
+        from apps.organizations.models import Branch
+        asset = self._create_asset()
+        target_branch = Branch.objects.create(
+            name='目标分公司', code='MB001', region=branch.region, status='active',
+        )
+        payload = {
+            '调拨日期': '2026-02-03',
+            '资产编号': asset.资产编号,
+            '资产名称': asset.资产名称,
+            '调拨数量': 1,
+            '调出分公司': '测试分公司',
+            '调入分公司': '目标分公司',
+            'to_branch': target_branch.id,
+        }
+        resp = authenticated_client.post(_action_url('transfer'), payload, format='json')
+        transfer_id = resp.data['id']
+
+        authenticated_client.post(
+            _action_url('approve', transfer_id),
+            {'approved': True},
+            format='json',
+        )
+
+        asset.refresh_from_db()
+        assert asset.branch_id == target_branch.id
+        assert asset.分公司 == '目标分公司'
+        assert asset.分公司编号 == 'MB001'
+
+    def test_reject_does_not_update_asset(self, authenticated_client):
+        asset = self._create_asset()
+        payload = {
+            '调拨日期': '2026-02-04',
+            '资产编号': asset.资产编号,
+            '资产名称': asset.资产名称,
+            '调拨数量': 1,
+            '调出分公司': '测试分公司',
+        }
+        resp = authenticated_client.post(_action_url('assign'), payload, format='json')
+        transfer_id = resp.data['id']
+
+        authenticated_client.post(
+            _action_url('approve', transfer_id),
+            {'approved': False, 'reason': '驳回'},
+            format='json',
+        )
+
+        asset.refresh_from_db()
+        assert asset.当前状态 == '在库'
+
+
+@pytest.mark.django_db
+class TestCategoryQuantityCount:
+    """Category 计数使用 Sum('数量') 聚合"""
+
+    def test_quantity_aggregation(self, db):
+        from apps.assets.models import Asset
+        from apps.categories.models import Category
+        from apps.categories.signals import _update_category_count
+
+        cat = Category.objects.create(
+            asset_category='固定资产',
+            item_category='办公设备',
+            asset_name='测试分类',
+            asset_code='CAT-QTY-001',
+            unit='个',
+        )
+        Asset.objects.create(序号=1, 分公司='测试', 分公司编号='CS001', 资产编号='CAT-QTY-001',
+                             资产类目='固定资产', 物品分类='办公设备', 资产名称='A', 数量=8, 当前状态='在库')
+
+        _update_category_count(cat)
+        cat.refresh_from_db()
+        assert cat.asset_count == 1
+        assert cat.asset_total_quantity == 8
+        assert cat.in_stock_count == 1
+        assert cat.in_stock_quantity == 8
+
+    def test_in_stock_quantity_excludes_non_stock(self, db):
+        from apps.assets.models import Asset
+        from apps.categories.models import Category
+        from apps.categories.signals import _update_category_count
+
+        cat = Category.objects.create(
+            asset_category='固定资产',
+            item_category='办公设备',
+            asset_name='使用中分类',
+            asset_code='CAT-QTY-002',
+            unit='个',
+        )
+        Asset.objects.create(序号=2, 分公司='测试', 分公司编号='CS001', 资产编号='CAT-QTY-002',
+                             资产类目='固定资产', 物品分类='办公设备', 资产名称='B', 数量=5, 当前状态='使用中')
+
+        _update_category_count(cat)
+        cat.refresh_from_db()
+        assert cat.asset_total_quantity == 5
+        assert cat.in_stock_quantity == 0

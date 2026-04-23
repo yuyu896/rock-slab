@@ -16,6 +16,7 @@ class TransferSerializer(serializers.ModelSerializer):
             '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
             '调出负责人', '调入负责人', '备注', '审批状态', '审批人',
             '审批时间', '创建人', 'action_type',
+            '供应商', '单价', '总金额', '需求部门', '采购经办人', '用途',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
             'created_at', 'updated_at',
         ]
@@ -23,20 +24,20 @@ class TransferSerializer(serializers.ModelSerializer):
 
 
 class TransferActionSerializer(serializers.Serializer):
-    """Serializer for the 5 action routes (assign/return/transfer/repair/scrap)."""
+    """Serializer for the 3 action routes (assign/return/transfer)."""
     调拨日期 = serializers.DateField()
     资产编号 = serializers.CharField()
     资产名称 = serializers.CharField()
     调拨数量 = serializers.IntegerField(default=1)
-    调拨原因 = serializers.CharField(required=False, default='')
-    调出分公司 = serializers.CharField(required=False, default='')
-    调出部门 = serializers.CharField(required=False, default='')
-    调入分公司 = serializers.CharField(required=False, default='')
-    调入部门 = serializers.CharField(required=False, default='')
-    调出负责人 = serializers.CharField(required=False, default='')
-    调入负责人 = serializers.CharField(required=False, default='')
-    备注 = serializers.CharField(required=False, default='')
-    创建人 = serializers.CharField(required=False, default='')
+    调拨原因 = serializers.CharField(required=False, default='', allow_blank=True)
+    调出分公司 = serializers.CharField(required=False, default='', allow_blank=True)
+    调出部门 = serializers.CharField(required=False, default='', allow_blank=True)
+    调入分公司 = serializers.CharField(required=False, default='', allow_blank=True)
+    调入部门 = serializers.CharField(required=False, default='', allow_blank=True)
+    调出负责人 = serializers.CharField(required=False, default='', allow_blank=True)
+    调入负责人 = serializers.CharField(required=False, default='', allow_blank=True)
+    备注 = serializers.CharField(required=False, default='', allow_blank=True)
+    创建人 = serializers.CharField(required=False, default='', allow_blank=True)
     from_branch = serializers.PrimaryKeyRelatedField(
         queryset=Branch.objects.none(), required=False, allow_null=True,
     )

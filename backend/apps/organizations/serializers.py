@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from .models import Region, Branch, Team
+from django.core.validators import RegexValidator
+from django.core.exceptions import ValidationError as DjangoValidationError
+from .models import Region, Branch, Team, BRANCH_CODE_REGEX
 
 
 class RegionSerializer(serializers.ModelSerializer):
@@ -21,6 +23,18 @@ class BranchSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
+        extra_kwargs = {
+            'code': {'validators': []},
+        }
+
+    def validate_code(self, value):
+        value = value.strip().upper()
+        validator = RegexValidator(
+            regex=BRANCH_CODE_REGEX,
+            message='编号格式为2-4位大写字母(城市缩写)+3位数字，如 SH001',
+        )
+        validator(value)
+        return value
 
 
 class TeamSerializer(serializers.ModelSerializer):

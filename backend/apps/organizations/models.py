@@ -1,5 +1,8 @@
 from django.db import models
+from django.core.validators import RegexValidator
 from core.models import UUIDModel, TimestampedModel
+
+BRANCH_CODE_REGEX = r'^[A-Z]{2,4}[0-9]{3}$'
 
 
 class Region(UUIDModel, TimestampedModel):
@@ -30,7 +33,13 @@ class Region(UUIDModel, TimestampedModel):
 class Branch(UUIDModel, TimestampedModel):
     """分公司"""
     name = models.CharField('分公司名称', max_length=100)
-    code = models.CharField('分公司编码', max_length=50, unique=True)
+    code = models.CharField(
+        '分公司编码', max_length=50, unique=True,
+        validators=[RegexValidator(
+            regex=BRANCH_CODE_REGEX,
+            message='编号格式为2-4位大写字母(城市缩写)+3位数字，如 SH001',
+        )],
+    )
     region = models.ForeignKey(
         Region, on_delete=models.CASCADE,
         related_name='branches', verbose_name='所属区域',
