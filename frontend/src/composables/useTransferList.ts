@@ -16,6 +16,7 @@ export const TRANSFER_TYPES = {
   purchase: { label: '采购入库', color: { bg: 'oklch(0.92 0.08 340)', color: 'oklch(0.45 0.12 340)' } },
   assign: { label: '领用出库', color: { bg: 'var(--color-primary-50)', color: 'var(--color-primary-600)' } },
   transfer: { label: '调拨', color: { bg: 'oklch(0.92 0.06 240)', color: 'oklch(0.45 0.12 250)' } },
+  recovery: { label: '回收', color: { bg: 'oklch(0.92 0.08 85)', color: 'oklch(0.45 0.16 85)' } },
 } as const
 
 export type TransferType = keyof typeof TRANSFER_TYPES
@@ -42,13 +43,16 @@ export function useTransferList(type: TransferType) {
     return APPROVAL_STATUS_COLORS[status as keyof typeof APPROVAL_STATUS_COLORS] || { bg: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)' }
   }
 
-  const stats = computed(() => ({
-    total: pagination.value.total,
-    pending: transfers.value.filter(t => t.审批状态 === '待审批').length,
-    approved: transfers.value.filter(t => t.审批状态 === '已通过').length,
-    rejected: transfers.value.filter(t => t.审批状态 === '已驳回').length,
-    warehoused: transfers.value.filter(t => t.审批状态 === '已入库').length,
-  }))
+  const stats = computed(() => {
+    const items = transfers.value
+    return {
+      total: pagination.value.total,
+      pending: items.filter(t => t.审批状态 === '待审批').length,
+      approved: items.filter(t => t.审批状态 === '已通过').length,
+      rejected: items.filter(t => t.审批状态 === '已驳回').length,
+      warehoused: items.filter(t => t.审批状态 === '已入库').length,
+    }
+  })
 
   async function fetchTransfers() {
     loading.value = true
@@ -60,6 +64,7 @@ export function useTransferList(type: TransferType) {
         fromBranch: filters.value.fromBranch || undefined,
         toBranch: filters.value.toBranch || undefined,
         type,
+        keyword: filters.value.keyword || undefined,
       })
       transfers.value = data.results
       pagination.value.total = data.count
@@ -78,7 +83,7 @@ export function useTransferList(type: TransferType) {
         ...data.map((b: any) => ({ value: b.id, label: b.name }))
       ]
     } catch (error) {
-      console.error('Failed to fetch branches:', error)
+      ElMessage.error(handleApiError(error))
     }
   }
 
@@ -144,6 +149,7 @@ export function useTransferList(type: TransferType) {
       purchase: { filename: '采购入库导入模板' },
       assign: { filename: '领用出库导入模板' },
       transfer: { filename: '调拨导入模板' },
+      recovery: { filename: '回收导入模板' },
     }
     const { filename } = templateConfig[type]
     generateTransferTemplate(filename, type)
@@ -211,10 +217,9 @@ export function useTransferList(type: TransferType) {
   watch(filters, () => {
     pagination.value.page = 1
     fetchTransfers()
-  }, { deep: true })
+  }, { deep: true, immediate: true })
 
   onMounted(() => {
-    fetchTransfers()
     fetchBranches()
   })
 

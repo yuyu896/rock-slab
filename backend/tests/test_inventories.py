@@ -2,7 +2,6 @@
 Tests for Inventory flow: create task, start, check, submit, approve, reject, recount, cancel.
 """
 import pytest
-from django.urls import reverse
 from rest_framework import status
 
 INVENTORY_LIST_URL = '/api/inventories/'

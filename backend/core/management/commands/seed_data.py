@@ -7,7 +7,14 @@ from apps.categories.models import Category
 class Command(BaseCommand):
     help = 'Seed database with sample data'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--password', default='123456',
+            help='Default password for seeded users (default: 123456)',
+        )
+
     def handle(self, *args, **options):
+        password = options['password']
         regions_data = [
             ('HD', '华东区域'),
             ('HN', '华南区域'),
@@ -48,7 +55,7 @@ class Command(BaseCommand):
                 }
             )
             if created:
-                user.set_password('123456')
+                user.set_password(password)
                 user.save()
 
         categories_data = [

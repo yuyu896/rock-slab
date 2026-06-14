@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from django.core.validators import RegexValidator
-from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import Region, Branch, Team, BRANCH_CODE_REGEX
 
 

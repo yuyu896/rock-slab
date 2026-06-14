@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Ensure entrypoint is executable
+RUN chmod +x /app/entrypoint.sh
+
 # Collect static files
 RUN DJANGO_SETTINGS_MODULE=rock_slab.settings.production \
     SECRET_KEY=build-time-dummy \
@@ -28,4 +31,4 @@ RUN mkdir -p /app/media
 
 EXPOSE 8000
 
-CMD ["gunicorn", "rock_slab.wsgi:application", "-c", "gunicorn.conf.py"]
+ENTRYPOINT ["/app/entrypoint.sh"]

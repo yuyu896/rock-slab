@@ -23,8 +23,8 @@ def get_request_info(request):
 
 
 def create_audit_log(request, action, resource_type, resource_id=None,
-                      resource_name='', description='', before_data=None,
-                      after_data=None, is_success=True, error_message=''):
+                     resource_name='', description='', before_data=None,
+                     after_data=None, is_success=True, error_message=''):
     """创建审计日志"""
     user = request.user if request.user.is_authenticated else None
     request_info = get_request_info(request)

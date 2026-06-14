@@ -1,4 +1,3 @@
-from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -16,8 +15,6 @@ from .serializers import (
     CheckItemSerializer,
     RejectSerializer,
     RecountSerializer,
-    InventoryProgressSerializer,
-    InventoryReportSerializer,
 )
 from .filters import InventoryTaskFilterSet
 
@@ -442,7 +439,6 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     def _adjust_inventory(self, task):
         """Adjust asset quantities based on inventory check results."""
-        from apps.assets.models import Asset
         items = task.items.select_related('asset').exclude(result='unchecked')
         for item in items:
             if item.actual_qty is not None and item.actual_qty != item.expected_qty:

@@ -2,12 +2,11 @@
 审计日志 Signals
 自动记录用户登录/登出等操作
 """
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from apps.authentication.models import ExpiringToken
 from .models import AuditLog
-from .utils import get_client_ip, get_request_info
 
 User = get_user_model()
 

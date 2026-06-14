@@ -222,7 +222,7 @@ async function handleWarehouse(item: Transfer) {
 </template>
 
 <style scoped>
-.transfer-page { max-width: 1400px; margin: 0 auto; }
+.transfer-page { max-width: 1400px; margin: 0 auto; min-width: 0; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); }
 .header-info { display: flex; flex-direction: column; gap: var(--space-1); }
 .page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }

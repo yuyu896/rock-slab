@@ -10,10 +10,16 @@ SECRET_KEY = os.environ.get('SECRET_KEY')  # noqa: F405
 if not SECRET_KEY:
     raise ValueError("SECRET_KEY environment variable is required in production")
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'qhpanpan.top').split(',')  # noqa: F405
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'qhpanpan.top,www.qhpanpan.top').split(',')  # noqa: F405
 
-# HTTPS / SSL
-SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'  # noqa: F405
+# CSRF trusted origins（前端 SPA 提交表单时需要；也覆盖 Django admin 会话认证）
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    'CSRF_TRUSTED_ORIGINS',
+    'https://qhpanpan.top,https://www.qhpanpan.top',
+).split(',')  # noqa: F405
+
+# HTTPS / SSL —— Nginx 已处理 HTTP→HTTPS 重定向，Django 层默认关闭，避免健康检查被 301 卡住
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False') == 'True'  # noqa: F405
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000

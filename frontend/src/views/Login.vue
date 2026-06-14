@@ -71,7 +71,7 @@ async function handleLogin() {
           </svg>
         </div>
         <h1 class="login-title">磐盘</h1>
-        <p class="login-subtitle">资产管理系统</p>
+        <p class="login-subtitle">行政资产盘点</p>
       </div>
 
       <form class="login-form" @submit.prevent="handleLogin">

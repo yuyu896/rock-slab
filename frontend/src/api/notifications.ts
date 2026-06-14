@@ -3,7 +3,7 @@ import type { PaginatedResponse, PaginationParams } from '@/types'
 
 export interface Notification {
   id: string
-  recipientId: string
+  recipient: string
   notificationType: 'approval' | 'task' | 'cc' | 'system'
   notificationTypeDisplay: string
   title: string
@@ -25,7 +25,7 @@ export interface ApprovalCC {
   ccType: 'auto' | 'manual'
   ccTypeDisplay: string
   ccReason: string
-  recipientId: string
+  recipient: string
   recipientName: string
   isRead: boolean
   readAt?: string

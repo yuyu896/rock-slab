@@ -307,6 +307,7 @@ async function handleLogout() {
 
 .main {
   flex: 1;
+  min-width: 0;
   margin-left: var(--sidebar-width);
   display: flex;
   flex-direction: column;

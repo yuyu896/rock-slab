@@ -2,7 +2,6 @@
 Tests for Transfer flow: purchase, assign, return, transfer, approve, asset sync.
 """
 import pytest
-from django.urls import reverse
 from rest_framework import status
 
 TRANSFER_LIST_URL = '/api/transfers/'

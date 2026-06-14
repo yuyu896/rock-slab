@@ -159,14 +159,16 @@ class CategoryViewSet(viewsets.ModelViewSet):
                     errors.append(f'第 {i} 行: 必填字段不能为空')
                     continue
 
-                Category.objects.create(
-                    asset_category=asset_category,
-                    item_category=item_category,
-                    asset_name=asset_name,
+                Category.objects.update_or_create(
                     asset_code=asset_code,
-                    unit=unit,
-                    warning_line=int(row[5]) if row[5] else None,
-                    remarks=str(row[6] or ''),
+                    defaults={
+                        'asset_category': asset_category,
+                        'item_category': item_category,
+                        'asset_name': asset_name,
+                        'unit': unit,
+                        'warning_line': int(row[5]) if row[5] else None,
+                        'remarks': str(row[6] or ''),
+                    },
                 )
                 imported += 1
             except Exception as e:

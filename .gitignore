@@ -12,7 +12,10 @@ build/
 db.sqlite3
 db.sqlite3-journal
 backend/staticfiles/
-backend/media/uploads/
+backend/media/
+
+# Office temp/lock files
+~$*
 
 # Environment
 .env

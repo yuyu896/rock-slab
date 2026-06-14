@@ -17,6 +17,7 @@ class TransferSerializer(serializers.ModelSerializer):
             '调出负责人', '调入负责人', '备注', '审批状态', '审批人',
             '审批时间', '创建人', 'action_type',
             '供应商', '单价', '总金额', '需求部门', '采购经办人', '用途',
+            '回收分类', '单位', '出库日期', '存放位置', '资产类目', '物品分类',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
             'created_at', 'updated_at',
         ]
@@ -24,11 +25,12 @@ class TransferSerializer(serializers.ModelSerializer):
 
 
 class TransferActionSerializer(serializers.Serializer):
-    """Serializer for the 3 action routes (assign/return/transfer)."""
+    """Serializer for action routes (purchase/assign/return/transfer/recovery)."""
     调拨日期 = serializers.DateField()
     资产编号 = serializers.CharField()
     资产名称 = serializers.CharField()
     调拨数量 = serializers.IntegerField(default=1)
+    规格型号 = serializers.CharField(required=False, default='', allow_blank=True)
     调拨原因 = serializers.CharField(required=False, default='', allow_blank=True)
     调出分公司 = serializers.CharField(required=False, default='', allow_blank=True)
     调出部门 = serializers.CharField(required=False, default='', allow_blank=True)
@@ -38,6 +40,21 @@ class TransferActionSerializer(serializers.Serializer):
     调入负责人 = serializers.CharField(required=False, default='', allow_blank=True)
     备注 = serializers.CharField(required=False, default='', allow_blank=True)
     创建人 = serializers.CharField(required=False, default='', allow_blank=True)
+    # Purchase fields
+    供应商 = serializers.CharField(required=False, default='', allow_blank=True)
+    单价 = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    总金额 = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    需求部门 = serializers.CharField(required=False, default='', allow_blank=True)
+    采购经办人 = serializers.CharField(required=False, default='', allow_blank=True)
+    用途 = serializers.CharField(required=False, default='', allow_blank=True)
+    # Recovery fields
+    回收分类 = serializers.CharField(required=False, default='', allow_blank=True)
+    单位 = serializers.CharField(required=False, default='', allow_blank=True)
+    出库日期 = serializers.DateField(required=False, allow_null=True)
+    存放位置 = serializers.CharField(required=False, default='', allow_blank=True)
+    资产类目 = serializers.CharField(required=False, default='', allow_blank=True)
+    物品分类 = serializers.CharField(required=False, default='', allow_blank=True)
+    # FK fields
     from_branch = serializers.PrimaryKeyRelatedField(
         queryset=Branch.objects.none(), required=False, allow_null=True,
     )

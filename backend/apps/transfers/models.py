@@ -15,14 +15,23 @@ class Transfer(UUIDModel, TimestampedModel):
     ACTION_RETURN = 'return'
     ACTION_TRANSFER = 'transfer'
     ACTION_PURCHASE = 'purchase'
+    ACTION_RECOVERY = 'recovery'
     ACTION_CHOICES = [
         (ACTION_PURCHASE, '采购入库'),
         (ACTION_ASSIGN, '领用'),
         (ACTION_RETURN, '归还'),
         (ACTION_TRANSFER, '调拨'),
+        (ACTION_RECOVERY, '回收'),
     ]
 
-    调拨日期 = models.DateField('调拨日期')
+    RECOVERY_CATEGORY_CHOICES = [
+        ('闲置回收', '闲置回收'),
+        ('报废回收', '报废回收'),
+        ('捐赠回收', '捐赠回收'),
+        ('其他', '其他'),
+    ]
+
+    调拨日期 = models.DateField('调拨日期', db_index=True)
     调出分公司 = models.CharField('调出分公司', max_length=100, blank=True, default='')
     调出部门 = models.CharField('调出部门', max_length=100, blank=True, default='')
     from_branch = models.ForeignKey(
@@ -43,7 +52,7 @@ class Transfer(UUIDModel, TimestampedModel):
         verbose_name='调入分公司(FK)',
     )
     调入部门 = models.CharField('调入部门', max_length=100, blank=True, default='')
-    资产编号 = models.CharField('资产编号', max_length=100)
+    资产编号 = models.CharField('资产编号', max_length=100, db_index=True)
     资产名称 = models.CharField('资产名称', max_length=200)
     规格型号 = models.CharField('规格型号', max_length=200, blank=True, default='')
     调拨数量 = models.IntegerField('调拨数量', default=1)
@@ -57,11 +66,20 @@ class Transfer(UUIDModel, TimestampedModel):
     采购经办人 = models.CharField('采购经办人', max_length=100, blank=True, default='')
     用途 = models.CharField('用途', max_length=200, blank=True, default='')
     备注 = models.TextField('备注', blank=True, default='')
-    审批状态 = models.CharField('审批状态', max_length=20, choices=APPROVAL_CHOICES, default='待审批')
+    审批状态 = models.CharField('审批状态', max_length=20, choices=APPROVAL_CHOICES, default='待审批', db_index=True)
     审批人 = models.CharField('审批人', max_length=100, blank=True, default='')
     审批时间 = models.DateTimeField('审批时间', null=True, blank=True)
     创建人 = models.CharField('创建人', max_length=100, blank=True, default='')
-    action_type = models.CharField('操作类型', max_length=20, choices=ACTION_CHOICES, default=ACTION_TRANSFER)
+    action_type = models.CharField(
+        '操作类型', max_length=20, choices=ACTION_CHOICES,
+        default=ACTION_TRANSFER, db_index=True,
+    )
+    回收分类 = models.CharField('回收分类', max_length=50, blank=True, default='', choices=RECOVERY_CATEGORY_CHOICES)
+    单位 = models.CharField('单位', max_length=20, blank=True, default='')
+    出库日期 = models.DateField('出库日期', null=True, blank=True)
+    存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
+    资产类目 = models.CharField('资产类目', max_length=100, blank=True, default='')
+    物品分类 = models.CharField('物品分类', max_length=100, blank=True, default='')
 
     class Meta:
         db_table = 'transfers_transfer'

@@ -265,7 +265,7 @@ onMounted(() => {
               <polyline points="17 8 12 3 7 8"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            模板导入
+            批量导入
           </button>
           <button class="btn-primary" @click="currentView = 'create'">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

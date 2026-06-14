@@ -4,9 +4,8 @@
 """
 import json
 from functools import wraps
-from django.utils import timezone
 from .models import AuditLog
-from .utils import get_client_ip, get_request_info
+from .utils import get_request_info
 
 
 def audit_log(action, resource_type=None, description_template=None):

@@ -2,7 +2,7 @@ from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from core.permissions import IsRoleMin, ROLE_LEVELS
+from core.permissions import IsRoleMin
 from apps.audit.decorators import audit_log
 from .models import User
 from .serializers import UserSerializer
@@ -57,7 +57,7 @@ class UserViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        if self.action in ('list', 'retrieve'):
+        if self.action in ('list', 'retrieve', 'set_system_avatar'):
             return User.objects.select_related('branch', 'region', 'leader', 'created_by').all()
         return _get_user_queryset(self.request.user)
 

@@ -1,5 +1,5 @@
 from django.contrib.auth import authenticate
-from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from apps.users.serializers import UserSerializer
@@ -10,6 +10,7 @@ from apps.audit.decorators import audit_log
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @throttle_classes([LoginRateThrottle])
 def login_view(request):

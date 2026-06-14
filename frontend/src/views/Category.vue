@@ -264,7 +264,7 @@ onMounted(() => {
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-info">
-        <h1 class="page-title">资产分类</h1>
+        <h1 class="page-title">品目</h1>
         <p class="page-desc">管理资产分类体系，设置警戒线和编号规则</p>
       </div>
       <div class="header-actions">

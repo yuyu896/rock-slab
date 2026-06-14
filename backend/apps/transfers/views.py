@@ -1,4 +1,5 @@
 import io
+from datetime import date
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -17,7 +18,7 @@ _INVENTORY_LOCKED_STATUSES = ['in_progress', 'pending_review']
 
 
 class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
-    queryset = Transfer.objects.all()
+    queryset = Transfer.objects.select_related('from_branch', 'to_branch').all()
     serializer_class = TransferSerializer
     filterset_class = TransferFilterSet
     permission_classes = [IsAuthenticated, IsRoleMin]
@@ -123,6 +124,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def transfer(self, request):
         """资产调拨"""
         return self._create_action(request, Transfer.ACTION_TRANSFER)
+
+    @action(detail=False, methods=['post'])
+    @audit_log(action='recovery', resource_type='Transfer', description_template='资产回收')
+    def recovery(self, request):
+        """资产回收"""
+        return self._create_action(request, Transfer.ACTION_RECOVERY)
 
     def _sync_asset(self, transfer):
         """Sync Asset state after transfer approval."""
@@ -251,6 +258,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         '领用出库': Transfer.ACTION_ASSIGN,
         '归还': Transfer.ACTION_RETURN,
         '调拨': Transfer.ACTION_TRANSFER,
+        '回收': Transfer.ACTION_RECOVERY,
     }
 
     TYPE_TEMPLATES = {
@@ -271,6 +279,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         '调出负责人', '调入负责人', '备注'],
             'sheet': '调拨',
             'filename': 'transfer_template.xlsx',
+        },
+        'recovery': {
+            'headers': ['分公司', '资产编号', '资产类目', '物品分类', '资产名称', '回收分类',
+                        '入库日期', '数量', '单位', '规格', '出库日期', '所属部门',
+                        '存放位置', '经办人', '备注'],
+            'sheet': '回收',
+            'filename': 'recovery_template.xlsx',
         },
     }
 
@@ -304,7 +319,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """导出流转记录 Excel，按 type 参数区分列。"""
         import openpyxl
         from django.http import HttpResponse
-        from django.db.models import Count, Q
+        from django.db.models import Count
         from apps.assets.models import Asset
 
         queryset = self.filter_queryset(self.get_queryset())
@@ -336,7 +351,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             asset_stock_map = dict(
                 Asset.objects.filter(资产编号__in=asset_codes).values_list('资产编号', '数量')
             )
-            dept_keys = set(queryset.values_list('调出分公司', '调出部门'))
             dept_counts = dict(
                 Transfer.objects.filter(
                     action_type=Transfer.ACTION_ASSIGN,
@@ -353,6 +367,22 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     str(t.调拨日期) if t.调拨日期 else '',
                     t.资产名称, t.调拨数量, t.用途, t.调出部门,
                     dept_total, current_stock, '待核对', t.备注,
+                ])
+
+        elif template_type == 'recovery':
+            ws.title = '回收'
+            headers = ['序号', '分公司', '资产编号', '资产类目', '物品分类', '资产名称',
+                       '回收分类', '入库日期', '数量', '单位', '规格', '出库日期',
+                       '所属部门', '当前处理状态', '存放位置', '经办人', '备注']
+            ws.append(headers)
+            for idx, t in enumerate(queryset, start=1):
+                ws.append([
+                    idx, t.调出分公司, t.资产编号, t.资产类目, t.物品分类,
+                    t.资产名称, t.回收分类,
+                    str(t.调拨日期) if t.调拨日期 else '',
+                    t.调拨数量, t.单位, t.规格型号,
+                    str(t.出库日期) if t.出库日期 else '',
+                    t.调出部门, t.审批状态, t.存放位置, t.采购经办人, t.备注,
                 ])
 
         else:
@@ -377,7 +407,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             output.getvalue(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        response['Content-Disposition'] = f'attachment; filename="{template_type}_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+        response['Content-Disposition'] = (
+            f'attachment; filename="{template_type}'
+            f'_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+        )
         return response
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
@@ -442,6 +475,28 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         用途=str(row[4] or ''),
                         调出部门=str(row[5] or ''),
                         备注=str(row[6] or ''),
+                        审批状态='待审批',
+                        创建人=creator,
+                    )
+
+                elif template_type == 'recovery':
+                    Transfer.objects.create(
+                        调拨日期=_parse_date(row[6]) if row[6] else date.today(),
+                        action_type=Transfer.ACTION_RECOVERY,
+                        调出分公司=str(row[0] or ''),
+                        资产编号=str(row[1] or ''),
+                        资产类目=str(row[2] or ''),
+                        物品分类=str(row[3] or ''),
+                        资产名称=str(row[4] or ''),
+                        回收分类=str(row[5] or ''),
+                        调拨数量=int(row[7]) if row[7] else 1,
+                        单位=str(row[8] or ''),
+                        规格型号=str(row[9] or ''),
+                        出库日期=_parse_date(row[10]) if row[10] else None,
+                        调出部门=str(row[11] or ''),
+                        存放位置=str(row[13] or ''),
+                        采购经办人=str(row[14] or ''),
+                        备注=str(row[15] or ''),
                         审批状态='待审批',
                         创建人=creator,
                     )

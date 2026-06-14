@@ -39,4 +39,3 @@ class UserSerializer(serializers.ModelSerializer):
             **{k: v for k, v in validated_data.items() if k not in ('phone', 'name')},
         )
         return user
-

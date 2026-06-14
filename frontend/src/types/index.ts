@@ -192,7 +192,7 @@ export interface Team {
 }
 
 /** 调拨/流转记录 */
-export type TransferActionType = 'purchase' | 'assign' | 'return' | 'transfer'
+export type TransferActionType = 'purchase' | 'assign' | 'return' | 'transfer' | 'recovery'
 
 export interface Transfer {
   id: string
@@ -208,6 +208,8 @@ export interface Transfer {
   fromBranchName?: string
   toBranchName?: string
   资产编号: string
+  资产类目?: string
+  物品分类?: string
   资产名称: string
   规格型号?: string
   调拨数量: number
@@ -216,6 +218,11 @@ export interface Transfer {
   调入负责人?: string
   使用人?: string
   所属部门?: string
+  回收分类?: string
+  单位?: string
+  出库日期?: string
+  存放位置?: string
+  采购经办人?: string
   备注?: string
   审批状态: ApprovalStatusType
   审批人?: string

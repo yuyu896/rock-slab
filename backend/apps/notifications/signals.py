@@ -3,7 +3,6 @@
 """
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
-from django.utils import timezone
 
 from apps.transfers.models import Transfer
 from apps.inventories.models import InventoryTask
@@ -220,7 +219,7 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
                 recipient=manager,
                 notification_type='cc',
                 title=f'抄送：盘点任务 {instance.name} 已完成',
-                content=f'盘点任务已完成审批。',
+                content='盘点任务已完成审批。',
                 priority='low',
                 related_object_type='inventory_task',
                 related_object_id=instance.id,

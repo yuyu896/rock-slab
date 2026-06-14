@@ -44,13 +44,17 @@ const navItems = computed<NavItem[]>(() => [
   },
   {
     icon: 'category',
-    label: '资产分类',
+    label: '品目',
     path: '/categories'
   },
   {
     icon: 'box',
-    label: '资产列表',
-    path: '/assets/list'
+    label: '库存',
+    path: '/inventory-group',
+    children: [
+      { icon: '', label: '资产列表', path: '/assets/list' },
+      { icon: '', label: '固定资产表', path: '/fixed-assets' },
+    ]
   },
   {
     icon: 'transfer',
@@ -60,6 +64,7 @@ const navItems = computed<NavItem[]>(() => [
       { icon: '', label: '采购入库', path: '/assets/purchase' },
       { icon: '', label: '领用出库', path: '/transfers/assign' },
       { icon: '', label: '调拨', path: '/transfers/transfer' },
+      { icon: '', label: '回收', path: '/transfers/recovery' },
     ]
   },
   {

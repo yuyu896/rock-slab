@@ -7,6 +7,7 @@ export function getTransfers(params?: PaginationParams & {
   fromBranch?: string
   toBranch?: string
   type?: string
+  keyword?: string
   createdAt__gte?: string
 }) {
   return request.get<PaginatedResponse<Transfer>>('/api/transfers/', { params })
@@ -34,6 +35,11 @@ export function returnAsset(data: Partial<Transfer>) {
 /** 资产调拨 */
 export function transferAsset(data: Partial<Transfer>) {
   return request.post<Transfer>('/api/transfers/transfer', data)
+}
+
+/** 资产回收 */
+export function recoverAsset(data: Partial<Transfer>) {
+  return request.post<Transfer>('/api/transfers/recovery', data)
 }
 
 /** 审批通过 */

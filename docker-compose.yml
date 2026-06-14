@@ -5,8 +5,6 @@ services:
       dockerfile: Dockerfile
     container_name: rock-slab-backend
     restart: unless-stopped
-    ports:
-      - "${PORT:-8002}:8000"
     env_file:
       - .env
     environment:
@@ -16,7 +14,7 @@ services:
       - ./backend/staticfiles:/app/staticfiles
     network_mode: host
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/api/health/')"]
       interval: 30s
       timeout: 10s
       retries: 3

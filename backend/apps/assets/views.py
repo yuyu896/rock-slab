@@ -6,9 +6,9 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
 from core.permissions import IsRoleMin, DataScopeMixin
-from .models import Asset
-from .serializers import AssetSerializer
-from .filters import AssetFilterSet
+from .models import Asset, FixedAsset
+from .serializers import AssetSerializer, FixedAssetSerializer
+from .filters import AssetFilterSet, FixedAssetFilterSet
 
 
 class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
@@ -18,7 +18,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     编辑/删除：supervisor(L3) 及以上角色可操作自己区域/分公司内的资产。
     资产信息也通过【资产流转】模块的单据流转自动更新。
     """
-    queryset = Asset.objects.all()
+    queryset = Asset.objects.select_related('branch').all()
     serializer_class = AssetSerializer
     filterset_class = AssetFilterSet
     permission_classes = [IsAuthenticated, IsRoleMin]
@@ -223,3 +223,195 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         )
         response['Content-Disposition'] = 'attachment; filename="assets.xlsx"'
         return response
+
+
+class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
+    """固定资产实例管理视图。"""
+    queryset = FixedAsset.objects.select_related('asset', 'branch').all()
+    serializer_class = FixedAssetSerializer
+    filterset_class = FixedAssetFilterSet
+    permission_classes = [IsAuthenticated, IsRoleMin]
+    pagination_class = StandardPagination
+    min_role = 'staff'
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return self.get_scoped_queryset(qs)
+
+    def get_permissions(self):
+        if self.action in ('update', 'partial_update', 'destroy', 'create'):
+            self.min_role = 'supervisor'
+        else:
+            self.min_role = 'staff'
+        return super().get_permissions()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+
+    # 固定资产表 19 列定义（顺序固定）
+    FA_HEADERS = [
+        '序号', '分公司编号', '分公司', '资产编号', '资产类目',
+        '物品分类', '资产名称', '电脑序列号', '供应商', '入库日期',
+        '是否租用', '数量', '规格', '单价', '购入金额',
+        '出库日期', '所属部门', '使用人', '当前状态',
+    ]
+    # 只读列（导入时自动继承，无需填写）的索引
+    FA_READONLY_COLS = {0, 1, 2, 4, 5, 6, 10, 11, 12, 13, 14, 15}
+
+    @action(detail=False, methods=['get'], url_path='template')
+    def download_template(self, request):
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.comments import Comment
+        from openpyxl.utils import get_column_letter
+        from django.http import HttpResponse
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '固定资产实例'
+        ws.append(self.FA_HEADERS)
+
+        # 表头样式：加粗、浅绿底、居中、边框
+        header_font = Font(bold=True)
+        header_fill = PatternFill('solid', fgColor='FFE8F0E8')
+        readonly_fill = PatternFill('solid', fgColor='FFF5F5F5')
+        center = Alignment(horizontal='center', vertical='middle')
+        thin = Side(style='thin')
+        border = Border(top=thin, bottom=thin, left=thin, right=thin)
+
+        for col_idx in range(1, len(self.FA_HEADERS) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+            cell.border = border
+            # 只读列加批注
+            if (col_idx - 1) in self.FA_READONLY_COLS:
+                cell.comment = Comment('此列自动继承，无需填写', '系统')
+
+        ws.row_dimensions[1].height = 15
+        ws.freeze_panes = 'A2'
+
+        # 自适应列宽 + 只读列数据区域灰底
+        for col_idx, header in enumerate(self.FA_HEADERS, start=1):
+            width = max(len(header) * 2.2 + 2, 10)
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+            if (col_idx - 1) in self.FA_READONLY_COLS:
+                data_cell = ws.cell(row=2, column=col_idx)
+                data_cell.fill = readonly_fill
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="fixed_assets_template.xlsx"'
+        return response
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_excel(self, request):
+        """固定资产表导出 19 列。"""
+        import openpyxl
+        from django.http import HttpResponse
+
+        queryset = self.filter_queryset(self.get_queryset())
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '固定资产表'
+        ws.append(self.FA_HEADERS)
+
+        for inst in queryset:
+            asset = inst.asset
+            ws.append([
+                asset.序号 if asset else '',
+                inst.分公司编号,
+                inst.分公司,
+                inst.资产编号,
+                asset.资产类目 if asset else '',
+                asset.物品分类 if asset else '',
+                asset.资产名称 if asset else '',
+                inst.序列号,
+                inst.供应商,
+                str(inst.入库日期) if inst.入库日期 else '',
+                asset.是否租用 if asset else '',
+                asset.数量 if asset else '',
+                asset.规格 if asset else '',
+                asset.单价 if asset else '',
+                asset.购入金额 if asset else '',
+                str(asset.出库日期) if asset and asset.出库日期 else '',
+                inst.所属部门,
+                inst.使用人,
+                inst.当前状态,
+            ])
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="fixed_assets.xlsx"'
+        return response
+
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
+            permission_classes=[IsAuthenticated, IsRoleMin], min_role='supervisor')
+    def import_excel(self, request):
+        from apps.assets.utils.import_helpers import excel_date_to_python, merge_errors
+
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(file, read_only=True)
+            ws = wb.active
+        except Exception as e:
+            return Response(
+                {'detail': f'文件解析失败: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rows = list(ws.iter_rows(min_row=2, values_only=True))
+        imported = 0
+        raw_errors = []
+
+        for i, row in enumerate(rows, start=2):
+            if not row or not row[3]:
+                raw_errors.append((i, '资产编号为空，跳过该行'))
+                continue
+
+            资产编号 = str(row[3]).strip()
+            try:
+                parent_asset = Asset.objects.get(资产编号=资产编号)
+            except Asset.DoesNotExist:
+                raw_errors.append((i, f'资产编号 {资产编号} 不存在'))
+                continue
+
+            try:
+                FixedAsset.objects.create(
+                    asset=parent_asset,
+                    内部编号=FixedAsset.generate_internal_code(资产编号),
+                    资产编号=资产编号,
+                    资产名称=parent_asset.资产名称,
+                    序列号=str(row[7] or '') if len(row) > 7 else '',
+                    供应商=str(row[8] or '') if len(row) > 8 else '',
+                    入库日期=excel_date_to_python(row[9] if len(row) > 9 else None),
+                    所属部门=str(row[16] or '') if len(row) > 16 else '',
+                    使用人=str(row[17] or '') if len(row) > 17 else '',
+                    当前状态=str(row[18] or '在库') if len(row) > 18 else '在库',
+                    分公司=parent_asset.分公司,
+                    分公司编号=parent_asset.分公司编号,
+                    branch=parent_asset.branch,
+                )
+                imported += 1
+            except Exception as e:
+                raw_errors.append((i, f'保存失败: {str(e)}'))
+
+        wb.close()
+        errors = merge_errors(raw_errors)
+        return Response({'imported': imported, 'errors': errors})

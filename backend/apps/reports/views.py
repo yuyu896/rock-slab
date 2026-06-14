@@ -5,12 +5,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.assets.models import Asset
 from apps.transfers.models import Transfer
-from .serializers import (
-    ReportOverviewSerializer,
-    BranchStatSerializer,
-    StatusStatSerializer,
-    TransferReportItemSerializer,
-)
 
 
 def _scope_asset_queryset(user, queryset):
@@ -174,6 +168,36 @@ def by_status(request):
         percentage = (count / total * 100) if total > 0 else 0
         data.append({
             'status': stat['当前状态'],
+            'count': count,
+            'percentage': round(percentage, 2),
+        })
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def by_category(request):
+    """按资产类目统计."""
+    filters = _get_date_range_filter(request.query_params)
+    queryset = Asset.objects.all()
+    queryset = _scope_asset_queryset(request.user, queryset)
+    if filters:
+        queryset = queryset.filter(**filters)
+
+    total = queryset.count()
+    category_stats = (
+        queryset
+        .values('资产类目')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+    )
+
+    data = []
+    for stat in category_stats:
+        count = stat['count']
+        percentage = (count / total * 100) if total > 0 else 0
+        data.append({
+            'category': stat['资产类目'],
             'count': count,
             'percentage': round(percentage, 2),
         })
