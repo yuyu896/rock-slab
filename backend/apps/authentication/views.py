@@ -12,20 +12,27 @@ from apps.audit.decorators import audit_log
 
 
 def get_or_create_token(user):
-    """获取或创建 ExpiringToken。
+    """获取或刷新 ExpiringToken。
 
-    多表继承下，旧代码可能在基础表 authtoken_token 留下没有子表行的孤儿 token，
-    导致 ExpiringToken.get_or_create 撞唯一约束；并发登录也可能触发 IntegrityError。
-    这里先取子表，取不到则清理孤儿基础 token 再创建，最后兜底 IntegrityError。
+    - 多表继承下，旧代码可能在基础表 authtoken_token 留下没有子表行的孤儿 token，
+      导致 ExpiringToken.get_or_create 撞唯一约束；这里先取子表，取不到则清理孤儿再创建。
+    - 已存在但过期的 token 必须刷新（换新 key + 重置过期时间），否则登录秒退。
+    - 并发登录兜底 IntegrityError。
     """
     try:
-        return ExpiringToken.objects.get(user=user)
+        token = ExpiringToken.objects.get(user=user)
     except ExpiringToken.DoesNotExist:
         BaseToken.objects.filter(user=user).delete()
         try:
             return ExpiringToken.objects.create(user=user)
         except IntegrityError:
-            return ExpiringToken.objects.get(user=user)
+            token = ExpiringToken.objects.get(user=user)
+
+    if token.is_expired:
+        token.key = token.generate_key()
+        token.expires_at = None  # save() 会重置为 now + TOKEN_EXPIRATION_DAYS
+        token.save()
+    return token
 
 
 @api_view(['POST'])
