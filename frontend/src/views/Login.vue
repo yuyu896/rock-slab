@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
-import { handleApiError } from '@/utils/request'
+import { handleApiError, TOKEN_KEY } from '@/utils/request'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,6 +13,9 @@ const password = ref('')
 const loading = ref(false)
 const showPassword = ref(false)
 const errorMessage = ref('')
+
+// 进入登录页时清除残留的失效 token，打断"旧token→401→跳登录"死循环
+localStorage.removeItem(TOKEN_KEY)
 
 // Check if redirected due to token expiry
 if (sessionStorage.getItem('token_expired')) {
