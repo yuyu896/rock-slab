@@ -2,9 +2,9 @@ from django.core.exceptions import ValidationError
 
 
 class MinimumLengthValidator:
-    """Validate that the password is at least 6 characters."""
+    """Validate that the password meets the minimum length (default 8)."""
 
-    def __init__(self, min_length=6):
+    def __init__(self, min_length=8):
         self.min_length = min_length
 
     def validate(self, password, user=None):

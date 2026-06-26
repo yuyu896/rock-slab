@@ -13,8 +13,8 @@ class UserSerializer(serializers.ModelSerializer):
         validators=[phone_validator],
     )
     password = serializers.CharField(
-        write_only=True, required=False, default='123456',
-        help_text='初始密码，默认123456',
+        write_only=True, required=False,
+        help_text='用户初始密码（创建时必填）',
     )
 
     class Meta:

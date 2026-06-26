@@ -71,7 +71,7 @@ class TestPasswordChange:
         resp = authenticated_client.put('/api/auth/password/', {
             'oldPassword': 'test123456',
             'newPassword': 'newpass123456',
-        })
+        }, format='json')
         assert resp.status_code == status.HTTP_200_OK
         assert 'token' in resp.data  # New token returned
 
@@ -82,5 +82,52 @@ class TestPasswordChange:
         resp = authenticated_client.put('/api/auth/password/', {
             'oldPassword': 'wrongold',
             'newPassword': 'newpass123456',
-        })
+        }, format='json')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_change_password_weak_rejected(self, authenticated_client, admin_user):
+        # 新密码不满足最小长度（8 位），应被密码校验器拒绝且不修改密码
+        resp = authenticated_client.put('/api/auth/password/', {
+            'oldPassword': 'test123456',
+            'newPassword': '123',
+        }, format='json')
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        admin_user.refresh_from_db()
+        assert admin_user.check_password('test123456')
+
+
+@pytest.mark.django_db
+class TestAccountLockout:
+    def test_lockout_after_threshold(self, db):
+        from django.core.cache import cache
+        from apps.authentication.account_lockout import (
+            record_login_failure, is_account_locked, check_account_locked,
+            clear_login_failures, FAILURES_THRESHOLD,
+        )
+        cache.clear()
+        phone = '13900000999'
+        for _ in range(FAILURES_THRESHOLD - 1):
+            record_login_failure(phone)
+        assert not is_account_locked(phone)
+        record_login_failure(phone)  # 达阈值 → 锁定
+        assert is_account_locked(phone)
+        assert check_account_locked(phone).status_code == 403
+        # clear 只清失败计数；锁定由独立 TTL 控制，窗口内仍锁定
+        clear_login_failures(phone)
+        assert is_account_locked(phone)
+        cache.clear()
+
+    def test_clear_resets_failure_count(self, db):
+        from django.core.cache import cache
+        from apps.authentication.account_lockout import (
+            record_login_failure, is_account_locked, clear_login_failures,
+        )
+        cache.clear()
+        phone = '13900000998'
+        for _ in range(3):
+            record_login_failure(phone)
+        clear_login_failures(phone)  # 未达阈值前清零
+        for _ in range(3):
+            record_login_failure(phone)
+        assert not is_account_locked(phone)  # 累计仍 < 阈值，未锁定
+        cache.clear()

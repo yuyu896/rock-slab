@@ -36,7 +36,7 @@ class TestAuthRBAC:
         resp = client.put('/api/auth/password/', {
             'oldPassword': 'test123456',
             'newPassword': 'test654321',
-        })
+        }, format='json')
         assert resp.status_code == 200
 
 

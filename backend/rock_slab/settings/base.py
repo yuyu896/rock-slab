@@ -107,6 +107,9 @@ REST_FRAMEWORK = {
         'user': '1000/hour',
         'login': '5/minute',
     },
+    # 反向代理层数（单层 Nginx 为 1）：使登录限流按 X-Forwarded-For 中的
+    # 真实客户端 IP 计数，而非所有请求共享的容器内部地址。线上可经环境变量覆盖。
+    'NUM_PROXIES': int(os.environ.get('NUM_PROXIES', '1')),
 }
 
 LANGUAGE_CODE = 'zh-hans'
@@ -125,6 +128,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'apps.authentication.validators.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 8},
     },
 ]
 

@@ -1,4 +1,5 @@
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, password_validation
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError
 from rest_framework.authtoken.models import Token as BaseToken
 from rest_framework.decorators import api_view, permission_classes, throttle_classes, authentication_classes
@@ -8,6 +9,9 @@ from apps.users.serializers import UserSerializer
 from apps.authentication.serializers import LoginSerializer
 from apps.authentication.models import ExpiringToken
 from apps.authentication.throttling import LoginRateThrottle
+from apps.authentication.account_lockout import (
+    check_account_locked, record_login_failure, clear_login_failures,
+)
 from apps.audit.decorators import audit_log
 
 
@@ -46,11 +50,19 @@ def login_view(request):
     phone = serializer.validated_data['phone']
     password = serializer.validated_data['password']
 
+    # 账号锁定检查（防止单账号被暴力破解）
+    locked = check_account_locked(phone)
+    if locked:
+        return locked
+
     user = authenticate(request, phone=phone, password=password)
     if user is None:
+        record_login_failure(phone)
         return Response({'detail': '手机号或密码错误'}, status=401)
     if user.status != 'active':
         return Response({'detail': '账号已停用'}, status=403)
+    # 成功登录清零失败计数
+    clear_login_failures(phone)
     token = get_or_create_token(user)
     user_serializer = UserSerializer(user)
     return Response({
@@ -64,7 +76,7 @@ def login_view(request):
 def logout_view(request):
     try:
         request.user.auth_token.delete()
-    except Exception:
+    except ObjectDoesNotExist:
         pass
     return Response({'detail': 'ok'})
 
@@ -88,13 +100,22 @@ def change_password_view(request):
         return Response({'detail': '请填写旧密码和新密码'}, status=400)
     if not user.check_password(old_password):
         return Response({'detail': '原密码错误'}, status=400)
+    try:
+        password_validation.validate_password(new_password, user=user)
+    except Exception as e:
+        messages = getattr(e, 'messages', None) or [str(e)]
+        return Response(
+            {'detail': '；'.join(str(m) for m in messages)},
+            status=400,
+        )
+
     user.set_password(new_password)
     user.save()
 
     # Rotate token: delete old, create new
     try:
         user.auth_token.delete()
-    except Exception:
+    except ObjectDoesNotExist:
         pass
     token = ExpiringToken.objects.create(user=user)
 
