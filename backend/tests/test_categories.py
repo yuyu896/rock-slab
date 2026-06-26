@@ -23,6 +23,7 @@ def _build_import_xlsx(rows):
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
+    buf.name = 'test.xlsx'
     return buf
 
 

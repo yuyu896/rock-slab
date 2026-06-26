@@ -86,6 +86,14 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
 
+        from core.upload_validation import (
+            validate_excel_upload, validate_row_count, UploadValidationError,
+        )
+        try:
+            validate_excel_upload(file)
+        except UploadValidationError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             import openpyxl
             wb = openpyxl.load_workbook(file, read_only=True)
@@ -95,6 +103,12 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 {'detail': f'文件解析失败: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        try:
+            validate_row_count(ws)
+        except UploadValidationError as e:
+            wb.close()
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         imported = 0
@@ -275,8 +289,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         # 表头样式：加粗、浅绿底、居中、边框
         header_font = Font(bold=True)
         header_fill = PatternFill('solid', fgColor='FFE8F0E8')
-        readonly_fill = PatternFill('solid', fgColor='FFF5F5F5')
-        center = Alignment(horizontal='center', vertical='middle')
+        center = Alignment(horizontal='center', vertical='center')
         thin = Side(style='thin')
         border = Border(top=thin, bottom=thin, left=thin, right=thin)
 
@@ -293,13 +306,10 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.row_dimensions[1].height = 15
         ws.freeze_panes = 'A2'
 
-        # 自适应列宽 + 只读列数据区域灰底
+        # 自适应列宽（不在数据区创建单元格，避免模板出现空数据行）
         for col_idx, header in enumerate(self.FA_HEADERS, start=1):
             width = max(len(header) * 2.2 + 2, 10)
             ws.column_dimensions[get_column_letter(col_idx)].width = width
-            if (col_idx - 1) in self.FA_READONLY_COLS:
-                data_cell = ws.cell(row=2, column=col_idx)
-                data_cell.fill = readonly_fill
 
         output = io.BytesIO()
         wb.save(output)
@@ -367,6 +377,14 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
 
+        from core.upload_validation import (
+            validate_excel_upload, validate_row_count, UploadValidationError,
+        )
+        try:
+            validate_excel_upload(file)
+        except UploadValidationError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             import openpyxl
             wb = openpyxl.load_workbook(file, read_only=True)
@@ -377,16 +395,43 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        rows = list(ws.iter_rows(min_row=2, values_only=True))
+        try:
+            validate_row_count(ws)
+        except UploadValidationError as e:
+            wb.close()
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        all_rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        if not all_rows:
+            return Response({'imported': 0, 'errors': []})
+
+        # 按表头列名建立映射（列顺序无关，兼容用户自定义或简化模板）
+        header_row = [str(c or '').strip() for c in all_rows[0]]
+        col = {}
+        for idx, name in enumerate(header_row):
+            if name and name not in col:
+                col[name] = idx
+        if '序列号' not in col and '电脑序列号' in col:
+            col['序列号'] = col['电脑序列号']
+
+        def cell(row, name):
+            idx = col.get(name)
+            if idx is None or idx >= len(row):
+                return ''
+            val = row[idx]
+            return '' if val is None else val
+
         imported = 0
         raw_errors = []
 
-        for i, row in enumerate(rows, start=2):
-            if not row or not row[3]:
+        for i, row in enumerate(all_rows[1:], start=2):
+            资产编号 = str(cell(row, '资产编号')).strip()
+            if not 资产编号:
                 raw_errors.append((i, '资产编号为空，跳过该行'))
                 continue
 
-            资产编号 = str(row[3]).strip()
             try:
                 parent_asset = Asset.objects.get(资产编号=资产编号)
             except Asset.DoesNotExist:
@@ -398,13 +443,13 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     asset=parent_asset,
                     内部编号=FixedAsset.generate_internal_code(资产编号),
                     资产编号=资产编号,
-                    资产名称=parent_asset.资产名称,
-                    序列号=str(row[7] or '') if len(row) > 7 else '',
-                    供应商=str(row[8] or '') if len(row) > 8 else '',
-                    入库日期=excel_date_to_python(row[9] if len(row) > 9 else None),
-                    所属部门=str(row[16] or '') if len(row) > 16 else '',
-                    使用人=str(row[17] or '') if len(row) > 17 else '',
-                    当前状态=str(row[18] or '在库') if len(row) > 18 else '在库',
+                    资产名称=str(cell(row, '资产名称')) or parent_asset.资产名称,
+                    序列号=str(cell(row, '序列号')),
+                    供应商=str(cell(row, '供应商')),
+                    入库日期=excel_date_to_python(cell(row, '入库日期') or None),
+                    所属部门=str(cell(row, '所属部门')),
+                    使用人=str(cell(row, '使用人')),
+                    当前状态=str(cell(row, '当前状态') or '在库'),
                     分公司=parent_asset.分公司,
                     分公司编号=parent_asset.分公司编号,
                     branch=parent_asset.branch,
@@ -413,6 +458,5 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             except Exception as e:
                 raw_errors.append((i, f'保存失败: {str(e)}'))
 
-        wb.close()
         errors = merge_errors(raw_errors)
         return Response({'imported': imported, 'errors': errors})

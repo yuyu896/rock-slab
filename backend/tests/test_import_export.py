@@ -26,6 +26,7 @@ def _make_xlsx(headers, rows=None):
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
+    buf.name = 'test.xlsx'
     return buf
 
 
@@ -404,3 +405,11 @@ class TestImportEdgeCases:
         buf = _make_xlsx(['不相关的列1', '不相关的列2'])
         resp = _upload_url(admin_client, '/api/assets/import', buf)
         assert resp.status_code in (200, 400)
+
+    def test_import_wrong_extension_rejected(self, admin_client):
+        """非 .xlsx 扩展名应在解析前被拒绝（防误传/恶意文件）。"""
+        buf = io.BytesIO(b'fake content')
+        buf.name = 'not_excel.csv'
+        resp = admin_client.post('/api/assets/import', {'file': buf}, format='multipart')
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'xlsx' in str(resp.data['detail'])

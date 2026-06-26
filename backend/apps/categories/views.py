@@ -134,6 +134,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
 
+        from core.upload_validation import (
+            validate_excel_upload, validate_row_count, UploadValidationError,
+        )
+        try:
+            validate_excel_upload(file)
+        except UploadValidationError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             import openpyxl
             wb = openpyxl.load_workbook(file, read_only=True)
@@ -143,6 +151,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 {'detail': f'文件解析失败: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        try:
+            validate_row_count(ws)
+        except UploadValidationError as e:
+            wb.close()
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         imported = 0
