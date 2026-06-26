@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Q
 
-from core.permissions import IsRoleMin
+from apps.permissions.permissions import OperationPermission
 from core.pagination import StandardPagination
 from .models import Notification, ApprovalCC
 from .serializers import NotificationSerializer, ApprovalCCSerializer
@@ -15,10 +15,9 @@ from .filters import NotificationFilterSet, ApprovalCCFilterSet
 class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     """通知视图集 - 只读 + 标记操作"""
     serializer_class = NotificationSerializer
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     filterset_class = NotificationFilterSet
-    min_role = 'staff'
 
     def get_queryset(self):
         return Notification.objects.filter(
@@ -69,10 +68,11 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 class ApprovalCCViewSet(viewsets.ReadOnlyModelViewSet):
     """抄送记录视图集"""
     serializer_class = ApprovalCCSerializer
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     filterset_class = ApprovalCCFilterSet
-    min_role = 'manager'  # 只有经理及以上可查看
+    # 抄送记录需 view_all_notifications 权限（admin 自动放行）
+    required_operation = 'view_all_notifications'
 
     def get_queryset(self):
         return ApprovalCC.objects.filter(

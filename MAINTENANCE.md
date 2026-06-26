@@ -202,9 +202,43 @@ ls /root/rock-slab/backend/staticfiles/         # 确认有内容
 
 ## 七、应急联系与回滚
 
-- **代码回滚**：`cd /root/rock-slab && git log --oneline -10` 找上一个稳定 commit → `git reset --hard <hash>` → rebuild
-- **数据回滚**：见四、4.3，从备份恢复
+### 7.1 部署回滚（双轨，按问题类型选择）
+
+`deploy.sh` 会在每次部署开头输出两个锚点：
+- `部署前 commit`：`PRE_DEPLOY_COMMIT`（部署前的 git SHA）
+- `部署前备份`：`PRE_DEPLOY_BACKUP`（部署前即时 `pg_dump` 文件路径）
+
+> 本次权限解耦部署的 permissions 表/字段是**新增**，旧代码不引用它们——回滚代码后这些表保留在库里**无害**。
+
+**① 代码回滚**（前端样式 / 页面 / 逻辑 bug，**数据库正常**）——秒级，不动数据：
+```bash
+cd /root/rock-slab
+git reset --hard <PRE_DEPLOY_COMMIT>
+docker compose build backend
+cd frontend && npm install && npm run build && cd ..
+docker compose up -d backend
+docker exec root-nginx-1 nginx -s reload
+```
+
+**② 数据回滚**（迁移 / 种子异常，或需恢复部署前数据）——分钟级：
+```bash
+cd /root/rock-slab
+docker compose stop backend                                   # 1. 停后端，避免恢复期间写入
+gunzip -c <PRE_DEPLOY_BACKUP> | docker exec -i root-db-1 psql -U rock_slab_user -d rock_slab  # 2. 恢复
+git reset --hard <PRE_DEPLOY_COMMIT>                          # 3. 代码也回滚
+docker compose up -d backend                                  # 4. 重启
+docker exec root-nginx-1 nginx -s reload
+```
+
+> 上面 `<PRE_DEPLOY_COMMIT>` / `<PRE_DEPLOY_BACKUP>` 替换为 `deploy.sh` 末尾打印的实际值。
+> 种子校验失败时，`deploy.sh` 第 5 步会自动 `exit 1` 中止——此时 migrate 已跑、后端**未重启**，直接走②数据回滚即可。
+
+### 7.2 其他应急
+
+- **代码回滚（历史）**：`cd /root/rock-slab && git log --oneline -10` 找上一个稳定 commit → `git reset --hard <hash>` → rebuild
+- **数据回滚（历史）**：见四、4.3，从备份恢复
 - **全站宕机急救**：`cd /root/rock-slab && docker compose up -d backend` + `docker exec root-nginx-1 nginx -s reload`
+
 
 ---
 

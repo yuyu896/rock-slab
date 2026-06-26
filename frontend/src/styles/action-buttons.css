@@ -46,7 +46,7 @@
 
 .action-btn.warehouse {
   color: var(--color-success);
-  border-color: oklch(0.85 0.1 145);
+  border-color: var(--color-primary-200);
 }
 
 .action-btn.warehouse:hover {

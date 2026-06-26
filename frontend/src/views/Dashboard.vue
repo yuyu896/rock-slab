@@ -36,7 +36,7 @@ function buildScopeParams(): Record<string, string> {
   const user = userStore.profile
   if (!user) return {}
   const role = user.role
-  if (role === 'admin' || role === 'manager') return {}
+  if (role === 'admin' || role === 'director' || role === 'manager') return {}
   if (role === 'supervisor') {
     return user.region ? { region: user.region } : {}
   }
@@ -401,7 +401,7 @@ onMounted(() => {
 .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 .stat-icon svg { width: 24px; height: 24px; }
 .stat-icon.assets { background: var(--color-primary-100); color: var(--color-primary-600); }
-.stat-icon.active { background: oklch(0.92 0.08 145); color: var(--color-success); }
+.stat-icon.active { background: var(--color-primary-100); color: var(--color-success); }
 .stat-icon.pending { background: oklch(0.94 0.06 85); color: var(--color-warning); }
 .stat-icon.warning { background: oklch(0.92 0.10 25); color: var(--color-danger); }
 .stat-content { flex: 1; display: flex; flex-direction: column; }

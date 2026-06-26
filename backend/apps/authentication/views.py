@@ -81,8 +81,9 @@ def profile_view(request):
 @audit_log(action='change_password', resource_type='User', description_template='修改密码')
 def change_password_view(request):
     user = request.user
-    old_password = request.data.get('oldPassword')
-    new_password = request.data.get('newPassword')
+    # CamelCaseJSONParser 会把前端发送的 oldPassword/newPassword 转成 snake_case
+    old_password = request.data.get('old_password')
+    new_password = request.data.get('new_password')
     if not old_password or not new_password:
         return Response({'detail': '请填写旧密码和新密码'}, status=400)
     if not user.check_password(old_password):

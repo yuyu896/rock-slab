@@ -16,6 +16,7 @@ const userPanelRef = ref<InstanceType<typeof UserPanel> | null>(null)
 
 const roleLabels: Record<string, string> = {
   admin: '超级管理员',
+  director: '行政总监',
   manager: '行政经理',
   supervisor: '主管',
   leader: '组长',

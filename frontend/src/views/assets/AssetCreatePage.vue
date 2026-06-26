@@ -1,23 +1,18 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { createAsset } from '@/api/assets'
+import { getCategories } from '@/api/categories'
+import { getBranches } from '@/api/branches'
+import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { Asset, Category } from '@/types'
 
-const props = defineProps<{
-  visible: boolean
-  saving: boolean
-  branchOptions: { value: string; label: string }[]
-  categoryOptions: { value: string; label: string }[]
-  allCategories: Category[]
-}>()
-
-const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'save', payload: Partial<Asset>): void
-}>()
-
-const newAsset = ref<Partial<Asset>>(getDefaultAsset())
-const dynamicAttrValues = ref<Record<string, string>>({})
+const router = useRouter()
+const creating = ref(false)
+const branchOptions = ref<{ value: string; label: string }[]>([])
+const categoryOptions = ref<{ value: string; label: string }[]>([])
+const allCategories = ref<Category[]>([])
 
 function getDefaultAsset(): Partial<Asset> {
   return {
@@ -37,9 +32,12 @@ function getDefaultAsset(): Partial<Asset> {
   }
 }
 
+const newAsset = ref<Partial<Asset>>(getDefaultAsset())
+const dynamicAttrValues = ref<Record<string, string>>({})
+
 const currentCategoryAttrs = computed(() => {
   if (!newAsset.value.物品分类) return []
-  const cat = props.allCategories.find(c => c.物品分类 === newAsset.value.物品分类)
+  const cat = allCategories.value.find(c => c.物品分类 === newAsset.value.物品分类)
   if (!cat || !(cat as any).attributes) return []
   return (cat as any).attributes
 })
@@ -47,7 +45,7 @@ const currentCategoryAttrs = computed(() => {
 const itemCategoryOptions = computed(() => {
   if (!newAsset.value.资产类目) return []
   const seen = new Set<string>()
-  return props.allCategories
+  return allCategories.value
     .filter(c => c.资产类目 === newAsset.value.资产类目)
     .filter(c => {
       if (seen.has(c.物品分类)) return false
@@ -56,16 +54,43 @@ const itemCategoryOptions = computed(() => {
     })
 })
 
-const createMainCategoryOptions = computed(() => {
-  return props.categoryOptions.filter(o => o.value !== '')
-})
+const createMainCategoryOptions = computed(() => categoryOptions.value.filter(o => o.value !== ''))
 
-function resetForm() {
-  newAsset.value = getDefaultAsset()
-  dynamicAttrValues.value = {}
+async function fetchCategories() {
+  try {
+    let allResults: any[] = []
+    let page = 1
+    let hasMore = true
+    while (hasMore) {
+      const { data } = await getCategories({ pageSize: 100, page })
+      const results = data.results ?? data
+      allResults = allResults.concat(results)
+      const total = data.count ?? results.length
+      hasMore = allResults.length < total
+      page++
+    }
+    allCategories.value = allResults
+    const mainCats = new Set(allResults.map((c: any) => c.资产类目))
+    categoryOptions.value = Array.from(mainCats).map((cat: string) => ({ value: cat, label: cat }))
+  } catch (error) {
+    console.error('Failed to fetch categories:', error)
+  }
 }
 
-function handleSubmit() {
+async function fetchBranches() {
+  try {
+    const { data } = await getBranches()
+    branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
+  } catch (error) {
+    console.error('Failed to fetch branches:', error)
+  }
+}
+
+function goBack() {
+  router.replace('/assets/list')
+}
+
+async function handleSubmit() {
   const a = newAsset.value
   if (!a.分公司 || !a.资产编号 || !a.资产名称 || !a.资产类目 || !a.物品分类 || !a.数量) {
     ElMessage.warning('请填写所有必填字段')
@@ -81,23 +106,35 @@ function handleSubmit() {
     const attrParts = Object.entries(dynamicAttrValues.value).map(([k, v]) => `${k}:${v}`)
     payload.备注 = (a.备注 ? a.备注 + '\n' : '') + '[属性]' + attrParts.join('; ')
   }
-  emit('save', payload)
+  creating.value = true
+  try {
+    await createAsset(payload)
+    ElMessage.success('资产创建成功')
+    goBack()
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    creating.value = false
+  }
 }
 
-function handleClose() {
-  resetForm()
-  emit('close')
-}
+onMounted(() => {
+  fetchCategories()
+  fetchBranches()
+})
 </script>
 
 <template>
-  <div v-if="visible" class="modal-overlay" @click.self="handleClose">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>新增资产</h3>
-        <button class="modal-close" @click="handleClose">&times;</button>
-      </div>
-      <div class="modal-body">
+  <div class="create-page">
+    <div class="page-header">
+      <button class="back-btn" @click="goBack">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        返回
+      </button>
+      <h1 class="page-title">新增资产</h1>
+    </div>
+    <div class="form-card">
+      <div class="form-body">
         <div class="form-grid">
           <div class="form-item">
             <label class="form-label">分公司 <span class="required">*</span></label>
@@ -176,33 +213,36 @@ function handleClose() {
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn-cancel" @click="handleClose">取消</button>
-        <button class="btn-confirm" @click="handleSubmit" :disabled="saving">{{ saving ? '创建中...' : '确定创建' }}</button>
+      <div class="form-footer">
+        <button class="btn-cancel" @click="goBack">取消</button>
+        <button class="btn-confirm" @click="handleSubmit" :disabled="creating">{{ creating ? '创建中...' : '确定创建' }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.modal-content { background: var(--color-bg-elevated); border-radius: 16px; width: 90%; max-width: 720px; max-height: 90vh; overflow-y: auto; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--color-border); }
-.modal-header h3 { margin: 0; font-size: 18px; }
-.modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--color-text-secondary); }
-.modal-body { padding: 24px; }
-.modal-footer { padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 12px; }
+.create-page { max-width: 960px; margin: 0 auto; min-width: 0; }
+.page-header { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-6); }
+.back-btn { display: inline-flex; align-items: center; gap: var(--space-1); height: 36px; padding: 0 var(--space-3); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-secondary); cursor: pointer; }
+.back-btn:hover { color: var(--color-primary-500); border-color: var(--color-primary-300); }
+.back-btn svg { width: 16px; height: 16px; }
+.page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }
+.form-card { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 16px; overflow: hidden; }
+.form-body { padding: var(--space-6); }
+.form-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--color-border); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-item { display: flex; flex-direction: column; gap: 6px; }
 .form-item.full { grid-column: 1 / -1; }
-.form-label { font-size: 14px; font-weight: 500; }
+.form-label { font-size: 14px; font-weight: 500; color: var(--color-text-primary); }
 .required { color: var(--color-danger); }
-.form-input, .form-select { width: 100%; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg); outline: none; }
-.form-input:focus, .form-select:focus { border-color: var(--color-primary); }
-.form-textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg); outline: none; resize: vertical; }
+.form-input, .form-select { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-page); outline: none; box-sizing: border-box; }
+.form-input:focus, .form-select:focus { border-color: var(--color-primary-500); }
+.form-textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-page); outline: none; resize: vertical; box-sizing: border-box; }
 .form-toggle { display: flex; gap: 16px; padding: 8px 0; }
 .form-toggle label { display: flex; align-items: center; gap: 4px; font-size: 14px; cursor: pointer; }
-.btn-cancel { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-elevated); cursor: pointer; font-size: 14px; }
-.btn-confirm { padding: 8px 20px; border-radius: 8px; border: none; background: var(--color-primary); color: #fff; cursor: pointer; font-size: 14px; }
+.btn-cancel { height: 40px; padding: 0 20px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-card); cursor: pointer; font-size: 14px; color: var(--color-text-primary); }
+.btn-confirm { height: 40px; padding: 0 20px; border-radius: 8px; border: none; background: var(--color-primary-500); color: #fff; cursor: pointer; font-size: 14px; }
 .btn-confirm:disabled { opacity: 0.6; cursor: not-allowed; }
+@media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
 </style>

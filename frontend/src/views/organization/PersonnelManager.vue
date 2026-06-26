@@ -59,6 +59,7 @@ const filteredUsers = computed(() => {
 const getRoleStyle = (role: string) => {
   const styles: Record<string, { background: string; color: string }> = {
     'admin': { background: 'oklch(0.95 0.02 250)', color: 'oklch(0.25 0.05 250)' },
+    'director': { background: 'oklch(0.94 0.025 250)', color: 'oklch(0.27 0.055 250)' },
     'manager': { background: 'oklch(0.93 0.03 250)', color: 'oklch(0.30 0.06 250)' },
     'supervisor': { background: 'var(--color-primary-100)', color: 'var(--color-primary-700)' },
     'leader': { background: 'var(--color-primary-100)', color: 'var(--color-primary-700)' },
@@ -102,6 +103,7 @@ function getTeamName(id?: string) {
       <select v-model="personnelRoleFilter" class="filter-select">
         <option value="">全部角色</option>
         <option value="admin">超级管理员</option>
+        <option value="director">行政总监</option>
         <option value="manager">行政经理</option>
         <option value="supervisor">行政主管</option>
         <option value="leader">行政组长</option>

@@ -99,8 +99,8 @@ class TestTransferScoping:
         })
         client = _client_for(supervisor_user)
         resp = client.get('/api/transfers/')
-        # Supervisor sees transfers where from_branch is in their region
-        assert resp.data['count'] == 1
+        # 主管可见涉及本区域分公司的调拨（无论调出还是调入），两笔均涉及测试分公司
+        assert resp.data['count'] == 2
 
     def test_staff_sees_own_branch_transfers(self, staff_user, admin_user, branch, second_branch):
         self._create_transfer(admin_user, branch.name, 'SC-005')

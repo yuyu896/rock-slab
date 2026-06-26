@@ -23,6 +23,7 @@ class UserManager(BaseUserManager):
 class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = [
         ('admin', 'admin'),
+        ('director', 'director'),
         ('manager', 'manager'),
         ('supervisor', 'supervisor'),
         ('leader', 'leader'),
@@ -71,6 +72,12 @@ class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = ['name']
+
+    def can(self, code: str) -> bool:
+        """是否持有某项业务操作权限（admin 恒真，不查授权表）。"""
+        if self.role == 'admin':
+            return True
+        return self.operation_grants.filter(code=code).exists()
 
     class Meta:
         db_table = 'users'

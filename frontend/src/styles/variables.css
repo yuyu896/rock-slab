@@ -1,43 +1,43 @@
 /*磐盘 - Rock Slab 资产管理系统
  * 设计系统变量
- * 风格：温暖友好 | 绿色系
+ * 风格：专业可信 | 白蓝配色
  */
 
 :root {
-  /* 品牌主色 - 温暖的绿色系 */
-  --color-primary: oklch(0.58 0.18 145);
-  --color-primary-50: oklch(0.98 0.02 145);
-  --color-primary-100: oklch(0.94 0.04 145);
-  --color-primary-200: oklch(0.88 0.08 145);
-  --color-primary-300: oklch(0.78 0.12 145);
-  --color-primary-400: oklch(0.68 0.16 145);
-  --color-primary-500: oklch(0.58 0.18 145);
-  --color-primary-600: oklch(0.48 0.16 145);
-  --color-primary-700: oklch(0.40 0.14 145);
-  --color-primary-800: oklch(0.32 0.10 145);
-  --color-primary-900: oklch(0.26 0.08 145);
+  /* 品牌主色 - 蓝色系（h≈250） */
+  --color-primary: oklch(0.55 0.19 250);
+  --color-primary-50: oklch(0.98 0.02 250);
+  --color-primary-100: oklch(0.94 0.04 250);
+  --color-primary-200: oklch(0.88 0.08 250);
+  --color-primary-300: oklch(0.78 0.12 250);
+  --color-primary-400: oklch(0.68 0.16 250);
+  --color-primary-500: oklch(0.55 0.19 250);
+  --color-primary-600: oklch(0.48 0.16 250);
+  --color-primary-700: oklch(0.40 0.14 250);
+  --color-primary-800: oklch(0.32 0.10 250);
+  --color-primary-900: oklch(0.26 0.08 250);
 
-  /* 背景色 - 带绿色调的温暖背景 */
-  --color-bg-page: oklch(0.985 0.008 145);
-  --color-bg-card: oklch(0.995 0.005 145);
-  --color-bg-elevated: oklch(0.998 0.002 145);
-  --color-bg-sidebar: oklch(0.28 0.06 145);
+  /* 背景色 - 中性白 / 极淡蓝调 */
+  --color-bg-page: oklch(0.985 0.006 250);
+  --color-bg-card: oklch(0.997 0.003 250);
+  --color-bg-elevated: oklch(0.999 0.001 250);
+  --color-bg-sidebar: oklch(0.26 0.05 250);
 
-  /* 文字色 */
-  --color-text-primary: oklch(0.20 0.02 145);
-  --color-text-secondary: oklch(0.40 0.02 145);
-  --color-text-tertiary: oklch(0.58 0.02 145);
-  --color-text-inverse: oklch(0.98 0.01 145);
+  /* 文字色 - 中性深蓝灰 */
+  --color-text-primary: oklch(0.20 0.02 250);
+  --color-text-secondary: oklch(0.40 0.02 250);
+  --color-text-tertiary: oklch(0.58 0.02 250);
+  --color-text-inverse: oklch(0.98 0.01 250);
 
   /* 边框色 */
-  --color-border: oklch(0.90 0.02 145);
-  --color-border-light: oklch(0.94 0.01 145);
+  --color-border: oklch(0.90 0.02 250);
+  --color-border-light: oklch(0.94 0.01 250);
 
-  /* 状态色 */
-  --color-success: oklch(0.65 0.18 145);
+  /* 状态色 —— 全站统一白蓝：success/info 跟随品牌蓝；仅 warning/danger 保留警示色相 */
+  --color-success: oklch(0.55 0.19 250);
   --color-warning: oklch(0.75 0.16 85);
   --color-danger: oklch(0.60 0.20 25);
-  --color-info: oklch(0.60 0.15 240);
+  --color-info: oklch(0.55 0.19 250);
 
   /* ===== 状态颜色令牌 ===== */
 
@@ -113,10 +113,10 @@
   --radius-full: 9999px;
 
   /* 阴影 */
-  --shadow-sm: 0 1px 2px oklch(0.20 0.02 145 / 0.05);
-  --shadow-md: 0 4px 6px -1px oklch(0.20 0.02 145 / 0.08);
-  --shadow-lg: 0 10px 15px -3px oklch(0.20 0.02 145 / 0.08);
-  --shadow-xl: 0 20px 25px -5px oklch(0.20 0.02 145 / 0.1);
+  --shadow-sm: 0 1px 2px oklch(0.20 0.02 250 / 0.05);
+  --shadow-md: 0 4px 6px -1px oklch(0.20 0.02 250 / 0.08);
+  --shadow-lg: 0 10px 15px -3px oklch(0.20 0.02 250 / 0.08);
+  --shadow-xl: 0 20px 25px -5px oklch(0.20 0.02 250 / 0.1);
 
   /* 过渡 */
   --transition-fast: 150ms ease-out;
@@ -132,15 +132,15 @@
 /* 深色模式 */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg-page: oklch(0.16 0.02 145);
-    --color-bg-card: oklch(0.20 0.02 145);
-    --color-bg-elevated: oklch(0.24 0.02 145);
-    --color-bg-sidebar: oklch(0.12 0.04 145);
-    --color-text-primary: oklch(0.92 0.02 145);
-    --color-text-secondary: oklch(0.72 0.02 145);
-    --color-text-tertiary: oklch(0.54 0.02 145);
-    --color-text-inverse: oklch(0.16 0.02 145);
-    --color-border: oklch(0.30 0.02 145);
-    --color-border-light: oklch(0.26 0.02 145);
+    --color-bg-page: oklch(0.16 0.02 250);
+    --color-bg-card: oklch(0.20 0.02 250);
+    --color-bg-elevated: oklch(0.24 0.02 250);
+    --color-bg-sidebar: oklch(0.14 0.04 250);
+    --color-text-primary: oklch(0.92 0.02 250);
+    --color-text-secondary: oklch(0.72 0.02 250);
+    --color-text-tertiary: oklch(0.54 0.02 250);
+    --color-text-inverse: oklch(0.16 0.02 250);
+    --color-border: oklch(0.30 0.02 250);
+    --color-border-light: oklch(0.26 0.02 250);
   }
 }

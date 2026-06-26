@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { getFixedAssets, updateFixedAsset, deleteFixedAsset, importFixedAssets, exportFixedAssets, createFixedAsset, downloadFixedAssetTemplate } from '@/api/assets'
+import { useRouter } from 'vue-router'
+import { getFixedAssets, updateFixedAsset, deleteFixedAsset, importFixedAssets, exportFixedAssets, downloadFixedAssetTemplate } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -94,45 +95,11 @@ function openImportModal() {
   showImportModal.value = true
 }
 
-// ── 新增 ──
-const showCreateModal = ref(false)
-const creating = ref(false)
-const createForm = ref({
-  资产编号: '',
-  序列号: '',
-  供应商: '',
-  入库日期: '',
-  使用人: '',
-  所属部门: '',
-  当前状态: '在库',
-  备注: '',
-})
+// ── 新增（跳转独立页面）──
+const router = useRouter()
 
-function openCreateModal() {
-  createForm.value = {
-    资产编号: '', 序列号: '', 供应商: '', 入库日期: '',
-    使用人: '', 所属部门: '', 当前状态: '在库', 备注: '',
-  }
-  showCreateModal.value = true
-}
-
-async function submitCreate() {
-  const f = createForm.value
-  if (!f.资产编号) {
-    ElMessage.warning('请填写资产编号')
-    return
-  }
-  creating.value = true
-  try {
-    await createFixedAsset(f)
-    ElMessage.success('创建成功')
-    showCreateModal.value = false
-    await fetchAssets()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    creating.value = false
-  }
+function openCreatePage() {
+  router.push('/fixed-assets/create')
 }
 
 // ── 编辑 ──
@@ -254,7 +221,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           </svg>
           批量导入
         </button>
-        <button class="btn-primary" @click="openCreateModal" v-if="canManageAssets">
+        <button class="btn-primary" @click="openCreatePage" v-if="canManageAssets">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -380,47 +347,6 @@ onMounted(() => { fetchAssets(); fetchBranches() })
     </el-dialog>
 
     <!-- 新增弹窗 -->
-    <el-dialog v-model="showCreateModal" title="新增固定资产" width="560px" :close-on-click-modal="false">
-      <el-form label-width="80px">
-        <el-form-item label="资产编号" required><el-input v-model="createForm.资产编号" placeholder="资产编号需已存在于资产品目中" /></el-form-item>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="电脑序列号"><el-input v-model="createForm.序列号" placeholder="选填" /></el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="供应商"><el-input v-model="createForm.供应商" placeholder="选填" /></el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="入库日期"><el-date-picker v-model="createForm.入库日期" type="date" value-format="YYYY-MM-DD" placeholder="选填" style="width: 100%" /></el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="状态">
-              <el-select v-model="createForm.当前状态" style="width: 100%">
-                <el-option label="在库" value="在库" />
-                <el-option label="在用" value="在用" />
-                <el-option label="空闲" value="空闲" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="使用人"><el-input v-model="createForm.使用人" placeholder="选填" /></el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="所属部门"><el-input v-model="createForm.所属部门" placeholder="选填" /></el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="备注"><el-input v-model="createForm.备注" type="textarea" :rows="2" placeholder="选填" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateModal = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="submitCreate">确定</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 批量导入弹窗（两步流程） -->
     <el-dialog v-model="showImportModal" title="批量导入固定资产" width="560px">
       <div class="import-step">

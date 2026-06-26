@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { getCategories, createCategory, updateCategory, deleteCategory as deleteCategoryApi, exportCategories } from '@/api/categories'
+import { useRouter } from 'vue-router'
+import { getCategories, deleteCategory as deleteCategoryApi, exportCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { Category, CategoryRequest } from '@/types'
-import CategoryForm from './categories/CategoryForm.vue'
+import { usePermission } from '@/hooks/usePermission'
+import type { Category } from '@/types'
 import CategoryImportDialog from './categories/CategoryImportDialog.vue'
 
+const router = useRouter()
+const { canManageCategories } = usePermission()
+
 // 当前选中的分类
-const selectedCategory = ref<any>(null)
-const triggerElement = ref<HTMLElement | null>(null)
 const viewMode = ref<'table' | 'card'>('table')
 const loading = ref(false)
-const saving = ref(false)
 
 // 筛选
 const filterCategory = ref('')
@@ -143,8 +144,7 @@ watch(filterCategory, () => {
 
 // 编辑分类
 const editCategory = (item: Category) => {
-  triggerElement.value = document.activeElement as HTMLElement
-  selectedCategory.value = { ...item }
+  if (item.id) router.push(`/categories/${item.id}/edit`)
 }
 
 // 删除分类
@@ -164,60 +164,9 @@ const deleteCategory = async (item: Category) => {
   }
 }
 
-// 新增分类
+// 新增分类（跳转独立页面）
 const addCategory = () => {
-  triggerElement.value = document.activeElement as HTMLElement
-  selectedCategory.value = {
-    id: '',
-    资产类目: '',
-    物品分类: '',
-    资产名称: '',
-    资产编号: '',
-    计量单位: '',
-    警戒线: 10,
-    备注: ''
-  }
-}
-
-// 关闭模态框
-const closeModal = () => {
-  selectedCategory.value = null
-  if (triggerElement.value) {
-    triggerElement.value.focus()
-    triggerElement.value = null
-  }
-}
-
-// 保存分类
-async function saveCategory() {
-  if (!selectedCategory.value) return
-  saving.value = true
-  try {
-    // 使用英文字段名发送给后端
-    const payload: CategoryRequest = {
-      asset_category: selectedCategory.value.资产类目,
-      item_category: selectedCategory.value.物品分类,
-      asset_name: selectedCategory.value.资产名称,
-      asset_code: selectedCategory.value.资产编号,
-      unit: selectedCategory.value.计量单位,
-      warning_line: selectedCategory.value.警戒线,
-      remarks: selectedCategory.value.备注,
-    }
-    if (selectedCategory.value.id) {
-      await updateCategory(selectedCategory.value.id, payload)
-      ElMessage.success('保存成功')
-    } else {
-      await createCategory(payload)
-      ElMessage.success('创建成功')
-    }
-    closeModal()
-    await fetchCategories()
-    fetchAllCategories()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    saving.value = false
-  }
+  router.push('/categories/create')
 }
 
 // 导入分类
@@ -231,25 +180,6 @@ const handleImportSuccess = async () => {
   showImportModal.value = false
   await fetchCategories()
   fetchAllCategories()
-}
-
-// 属性模板操作
-const addAttribute = () => {
-  if (!selectedCategory.value) return
-  if (!selectedCategory.value.attributes) {
-    selectedCategory.value.attributes = []
-  }
-  selectedCategory.value.attributes.push({
-    name: '',
-    type: 'text',
-    required: false,
-    options: ''
-  })
-}
-
-const removeAttribute = (index: number) => {
-  if (!selectedCategory.value?.attributes) return
-  selectedCategory.value.attributes.splice(index, 1)
 }
 
 // 初始化
@@ -276,7 +206,7 @@ onMounted(() => {
           </svg>
           导出
         </button>
-        <button class="btn-secondary" @click="openImportModal">
+        <button v-if="canManageCategories" class="btn-secondary" @click="openImportModal">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
@@ -284,7 +214,7 @@ onMounted(() => {
           </svg>
           导入
         </button>
-        <button class="btn-primary" @click="addCategory">
+        <button v-if="canManageCategories" class="btn-primary" @click="addCategory">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -453,13 +383,13 @@ onMounted(() => {
             </td>
             <td>
               <div class="action-buttons">
-                <button class="action-btn" title="编辑" @click="editCategory(item)">
+                <button v-if="canManageCategories" class="action-btn" title="编辑" @click="editCategory(item)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                   </svg>
                 </button>
-                <button class="action-btn danger" title="删除" @click="deleteCategory(item)">
+                <button v-if="canManageCategories" class="action-btn danger" title="删除" @click="deleteCategory(item)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -512,7 +442,7 @@ onMounted(() => {
         <div class="card-footer">
           <span class="card-unit">单位：{{ item.计量单位 }}</span>
           <div class="card-actions">
-            <button class="card-btn" @click="editCategory(item)">编辑</button>
+            <button v-if="canManageCategories" class="card-btn" @click="editCategory(item)">编辑</button>
           </div>
         </div>
       </div>
@@ -545,19 +475,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 编辑弹窗 -->
-    <CategoryForm
-      v-if="selectedCategory"
-      ref="modalRef"
-      :category="selectedCategory"
-      :saving="saving"
-      @close="closeModal"
-      @save="saveCategory"
-      @add-attribute="addAttribute"
-      @remove-attribute="removeAttribute"
-    />
     <!-- 导入弹窗 -->
     <CategoryImportDialog
+      v-if="showImportModal"
       :visible="showImportModal"
       @close="showImportModal = false"
       @success="handleImportSuccess"
@@ -681,7 +601,7 @@ onMounted(() => {
 }
 
 .stat-icon.success {
-  background: oklch(0.92 0.08 145);
+  background: var(--color-primary-100);
   color: var(--color-success);
 }
 
@@ -867,7 +787,7 @@ onMounted(() => {
 }
 
 .stock-badge.normal {
-  background: oklch(0.92 0.08 145);
+  background: var(--color-primary-100);
   color: var(--color-success);
 }
 

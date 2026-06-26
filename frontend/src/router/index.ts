@@ -2,6 +2,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { TOKEN_KEY } from '@/utils/request'
+import { useUserStore } from '@/store/user'
 import MainLayout from '@/layouts/MainLayout.vue'
 import MobileLayout from '@/layouts/MobileLayout.vue'
 
@@ -15,16 +16,26 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: '工作台' } },
       { path: 'categories', component: () => import('@/views/Category.vue'), meta: { title: '资产类目' } },
+      { path: 'categories/create', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '新增分类' } },
+      { path: 'categories/:id/edit', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '编辑分类' } },
       { path: 'assets/list', component: () => import('@/views/AssetList.vue'), meta: { title: '资产列表' } },
+      { path: 'assets/list/create', component: () => import('@/views/assets/AssetCreatePage.vue'), meta: { title: '新增资产' } },
       { path: 'fixed-assets', component: () => import('@/views/FixedAssetList.vue'), meta: { title: '固定资产表' } },
+      { path: 'fixed-assets/create', component: () => import('@/views/FixedAssetCreate.vue'), meta: { title: '新增固定资产' } },
       { path: 'assets/purchase', component: () => import('@/views/Purchase.vue'), meta: { title: '采购入库' } },
       { path: 'assets/transfer', redirect: '/transfers/transfer' },
       { path: 'transfers/purchase', component: () => import('@/views/transfers/PurchaseList.vue'), meta: { title: '采购入库' } },
+      { path: 'transfers/purchase/create', component: () => import('@/views/transfers/PurchaseCreate.vue'), meta: { title: '新建采购入库' } },
       { path: 'transfers/assign', component: () => import('@/views/transfers/AssignList.vue'), meta: { title: '领用出库' } },
+      { path: 'transfers/assign/create', component: () => import('@/views/transfers/AssignCreate.vue'), meta: { title: '新建领用出库' } },
       { path: 'transfers/transfer', component: () => import('@/views/transfers/TransferList.vue'), meta: { title: '调拨' } },
+      { path: 'transfers/transfer/create', component: () => import('@/views/transfers/TransferCreate.vue'), meta: { title: '新建调拨' } },
       { path: 'transfers/recovery', component: () => import('@/views/transfers/RecoveryList.vue'), meta: { title: '回收' } },
+      { path: 'transfers/recovery/create', component: () => import('@/views/transfers/RecoveryCreate.vue'), meta: { title: '新建回收' } },
       { path: 'inventory', component: () => import('@/views/Inventory.vue'), meta: { title: '盘点管理' } },
+      { path: 'inventory/create', component: () => import('@/views/inventory/InventoryTaskCreate.vue'), meta: { title: '创建盘点任务' } },
       { path: 'organization', component: () => import('@/views/Organization.vue'), meta: { title: '组织架构' } },
+      { path: 'admin/permissions', component: () => import('@/views/admin/PermissionAssign.vue'), meta: { title: '权限分配', requiresAdmin: true } },
       { path: 'reports', component: () => import('@/views/Reports.vue'), meta: { title: '报表统计' } },
       { path: 'audit', component: () => import('@/views/AuditLog.vue'), meta: { title: '审计日志' } },
     ],
@@ -78,6 +89,13 @@ router.beforeEach((to, _from, next) => {
     const token = localStorage.getItem(TOKEN_KEY)
     if (!token) {
       next({ path: '/login', query: { redirect: to.fullPath } })
+      return
+    }
+  }
+  // 仅超级管理员可访问的路由
+  if (to.meta.requiresAdmin) {
+    if (!useUserStore().isAdmin) {
+      next({ path: '/dashboard' })
       return
     }
   }

@@ -5,7 +5,8 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from core.pagination import StandardPagination
-from core.permissions import IsRoleMin, CanApprove, DataScopeMixin
+from core.permissions import DataScopeMixin
+from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
 from .models import InventoryTask, InventoryItem, InventoryCheck
 from .serializers import (
@@ -25,9 +26,14 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     ).all()
     serializer_class = InventoryTaskSerializer
     filterset_class = InventoryTaskFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    min_role = 'staff'
+    scope_branch_field = 'branch'
+    # 审批 / 驳回要求 approve_inventory
+    required_operations = {
+        'approve': 'approve_inventory',
+        'reject': 'approve_inventory',
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -142,7 +148,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         task.save(update_fields=['status', 'submitted_at', 'updated_at'])
         return Response(InventoryTaskSerializer(task).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanApprove])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='InventoryTask', description_template='审批盘点任务')
     def approve(self, request, pk=None):
         """审核通过: pending_review -> completed"""
@@ -159,7 +165,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         task.save(update_fields=['status', 'completed_at', 'updated_at'])
         return Response(InventoryTaskSerializer(task).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanApprove])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='reject', resource_type='InventoryTask', description_template='驳回盘点任务')
     def reject(self, request, pk=None):
         """审核驳回: pending_review -> rejected"""

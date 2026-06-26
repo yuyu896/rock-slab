@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db.models import ProtectedError
-from core.permissions import IsRoleMin
+from apps.permissions.permissions import OperationPermission
 from .models import Region, Branch, Team
 from .serializers import RegionSerializer, BranchSerializer, TeamSerializer
 from .filters import RegionFilterSet, BranchFilterSet
@@ -12,15 +12,15 @@ class RegionViewSet(viewsets.ModelViewSet):
     queryset = Region.objects.select_related('manager').all()
     serializer_class = RegionSerializer
     filterset_class = RegionFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = None
-    min_role = 'staff'  # 所有登录用户可查看
-
-    def get_permissions(self):
-        """创建/更新/删除需要管理员权限"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            self.min_role = 'admin'
-        return super().get_permissions()
+    # 写操作需 manage_organizations；读取无声明即放行
+    required_operations = {
+        'create': 'manage_organizations',
+        'update': 'manage_organizations',
+        'partial_update': 'manage_organizations',
+        'destroy': 'manage_organizations',
+    }
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -38,15 +38,14 @@ class BranchViewSet(viewsets.ModelViewSet):
     queryset = Branch.objects.select_related('region', 'manager').all()
     serializer_class = BranchSerializer
     filterset_class = BranchFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = None
-    min_role = 'staff'  # 所有登录用户可查看
-
-    def get_permissions(self):
-        """创建/更新/删除需要管理员权限"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            self.min_role = 'admin'
-        return super().get_permissions()
+    required_operations = {
+        'create': 'manage_organizations',
+        'update': 'manage_organizations',
+        'partial_update': 'manage_organizations',
+        'destroy': 'manage_organizations',
+    }
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -63,15 +62,15 @@ class BranchViewSet(viewsets.ModelViewSet):
 class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.select_related('region', 'leader').all()
     serializer_class = TeamSerializer
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = None
-    min_role = 'staff'
     filterset_fields = ['region']
-
-    def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            self.min_role = 'admin'
-        return super().get_permissions()
+    required_operations = {
+        'create': 'manage_organizations',
+        'update': 'manage_organizations',
+        'partial_update': 'manage_organizations',
+        'destroy': 'manage_organizations',
+    }
 
     def perform_create(self, serializer):
         team = serializer.save()

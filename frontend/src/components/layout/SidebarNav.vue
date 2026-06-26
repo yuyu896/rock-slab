@@ -2,6 +2,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getInventoryTasks } from '@/api/inventories'
+import { useUserStore } from '@/store/user'
 
 interface NavItem {
   icon: string
@@ -17,6 +18,7 @@ defineProps<{
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const activeMenu = computed(() => route.path)
 const expandedMenu = ref<string | null>(null)
@@ -77,7 +79,13 @@ const navItems = computed<NavItem[]>(() => [
     icon: 'organization',
     label: '组织架构',
     path: '/organization'
-  }
+  },
+  // 仅超级管理员可见：管理权限分配
+  ...(userStore.isAdmin ? [{
+    icon: 'category',
+    label: '权限分配',
+    path: '/admin/permissions'
+  }] : [])
 ])
 
 const navigateTo = (path: string) => {

@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
-from core.permissions import IsRoleMin
+from apps.permissions.permissions import OperationPermission
 from core.pagination import StandardPagination
 from .models import Category
 from .serializers import CategorySerializer
@@ -17,15 +17,16 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     filterset_class = CategoryFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    min_role = 'staff'  # 所有登录用户可查看
-
-    def get_permissions(self):
-        """创建/更新/删除需要主管及以上权限"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy', 'import_excel']:
-            self.min_role = 'supervisor'
-        return super().get_permissions()
+    # 创建/更新/删除/导入需 manage_categories；读取无声明即放行
+    required_operations = {
+        'create': 'manage_categories',
+        'update': 'manage_categories',
+        'partial_update': 'manage_categories',
+        'destroy': 'manage_categories',
+        'import_excel': 'manage_categories',
+    }
 
     def create(self, request, *args, **kwargs):
         """创建分类，处理重复编号错误"""

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { getAssets, createAsset, updateAsset, deleteAsset, exportAssets } from '@/api/assets'
+import { useRouter } from 'vue-router'
+import { getAssets, updateAsset, deleteAsset, exportAssets } from '@/api/assets'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { getTransfers } from '@/api/transfers'
@@ -14,10 +15,10 @@ import BasePagination from '@/components/BasePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AssetDetailDrawer from './assets/AssetDetailDrawer.vue'
 import AssetImportDialog from './assets/AssetImportDialog.vue'
-import AssetCreateForm from './assets/AssetCreateForm.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
 import AssetEditDrawer from './assets/AssetEditDrawer.vue'
 
+const router = useRouter()
 const { canManageAssets } = usePermission()
 
 // 筛选条件
@@ -125,26 +126,9 @@ async function handleDelete(asset: Asset) {
   }
 }
 
-// ===== 新增资产弹窗 =====
-const showCreateModal = ref(false)
-const creating = ref(false)
-
-function openCreateModal() {
-  showCreateModal.value = true
-}
-
-async function handleCreateAsset(payload: Partial<Asset>) {
-  creating.value = true
-  try {
-    await createAsset(payload)
-    ElMessage.success('资产创建成功')
-    showCreateModal.value = false
-    await fetchAssets()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    creating.value = false
-  }
+// ===== 新增资产（跳转独立页面）=====
+function openCreatePage() {
+  router.push('/assets/list/create')
 }
 
 // ===== 批量导入 =====
@@ -327,7 +311,7 @@ onMounted(() => {
           </svg>
           批量导入
         </button>
-        <button class="btn-primary" @click="openCreateModal">
+        <button class="btn-primary" @click="openCreatePage">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -560,17 +544,6 @@ onMounted(() => {
       :branch-options="branchOptions"
       @close="showEditDrawer = false"
       @update="handleUpdateAsset"
-    />
-
-    <!-- 新增资产弹窗 -->
-    <AssetCreateForm
-      :visible="showCreateModal"
-      :saving="creating"
-      :branch-options="branchOptions"
-      :category-options="categoryOptions"
-      :all-categories="allCategories"
-      @close="showCreateModal = false"
-      @save="handleCreateAsset"
     />
 
     <!-- 标签打印弹窗 -->

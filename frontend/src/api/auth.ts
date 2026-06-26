@@ -17,7 +17,7 @@ export function getProfile() {
   return request.get<User>('/api/auth/profile/')
 }
 
-/** 修改密码 */
+/** 修改密码（成功后后端会签发新 Token，需同步本地凭证） */
 export function updatePassword(data: { oldPassword: string; newPassword: string }) {
-  return request.put('/api/auth/password/', data)
+  return request.put<{ detail: string; token: string }>('/api/auth/password/', data)
 }

@@ -5,7 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
-from core.permissions import IsRoleMin, DataScopeMixin
+from core.permissions import DataScopeMixin
+from apps.permissions.permissions import OperationPermission
 from .models import Asset, FixedAsset
 from .serializers import AssetSerializer, FixedAssetSerializer
 from .filters import AssetFilterSet, FixedAssetFilterSet
@@ -14,27 +15,27 @@ from .filters import AssetFilterSet, FixedAssetFilterSet
 class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     """资产管理视图。
 
-    读取：所有角色可查看数据范围内的资产。
-    编辑/删除：supervisor(L3) 及以上角色可操作自己区域/分公司内的资产。
+    读取：所有登录用户可查看数据范围内的资产（范围由管理授权决定）。
+    编辑/删除/导入：需持有 manage_assets 业务操作权限。
     资产信息也通过【资产流转】模块的单据流转自动更新。
     """
     queryset = Asset.objects.select_related('branch').all()
     serializer_class = AssetSerializer
     filterset_class = AssetFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    min_role = 'staff'
+    scope_branch_field = 'branch'
+    # 写操作要求 manage_assets；读/导出无声明即放行（范围由 DataScopeMixin 控制）
+    required_operations = {
+        'update': 'manage_assets',
+        'partial_update': 'manage_assets',
+        'destroy': 'manage_assets',
+        'import_excel': 'manage_assets',
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
-
-    def get_permissions(self):
-        if self.action in ('update', 'partial_update', 'destroy'):
-            self.min_role = 'supervisor'
-        else:
-            self.min_role = 'staff'
-        return super().get_permissions()
 
     def perform_update(self, serializer):
         serializer.save()
@@ -73,7 +74,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return response
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
-            permission_classes=[IsAuthenticated, IsRoleMin], min_role='supervisor')
+            permission_classes=[IsAuthenticated, OperationPermission])
     def import_excel(self, request):
         """Excel batch import via openpyxl."""
         from apps.assets.utils.import_helpers import (
@@ -230,20 +231,20 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     queryset = FixedAsset.objects.select_related('asset', 'branch').all()
     serializer_class = FixedAssetSerializer
     filterset_class = FixedAssetFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    min_role = 'staff'
+    scope_branch_field = 'branch'
+    required_operations = {
+        'create': 'manage_assets',
+        'update': 'manage_assets',
+        'partial_update': 'manage_assets',
+        'destroy': 'manage_assets',
+        'import_excel': 'manage_assets',
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
-
-    def get_permissions(self):
-        if self.action in ('update', 'partial_update', 'destroy', 'create'):
-            self.min_role = 'supervisor'
-        else:
-            self.min_role = 'staff'
-        return super().get_permissions()
 
     def perform_destroy(self, instance):
         instance.delete()
@@ -358,7 +359,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return response
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
-            permission_classes=[IsAuthenticated, IsRoleMin], min_role='supervisor')
+            permission_classes=[IsAuthenticated, OperationPermission])
     def import_excel(self, request):
         from apps.assets.utils.import_helpers import excel_date_to_python, merge_errors
 

@@ -41,8 +41,8 @@ async function handleLogin() {
     errorMessage.value = '请输入手机号'
     return
   }
-  if (!/^\d{11}$/.test(phone.value)) {
-    errorMessage.value = '手机号必须为11位数字'
+  if (!/^1[3-9]\d{9}$/.test(phone.value)) {
+    errorMessage.value = '请输入正确的11位手机号'
     return
   }
   if (!password.value) {
@@ -147,7 +147,7 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-primary-50) 0%, var(--color-bg-page) 50%, oklch(0.96 0.04 145) 100%);
+  background: linear-gradient(135deg, var(--color-primary-50) 0%, var(--color-bg-page) 50%, oklch(0.96 0.04 250) 100%);
   padding: var(--space-4);
 }
 
@@ -157,7 +157,7 @@ async function handleLogin() {
   background: var(--color-bg-card);
   border-radius: 16px;
   padding: var(--space-10) var(--space-8);
-  box-shadow: 0 8px 32px oklch(0.20 0.02 145 / 0.08);
+  box-shadow: 0 8px 32px oklch(0.20 0.02 250 / 0.08);
   border: 1px solid var(--color-border-light);
 }
 
@@ -274,7 +274,7 @@ async function handleLogin() {
 
 .form-input:focus {
   border-color: var(--color-primary-400);
-  box-shadow: 0 0 0 3px oklch(0.68 0.16 145 / 0.12);
+  box-shadow: 0 0 0 3px oklch(0.68 0.16 250 / 0.12);
 }
 
 .input-wrapper {
@@ -329,7 +329,7 @@ async function handleLogin() {
 }
 
 .login-btn:hover:not(:disabled) {
-  box-shadow: 0 4px 16px oklch(0.58 0.18 145 / 0.3);
+  box-shadow: 0 4px 16px oklch(0.55 0.19 250 / 0.3);
   transform: translateY(-1px);
 }
 

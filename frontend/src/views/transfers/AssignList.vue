@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTransferList } from '@/composables/useTransferList'
-import { assignAsset } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import BasePagination from '@/components/BasePagination.vue'
@@ -16,40 +15,10 @@ const {
   handleExport,
 } = useTransferList('assign')
 
-// 新建
-const showCreateModal = ref(false)
-const creating = ref(false)
-const form = ref({ 调拨日期: '', 资产编号: '', 资产名称: '', 调拨数量: 1, fromBranch: '', 使用人: '', 备注: '' })
+const router = useRouter()
 
-function openCreateModal() {
-  form.value = { 调拨日期: '', 资产编号: '', 资产名称: '', 调拨数量: 1, fromBranch: '', 使用人: '', 备注: '' }
-  showCreateModal.value = true
-}
-
-async function submitCreate() {
-  const f = form.value
-  if (!f.调拨日期 || !f.资产编号 || !f.资产名称 || !f.调拨数量 || !f.fromBranch) {
-    ElMessage.warning('请填写必填字段')
-    return
-  }
-  creating.value = true
-  try {
-    await assignAsset({
-      调拨日期: f.调拨日期,
-      资产编号: f.资产编号,
-      资产名称: f.资产名称,
-      调拨数量: f.调拨数量,
-      fromBranch: f.fromBranch,
-      备注: `使用人: ${f.使用人}${f.备注 ? '；' + f.备注 : ''}`,
-    })
-    ElMessage.success('提交成功')
-    showCreateModal.value = false
-    await fetchTransfers()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    creating.value = false
-  }
+function openCreatePage() {
+  router.push('/transfers/assign/create')
 }
 </script>
 
@@ -69,7 +38,7 @@ async function submitCreate() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           批量导入
         </button>
-        <button class="btn-primary" @click="openCreateModal">
+        <button class="btn-primary" @click="openCreatePage">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           新建领用
         </button>
@@ -178,55 +147,6 @@ async function submitCreate() {
           <button v-if="detailItem?.审批状态 === '待审批'" class="btn-reject" @click="handleReject(detailItem); showDetailModal = false">驳回</button>
           <button v-if="detailItem?.审批状态 === '待审批'" class="btn-confirm" @click="handleApprove(detailItem); showDetailModal = false">通过</button>
           <button class="btn-cancel" @click="showDetailModal = false">关闭</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 新建弹窗 -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>新建{{ typeLabel }}</h3>
-          <button class="modal-close" @click="showCreateModal = false">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-grid">
-            <div class="form-item">
-              <label class="form-label">日期 <span class="required">*</span></label>
-              <input v-model="form.调拨日期" type="date" class="form-input" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">所属分公司 <span class="required">*</span></label>
-              <select v-model="form.fromBranch" class="form-select">
-                <option value="">请选择分公司</option>
-                <option v-for="b in branchOptions.filter(x => x.value)" :key="b.value" :value="b.value">{{ b.label }}</option>
-              </select>
-            </div>
-            <div class="form-item">
-              <label class="form-label">资产编号 <span class="required">*</span></label>
-              <input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">资产名称 <span class="required">*</span></label>
-              <input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">数量 <span class="required">*</span></label>
-              <input v-model.number="form.调拨数量" type="number" class="form-input" min="1" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">使用人</label>
-              <input v-model="form.使用人" type="text" class="form-input" placeholder="领用人姓名" />
-            </div>
-            <div class="form-item full">
-              <label class="form-label">备注</label>
-              <textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="showCreateModal = false">取消</button>
-          <button class="btn-confirm" @click="submitCreate" :disabled="creating">{{ creating ? '提交中...' : '确定提交' }}</button>
         </div>
       </div>
     </div>

@@ -45,7 +45,7 @@ const getStatusStyle = (status: string) => {
   const styles = {
     '待审批': { bg: 'oklch(0.94 0.06 85)', color: 'oklch(0.55 0.14 85)' },
     '已通过': { bg: 'var(--color-primary-50)', color: 'var(--color-primary-600)' },
-    '已入库': { bg: 'oklch(0.92 0.08 145)', color: 'var(--color-success)' },
+    '已入库': { bg: 'var(--color-primary-100)', color: 'var(--color-success)' },
     '已驳回': { bg: 'oklch(0.92 0.10 25)', color: 'var(--color-danger)' }
   }
   return styles[status as keyof typeof styles] || { bg: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)' }

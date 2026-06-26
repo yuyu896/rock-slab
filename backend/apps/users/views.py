@@ -1,8 +1,9 @@
+from django.db.models import Q
 from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from core.permissions import IsRoleMin
+from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
 from .models import User
 from .serializers import UserSerializer
@@ -15,7 +16,8 @@ class SetSystemAvatarSerializer(serializers.Serializer):
 
 # Roles that each level can manage (lower level number = higher authority)
 MANAGEABLE_ROLES = {
-    'admin': ['admin', 'manager', 'supervisor', 'leader', 'staff'],
+    'admin': ['admin', 'director', 'manager', 'supervisor', 'leader', 'staff'],
+    'director': ['manager', 'supervisor', 'leader', 'staff'],
     'manager': ['supervisor', 'leader', 'staff'],
     'supervisor': ['leader', 'staff'],
     'leader': ['staff'],
@@ -23,56 +25,46 @@ MANAGEABLE_ROLES = {
 
 
 def _get_user_queryset(user):
-    """Return the queryset of users that the requesting user can see/manage."""
+    """Return the queryset of users that the requesting user can see/manage.
+
+    范围由管理授权决定：admin 全部；其余为授权组织节点（大区/分公司）内 + 自己。
+    """
     qs = User.objects.select_related('branch', 'region', 'leader', 'created_by')
 
     if user.role == 'admin':
         return qs  # Admin sees everyone
 
-    if user.role == 'manager':
-        # Manager can see all users (view reports), but management is limited
-        return qs
+    from apps.permissions.scope import resolve_user_scope
+    scope = resolve_user_scope(user)
+    if scope.is_empty:
+        return qs.filter(id=user.id)  # 无授权仅见自己
 
-    if user.role == 'supervisor' and getattr(user, 'region', None):
-        # Supervisor: users within their region
-        return qs.filter(region=user.region)
-
-    if user.role == 'leader' and getattr(user, 'branch', None):
-        # Leader: staff within their branch
-        return qs.filter(
-            branch=user.branch,
-            role__in=['staff'],
-        )
-
-    # Staff: can only see themselves
-    return qs.filter(id=user.id)
+    q = Q(id=user.id)  # 总是包含自己
+    if scope.regions:
+        q |= Q(region__in=scope.regions)
+    if scope.branches:
+        q |= Q(branch__in=scope.branches)
+    return qs.filter(q).distinct()
 
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.select_related('branch', 'region', 'leader', 'created_by').all()
     serializer_class = UserSerializer
     filterset_class = UserFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
-    min_role = 'supervisor'  # Minimum supervisor to access user management
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = None
+    # 写操作要求 manage_users；list/retrieve/avatar 无声明即放行（avatar 在方法内做本人/管理员校验）
+    required_operations = {
+        'create': 'manage_users',
+        'update': 'manage_users',
+        'partial_update': 'manage_users',
+        'destroy': 'manage_users',
+    }
 
     def get_queryset(self):
         if self.action in ('list', 'retrieve', 'set_system_avatar'):
             return User.objects.select_related('branch', 'region', 'leader', 'created_by').all()
         return _get_user_queryset(self.request.user)
-
-    def get_permissions(self):
-        """Dynamically adjust permissions based on action."""
-        if self.action == 'list' or self.action == 'retrieve':
-            # List/retrieve: all authenticated users can view
-            self.min_role = 'staff'
-        elif self.action in ('create', 'update', 'partial_update', 'destroy'):
-            # Write operations: supervisor and above
-            self.min_role = 'supervisor'
-        else:
-            # Avatar actions: any authenticated user (self-check in method)
-            self.min_role = 'staff'
-        return super().get_permissions()
 
     @audit_log(action='create', resource_type='User', description_template='创建用户')
     def perform_create(self, serializer):
@@ -132,24 +124,18 @@ class UserViewSet(viewsets.ModelViewSet):
             )
 
     def _validate_in_scope(self, operator, target_user):
-        """Check if the target user is within the operator's scope."""
+        """Check if the target user is within the operator's granted scope."""
         if operator.role == 'admin':
             return
-        if operator.role == 'manager':
+        if target_user.id == operator.id:
             return
-        if operator.role == 'supervisor':
-            if target_user.region_id != operator.region_id:
-                raise serializers.ValidationError(
-                    {'detail': '您只能管理本区域内的用户'}
-                )
-        elif operator.role == 'leader':
-            if target_user.branch_id != operator.branch_id:
-                raise serializers.ValidationError(
-                    {'detail': '您只能管理本分公司内的用户'}
-                )
-        else:
+        from apps.permissions.scope import resolve_user_scope
+        scope = resolve_user_scope(operator)
+        in_region = bool(target_user.region_id and target_user.region_id in scope.regions)
+        in_branch = bool(target_user.branch_id and target_user.branch_id in scope.branches)
+        if not (in_region or in_branch):
             raise serializers.ValidationError(
-                {'detail': '您没有权限执行此操作'}
+                {'detail': '您只能管理授权范围内的用户'}
             )
 
     @action(detail=True, methods=['post'], url_path='avatar', permission_classes=[IsAuthenticated])

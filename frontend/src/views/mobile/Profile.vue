@@ -3,7 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useNotificationStore } from '@/store/notification'
-import { updatePassword } from '@/api/users'
+import { updatePassword } from '@/api/auth'
+import { TOKEN_KEY, handleApiError } from '@/utils/request'
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -70,14 +71,18 @@ async function handleChangePassword() {
   }
   passwordLoading.value = true
   try {
-    await updatePassword({
+    const { data } = await updatePassword({
       oldPassword: passwordForm.value.oldPassword,
       newPassword: passwordForm.value.newPassword,
     })
-    ElMessage.success('密码修改成功')
+    if (data?.token) {
+      localStorage.setItem(TOKEN_KEY, data.token)
+      userStore.token = data.token
+    }
+    ElMessage.success(data?.detail || '密码修改成功')
     passwordDialogVisible.value = false
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '密码修改失败，请重试')
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
   } finally {
     passwordLoading.value = false
   }

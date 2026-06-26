@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { updatePassword } from '@/api/users'
+import { updatePassword } from '@/api/auth'
+import { useUserStore } from '@/store/user'
+import { TOKEN_KEY, handleApiError } from '@/utils/request'
 
 const emit = defineEmits<{
   (e: 'done'): void
 }>()
+
+const userStore = useUserStore()
 
 const passwordForm = ref({
   oldPassword: '',
@@ -40,14 +44,19 @@ async function handleSubmit() {
 
   passwordLoading.value = true
   try {
-    await updatePassword({
+    const { data } = await updatePassword({
       oldPassword: passwordForm.value.oldPassword,
       newPassword: passwordForm.value.newPassword
     })
-    ElMessage.success('密码修改成功')
+    // 后端改密成功会删除旧 Token 并签发新 Token，必须同步本地凭证，否则下一次请求会 401 跳登录
+    if (data?.token) {
+      localStorage.setItem(TOKEN_KEY, data.token)
+      userStore.token = data.token
+    }
+    ElMessage.success(data?.detail || '密码修改成功')
     emit('done')
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '密码修改失败')
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
   } finally {
     passwordLoading.value = false
   }

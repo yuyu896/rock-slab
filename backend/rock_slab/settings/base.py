@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     'corsheaders',
     # Local
     'core',
+    'apps.permissions',
     'apps.authentication',
     'apps.users',
     'apps.organizations',

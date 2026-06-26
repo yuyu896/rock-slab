@@ -20,20 +20,30 @@ export function usePermission() {
   const isLeader = computed(() => currentRole.value === 'leader')
   const isStaff = computed(() => currentRole.value === 'staff')
 
-  /** 可审批：主管及以上 */
-  const canApprove = computed(() => roleLevel.value <= 3)
+  /** 可审批：持有审批类操作授权（admin 恒真） */
+  const canApprove = computed(() =>
+    userStore.can('approve_transfer') || userStore.can('approve_inventory'),
+  )
 
-  /** 可管理用户：主管及以上（主管管区域，组长管分公司，admin管全部） */
-  const canManageUsers = computed(() => roleLevel.value <= 3)
+  /** 可管理用户：持有 manage_users 授权 */
+  const canManageUsers = computed(() => userStore.can('manage_users'))
 
-  /** 可提交单据：专员、组长、主管 */
-  const canCreateDocument = computed(() => roleLevel.value >= 3)
+  /** 可提交单据：所有登录用户（写操作受各 manage_* 授权控制） */
+  const canCreateDocument = computed(() => !!userStore.profile)
 
-  /** 可管理类目：主管及以上 */
-  const canManageCategories = computed(() => roleLevel.value <= 3)
+  /** 可管理类目：持有 manage_categories 授权 */
+  const canManageCategories = computed(() => userStore.can('manage_categories'))
 
-  /** 可编辑/删除资产：主管及以上 */
-  const canManageAssets = computed(() => roleLevel.value <= 3)
+  /** 可编辑/删除/导入资产：持有 manage_assets 授权 */
+  const canManageAssets = computed(() => userStore.can('manage_assets'))
+
+  /** 可管理组织架构：持有 manage_organizations 授权 */
+  const canManageOrganizations = computed(() => userStore.can('manage_organizations'))
+
+  /** 通用：是否持有任意业务操作授权 */
+  function can(code: string): boolean {
+    return userStore.can(code)
+  }
 
   /** 检查是否达到指定角色级别 */
   function hasMinRole(role: UserRoleType): boolean {
@@ -53,6 +63,8 @@ export function usePermission() {
     canCreateDocument,
     canManageCategories,
     canManageAssets,
+    canManageOrganizations,
+    can,
     hasMinRole,
   }
 }

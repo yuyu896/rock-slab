@@ -14,6 +14,7 @@ import type {
 
 export const ROLE_LABELS: Record<UserRoleType, string> = {
   admin: '超级管理员',
+  director: '行政总监',
   manager: '行政经理',
   supervisor: '行政主管',
   leader: '行政组长',
@@ -22,10 +23,11 @@ export const ROLE_LABELS: Record<UserRoleType, string> = {
 
 export const ROLE_LEVELS: Record<UserRoleType, number> = {
   admin: 1,
-  manager: 2,
-  supervisor: 3,
-  leader: 4,
-  staff: 5,
+  director: 2,
+  manager: 3,
+  supervisor: 4,
+  leader: 5,
+  staff: 6,
 }
 
 // ============ 资产状态 ============

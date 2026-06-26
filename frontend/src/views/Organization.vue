@@ -125,8 +125,8 @@ function buildOrgTree(): OrgTreeNode[] {
   const activeUsers = users.value.filter(u => u.status === 'active')
   const topLevelNodes: OrgTreeNode[] = []
 
-  // 行政经理（manager 角色）作为顶层节点
-  const managers = activeUsers.filter(u => u.role === 'manager')
+  // 行政总监 / 行政经理作为顶层节点
+  const managers = activeUsers.filter(u => u.role === 'manager' || u.role === 'director')
   managers.forEach(m => {
     topLevelNodes.push({
       id: m.id,
@@ -1290,7 +1290,7 @@ onMounted(async () => {
                 <label class="form-label">负责人 <span class="required">*</span></label>
                 <select v-model="editingItem.manager" class="form-select">
                   <option value="">请选择负责人</option>
-                  <option v-for="u in users.filter(u => ['admin', 'manager', 'supervisor', 'leader'].includes(u.role))" :key="u.id" :value="u.id">{{ u.name }} ({{ ROLE_LABELS[u.role] || u.role }})</option>
+                  <option v-for="u in users.filter(u => ['admin', 'director', 'manager', 'supervisor', 'leader'].includes(u.role))" :key="u.id" :value="u.id">{{ u.name }} ({{ ROLE_LABELS[u.role] || u.role }})</option>
                 </select>
               </div>
               <div class="form-item full">
@@ -1319,6 +1319,7 @@ onMounted(async () => {
                 <label class="form-label">角色 <span class="required">*</span></label>
                 <select v-model="editingItem.role" class="form-select">
                   <option value="admin">超级管理员</option>
+                  <option value="director">行政总监</option>
                   <option value="manager">行政经理</option>
                   <option value="supervisor">行政主管</option>
                   <option value="leader">行政组长</option>
@@ -1349,7 +1350,7 @@ onMounted(async () => {
                 <label class="form-label">直属上级</label>
                 <select v-model="editingItem.leader" class="form-select">
                   <option value="">请选择</option>
-                  <option v-for="u in users.filter(u => ['admin', 'manager', 'supervisor', 'leader'].includes(u.role))" :key="u.id" :value="u.id">
+                  <option v-for="u in users.filter(u => ['admin', 'director', 'manager', 'supervisor', 'leader'].includes(u.role))" :key="u.id" :value="u.id">
                     {{ u.name }} ({{ ROLE_LABELS[u.role] || u.role }})
                   </option>
                 </select>

@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, reactive } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInventoryStore } from '@/store/inventory'
 import {
   getInventoryTasks,
-  createInventoryTask,
   startInventory as startInventoryApi,
   cancelInventory,
   approveInventory,
@@ -174,53 +173,6 @@ const startInventory = async (task: any) => {
 const backToList = () => {
   currentView.value = 'list'
   selectedTask.value = null
-}
-
-// ========== 创建盘点任务 ==========
-const creatingTask = ref(false)
-const showCreateTaskModal = ref(false)
-const newTaskForm = reactive({
-  name: '',
-  branchId: '',
-  categoryId: '',
-  missedRule: 'keep' as MissedRuleType,
-  repeatRule: 'last' as RepeatRuleType,
-})
-
-const missedRuleOptions = Object.entries(MISSED_RULE_LABELS).map(([value, label]) => ({ value, label }))
-const repeatRuleOptions = Object.entries(REPEAT_RULE_LABELS).map(([value, label]) => ({ value, label }))
-
-const openCreateTaskModal = () => {
-  newTaskForm.name = ''
-  newTaskForm.branchId = ''
-  newTaskForm.categoryId = ''
-  newTaskForm.missedRule = 'keep'
-  newTaskForm.repeatRule = 'last'
-  showCreateTaskModal.value = true
-}
-
-const submitCreateTask = async () => {
-  if (!newTaskForm.name.trim()) {
-    ElMessage.warning('请输入任务名称')
-    return
-  }
-  creatingTask.value = true
-  try {
-    await createInventoryTask({
-      name: newTaskForm.name,
-      branch: newTaskForm.branchId || undefined,
-      category: newTaskForm.categoryId || undefined,
-      missed_rule: newTaskForm.missedRule,
-      repeat_rule: newTaskForm.repeatRule,
-    } as any)
-    ElMessage.success('盘点任务创建成功')
-    showCreateTaskModal.value = false
-    await fetchTasks()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    creatingTask.value = false
-  }
 }
 
 // ========== 删除盘点任务 ==========
@@ -434,7 +386,7 @@ onMounted(() => {
         :filters="filters"
         :branch-options="branchOptions"
         @update:filters="filters = $event"
-        @create="openCreateTaskModal"
+        @create="router.push('/inventory/create')"
         @view="viewTask"
         @start="startInventory"
         @delete="deleteTask"
@@ -569,67 +521,6 @@ onMounted(() => {
         @submit="submitFromScan"
       />
     </template>
-
-    <!-- 创建盘点任务弹窗 -->
-    <div v-if="showCreateTaskModal" class="modal-overlay" @click.self="showCreateTaskModal = false">
-      <div class="modal-dialog">
-        <div class="modal-header">
-          <h3 class="modal-title">创建盘点任务</h3>
-          <button class="modal-close" @click="showCreateTaskModal = false">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">任务名称 <span class="required">*</span></label>
-            <input v-model="newTaskForm.name" type="text" class="form-input" placeholder="请输入任务名称" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">分公司</label>
-            <select v-model="newTaskForm.branchId" class="form-input">
-              <option value="">请选择分公司</option>
-              <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">资产类目</label>
-            <select v-model="newTaskForm.categoryId" class="form-input">
-              <option value="">请选择类目</option>
-              <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">漏盘规则</label>
-            <select v-model="newTaskForm.missedRule" class="form-input">
-              <option v-for="opt in missedRuleOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">重复盘点规则</label>
-            <select v-model="newTaskForm.repeatRule" class="form-input">
-              <option v-for="opt in repeatRuleOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-secondary" @click="showCreateTaskModal = false">取消</button>
-          <button class="btn-primary" :disabled="creatingTask" @click="submitCreateTask">
-            {{ creatingTask ? '创建中...' : '创建任务' }}
-          </button>
-        </div>
-      </div>
-    </div>
 
     <!-- 报告弹窗 -->
     <InventoryReport ref="reportRef" :visible="reportVisible" @update:visible="reportVisible = $event" />

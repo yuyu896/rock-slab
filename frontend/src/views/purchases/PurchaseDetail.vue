@@ -15,11 +15,11 @@ const emit = defineEmits<{
 
 const getStatusStyle = (status: string) => {
   const map: Record<string, { bg: string; color: string }> = {
-    '待审批': { bg: '#fef3c7', color: '#92400e' },
-    '已通过': { bg: '#d1fae5', color: '#065f46' },
-    '已驳回': { bg: '#fee2e2', color: '#991b1b' },
+    '待审批': { bg: 'var(--color-approval-pending-bg)', color: 'var(--color-approval-pending-text)' },
+    '已通过': { bg: 'var(--color-approval-approved-bg)', color: 'var(--color-approval-approved-text)' },
+    '已驳回': { bg: 'var(--color-approval-rejected-bg)', color: 'var(--color-approval-rejected-text)' },
   }
-  return map[status] || { bg: '#f3f4f6', color: '#374151' }
+  return map[status] || { bg: 'var(--color-inventory-unchecked-bg)', color: 'var(--color-inventory-unchecked-text)' }
 }
 </script>
 

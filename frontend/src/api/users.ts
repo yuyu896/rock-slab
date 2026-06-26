@@ -22,10 +22,6 @@ export function deleteUser(id: string) {
   return request.delete(`/api/users/${id}`)
 }
 
-export function updatePassword(data: { oldPassword: string; newPassword: string }) {
-  return request.put('/api/auth/password/', data)
-}
-
 export function uploadAvatar(id: string, file: File) {
   const formData = new FormData()
   formData.append('avatar', file)

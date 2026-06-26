@@ -5,6 +5,7 @@
 /** 用户角色 */
 export const UserRole = {
   ADMIN: 'admin',
+  DIRECTOR: 'director',
   MANAGER: 'manager',
   SUPERVISOR: 'supervisor',
   LEADER: 'leader',

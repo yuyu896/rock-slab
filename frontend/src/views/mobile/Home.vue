@@ -19,6 +19,7 @@ const userRole = computed(() => userStore.profile?.role || '')
 
 const roleLabels: Record<string, string> = {
   admin: '超级管理员',
+  director: '行政总监',
   manager: '行政经理',
   supervisor: '行政主管',
   leader: '行政组长',

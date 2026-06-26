@@ -8,7 +8,7 @@ from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth import get_user_model
 
-from core.permissions import IsRoleMin
+from apps.permissions.permissions import OperationPermission
 from core.pagination import StandardPagination
 from .models import AuditLog
 from .serializers import AuditLogSerializer, AuditLogBriefSerializer
@@ -21,10 +21,11 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """审计日志视图集"""
     queryset = AuditLog.objects.select_related('user').all()
     serializer_class = AuditLogSerializer
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     filterset_class = AuditLogFilterSet
-    min_role = 'admin'  # 仅管理员可查看
+    # 读取审计日志需 view_audit 权限（admin 自动放行）
+    required_operation = 'view_audit'
     ordering_fields = ['created_at', 'action']
     ordering = ['-created_at']
 

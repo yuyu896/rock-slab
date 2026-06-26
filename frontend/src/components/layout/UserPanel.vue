@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { useUserStore } from '@/store/user'
 import { ElMessage } from 'element-plus'
 import { uploadAvatar, updateUser, setSystemAvatar } from '@/api/users'
@@ -28,7 +28,6 @@ const emit = defineEmits<{
 
 const userStore = useUserStore()
 
-const panelRef = ref<HTMLElement | null>(null)
 const avatarInput = ref<HTMLInputElement | null>(null)
 const activeSection = ref<'main' | 'password'>('main')
 
@@ -47,22 +46,11 @@ const effectiveSystemAvatar = computed(() => {
   return props.userInfo.avatar ? null : props.userInfo.systemAvatar
 })
 
-function adjustPanelPosition() {
-  if (!panelRef.value) return
-  const rect = panelRef.value.getBoundingClientRect()
-  const viewportHeight = window.innerHeight
-  if (rect.bottom > viewportHeight) {
-    panelRef.value.style.bottom = 'auto'
-    panelRef.value.style.top = '0'
-  }
-}
-
 function initPanel() {
   editForm.value.name = props.userInfo.name
   activeSection.value = 'main'
   selectedFile.value = null
   previewUrl.value = ''
-  nextTick(adjustPanelPosition)
 }
 
 // 头像上传
@@ -153,13 +141,13 @@ function hidePasswordSection() {
   activeSection.value = 'main'
 }
 
-defineExpose({ initPanel, panelRef })
+defineExpose({ initPanel })
 </script>
 
 <template>
   <div class="user-panel-wrapper">
     <div class="user-panel-overlay" @click="$emit('close')"></div>
-    <div ref="panelRef" class="user-panel">
+    <div class="user-panel">
       <div class="panel-header">
         <h3 v-if="activeSection === 'main'">个人中心</h3>
         <div v-else class="section-header-inline">
@@ -267,10 +255,6 @@ defineExpose({ initPanel, panelRef })
 </template>
 
 <style scoped>
-.user-panel-wrapper {
-  /* 无定位 — 让面板的 position: absolute 相对于 .sidebar-footer (position: relative) 定位 */
-}
-
 .user-panel-overlay {
   position: fixed;
   inset: 0;
@@ -279,15 +263,15 @@ defineExpose({ initPanel, panelRef })
 }
 
 .user-panel {
-  position: absolute;
-  left: calc(100% + 8px);
-  bottom: 0;
+  position: fixed;
+  left: calc(var(--sidebar-width) + 8px);
+  bottom: var(--space-4);
   z-index: 1001;
   background: white;
   border-radius: 12px;
   width: 380px;
   max-width: calc(100vw - var(--sidebar-width) - 40px);
-  max-height: 80vh;
+  max-height: calc(100vh - 2 * var(--space-4));
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04);
   display: flex;

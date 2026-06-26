@@ -3,10 +3,11 @@ from rest_framework.permissions import BasePermission
 
 ROLE_LEVELS = {
     'admin': 1,
-    'manager': 2,
-    'supervisor': 3,
-    'leader': 4,
-    'staff': 5,
+    'director': 2,
+    'manager': 3,
+    'supervisor': 4,
+    'leader': 5,
+    'staff': 6,
 }
 
 
@@ -34,55 +35,38 @@ class CanApprove(BasePermission):
 
 
 class DataScopeMixin:
-    """Filter querysets based on user role for data scoping."""
+    """按管理授权过滤查询集（声明式字段映射）。
+
+    各 ViewSet 在类上声明模型指向 Branch/Team 的字段：
+        scope_branch_field = 'branch'                          # FK→Branch
+        scope_transfer_fields = ('from_branch', 'to_branch')   # 双向分公司
+        scope_team_field = '所属行政组'                          # FK→Team（如有）
+
+    admin 返回全部；其余用户按其 ManagementScope 授权过滤；
+    无授权的非 admin 返回空集（不再静默放行全部，避免越权）。
+    """
+
+    scope_branch_field = None
+    scope_transfer_fields = None
+    scope_team_field = None
 
     def get_scoped_queryset(self, queryset):
+        from apps.permissions.scope import resolve_user_scope
         user = self.request.user
-        if user.role in ('admin', 'manager'):
-            return queryset
-        model = queryset.model
-
-        if user.role == 'supervisor' and getattr(user, 'region', None):
-            # Prefer FK-based query if branch field exists
-            if hasattr(model, 'branch') and not isinstance(
-                getattr(model, 'branch', None), property
-            ):
-                try:
-                    from django.db.models.fields.related import ForeignKey
-                    field = model._meta.get_field('branch')
-                    if isinstance(field, ForeignKey):
-                        return queryset.filter(branch__region=user.region)
-                except Exception:
-                    pass
-            # Fallback: Asset model CharField 分公司
-            if hasattr(model, '分公司'):
-                from apps.organizations.models import Branch
-                branch_names = list(
-                    Branch.objects.filter(region=user.region).values_list('name', flat=True)
-                )
-                return queryset.filter(分公司__in=branch_names)
-            # Transfer model FK
-            if hasattr(model, 'from_branch'):
-                return queryset.filter(from_branch__region=user.region)
+        scope = resolve_user_scope(user)
+        if scope.all:
             return queryset
 
-        if getattr(user, 'branch', None):
-            if hasattr(model, 'branch') and not isinstance(
-                getattr(model, 'branch', None), property
-            ):
-                try:
-                    from django.db.models.fields.related import ForeignKey
-                    field = model._meta.get_field('branch')
-                    if isinstance(field, ForeignKey):
-                        return queryset.filter(branch=user.branch)
-                except Exception:
-                    pass
-            if hasattr(model, '分公司') and user.branch:
-                return queryset.filter(分公司=user.branch.name)
-            if hasattr(model, 'from_branch') and user.branch:
-                return queryset.filter(
-                    models.Q(from_branch=user.branch) | models.Q(to_branch=user.branch)
-                )
-            return queryset
+        q = models.Q()
+        if scope.branches:
+            if self.scope_branch_field:
+                q |= models.Q(**{f'{self.scope_branch_field}__in': scope.branches})
+            if self.scope_transfer_fields:
+                for f in self.scope_transfer_fields:
+                    q |= models.Q(**{f'{f}__in': scope.branches})
+        if scope.teams and self.scope_team_field:
+            q |= models.Q(**{f'{self.scope_team_field}__in': scope.teams})
 
-        return queryset
+        if not q:
+            return queryset.none()
+        return queryset.filter(q).distinct()

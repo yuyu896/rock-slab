@@ -7,7 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
-from core.permissions import IsRoleMin, CanApprove, DataScopeMixin
+from core.permissions import DataScopeMixin
+from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
 from .models import Transfer
 from .serializers import TransferSerializer, TransferActionSerializer, ApproveSerializer
@@ -21,9 +22,15 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     queryset = Transfer.objects.select_related('from_branch', 'to_branch').all()
     serializer_class = TransferSerializer
     filterset_class = TransferFilterSet
-    permission_classes = [IsAuthenticated, IsRoleMin]
+    permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    min_role = 'staff'
+    # 调拨按「调出 / 调入」双向分公司过滤
+    scope_transfer_fields = ('from_branch', 'to_branch')
+    # 审批要求 approve_transfer；入库确认要求 manage_assets；其余读写无声明即放行
+    required_operations = {
+        'approve': 'approve_transfer',
+        'warehouse': 'manage_assets',
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -169,7 +176,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             asset.分公司编号 = transfer.to_branch.code
         asset.save(update_fields=['branch', '分公司', '分公司编号', 'updated_at'])
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, CanApprove])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='Transfer', description_template='审批流转单')
     def approve(self, request, pk=None):
         """审批调拨单"""
@@ -201,7 +208,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ])
         return Response(TransferSerializer(transfer).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsRoleMin])
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='warehouse', resource_type='Transfer', description_template='采购入库确认')
     def warehouse(self, request, pk=None):
         """采购入库确认 - 审批通过后手动入库，更新资产库存"""

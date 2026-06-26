@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/health/', health_check),
     path('api/auth/', include('apps.authentication.urls')),
     path('api/users/', include('apps.users.urls')),
+    path('api/permissions/', include('apps.permissions.urls')),
     path('api/regions/', include('apps.organizations.urls_regions')),
     path('api/branches/', include('apps.organizations.urls_branches')),
     path('api/teams/', include('apps.organizations.urls_teams')),

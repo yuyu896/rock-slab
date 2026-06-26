@@ -214,7 +214,7 @@ const confirmScan = async () => {
 // 获取结果样式
 const getResultStyle = (result: string) => {
   const styles: Record<string, { bg: string; color: string; icon: string }> = {
-    'matched': { bg: 'oklch(0.92 0.08 145)', color: 'var(--color-success)', icon: '✓' },
+    'matched': { bg: 'var(--color-primary-100)', color: 'var(--color-success)', icon: '✓' },
     'surplus': { bg: 'oklch(0.94 0.06 85)', color: 'oklch(0.55 0.14 85)', icon: '↑' },
     'missing': { bg: 'oklch(0.92 0.10 25)', color: 'var(--color-danger)', icon: '↓' }
   }
@@ -806,7 +806,7 @@ onUnmounted(() => {
 }
 
 .abnormal-item.surplus .abnormal-icon {
-  background: oklch(0.92 0.08 145);
+  background: var(--color-primary-100);
   color: var(--color-success);
 }
 
@@ -1136,7 +1136,7 @@ onUnmounted(() => {
 }
 
 .qty-alert.surplus {
-  background: oklch(0.92 0.08 145);
+  background: var(--color-primary-100);
   color: var(--color-success);
 }
 
