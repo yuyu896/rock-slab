@@ -179,7 +179,9 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='Transfer', description_template='审批流转单')
     def approve(self, request, pk=None):
-        """审批调拨单"""
+        """审批调拨单（事务内加锁，保证审批与资产同步原子、并发幂等）"""
+        from django.db import transaction
+
         transfer = self.get_object()
         serializer = ApproveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -193,20 +195,28 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         approved = serializer.validated_data['approved']
         reason = serializer.validated_data.get('reason', '')
 
-        if approved:
-            transfer.审批状态 = '已通过'
-            self._sync_asset(transfer)
-        else:
-            transfer.审批状态 = '已驳回'
+        with transaction.atomic():
+            # 加锁重取，防止并发重复审批导致资产状态被多次同步
+            locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            if locked.审批状态 != '待审批':
+                return Response(
+                    {'detail': '该记录已审批'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if approved:
+                locked.审批状态 = '已通过'
+                self._sync_asset(locked)
+            else:
+                locked.审批状态 = '已驳回'
 
-        transfer.审批人 = request.user.name or request.user.phone
-        transfer.审批时间 = timezone.now()
-        if reason:
-            transfer.备注 = (transfer.备注 + '\n' + reason).strip()
-        transfer.save(update_fields=[
-            '审批状态', '审批人', '审批时间', '备注', 'updated_at',
-        ])
-        return Response(TransferSerializer(transfer).data)
+            locked.审批人 = request.user.name or request.user.phone
+            locked.审批时间 = timezone.now()
+            if reason:
+                locked.备注 = (locked.备注 + '\n' + reason).strip()
+            locked.save(update_fields=[
+                '审批状态', '审批人', '审批时间', '备注', 'updated_at',
+            ])
+        return Response(TransferSerializer(locked).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='warehouse', resource_type='Transfer', description_template='采购入库确认')
@@ -430,6 +440,14 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
 
+        from core.upload_validation import (
+            validate_excel_upload, validate_row_count, UploadValidationError,
+        )
+        try:
+            validate_excel_upload(file)
+        except UploadValidationError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         template_type = request.query_params.get('type', 'transfer')
 
         try:
@@ -440,6 +458,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 {'detail': f'文件解析失败: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        try:
+            validate_row_count(ws)
+        except UploadValidationError as e:
+            wb.close()
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         imported = 0

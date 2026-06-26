@@ -151,18 +151,21 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='InventoryTask', description_template='审批盘点任务')
     def approve(self, request, pk=None):
-        """审核通过: pending_review -> completed"""
+        """审核通过: pending_review -> completed（事务内调整库存与状态，保证原子）"""
+        from django.db import transaction
+
         task = self.get_object()
         if not task.can_transition('completed'):
             return Response(
                 {'detail': f'无法从 {task.get_status_display()} 审核通过'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Adjust inventory: update asset quantities based on check results
-        self._adjust_inventory(task)
-        task.status = 'completed'
-        task.completed_at = timezone.now()
-        task.save(update_fields=['status', 'completed_at', 'updated_at'])
+        with transaction.atomic():
+            # Adjust inventory: update asset quantities based on check results
+            self._adjust_inventory(task)
+            task.status = 'completed'
+            task.completed_at = timezone.now()
+            task.save(update_fields=['status', 'completed_at', 'updated_at'])
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
@@ -347,6 +350,14 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
 
+        from core.upload_validation import (
+            validate_excel_upload, validate_row_count, UploadValidationError,
+        )
+        try:
+            validate_excel_upload(file)
+        except UploadValidationError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             import openpyxl
             wb = openpyxl.load_workbook(file, read_only=True)
@@ -356,6 +367,12 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 {'detail': f'文件解析失败: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        try:
+            validate_row_count(ws)
+        except UploadValidationError as e:
+            wb.close()
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         wb.close()
@@ -444,11 +461,19 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         # 'keep' rule: leave unchecked items as-is (no change needed)
 
     def _adjust_inventory(self, task):
-        """Adjust asset quantities based on inventory check results."""
+        """Adjust asset quantities based on inventory check results.
+
+        在事务内对每个资产行 select_for_update 加锁后再更新，防止与
+        采购入库/调拨等并发操作产生丢失更新。
+        """
+        from django.db import transaction
+        from apps.assets.models import Asset
+
         items = task.items.select_related('asset').exclude(result='unchecked')
-        for item in items:
-            if item.actual_qty is not None and item.actual_qty != item.expected_qty:
-                asset = item.asset
-                diff = item.actual_qty - item.expected_qty
-                asset.数量 = max(0, asset.数量 + diff)
-                asset.save(update_fields=['数量', 'updated_at'])
+        with transaction.atomic():
+            for item in items:
+                if item.actual_qty is not None and item.actual_qty != item.expected_qty:
+                    diff = item.actual_qty - item.expected_qty
+                    asset = Asset.objects.select_for_update().get(pk=item.asset_id)
+                    asset.数量 = max(0, asset.数量 + diff)
+                    asset.save(update_fields=['数量', 'updated_at'])

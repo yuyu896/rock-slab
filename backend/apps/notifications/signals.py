@@ -14,7 +14,7 @@ def get_approvers_for_branch(branch_name):
     """获取有权限审批某分公司的用户"""
     # 审批权限：supervisor 及以上
     return User.objects.filter(
-        role__in=['admin', 'manager', 'supervisor'],
+        role__in=['admin', 'director', 'manager', 'supervisor'],
         status='active',
     )
 
@@ -86,7 +86,7 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
 
         # 2. 抄送给所有行政经理
         managers = User.objects.filter(
-            role='manager',
+            role__in=['manager', 'director'],
             status='active',
         )
 
@@ -177,7 +177,7 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
     # 提交审核时通知审批人
     if instance.status == 'pending_review':
         approvers = User.objects.filter(
-            role__in=['admin', 'manager', 'supervisor'],
+            role__in=['admin', 'director', 'manager', 'supervisor'],
             status='active',
         )
 
@@ -198,7 +198,7 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
     # 审批通过后抄送给行政经理
     if instance.status == 'completed':
         managers = User.objects.filter(
-            role='manager',
+            role__in=['manager', 'director'],
             status='active',
         )
 
