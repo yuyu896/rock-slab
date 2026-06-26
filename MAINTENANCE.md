@@ -85,6 +85,16 @@ docker exec root-nginx-1 nginx -s reload     # 语法 OK 才重载
 
 > ⚠️ 改 `/root/nginx.conf` 后**必须先 `nginx -t`** 再 reload。语法错误会导致 reload 失败，但旧 worker 仍在运行；若已 stop 则全站宕机。
 
+### 3.4 上传体积限制（导入大文件 413 排障）
+
+资产导入模板可达数十 MB。三层链路任一处的 `client_max_body_size` 过小都会被拦成 413：
+
+- `root-nginx-1`：`/root/nginx.conf`（线上当前 20M，大文件导入需调到 60M）
+- `rock-slab-nginx`：`/root/rock-slab/nginx/rock-slab.conf`（需与上层对齐）
+- 后端 Django：`DATA_UPLOAD_MAX_MEMORY_SIZE`（`backend/rock_slab/settings/production.py` 已设 60M）
+
+调大后两层 nginx 都需 reload（见 3.3）。详见 [nginx/README.md](nginx/README.md)。
+
 ---
 
 ## 四、备份与恢复

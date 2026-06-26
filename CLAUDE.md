@@ -111,7 +111,8 @@ bash deploy.sh            # git pull → docker build → migrate → collectsta
 
 ## 生产环境
 
-- 域名: `qhpanpan.top` (HTTPS, Let's Encrypt)
-- 后端 API: `47.97.43.28:8080`
-- 前端开发代理: Vite 将 `/api` 和 `/media` 代理到生产服务器
-- Docker 容器运行后端, Nginx 服务前端静态文件并反向代理 API
+- 域名: `qhpanpan.top` (HTTPS, Let's Encrypt)，服务器 47.97.43.28
+- **三层架构**（详见 DEPLOYMENT.md）：`root-nginx-1`（公网 443，SSL 终止，AI 销售教练项目共享容器）→ `rock-slab-nginx`（磐盘 nginx，监听 8080，服务前端 dist + 反代 /api）→ `rock-slab-backend`（Gunicorn，8002，host 网络）
+- 共享基础设施：PostgreSQL（root-db-1）、Redis（root-redis-1）容器由其他项目共享
+- 线上 nginx 配置不在本仓库：root-nginx-1 用 `/root/nginx.conf`，rock-slab-nginx 用 `/root/rock-slab/nginx/rock-slab.conf`（见 nginx/README.md）
+- 前端开发代理：Vite 将 `/api` 和 `/media` 代理到本地后端（开发）或生产服务器
