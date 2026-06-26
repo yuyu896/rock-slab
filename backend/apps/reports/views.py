@@ -5,43 +5,32 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.assets.models import Asset
 from apps.transfers.models import Transfer
+from apps.permissions.scope import resolve_user_scope
 
 
-def _scope_asset_queryset(user, queryset):
-    """Filter asset queryset based on user role for data scoping.
-    admin/manager: all data; supervisor: region; leader/staff: own branch.
+def _scope_queryset(user, queryset, branch_field=None, transfer_fields=None):
+    """按统一管理授权过滤查询集（与 DataScopeMixin.get_scoped_queryset 同源）。
+
+    所有登录用户均可访问报表，但数据按其管理授权范围隔离：
+    admin 或持有「全部数据」授权返回全集；其余按 ManagementScope 授权的分公司集合过滤；
+    无授权的非 admin 返回空集（不再按角色硬编码放行，避免越权看到全公司数据）。
+    已定义的全部角色（含 director）均按其授权范围处理，不被特殊降级。
     """
-    if user.role in ('admin', 'manager'):
+    scope = resolve_user_scope(user)
+    if scope.all:
         return queryset
-    if user.role == 'supervisor' and getattr(user, 'region', None):
-        from apps.organizations.models import Branch
-        branch_codes = Branch.objects.filter(
-            region=user.region, status='active'
-        ).values_list('code', flat=True)
-        return queryset.filter(分公司编号__in=branch_codes)
-    if getattr(user, 'branch', None):
-        return queryset.filter(分公司编号=user.branch.code)
-    return queryset
 
+    q = Q()
+    if scope.branches:
+        if branch_field:
+            q |= Q(**{f'{branch_field}__in': scope.branches})
+        if transfer_fields:
+            for f in transfer_fields:
+                q |= Q(**{f'{f}__in': scope.branches})
 
-def _scope_transfer_queryset(user, queryset):
-    """Filter transfer queryset based on user role for data scoping."""
-    if user.role in ('admin', 'manager'):
-        return queryset
-    if user.role == 'supervisor' and getattr(user, 'region', None):
-        from apps.organizations.models import Branch
-        branch_names = Branch.objects.filter(
-            region=user.region, status='active'
-        ).values_list('name', flat=True)
-        return queryset.filter(
-            Q(调出分公司__in=branch_names) | Q(调入分公司__in=branch_names)
-        )
-    if getattr(user, 'branch', None):
-        branch_name = user.branch.name
-        return queryset.filter(
-            Q(调出分公司=branch_name) | Q(调入分公司=branch_name)
-        )
-    return queryset
+    if not q:
+        return queryset.none()
+    return queryset.filter(q).distinct()
 
 
 def _get_date_range_filter(params):
@@ -67,7 +56,7 @@ def overview(request):
     """报表概览: totalAssets, totalValue, activeRate, growthRate."""
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_asset_queryset(request.user, queryset)
+    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
 
     if filters:
         queryset = queryset.filter(**filters)
@@ -120,7 +109,7 @@ def by_branch(request):
     """按分公司统计."""
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_asset_queryset(request.user, queryset)
+    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
     if filters:
         queryset = queryset.filter(**filters)
 
@@ -150,7 +139,7 @@ def by_status(request):
     """按状态统计."""
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_asset_queryset(request.user, queryset)
+    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
     if filters:
         queryset = queryset.filter(**filters)
 
@@ -180,7 +169,7 @@ def by_category(request):
     """按资产类目统计."""
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_asset_queryset(request.user, queryset)
+    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
     if filters:
         queryset = queryset.filter(**filters)
 
@@ -209,7 +198,9 @@ def by_category(request):
 def transfers(request):
     """调拨报表."""
     queryset = Transfer.objects.all()
-    queryset = _scope_transfer_queryset(request.user, queryset)
+    queryset = _scope_queryset(
+        request.user, queryset, transfer_fields=('from_branch', 'to_branch')
+    )
 
     date_range = request.query_params.get('dateRange')
     if date_range:
