@@ -70,6 +70,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'  # noqa: F405
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'  # noqa: F405
 
+# 上传体积上限（与 nginx client_max_body_size 对齐，容纳资产导入模板等大文件；
+# Django 默认仅 2.5MB，会拦截合法的大体积导入）
+DATA_UPLOAD_MAX_MEMORY_SIZE = 60 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 60 * 1024 * 1024
+
 # -------------------------------------------------------------------------
 # Logging
 # -------------------------------------------------------------------------
