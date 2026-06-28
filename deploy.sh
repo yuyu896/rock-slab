@@ -27,15 +27,16 @@ docker compose build --no-cache backend
 
 # 4. Run database migrations
 echo "[4/9] 执行数据库迁移..."
-docker compose run --rm backend python manage.py migrate --noinput
+# --entrypoint python 绕过 entrypoint.sh（否则它会启动 gunicorn 抢占 8002 端口、与运行中的后端冲突导致脚本中断）
+docker compose run --rm --entrypoint python backend manage.py migrate --noinput
 
 # 5. 验证种子授权（迁移后、重启前；异常 exit 1 中止部署）
 echo "[5/9] 校验种子授权结果..."
-docker compose run --rm backend python manage.py check_seed_grants
+docker compose run --rm --entrypoint python backend manage.py check_seed_grants
 
 # 6. Collect static files
 echo "[6/9] 收集静态文件..."
-docker compose run --rm backend python manage.py collectstatic --noinput
+docker compose run --rm --entrypoint python backend manage.py collectstatic --noinput
 
 # 7. Build frontend
 echo "[7/9] 构建前端..."
