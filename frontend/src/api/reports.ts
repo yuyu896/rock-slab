@@ -21,3 +21,8 @@ export function getByCategory(params?: Record<string, string>) {
 export function getTransferReport(params?: Record<string, string>) {
   return request.get('/api/reports/transfers/', { params })
 }
+
+/* 当前用户数据范围内的分公司列表（用于报表分公司筛选下拉） */
+export function getReportBranches() {
+  return request.get<{ id: string; name: string; code: string }[]>('/api/reports/branches/')
+}

@@ -26,7 +26,7 @@ def check_account_locked(phone):
     """若账号已锁定则返回 403 Response，否则返回 None。"""
     if is_account_locked(phone):
         return Response(
-            {'detail': '账号已被临时锁定，请稍后再试'},
+            {'detail': f'账号已被临时锁定，请 {LOCKOUT_DURATION // 60} 分钟后再试'},
             status=403,
         )
     return None

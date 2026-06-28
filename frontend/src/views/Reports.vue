@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { getOverview, getByBranch, getByStatus, getTransferReport } from '@/api/reports'
+import { getOverview, getByBranch, getByStatus, getTransferReport, getReportBranches } from '@/api/reports'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
 import { formatMoney } from '@/utils/format'
 import { ElMessage } from 'element-plus'
-import { useUserStore } from '@/store/user'
 import type { ReportOverview, BranchStat, StatusStat } from '@/types'
 
-const userStore = useUserStore()
+// 分公司筛选（多选，仅含当前用户数据范围内的分公司）
+const branchOptions = ref<{ id: string; name: string }[]>([])
+const selectedBranches = ref<string[]>([])
 
 // 报表类型
 const reportType = ref<'overview' | 'branch' | 'category' | 'changeDetails'>('overview')
@@ -37,25 +38,24 @@ const monthlyTrend = ref<any[]>([])
 // 变动明细数据
 const transferDetails = ref<any[]>([])
 
-// 根据用户角色构建数据范围参数
-function buildScopeParams(): Record<string, string> {
-  const user = userStore.profile
-  if (!user) return {}
-  const role = user.role
-  if (role === 'admin' || role === 'manager') return {}
-  if (role === 'supervisor') {
-    return user.region ? { region: user.region } : {}
+// 拉取当前用户数据范围内的分公司列表（下拉选项）
+async function fetchBranches() {
+  try {
+    const res = await getReportBranches()
+    branchOptions.value = res.data ?? []
+  } catch {
+    branchOptions.value = []
   }
-  // leader / staff
-  return user.branch ? { branch: user.branch } : {}
 }
 
 // 获取报表数据
 async function fetchReportData() {
   loading.value = true
   try {
-    const scope = buildScopeParams()
-    const params = { dateRange: dateRange.value, ...scope }
+    const params: Record<string, string> = { dateRange: dateRange.value }
+    if (selectedBranches.value.length) {
+      params.branches = selectedBranches.value.join(',')
+    }
     const [overviewRes, branchRes, statusRes, transferRes, categoriesRes] = await Promise.all([
       getOverview(params),
       getByBranch(params),
@@ -206,13 +206,17 @@ const maxTrendValue = computed(() => {
   return max > 0 ? Math.ceil(max / 100) * 100 : 600
 })
 
-// 监听时间范围变化
+// 监听时间范围 / 分公司筛选变化
 watch(dateRange, () => {
+  fetchReportData()
+})
+watch(selectedBranches, () => {
   fetchReportData()
 })
 
 // 初始化
 onMounted(() => {
+  fetchBranches()
   fetchReportData()
 })
 </script>
@@ -232,6 +236,23 @@ onMounted(() => {
           <option value="year">本年度</option>
           <option value="custom">自定义</option>
         </select>
+        <el-select
+          v-model="selectedBranches"
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          filterable
+          clearable
+          placeholder="全部分公司"
+          class="branch-select"
+        >
+          <el-option
+            v-for="b in branchOptions"
+            :key="b.id"
+            :label="b.name"
+            :value="b.id"
+          />
+        </el-select>
         <button class="btn-export" @click="exportReport">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -609,6 +630,27 @@ onMounted(() => {
   border-radius: 10px;
   background: var(--color-bg-card);
   font-size: var(--text-sm);
+}
+
+/* 分公司多选下拉：与 .range-select / .btn-export 统一尺寸、边框、圆角、底色 */
+.branch-select {
+  width: 220px;
+  --el-color-primary: var(--color-primary);
+}
+.branch-select :deep(.el-select__wrapper),
+.branch-select :deep(.el-input__wrapper) {
+  min-height: 40px;
+  border-radius: 10px;
+  background: var(--color-bg-card);
+  box-shadow: 0 0 0 1px var(--color-border) inset;
+  font-size: var(--text-sm);
+  transition: box-shadow 0.2s;
+}
+.branch-select :deep(.el-select__wrapper:hover),
+.branch-select :deep(.el-input__wrapper:hover),
+.branch-select :deep(.el-select__wrapper.is-focused),
+.branch-select :deep(.el-input__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px var(--color-primary) inset;
 }
 
 .btn-export {

@@ -23,8 +23,8 @@ function validateForm(): string | null {
   if (!oldPassword || !newPassword || !confirmPassword) {
     return '请填写所有密码字段'
   }
-  if (newPassword.length < 6) {
-    return '新密码长度不能少于6位'
+  if (newPassword.length < 8) {
+    return '新密码长度不能少于8位'
   }
   if (newPassword !== confirmPassword) {
     return '两次输入的新密码不一致'
@@ -71,7 +71,7 @@ async function handleSubmit() {
     </div>
     <div class="form-item">
       <label>新密码</label>
-      <input v-model="passwordForm.newPassword" type="password" placeholder="请输入新密码（至少6位）" autocomplete="new-password" />
+      <input v-model="passwordForm.newPassword" type="password" placeholder="请输入新密码（至少8位）" autocomplete="new-password" />
     </div>
     <div class="form-item">
       <label>确认密码</label>

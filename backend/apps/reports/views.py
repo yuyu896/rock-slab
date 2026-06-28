@@ -8,29 +8,59 @@ from apps.transfers.models import Transfer
 from apps.permissions.scope import resolve_user_scope
 
 
-def _scope_queryset(user, queryset, branch_field=None, transfer_fields=None):
+def _scope_queryset(user, queryset, branch_field=None, transfer_fields=None,
+                    selected_branches=None):
     """按统一管理授权过滤查询集（与 DataScopeMixin.get_scoped_queryset 同源）。
 
     所有登录用户均可访问报表，但数据按其管理授权范围隔离：
     admin 或持有「全部数据」授权返回全集；其余按 ManagementScope 授权的分公司集合过滤；
     无授权的非 admin 返回空集（不再按角色硬编码放行，避免越权看到全公司数据）。
     已定义的全部角色（含 director）均按其授权范围处理，不被特殊降级。
+
+    selected_branches：用户在筛选器选中的分公司 id 集合，用于在数据范围内进一步下钻。
+    非 admin 时取与 scope.branches 的交集（防越权传入非授权分公司 id）；为空则不过滤。
     """
     scope = resolve_user_scope(user)
     if scope.all:
-        return queryset
+        qs = queryset
+    else:
+        q = Q()
+        if scope.branches:
+            if branch_field:
+                q |= Q(**{f'{branch_field}__in': scope.branches})
+            if transfer_fields:
+                for f in transfer_fields:
+                    q |= Q(**{f'{f}__in': scope.branches})
+        if not q:
+            return queryset.none()
+        qs = queryset.filter(q).distinct()
 
-    q = Q()
-    if scope.branches:
+    if selected_branches:
+        if scope.all:
+            allowed = set(selected_branches)
+        else:
+            # 与授权范围取交集（统一字符串比较，兼容 UUID），防越权传入非授权 id
+            scope_str = {str(b) for b in scope.branches}
+            allowed = {s for s in selected_branches if str(s) in scope_str}
+        if not allowed:
+            return qs.none()
         if branch_field:
-            q |= Q(**{f'{branch_field}__in': scope.branches})
+            qs = qs.filter(**{f'{branch_field}__in': allowed})
         if transfer_fields:
+            tq = Q()
             for f in transfer_fields:
-                q |= Q(**{f'{f}__in': scope.branches})
+                tq |= Q(**{f'{f}__in': allowed})
+            qs = qs.filter(tq)
+    return qs
 
-    if not q:
-        return queryset.none()
-    return queryset.filter(q).distinct()
+
+def _parse_selected_branches(params):
+    """解析 branches 查询参数（逗号分隔的分公司 id，UUID 字符串），返回 set 或 None。"""
+    raw = (params.get('branches') or '').strip()
+    if not raw:
+        return None
+    selected = {p.strip() for p in raw.split(',') if p.strip()}
+    return selected or None
 
 
 def _get_date_range_filter(params):
@@ -52,11 +82,32 @@ def _get_date_range_filter(params):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def branches(request):
+    """返回当前用户数据范围内的分公司列表（供报表分公司筛选下拉）。
+
+    admin 或「全部数据」授权返回全部分公司；其余仅返回其授权范围内的分公司，
+    避免在下拉中泄露无权查看的分公司名称。
+    """
+    from apps.organizations.models import Branch
+    scope = resolve_user_scope(request.user)
+    qs = Branch.objects.all() if scope.all else Branch.objects.filter(id__in=scope.branches)
+    data = [
+        {'id': str(b.id), 'name': b.name, 'code': b.code}
+        for b in qs.order_by('name')
+    ]
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def overview(request):
     """报表概览: totalAssets, totalValue, activeRate, growthRate."""
+    selected = _parse_selected_branches(request.query_params)
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
+    queryset = _scope_queryset(
+        request.user, queryset, branch_field='branch', selected_branches=selected,
+    )
 
     if filters:
         queryset = queryset.filter(**filters)
@@ -107,9 +158,12 @@ def overview(request):
 @permission_classes([IsAuthenticated])
 def by_branch(request):
     """按分公司统计."""
+    selected = _parse_selected_branches(request.query_params)
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
+    queryset = _scope_queryset(
+        request.user, queryset, branch_field='branch', selected_branches=selected,
+    )
     if filters:
         queryset = queryset.filter(**filters)
 
@@ -137,9 +191,12 @@ def by_branch(request):
 @permission_classes([IsAuthenticated])
 def by_status(request):
     """按状态统计."""
+    selected = _parse_selected_branches(request.query_params)
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
+    queryset = _scope_queryset(
+        request.user, queryset, branch_field='branch', selected_branches=selected,
+    )
     if filters:
         queryset = queryset.filter(**filters)
 
@@ -167,9 +224,12 @@ def by_status(request):
 @permission_classes([IsAuthenticated])
 def by_category(request):
     """按资产类目统计."""
+    selected = _parse_selected_branches(request.query_params)
     filters = _get_date_range_filter(request.query_params)
     queryset = Asset.objects.all()
-    queryset = _scope_queryset(request.user, queryset, branch_field='branch')
+    queryset = _scope_queryset(
+        request.user, queryset, branch_field='branch', selected_branches=selected,
+    )
     if filters:
         queryset = queryset.filter(**filters)
 
@@ -197,9 +257,11 @@ def by_category(request):
 @permission_classes([IsAuthenticated])
 def transfers(request):
     """调拨报表."""
+    selected = _parse_selected_branches(request.query_params)
     queryset = Transfer.objects.all()
     queryset = _scope_queryset(
-        request.user, queryset, transfer_fields=('from_branch', 'to_branch')
+        request.user, queryset,
+        transfer_fields=('from_branch', 'to_branch'), selected_branches=selected,
     )
 
     date_range = request.query_params.get('dateRange')
