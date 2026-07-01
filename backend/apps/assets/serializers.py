@@ -20,6 +20,41 @@ class AssetSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at', '分公司', '分公司编号']
+        extra_kwargs = {
+            # 序号由后端在 create() 中自增，前端新增无需提交
+            '序号': {'required': False},
+        }
+
+    def validate(self, attrs):
+        """资产编号必须已在资产分类（Category）登记，否则拒绝创建/修改。"""
+        code = attrs.get('资产编号')
+        if code is not None:
+            from apps.categories.models import Category
+            if not Category.objects.filter(asset_code=code).exists():
+                raise serializers.ValidationError(
+                    {'资产编号': ['该资产编号未在资产分类登记，请先在资产分类中添加']}
+                )
+        return attrs
+
+    def create(self, validated_data):
+        # 序号未提交时取当前最大序号 + 1（空表取 1）
+        if validated_data.get('序号') is None:
+            last = Asset.objects.order_by('-序号').first()
+            validated_data['序号'] = (last.序号 + 1) if last else 1
+        # 按提交的分公司名称解析 branch 并回填冗余字段
+        # （分公司/分公司编号 为 read_only，名称从 initial_data 读取）
+        branch = validated_data.get('branch')
+        if branch is None:
+            company = self.initial_data.get('分公司')
+            if company:
+                from apps.organizations.models import Branch
+                branch = Branch.objects.filter(name=company).first()
+                if branch:
+                    validated_data['branch'] = branch
+        if branch is not None:
+            validated_data['分公司'] = branch.name
+            validated_data['分公司编号'] = branch.code
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         branch = validated_data.get('branch')
@@ -31,6 +66,10 @@ class AssetSerializer(serializers.ModelSerializer):
 
 class FixedAssetSerializer(serializers.ModelSerializer):
     """Serializer for FixedAsset instances."""
+    # 前端新增只传资产编号，asset 由 validate() 按编号反查补全，故非必填
+    asset = serializers.PrimaryKeyRelatedField(
+        queryset=Asset.objects.all(), required=False, allow_null=True,
+    )
     branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
     asset_name = serializers.CharField(source='asset.资产名称', read_only=True, default='')
     序号 = serializers.IntegerField(source='asset.序号', read_only=True, default=None)
@@ -54,6 +93,20 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             '规格', '单价', '购入金额', '出库日期',
         ]
         read_only_fields = ['created_at', 'updated_at', '内部编号', '资产名称']
+
+    def validate(self, attrs):
+        """未提交 asset 时，按资产编号反查父级品目；查不到则拒绝录入。"""
+        if not attrs.get('asset'):
+            code = attrs.get('资产编号')
+            if code:
+                asset = Asset.objects.filter(资产编号=code).first()
+                if asset:
+                    attrs['asset'] = asset
+                else:
+                    raise serializers.ValidationError(
+                        {'资产编号': ['资产编号不存在']}
+                    )
+        return attrs
 
     def create(self, validated_data):
         validated_data['内部编号'] = FixedAsset.generate_internal_code(

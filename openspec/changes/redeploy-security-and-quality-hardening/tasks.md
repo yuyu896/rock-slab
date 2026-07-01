@@ -2,9 +2,9 @@
 
 - [x] 1.0 修复前端密码长度不一致：`PasswordChangeModal` 占位符"至少6位"→"至少8位"、前端校验 `< 6`→`< 8`（与后端 `min_length=8` 对齐）
 - [x] 1.0b UX：账号锁定提示加时长——`account_lockout.check_account_locked` 改为"请 {LOCKOUT_DURATION//60} 分钟后再试"
-- [ ] 1.1 提交 4 个未提交的报表文件 + 上述前端一致性修复
-- [ ] 1.2 `git push origin main`（推送 7+1 个提交）
-- [ ] 1.3 记录待部署 SHA（应为 `86291d1` 或之后）
+- [x] 1.1 提交 4 个未提交的报表文件 + 前端一致性修复 + 锁定提示优化
+- [x] 1.2 `git push origin main`（4fd2211..b4d2ece）
+- [x] 1.3 待部署 SHA = `b4d2ece`
 
 ## 2. 服务器部署（复用增强版 deploy.sh）
 

@@ -119,6 +119,32 @@ class TestFixedAssetAPI:
         })
         assert resp.status_code == 403
 
+    def test_create_by_asset_code_only(self, supervisor_user, parent_asset):
+        """仅传资产编号（不传 asset 外键）也能创建，并反查关联品目。"""
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets', {
+            '资产编号': 'COMP-001',
+            '序列号': 'SN-CODE',
+            '供应商': '联想',
+        })
+        assert resp.status_code == 201
+        data = resp.data
+        assert str(data['asset']) == str(parent_asset.id)
+        assert data['内部编号'] == 'COMP-001-1'
+        assert data['资产名称'] == 'ThinkPad T14'  # 从父级品目继承
+        assert data['分公司'] == parent_asset.分公司
+
+    def test_create_unknown_asset_code_rejected(self, supervisor_user, parent_asset):
+        """资产编号在品目表不存在时拒绝录入，返回 400。"""
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets', {
+            '资产编号': 'NOT-EXIST',
+            '序列号': 'SN-X',
+        })
+        assert resp.status_code == 400
+        assert '资产编号' in resp.data
+        assert '不存在' in str(resp.data['资产编号'])
+
     def test_update_instance(self, supervisor_user, parent_asset, branch):
         from apps.assets.models import FixedAsset
         inst = FixedAsset.objects.create(
