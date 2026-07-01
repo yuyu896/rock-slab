@@ -7,7 +7,7 @@ cd "$PROJECT_DIR"
 echo "========== 磐盘部署开始 =========="
 
 # 0. 记录部署前锚点（commit SHA）+ 磁盘检查
-PRE_DEPLOY_COMMIT=$(git rev-parse HEAD)
+PRE_DEPLOY_COMMIT="${PRE_DEPLOY_COMMIT:-$(git rev-parse HEAD)}"
 echo "[0/9] 部署前 commit: $PRE_DEPLOY_COMMIT"
 echo "      磁盘空间:" && df -h / | tail -1
 
@@ -19,7 +19,14 @@ echo "      备份文件: $PRE_DEPLOY_BACKUP"
 
 # 2. Pull latest code
 echo "[2/9] 拉取最新代码..."
+SELF_HASH_BEFORE=$(sha1sum deploy.sh | cut -d' ' -f1)
 git pull origin main
+SELF_HASH_AFTER=$(sha1sum deploy.sh | cut -d' ' -f1)
+# 若 deploy.sh 自身被本次 pull 更新，重新执行新版（继承部署前锚点，避免运行旧版）
+if [ "$SELF_HASH_BEFORE" != "$SELF_HASH_AFTER" ]; then
+    echo "      deploy.sh 已更新，重新执行新版..."
+    exec env PRE_DEPLOY_COMMIT="$PRE_DEPLOY_COMMIT" bash "$0" "$@"
+fi
 
 # 3. Install backend dependencies
 echo "[3/9] 安装后端依赖..."
@@ -27,16 +34,16 @@ docker compose build --no-cache backend
 
 # 4. Run database migrations
 echo "[4/9] 执行数据库迁移..."
-# --entrypoint python 绕过 entrypoint.sh（否则它会启动 gunicorn 抢占 8002 端口、与运行中的后端冲突导致脚本中断）
-docker compose run --rm --entrypoint python backend manage.py migrate --noinput
+# 传入命令由 entrypoint.sh 的 exec "$@" 执行（不启动 gunicorn，避免抢占 8002）
+docker compose run --rm backend python manage.py migrate --noinput
 
 # 5. 验证种子授权（迁移后、重启前；异常 exit 1 中止部署）
 echo "[5/9] 校验种子授权结果..."
-docker compose run --rm --entrypoint python backend manage.py check_seed_grants
+docker compose run --rm backend python manage.py check_seed_grants
 
 # 6. Collect static files
 echo "[6/9] 收集静态文件..."
-docker compose run --rm --entrypoint python backend manage.py collectstatic --noinput
+docker compose run --rm backend python manage.py collectstatic --noinput
 
 # 7. Build frontend
 echo "[7/9] 构建前端..."

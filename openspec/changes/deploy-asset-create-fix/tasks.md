@@ -1,11 +1,11 @@
 ## 1. 本地提交与推送
 
-- [ ] 1.1 核实 `git status`：改动仅 `backend/apps/assets/serializers.py`、`backend/tests/test_asset_crud.py`、`backend/tests/test_fixed_asset.py`、`openspec/changes/fix-asset-create-400/`、`openspec/changes/deploy-asset-create-fix/`、`openspec/changes/redeploy-security-and-quality-hardening/tasks.md`
-- [ ] 1.2 确认**无新迁移文件**（`git status` 不含 `backend/apps/assets/migrations/` 新文件）
-- [ ] 1.3 `git add` 仅上述目标文件，**排除 `.claude/settings.local.json`**
-- [ ] 1.4 `git commit`（消息说明：修复新增固定资产/资产 400 + 资产编号分类校验，部署上线）
-- [ ] 1.5 `git push origin main`
-- [ ] 1.6 确认 `origin/main` 已更新到新 commit、`origin/main..HEAD` 为空
+- [x] 1.1 核实 `git status`：改动仅 `backend/apps/assets/serializers.py`、`backend/tests/test_asset_crud.py`、`backend/tests/test_fixed_asset.py`、`openspec/changes/fix-asset-create-400/`、`openspec/changes/deploy-asset-create-fix/`、`openspec/changes/redeploy-security-and-quality-hardening/tasks.md`
+- [x] 1.2 确认**无新迁移文件**（`git status` 不含 `backend/apps/assets/migrations/` 新文件）
+- [x] 1.3 `git add` 仅上述目标文件，**排除 `.claude/settings.local.json`**
+- [x] 1.4 `git commit`（消息说明：修复新增固定资产/资产 400 + 资产编号分类校验，部署上线）
+- [x] 1.5 `git push origin main`
+- [x] 1.6 确认 `origin/main` 已更新到新 commit、`origin/main..HEAD` 为空
 
 ## 2. 服务器部署
 
@@ -27,3 +27,10 @@
 
 - [ ] 4.1 执行 `deploy.sh` 末尾打印的**代码回滚命令**（`git reset --hard <部署前 commit> && docker compose build backend && (前端 rebuild) && docker compose up -d backend && nginx -s reload`）
 - [ ] 4.2 确认回滚后生产行为恢复到部署前（无需数据库恢复）
+
+## 5. deploy.sh 修复（部署中发现的脚本缺陷）
+
+- [x] 5.1 `entrypoint.sh` 增加 `exec "$@"` 分支：传入命令时直接执行，不再硬跑 gunicorn 抢 8002
+- [x] 5.2 `deploy.sh` 第 4/5/6 步去掉不生效的 `--entrypoint python`，改 `docker compose run --rm backend python manage.py ...`
+- [x] 5.3 `deploy.sh` 增加 self-reexec：git pull 后若自身被更新则重执行新版（继承 `PRE_DEPLOY_COMMIT`），解决"运行时旧版 deploy.sh"
+- [ ] 5.4 服务器部署验证：`bash deploy.sh` 第 4 步不再卡，9 步全绿、`health: 200`
