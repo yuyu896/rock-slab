@@ -27,6 +27,6 @@
 ## 4. 验证
 
 - [x] 4.1 运行 `pytest backend/tests/test_fixed_asset.py` 及资产相关测试，全部通过
-- [ ] 4.2 本地启动前后端，在 `FixedAssetCreate.vue` 提交（仅资产编号 + 实例字段）→ 创建成功，列表可见且分公司/品目字段正确
-- [ ] 4.3 在 `AssetCreatePage.vue` 提交（不填序号、选分公司）→ 创建成功，序号自增、分公司正确关联、列表按数据范围可见
+- [x] 4.2 本地启动前后端，在 `FixedAssetCreate.vue` 提交（仅资产编号 + 实例字段）→ 创建成功，列表可见且分公司/品目字段正确
+- [x] 4.3 在 `AssetCreatePage.vue` 提交（不填序号、选分公司）→ 创建成功，序号自增、分公司正确关联、列表按数据范围可见
 - [x] 4.4 回归确认资产流转（采购/领用/调拨/回收）、Excel 导入路径未受影响（`test_transfers/test_import_export/test_data_scoping/test_inventories` 共 110 项全部通过）
