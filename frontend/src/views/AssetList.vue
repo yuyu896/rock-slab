@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAssets, updateAsset, deleteAsset, exportAssets } from '@/api/assets'
+import { getAssets, updateAsset, deleteAsset, batchDeleteAssets, exportAssets } from '@/api/assets'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { getTransfers } from '@/api/transfers'
@@ -118,6 +118,29 @@ async function handleDelete(asset: Asset) {
     )
     await deleteAsset(asset.id)
     ElMessage.success('资产已删除')
+    await fetchAssets()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(handleApiError(error))
+    }
+  }
+}
+
+// ===== 批量删除 =====
+async function handleBatchDelete() {
+  if (selectedAssets.value.length === 0) {
+    ElMessage.warning('请先选择要删除的资产')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedAssets.value.length} 项资产？此操作不可恢复`,
+      '批量删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+    await batchDeleteAssets(selectedAssets.value)
+    ElMessage.success('批量删除成功')
+    selectedAssets.value = []
     await fetchAssets()
   } catch (error) {
     if (error !== 'cancel') {
@@ -410,6 +433,14 @@ onMounted(() => {
             <line x1="1" y1="10" x2="23" y2="10"/>
           </svg>
           批量调拨
+        </button>
+        <button v-if="canManageAssets" class="batch-btn danger" @click="handleBatchDelete">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+          </svg>
+          批量删除
         </button>
       </div>
     </div>
@@ -797,6 +828,17 @@ onMounted(() => {
 .batch-btn:hover {
   border-color: var(--color-primary-300);
   color: var(--color-primary-500);
+}
+
+.batch-btn.danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.batch-btn.danger:hover {
+  background: var(--color-danger);
+  color: white;
+  border-color: var(--color-danger);
 }
 
 .batch-btn.danger:hover {

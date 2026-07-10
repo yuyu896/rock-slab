@@ -28,6 +28,11 @@ export function deleteAsset(id: string) {
   return request.delete(`/api/assets/${id}`)
 }
 
+/** 批量删除资产（ids: 资产 id 列表） */
+export function batchDeleteAssets(ids: string[]) {
+  return request.post<{ deleted: number }>('/api/assets/batch-delete', { ids })
+}
+
 /** Excel 批量导入 */
 export function importAssets(file: File) {
   const formData = new FormData()
@@ -59,6 +64,11 @@ export function updateFixedAsset(id: string, data: Record<string, any>) {
 
 export function deleteFixedAsset(id: string) {
   return request.delete(`/api/assets/fixed-assets/${id}`)
+}
+
+/** 批量删除固定资产（ids: 固定资产 id 列表） */
+export function batchDeleteFixedAssets(ids: string[]) {
+  return request.post<{ deleted: number }>('/api/assets/fixed-assets/batch-delete', { ids })
 }
 
 export function importFixedAssets(file: File) {

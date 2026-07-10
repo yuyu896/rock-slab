@@ -12,6 +12,18 @@ from .serializers import AssetSerializer, FixedAssetSerializer
 from .filters import AssetFilterSet, FixedAssetFilterSet
 
 
+def _batch_delete(viewset, request):
+    """批量删除：按数据范围过滤后删除指定 ids，返回实际删除数（越权 id 自动排除）。"""
+    ids = request.data.get('ids') or []
+    if not isinstance(ids, list) or not ids:
+        return Response(
+            {'detail': '请提供要删除的 id 列表'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    count, _ = viewset.get_queryset().filter(id__in=ids).delete()
+    return Response({'deleted': count})
+
+
 class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     """资产管理视图。
 
@@ -31,6 +43,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         'partial_update': 'manage_assets',
         'destroy': 'manage_assets',
         'import_excel': 'manage_assets',
+        'batch_delete': 'manage_assets',
     }
 
     def get_queryset(self):
@@ -42,6 +55,11 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         instance.delete()
+
+    @action(detail=False, methods=['post'], url_path='batch-delete')
+    def batch_delete(self, request):
+        """批量删除资产（受数据范围与 manage_assets 权限约束）。"""
+        return _batch_delete(self, request)
 
     @action(detail=False, methods=['get'], url_path='template')
     def download_template(self, request):
@@ -262,6 +280,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         'partial_update': 'manage_assets',
         'destroy': 'manage_assets',
         'import_excel': 'manage_assets',
+        'batch_delete': 'manage_assets',
     }
 
     def get_queryset(self):
@@ -270,6 +289,11 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         instance.delete()
+
+    @action(detail=False, methods=['post'], url_path='batch-delete')
+    def batch_delete(self, request):
+        """批量删除固定资产（受数据范围与 manage_assets 权限约束）。"""
+        return _batch_delete(self, request)
 
     # 固定资产表 19 列定义（顺序固定）
     FA_HEADERS = [

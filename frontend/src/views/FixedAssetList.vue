@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getFixedAssets, updateFixedAsset, deleteFixedAsset, importFixedAssets, exportFixedAssets, downloadFixedAssetTemplate } from '@/api/assets'
+import { getFixedAssets, updateFixedAsset, deleteFixedAsset, batchDeleteFixedAssets, importFixedAssets, exportFixedAssets, downloadFixedAssetTemplate } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -150,6 +150,38 @@ async function handleDelete(asset: any) {
   }
 }
 
+// ── 多选与批量删除 ──
+const selectedIds = ref<string[]>([])
+const isAllSelected = computed(() => assets.value.length > 0 && selectedIds.value.length === assets.value.length)
+function toggleAll() {
+  selectedIds.value = isAllSelected.value ? [] : assets.value.map(a => a.id)
+}
+function toggleSelect(id: string) {
+  const i = selectedIds.value.indexOf(id)
+  if (i >= 0) selectedIds.value.splice(i, 1)
+  else selectedIds.value.push(id)
+}
+
+async function handleBatchDelete() {
+  if (selectedIds.value.length === 0) {
+    ElMessage.warning('请先选择要删除的固定资产')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedIds.value.length} 项固定资产？此操作不可恢复`,
+      '批量删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+    await batchDeleteFixedAssets(selectedIds.value)
+    ElMessage.success('批量删除成功')
+    selectedIds.value = []
+    await fetchAssets()
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(handleApiError(e))
+  }
+}
+
 // ── 列表 ──
 async function fetchAssets() {
   loading.value = true
@@ -254,11 +286,23 @@ onMounted(() => { fetchAssets(); fetchBranches() })
       </div>
     </div>
 
+    <!-- 批量操作栏 -->
+    <div v-if="selectedIds.length > 0 && canManageAssets" class="fa-batch-actions">
+      <span class="fa-batch-info">已选择 {{ selectedIds.length }} 项</span>
+      <button class="fa-batch-btn danger" @click="handleBatchDelete">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
+        </svg>
+        批量删除
+      </button>
+    </div>
+
     <!-- 表格 -->
     <div class="table-container">
       <table class="data-table">
         <thead>
           <tr>
+            <th v-if="canManageAssets" class="col-check"><input type="checkbox" :checked="isAllSelected" @change="toggleAll" /></th>
             <th>序号</th>
             <th>分公司编号</th>
             <th>分公司</th>
@@ -282,9 +326,10 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td :colspan="canManageAssets ? 20 : 19" class="empty-cell">加载中...</td></tr>
-          <tr v-else-if="assets.length === 0"><td :colspan="canManageAssets ? 20 : 19" class="empty-cell">暂无固定资产数据</td></tr>
+          <tr v-if="loading"><td :colspan="canManageAssets ? 21 : 19" class="empty-cell">加载中...</td></tr>
+          <tr v-else-if="assets.length === 0"><td :colspan="canManageAssets ? 21 : 19" class="empty-cell">暂无固定资产数据</td></tr>
           <tr v-for="item in assets" :key="item.id" v-else>
+            <td v-if="canManageAssets" class="col-check"><input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleSelect(item.id)" /></td>
             <td>{{ item.序号 ?? '-' }}</td>
             <td>{{ item.分公司编号 || '-' }}</td>
             <td>{{ item.分公司 || '-' }}</td>
@@ -465,4 +510,13 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .import-error-item:last-child { border-bottom: none; }
 @media (max-width: 1200px) { .data-table { display: block; overflow-x: auto; } }
 @media (max-width: 768px) { .page-header { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .filter-row { flex-wrap: wrap; } .filter-item.search { flex: 1 1 100%; } .header-actions { flex-wrap: wrap; } }
+/* 批量操作栏 */
+.fa-batch-actions { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--color-primary-50); border: 1px solid var(--color-primary-200); border-radius: 8px; margin-bottom: var(--space-4); }
+.fa-batch-info { font-size: var(--text-sm); color: var(--color-primary-600); }
+.fa-batch-btn { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-2) var(--space-3); background: white; border: 1px solid var(--color-border); border-radius: 6px; font-size: var(--text-sm); cursor: pointer; }
+.fa-batch-btn svg { width: 16px; height: 16px; }
+.fa-batch-btn.danger { color: var(--color-danger); border-color: var(--color-danger); }
+.fa-batch-btn.danger:hover { background: var(--color-danger); color: white; }
+.col-check { width: 44px; text-align: center; }
+.col-check input { width: 16px; height: 16px; cursor: pointer; }
 </style>
