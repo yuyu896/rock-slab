@@ -140,6 +140,27 @@ class TestAssetImport:
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
 
+    def test_import_rejects_unknown_branch(self, admin_client, test_branch):
+        # 分公司不在组织架构内 → 该行被拒并提示
+        rows = [[1, '不存在的分公司', 'IMP-UB01', test_branch.code, '类目A',
+                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '', '是', '']]
+        buf = _make_xlsx(ASSET_HEADERS, rows)
+        resp = _upload_url(admin_client, '/api/assets/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 0
+        assert any('不存在的分公司' in e for e in resp.data['errors'])
+
+    def test_import_rejects_empty_branch(self, admin_client, test_branch):
+        # 分公司为空 → 该行被拒并提示
+        rows = [[1, '', 'IMP-EB01', test_branch.code, '类目A',
+                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '', '是', '']]
+        buf = _make_xlsx(ASSET_HEADERS, rows)
+        resp = _upload_url(admin_client, '/api/assets/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 0
+        assert any('分公司为空' in e for e in resp.data['errors'])
+
+
 class TestAssetExport:
     def test_export_with_data(self, admin_client, test_asset):
         resp = admin_client.get('/api/assets/export')
@@ -291,8 +312,12 @@ class TestTransferTemplates:
 
 class TestTransferImport:
     @pytest.mark.parametrize('ttype', ['purchase', 'assign', 'transfer', 'recovery'])
-    def test_import_valid_data(self, admin_client, ttype):
+    def test_import_valid_data(self, admin_client, ttype, test_branch):
         from apps.transfers.models import Transfer
+        from apps.organizations.models import Branch
+        # transfer 类型引用 上海/杭州分公司，确保其存在于组织架构（导入现校验分公司存在性）
+        Branch.objects.create(name='上海分公司', code='SH001', region=test_branch.region)
+        Branch.objects.create(name='杭州分公司', code='HZ001', region=test_branch.region)
         tpl = TRANSFER_TYPE_TEMPLATES[ttype]
         buf = _make_xlsx(tpl['template_headers'], [tpl['sample_row']])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params=f'type={ttype}')
@@ -307,7 +332,7 @@ class TestTransferImport:
             else:
                 assert actual == expected, f"[{ttype}] {field}: '{actual}' != '{expected}'"
 
-    def test_recovery_import_all_fields(self, admin_client):
+    def test_recovery_import_all_fields(self, admin_client, test_branch):
         """Verify all recovery-specific fields survive import."""
         from apps.transfers.models import Transfer
         tpl = TRANSFER_TYPE_TEMPLATES['recovery']
@@ -322,6 +347,29 @@ class TestTransferImport:
         assert t.物品分类 == '电脑'
         assert t.存放位置 == '仓库B'
         assert t.采购经办人 == '张采购'
+
+
+    def test_import_rejects_unknown_branch(self, admin_client):
+        # transfer 类型：调出分公司填写不存在的名称 → 该行被拒
+        tpl = TRANSFER_TYPE_TEMPLATES['transfer']
+        row = list(tpl['sample_row'])
+        row[1] = '不存在的分公司'  # 调出分公司
+        buf = _make_xlsx(tpl['template_headers'], [row])
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=transfer')
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 0
+        assert any('不存在的分公司' in e for e in resp.data['errors'])
+
+    def test_import_rejects_empty_branch(self, admin_client):
+        # transfer 类型：调出分公司为空 → 该行被拒
+        tpl = TRANSFER_TYPE_TEMPLATES['transfer']
+        row = list(tpl['sample_row'])
+        row[1] = ''  # 调出分公司为空
+        buf = _make_xlsx(tpl['template_headers'], [row])
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=transfer')
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 0
+        assert any('调出分公司为空' in e for e in resp.data['errors'])
 
 
 class TestTransferExport:

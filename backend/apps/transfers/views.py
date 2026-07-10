@@ -435,6 +435,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """批量导入流转记录，按 type 参数区分列映射。"""
         import openpyxl
         from datetime import datetime as dt
+        from apps.organizations.utils import get_branch_name_set, branch_validation_error
 
         file = request.FILES.get('file')
         if not file:
@@ -469,6 +470,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         imported = 0
         errors = []
         creator = request.user.name or request.user.phone
+        valid_branches = get_branch_name_set()
 
         def _parse_date(val):
             if hasattr(val, 'strftime'):
@@ -477,6 +479,22 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         for i, row in enumerate(rows, start=2):
             try:
+                # 分公司存在性校验（按类型取相关列；空或不存在则跳过该行）
+                def _cell(idx):
+                    return str(row[idx]) if len(row) > idx and row[idx] is not None else ''
+                if template_type == 'purchase':
+                    _branch_err = branch_validation_error(_cell(1), '调出分公司', valid_branches)
+                elif template_type == 'assign':
+                    _branch_err = branch_validation_error(_cell(0), '调出分公司', valid_branches)
+                elif template_type == 'recovery':
+                    _branch_err = branch_validation_error(_cell(0), '调出分公司', valid_branches)
+                else:  # transfer
+                    _branch_err = branch_validation_error(_cell(1), '调出分公司', valid_branches) \
+                        or branch_validation_error(_cell(3), '调入分公司', valid_branches)
+                if _branch_err:
+                    errors.append(f'第 {i} 行: {_branch_err}')
+                    continue
+
                 if template_type == 'purchase':
                     Transfer.objects.create(
                         调拨日期=_parse_date(row[0]),

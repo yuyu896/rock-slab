@@ -141,6 +141,9 @@ class TestAssetImportFriendlyErrors:
         assert any('已存在' in e for e in data['errors'])
 
     def test_invalid_decimal_friendly(self, authenticated_client):
+        from apps.organizations.models import Region, Branch
+        region = Region.objects.create(name='测试区域', code='TEST', status='active')
+        Branch.objects.create(name='测试', code='CS001', region=region)
         resp = authenticated_client.post('/api/assets/import', {
             'file': self._make_xlsx([
                 [1, '测试', 'DEC-001', 'CS001', '固定', '', '', '办公', '测试', '',

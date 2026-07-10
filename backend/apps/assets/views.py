@@ -80,6 +80,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from apps.assets.utils.import_helpers import (
             excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
         )
+        from apps.organizations.utils import get_branch_name_set, branch_validation_error
         from django.db import IntegrityError
 
         file = request.FILES.get('file')
@@ -113,6 +114,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         imported = 0
         raw_errors = []
+        valid_branches = get_branch_name_set()
 
         for i, row in enumerate(rows, start=2):
             row_errors = []
@@ -124,6 +126,12 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             asset_code = str(row[2] or '').strip()
             if Asset.objects.filter(资产编号=asset_code).exists():
                 raw_errors.append((i, f'资产编号 {asset_code} 已存在，请修改或删除重复行'))
+                continue
+
+            分公司_name = str(row[1] or '').strip()
+            branch_err = branch_validation_error(分公司_name, '分公司', valid_branches)
+            if branch_err:
+                raw_errors.append((i, branch_err))
                 continue
 
             # Pre-process fields
@@ -161,7 +169,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             try:
                 Asset.objects.create(
                     序号=int(row[0]) if row[0] else 0,
-                    分公司=str(row[1] or ''),
+                    分公司=分公司_name,
                     资产编号=asset_code,
                     分公司编号=str(row[3] or ''),
                     资产类目=str(row[4] or ''),
