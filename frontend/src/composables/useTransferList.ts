@@ -80,7 +80,7 @@ export function useTransferList(type: TransferType) {
       const { data } = await getBranches()
       branchOptions.value = [
         { value: '', label: '全部分公司' },
-        ...data.map((b: any) => ({ value: b.id, label: b.name }))
+        ...data.map((b: any) => ({ value: b.name, label: b.name }))
       ]
     } catch (error) {
       ElMessage.error(handleApiError(error))

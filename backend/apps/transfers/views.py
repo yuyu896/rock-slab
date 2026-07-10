@@ -88,6 +88,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             except Branch.DoesNotExist:
                 pass
 
+        # 回填分公司名称：表单只传外键 id，名称字段可能为空；保证筛选/展示与导入来源一致
+        if from_branch and not data.get('调出分公司'):
+            data['调出分公司'] = from_branch.name
+        if to_branch and not data.get('调入分公司'):
+            data['调入分公司'] = to_branch.name
+
         # Check inventory lock on both source and target branches
         self._check_inventory_lock(
             branch_name=data.get('调出分公司', ''),
