@@ -8,6 +8,11 @@ vi.mock('@/api/auth', () => ({
   getProfile: vi.fn(),
 }))
 
+// login() 内部会拉取权限摘要，需一并 mock 以免真实 axios 请求污染测试状态
+vi.mock('@/api/permissions', () => ({
+  getMyPermissions: vi.fn().mockResolvedValue({ data: { operations: [] } }),
+}))
+
 import { useUserStore } from '@/store/user'
 import * as authApi from '@/api/auth'
 

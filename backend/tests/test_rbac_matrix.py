@@ -119,12 +119,13 @@ class TestAssetRBAC:
         resp = client.post('/api/assets/', {'资产名称': '测试', '资产编号': 'X-001'})
         assert resp.status_code == 400
 
-    def test_create_asset_leader_allowed(self, leader_user, branch):
+    def test_create_asset_leader_allowed(self, leader_user, branch, category):
         # Asset create min_role='staff', so leader can create (with valid data)
+        # 资产编号需先在资产分类登记（AssetSerializer.validate），复用 category 已登记的编号
         client = _client_for(leader_user)
         resp = client.post('/api/assets/', {
             '序号': 99, '分公司': branch.name, '分公司编号': branch.code,
-            '资产编号': 'X-002', '资产类目': '固定', '物品分类': '办公',
+            '资产编号': category.asset_code, '资产类目': '固定', '物品分类': '办公',
             '资产名称': '测试', '数量': 1,
         })
         assert resp.status_code == 201

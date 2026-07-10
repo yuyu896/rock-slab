@@ -45,6 +45,8 @@ describe('usePermission', () => {
     it('supervisor can manage users and approve', () => {
       const userStore = useUserStore()
       userStore.profile = { role: 'supervisor' } as any
+      // 权限解耦后能力来自显式 operations 授权码，而非 role 字符串
+      userStore.operations = ['manage_users', 'approve_transfer', 'approve_inventory']
 
       const { canManageUsers, canApprove } = usePermission()
       expect(canManageUsers.value).toBe(true)
