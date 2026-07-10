@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { createAsset } from '@/api/assets'
 import { getCategories } from '@/api/categories'
+import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
@@ -13,6 +14,17 @@ const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const categoryOptions = ref<{ value: string; label: string }[]>([])
 const allCategories = ref<Category[]>([])
+
+const { lookupByCode, notFoundCode } = useAssetCodeAutofill()
+
+async function onAssetCodeBlur() {
+  const result = await lookupByCode(newAsset.value.资产编号 || '')
+  if (result) {
+    newAsset.value.资产名称 = result.资产名称
+    newAsset.value.资产类目 = result.资产类目
+    newAsset.value.物品分类 = result.物品分类
+  }
+}
 
 function getDefaultAsset(): Partial<Asset> {
   return {
@@ -145,7 +157,8 @@ onMounted(() => {
           </div>
           <div class="form-item">
             <label class="form-label">资产编号 <span class="required">*</span></label>
-            <input v-model="newAsset.资产编号" type="text" class="form-input" placeholder="如：A-a00001" />
+            <input v-model="newAsset.资产编号" type="text" class="form-input" placeholder="如：A-a00001" @blur="onAssetCodeBlur" />
+            <span v-if="notFoundCode && notFoundCode === newAsset.资产编号" class="field-hint">该编号未在资产分类登记</span>
           </div>
           <div class="form-item">
             <label class="form-label">资产类目 <span class="required">*</span></label>

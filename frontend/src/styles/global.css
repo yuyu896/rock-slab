@@ -85,3 +85,8 @@ textarea:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* ================================
+   表单字段内联提示
+   ==================== */
+.field-hint { color: var(--color-danger); font-size: var(--text-sm); line-height: 1.4; }

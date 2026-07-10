@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { formatMoney } from '@/utils/format'
+import { ElMessage } from 'element-plus'
+import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
 
 defineProps<{
   branchOptions: { value: string; label: string }[]
@@ -26,6 +28,22 @@ const newOrder = ref({
 const totalAmount = computed(() => {
   return newOrder.value.items.reduce((sum, item) => sum + item.qty * item.price, 0)
 })
+
+const { lookupByCode } = useAssetCodeAutofill()
+const notFoundCodes = ref<Record<string, boolean>>({})
+
+async function onItemCodeBlur(item: { code: string; name: string }) {
+  const code = (item.code || '').trim()
+  if (!code) return
+  const result = await lookupByCode(code)
+  if (result) {
+    item.name = result.资产名称
+    notFoundCodes.value[code] = false
+  } else {
+    notFoundCodes.value[code] = true
+    ElMessage.warning(`资产编号「${code}」未在资产分类登记`)
+  }
+}
 
 function addItem() {
   newOrder.value.items.push({ code: '', name: '', spec: '', qty: 1, price: 0 })
@@ -117,7 +135,7 @@ function handleSaveDraft() {
             :key="index"
             class="items-row"
           >
-            <input v-model="item.code" type="text" class="item-input code" placeholder="资产编号" />
+            <input v-model="item.code" type="text" class="item-input code" placeholder="资产编号" @blur="onItemCodeBlur(item)" :class="{ 'is-invalid': notFoundCodes[item.code] }" />
             <input v-model="item.name" type="text" class="item-input name" placeholder="资产名称" />
             <input v-model="item.spec" type="text" class="item-input spec" placeholder="规格型号" />
             <input v-model="item.qty" type="number" class="item-input qty" min="1" />
@@ -194,6 +212,7 @@ function handleSaveDraft() {
 .items-row { display: grid; grid-template-columns: 120px 1fr 120px 80px 100px 100px 40px; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--color-border-light); align-items: center; }
 .item-input { height: 36px; padding: 0 var(--space-2); border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-page); font-size: var(--text-sm); }
 .item-input:focus { outline: none; border-color: var(--color-primary-400); }
+.item-input.is-invalid { border-color: var(--color-danger); }
 .item-amount { font-weight: 500; color: var(--color-text-primary); }
 .remove-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 6px; color: var(--color-text-tertiary); cursor: pointer; }
 .remove-btn:hover:not(:disabled) { background: oklch(0.92 0.10 25); color: var(--color-danger); }

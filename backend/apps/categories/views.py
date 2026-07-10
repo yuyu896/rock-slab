@@ -28,6 +28,28 @@ class CategoryViewSet(viewsets.ModelViewSet):
         'import_excel': 'manage_categories',
     }
 
+    @action(detail=False, methods=['get'], url_path='lookup')
+    def lookup(self, request):
+        """按资产编号精确查询单条分类，供新增表单失焦反查名称/类目/分类。"""
+        code = (request.query_params.get('asset_code') or '').strip()
+        if not code:
+            return Response(
+                {'asset_code': ['请提供 asset_code 参数']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        category = Category.objects.filter(asset_code=code).first()
+        if category is None:
+            return Response(
+                {'detail': '该资产编号未在资产分类登记'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({
+            '资产名称': category.asset_name,
+            '资产类目': category.asset_category,
+            '物品分类': category.item_category,
+            '计量单位': category.unit,
+        })
+
     def create(self, request, *args, **kwargs):
         """创建分类，处理重复编号错误"""
         serializer = self.get_serializer(data=request.data)

@@ -10,6 +10,14 @@ export function getCategory(id: string) {
   return request.get<Category>(`/api/categories/${id}`)
 }
 
+/** 按资产编号精确查询分类（新增表单失焦反查名称/类目/分类） */
+export function lookupCategoryByCode(assetCode: string) {
+  return request.get<{ 资产名称: string; 资产类目: string; 物品分类: string; 计量单位: string }>(
+    '/api/categories/lookup',
+    { params: { asset_code: assetCode } },
+  )
+}
+
 export function createCategory(data: CategoryRequest) {
   return request.post<Category>('/api/categories/', data)
 }

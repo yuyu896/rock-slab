@@ -6,6 +6,7 @@ import { recoverAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
 
 const RECOVERY_CATEGORIES = ['闲置回收', '报废回收', '捐赠回收', '其他']
 
@@ -17,6 +18,18 @@ const form = ref({
   回收分类: '', 调拨数量: 1, 单位: '', 规格型号: '', 出库日期: '',
   调出分公司: '', 调出部门: '', 存放位置: '', 采购经办人: '', 备注: '',
 })
+
+const { lookupByCode, notFoundCode } = useAssetCodeAutofill()
+
+async function onAssetCodeBlur() {
+  const result = await lookupByCode(form.value.资产编号)
+  if (result) {
+    form.value.资产名称 = result.资产名称
+    form.value.资产类目 = result.资产类目
+    form.value.物品分类 = result.物品分类
+    form.value.单位 = result.计量单位
+  }
+}
 
 onMounted(async () => {
   try {
@@ -70,7 +83,7 @@ async function submit() {
   <TransferCreateLayout title="新建回收记录" :loading="creating" @submit="submit" @back="goBack">
     <div class="form-grid">
       <div class="form-item"><label class="form-label">入库日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">资产编号 <span class="required">*</span></label><input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" /></div>
+      <div class="form-item"><label class="form-label">资产编号 <span class="required">*</span></label><input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" @blur="onAssetCodeBlur" /><span v-if="notFoundCode && notFoundCode === form.资产编号" class="field-hint">该编号未在资产分类登记</span></div>
       <div class="form-item"><label class="form-label">资产名称 <span class="required">*</span></label><input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" /></div>
       <div class="form-item">
         <label class="form-label">回收分类 <span class="required">*</span></label>

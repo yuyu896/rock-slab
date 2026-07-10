@@ -208,3 +208,36 @@ class TestCategoryFiltering:
         data = resp.json()
         assert data['count'] == 1
         assert data['results'][0]['资产编号'] == 'FITM-001'
+
+
+# ---------------------------------------------------------------------------
+# Lookup by asset_code（新增表单按编号反查名称/类目/分类）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestCategoryLookup:
+    def test_lookup_hit(self, admin_user, category):
+        client = _client_for(admin_user)
+        resp = client.get(f'{CATEGORY_URL}lookup', {'asset_code': category.asset_code})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data['资产名称'] == category.asset_name
+        assert data['资产类目'] == category.asset_category
+        assert data['物品分类'] == category.item_category
+        assert data['计量单位'] == category.unit
+
+    def test_lookup_miss_returns_404(self, admin_user):
+        client = _client_for(admin_user)
+        resp = client.get(f'{CATEGORY_URL}lookup', {'asset_code': 'NOPE-9999'})
+        assert resp.status_code == 404
+
+    def test_lookup_missing_param_returns_400(self, admin_user):
+        client = _client_for(admin_user)
+        resp = client.get(f'{CATEGORY_URL}lookup')
+        assert resp.status_code == 400
+
+    def test_lookup_readable_by_staff(self, staff_user, category):
+        # 反查是读操作，填表需要，所有登录用户可用
+        client = _client_for(staff_user)
+        resp = client.get(f'{CATEGORY_URL}lookup', {'asset_code': category.asset_code})
+        assert resp.status_code == 200
