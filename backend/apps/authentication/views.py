@@ -15,27 +15,20 @@ from apps.authentication.account_lockout import (
 from apps.audit.decorators import audit_log
 
 
-def get_or_create_token(user):
-    """获取或刷新 ExpiringToken。
+def issue_login_token(user):
+    """登录即签发新 ExpiringToken，并使该用户此前所有会话立即失效（单会话强制）。
 
-    - 已存在且未过期：直接复用。
-    - 不存在或已过期：删除该用户所有 token（子表 + 基础表孤儿），再创建全新的。
-      用"删除+创建"而非原地 save，规避多表继承下原地改 key 再 save 的异常。
+    - 每次成功登录都删除该用户全部 token（ExpiringToken 子表 + BaseToken 基础表孤儿），
+      再创建全新 token——旧设备持有的 token 即刻失效，其下次请求返回 401。
+    - 用"删除+创建"而非原地 save，规避多表继承下原地改 key 再 save 的异常。
     - 并发登录兜底 IntegrityError。
     """
-    token = None
+    ExpiringToken.objects.filter(user=user).delete()
+    BaseToken.objects.filter(user=user).delete()
     try:
+        token = ExpiringToken.objects.create(user=user)
+    except IntegrityError:
         token = ExpiringToken.objects.get(user=user)
-    except ExpiringToken.DoesNotExist:
-        pass
-
-    if token is None or token.is_expired:
-        ExpiringToken.objects.filter(user=user).delete()
-        BaseToken.objects.filter(user=user).delete()
-        try:
-            token = ExpiringToken.objects.create(user=user)
-        except IntegrityError:
-            token = ExpiringToken.objects.get(user=user)
     return token
 
 
@@ -63,7 +56,7 @@ def login_view(request):
         return Response({'detail': '账号已停用'}, status=403)
     # 成功登录清零失败计数
     clear_login_failures(phone)
-    token = get_or_create_token(user)
+    token = issue_login_token(user)
     user_serializer = UserSerializer(user)
     return Response({
         'token': token.key,

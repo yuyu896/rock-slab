@@ -62,6 +62,47 @@ class TestTokenExpiry:
 
 
 @pytest.mark.django_db
+class TestSessionPolicy:
+    def test_token_validity_is_seven_days(self, admin_user):
+        # TOKEN_EXPIRATION_DAYS=7 通过模型 save 写入 expires_at
+        now = timezone.now()
+        token = ExpiringToken.objects.create(user=admin_user)
+        lower = now + timezone.timedelta(days=7, minutes=-1)
+        upper = now + timezone.timedelta(days=7, minutes=1)
+        assert lower <= token.expires_at <= upper
+
+    def test_no_sliding_renewal(self, authenticated_client, admin_user):
+        # 使用 Token 请求不会延长 expires_at（固定有效期）
+        token = ExpiringToken.objects.get(user=admin_user)
+        before = token.expires_at
+        resp = authenticated_client.get('/api/auth/profile/')
+        assert resp.status_code == status.HTTP_200_OK
+        token.refresh_from_db()
+        assert token.expires_at == before
+
+    def test_new_login_invalidates_previous_session(self, api_client, admin_user):
+        from django.core.cache import cache
+        cache.clear()  # 重置登录限流计数，避免跨测试累积触发 429
+        resp1 = api_client.post('/api/auth/login/', {'phone': '13900000000', 'password': 'test123456'})
+        token1 = resp1.data['token']
+
+        # 旧会话可用
+        api_client.credentials(HTTP_AUTHORIZATION=f'Token {token1}')
+        assert api_client.get('/api/auth/profile/').status_code == status.HTTP_200_OK
+
+        # 同一账号再次登录 → 签发新 Token，旧 Token 立即失效（单会话强制）
+        resp2 = api_client.post('/api/auth/login/', {'phone': '13900000000', 'password': 'test123456'})
+        token2 = resp2.data['token']
+        assert token2 != token1
+
+        api_client.credentials(HTTP_AUTHORIZATION=f'Token {token1}')
+        assert api_client.get('/api/auth/profile/').status_code == status.HTTP_401_UNAUTHORIZED
+
+        api_client.credentials(HTTP_AUTHORIZATION=f'Token {token2}')
+        assert api_client.get('/api/auth/profile/').status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
 class TestPasswordChange:
     def test_change_password_success(self, authenticated_client, admin_user):
         # Save token key before request (credentials() returns None after DRF update)
