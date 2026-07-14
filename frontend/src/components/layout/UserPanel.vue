@@ -12,6 +12,7 @@ interface UserInfo {
   phone: string
   role: string
   branch: string
+  branchName?: string
   avatar: string
   systemAvatar: string
 }
@@ -179,7 +180,7 @@ defineExpose({ initPanel })
             <div class="user-name-lg">{{ userInfo.name }}</div>
             <div class="user-meta">
               <span class="role-tag">{{ roleLabels[userInfo.role] || userInfo.role }}</span>
-              <span v-if="userInfo.branch" class="branch-tag">{{ userInfo.branch }}</span>
+              <span v-if="userInfo.branchName" class="branch-tag">{{ userInfo.branchName }}</span>
             </div>
           </div>
         </div>
@@ -216,7 +217,7 @@ defineExpose({ initPanel })
           </div>
           <div class="info-item readonly">
             <label>所属分公司</label>
-            <span class="info-value">{{ userInfo.branch || '未设置' }}</span>
+            <span class="info-value">{{ userInfo.branchName || '未设置' }}</span>
           </div>
           <button class="btn-save" :disabled="editLoading" @click="saveUserInfo">
             {{ editLoading ? '保存中...' : '保存修改' }}

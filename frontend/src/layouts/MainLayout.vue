@@ -28,6 +28,7 @@ const userInfo = computed(() => ({
   phone: userStore.profile?.phone || '',
   role: userStore.profile?.role || 'staff',
   branch: userStore.profile?.branch || '',
+  branchName: userStore.profile?.branchName || '',
   avatar: userStore.profile?.avatar || '',
   systemAvatar: userStore.profile?.systemAvatar || ''
 }))

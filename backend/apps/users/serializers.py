@@ -16,6 +16,8 @@ class UserSerializer(serializers.ModelSerializer):
         write_only=True, required=False,
         help_text='用户初始密码（创建时必填）',
     )
+    branch_name = serializers.SerializerMethodField()
+    region_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -23,7 +25,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'phone', 'name', 'role', 'status',
             'branch', 'region', 'leader', 'team', 'created_by',
             'avatar', 'system_avatar', 'password',
-            'created_at', 'updated_at',
+            'created_at', 'updated_at', 'branch_name', 'region_name',
         ]
         read_only_fields = ['created_at', 'updated_at']
         extra_kwargs = {
@@ -39,3 +41,9 @@ class UserSerializer(serializers.ModelSerializer):
             **{k: v for k, v in validated_data.items() if k not in ('phone', 'name')},
         )
         return user
+
+    def get_branch_name(self, obj):
+        return obj.branch.name if obj.branch else None
+
+    def get_region_name(self, obj):
+        return obj.region.name if obj.region else None

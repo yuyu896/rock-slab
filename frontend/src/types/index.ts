@@ -167,6 +167,8 @@ export interface User {
   name: string
   branch?: string
   region?: string
+  branchName?: string
+  regionName?: string
   leader?: string
   team?: string
   role: UserRoleType
