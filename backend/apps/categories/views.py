@@ -48,6 +48,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
             '资产类目': category.asset_category,
             '物品分类': category.item_category,
             '计量单位': category.unit,
+            '警戒线': category.warning_line,
         })
 
     def create(self, request, *args, **kwargs):

@@ -7,6 +7,7 @@ export interface AssetCodeLookupResult {
   资产类目: string
   物品分类: string
   计量单位: string
+  警戒线: number | null
 }
 
 /**

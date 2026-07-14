@@ -10,6 +10,9 @@ import type {
   RepeatRuleType,
 } from '@/types'
 
+/** 资产所属部门固定选项 */
+export const DEPARTMENT_OPTIONS = ['行政部', '财务部', '人事部', '业务部', '其他']
+
 // ============ 角色 ============
 
 export const ROLE_LABELS: Record<UserRoleType, string> = {

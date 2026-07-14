@@ -90,11 +90,11 @@ def test_asset(db, test_branch):
 # ===========================================================================
 
 ASSET_HEADERS = [
-    '序号', '分公司', '资产编号', '分公司编号', '资产类目',
+    '分公司', '资产编号', '分公司编号', '资产类目',
     '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
     '入库日期', '是否租用', '数量', '规格', '单价',
     '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
-    '警戒线', '是否充足', '备注',
+    '是否充足', '备注',
 ]
 
 
@@ -105,16 +105,19 @@ class TestAssetTemplate:
         assert rows == []
         for h in ASSET_HEADERS:
             assert h in headers, f"Missing header: {h}"
+        # 模板不应再含序号/警戒线列（序号自动、警戒线取自分类）
+        assert '序号' not in headers
+        assert '警戒线' not in headers
 
 
 class TestAssetImport:
     def test_import_valid_data(self, admin_client, test_branch):
         rows = [
-            [1, test_branch.name, 'IMP-A001', test_branch.code, '类目A',
+            [test_branch.name, 'IMP-A001', test_branch.code, '类目A',
              'SN001', '供应商A', '分类A', '资产A', '', '2026-01-15', '否',
-             10, '规格A', 100.5, 1005, '', '部门A', '张三', '在库', 5, '是', '备注A'],
-            [2, test_branch.name, 'IMP-A002', test_branch.code, '类目B',
-             '', '', '分类B', '资产B', '', '', '否', 3, '', '', '', '', '', '', '在库', '', '是', ''],
+             10, '规格A', 100.5, 1005, '', '部门A', '张三', '在库', '是', '备注A'],
+            [test_branch.name, 'IMP-A002', test_branch.code, '类目B',
+             '', '', '分类B', '资产B', '', '', '否', 3, '', '', '', '', '', '', '在库', '是', ''],
         ]
         buf = _make_xlsx(ASSET_HEADERS, rows)
         resp = _upload_url(admin_client, '/api/assets/import', buf)
@@ -127,6 +130,26 @@ class TestAssetImport:
         assert a1.数量 == 10
         assert a1.供应商 == '供应商A'
         assert float(a1.单价) == 100.5
+
+    def test_import_warning_line_from_category_and_auto_seq(self, admin_client, test_branch):
+        from apps.assets.models import Asset
+        from apps.categories.models import Category
+        from django.db.models import Max
+        # 按资产编号登记一条分类，含警戒线
+        Category.objects.create(
+            asset_category='电子', item_category='电脑', asset_name='笔电',
+            asset_code='IMP-WL01', unit='台', warning_line=7,
+        )
+        before_max = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
+        rows = [[test_branch.name, 'IMP-WL01', test_branch.code, '电子',
+                 '', '', '电脑', '笔电', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']]
+        buf = _make_xlsx(ASSET_HEADERS, rows)
+        resp = _upload_url(admin_client, '/api/assets/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        a = Asset.objects.get(资产编号='IMP-WL01')
+        assert a.警戒线 == 7              # 取自分类 warning_line（非模板）
+        assert a.序号 == before_max + 1   # 自动分配（模板无序号列）
 
     def test_import_empty_file(self, admin_client):
         buf = _make_xlsx(ASSET_HEADERS)
@@ -142,8 +165,8 @@ class TestAssetImport:
 
     def test_import_rejects_unknown_branch(self, admin_client, test_branch):
         # 分公司不在组织架构内 → 该行被拒并提示
-        rows = [[1, '不存在的分公司', 'IMP-UB01', test_branch.code, '类目A',
-                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '', '是', '']]
+        rows = [['不存在的分公司', 'IMP-UB01', test_branch.code, '类目A',
+                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']]
         buf = _make_xlsx(ASSET_HEADERS, rows)
         resp = _upload_url(admin_client, '/api/assets/import', buf)
         assert resp.status_code == status.HTTP_200_OK
@@ -152,8 +175,8 @@ class TestAssetImport:
 
     def test_import_rejects_empty_branch(self, admin_client, test_branch):
         # 分公司为空 → 该行被拒并提示
-        rows = [[1, '', 'IMP-EB01', test_branch.code, '类目A',
-                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '', '是', '']]
+        rows = [['', 'IMP-EB01', test_branch.code, '类目A',
+                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']]
         buf = _make_xlsx(ASSET_HEADERS, rows)
         resp = _upload_url(admin_client, '/api/assets/import', buf)
         assert resp.status_code == status.HTTP_200_OK
@@ -437,8 +460,8 @@ class TestImportEdgeCases:
         """Data with newlines, quotes, commas should survive import."""
         name_with_specials = '资产"含引号"\n换行,逗号'
         rows = [
-            [1, test_branch.name, 'SPE-001', test_branch.code, '类目',
-             '', '', '分类', name_with_specials, '', '', '否', 1, '', '', '', '', '', '', '在库', '', '是', ''],
+            [test_branch.name, 'SPE-001', test_branch.code, '类目',
+             '', '', '分类', name_with_specials, '', '', '否', 1, '', '', '', '', '', '', '在库', '是', ''],
         ]
         buf = _make_xlsx(ASSET_HEADERS, rows)
         resp = _upload_url(admin_client, '/api/assets/import', buf)

@@ -72,11 +72,11 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.title = '资产列表'
 
         headers = [
-            '序号', '分公司', '资产编号', '分公司编号', '资产类目',
+            '分公司', '资产编号', '分公司编号', '资产类目',
             '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
             '入库日期', '是否租用', '数量', '规格', '单价',
             '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
-            '警戒线', '是否充足', '备注',
+            '是否充足', '备注',
         ]
         ws.append(headers)
 
@@ -94,12 +94,14 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
             permission_classes=[IsAuthenticated, OperationPermission])
     def import_excel(self, request):
-        """Excel batch import via openpyxl."""
+        """Excel batch import via openpyxl（按表头列名映射；序号自动分配、警戒线取自分类）。"""
         from apps.assets.utils.import_helpers import (
             excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
         )
         from apps.organizations.utils import get_branch_name_set, branch_validation_error
+        from apps.categories.models import Category
         from django.db import IntegrityError
+        from django.db.models import Max
 
         file = request.FILES.get('file')
         if not file:
@@ -129,55 +131,73 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             wb.close()
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        rows = list(ws.iter_rows(min_row=2, values_only=True))
+        all_rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        if not all_rows:
+            return Response({'imported': 0, 'errors': []})
+
+        # 按表头列名建立映射（列顺序无关，去列后抗位移）
+        header_row = [str(c or '').strip() for c in all_rows[0]]
+        col = {}
+        for idx, name in enumerate(header_row):
+            if name and name not in col:
+                col[name] = idx
+
+        def cell(row, name):
+            idx = col.get(name)
+            if idx is None or idx >= len(row):
+                return ''
+            val = row[idx]
+            return '' if val is None else val
+
         imported = 0
         raw_errors = []
         valid_branches = get_branch_name_set()
+        next_seq = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
 
-        for i, row in enumerate(rows, start=2):
+        for i, row in enumerate(all_rows[1:], start=2):
             row_errors = []
 
-            if not row or not row[2]:
+            asset_code = str(cell(row, '资产编号')).strip()
+            if not asset_code:
                 raw_errors.append((i, '资产编号为空，跳过该行'))
                 continue
 
-            asset_code = str(row[2] or '').strip()
             if Asset.objects.filter(资产编号=asset_code).exists():
                 raw_errors.append((i, f'资产编号 {asset_code} 已存在，请修改或删除重复行'))
                 continue
 
-            分公司_name = str(row[1] or '').strip()
+            分公司_name = str(cell(row, '分公司')).strip()
             branch_err = branch_validation_error(分公司_name, '分公司', valid_branches)
             if branch_err:
                 raw_errors.append((i, branch_err))
                 continue
 
+            # 警戒线取自按资产编号反查的资产分类（不再读模板列）
+            category = Category.objects.filter(asset_code=asset_code).first()
+            警戒线 = category.warning_line if category else None
+
             # Pre-process fields
-            入库日期 = excel_date_to_python(row[10] if len(row) > 10 else None)
-            出库日期 = excel_date_to_python(row[16] if len(row) > 16 else None)
-            是否租用 = parse_bool_cn(row[11] if len(row) > 11 else None)
-            是否充足 = parse_bool_cn(row[21] if len(row) > 21 else '是')
+            入库日期 = excel_date_to_python(cell(row, '入库日期') or None)
+            出库日期 = excel_date_to_python(cell(row, '出库日期') or None)
+            是否租用 = parse_bool_cn(cell(row, '是否租用'))
+            是否充足 = parse_bool_cn(cell(row, '是否充足') or '是')
 
-            单价, err = parse_decimal_safe(row[14] if len(row) > 14 else None, '单价')
+            单价, err = parse_decimal_safe(cell(row, '单价'), '单价')
             if err:
                 row_errors.append(err)
-            购入金额, err = parse_decimal_safe(row[15] if len(row) > 15 else None, '购入金额')
+            购入金额, err = parse_decimal_safe(cell(row, '购入金额'), '购入金额')
             if err:
                 row_errors.append(err)
-
-            警戒线 = None
-            if len(row) > 20 and row[20]:
-                try:
-                    警戒线 = int(row[20])
-                except (ValueError, TypeError):
-                    row_errors.append(f'警戒线字段值 "{row[20]}" 不是有效整数')
 
             数量 = 1
-            if len(row) > 12 and row[12]:
+            qty_raw = cell(row, '数量')
+            if qty_raw:
                 try:
-                    数量 = int(row[12])
+                    数量 = int(qty_raw)
                 except (ValueError, TypeError):
-                    row_errors.append(f'数量字段值 "{row[12]}" 不是有效整数')
+                    row_errors.append(f'数量字段值 "{qty_raw}" 不是有效整数')
 
             if row_errors:
                 for e in row_errors:
@@ -185,29 +205,30 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 continue
 
             try:
+                next_seq += 1
                 Asset.objects.create(
-                    序号=int(row[0]) if row[0] else 0,
+                    序号=next_seq,
                     分公司=分公司_name,
                     资产编号=asset_code,
-                    分公司编号=str(row[3] or ''),
-                    资产类目=str(row[4] or ''),
-                    电脑序列号=str(row[5] or ''),
-                    供应商=str(row[6] or ''),
-                    物品分类=str(row[7] or ''),
-                    资产名称=str(row[8] or ''),
+                    分公司编号=str(cell(row, '分公司编号')),
+                    资产类目=str(cell(row, '资产类目')),
+                    电脑序列号=str(cell(row, '电脑序列号')),
+                    供应商=str(cell(row, '供应商')),
+                    物品分类=str(cell(row, '物品分类')),
+                    资产名称=str(cell(row, '资产名称')),
                     入库日期=入库日期,
                     是否租用=是否租用,
                     数量=数量,
-                    规格=str(row[13] or '') if len(row) > 13 else '',
+                    规格=str(cell(row, '规格')),
                     单价=单价,
                     购入金额=购入金额,
                     出库日期=出库日期,
-                    所属部门=str(row[17] or '') if len(row) > 17 else '',
-                    使用人=str(row[18] or '') if len(row) > 18 else '',
-                    当前状态=str(row[19] or '在库') if len(row) > 19 else '在库',
+                    所属部门=str(cell(row, '所属部门')),
+                    使用人=str(cell(row, '使用人')),
+                    当前状态=str(cell(row, '当前状态') or '在库'),
                     警戒线=警戒线,
                     是否充足=是否充足,
-                    备注=str(row[22] or '') if len(row) > 22 else '',
+                    备注=str(cell(row, '备注')),
                 )
                 imported += 1
             except IntegrityError:
@@ -215,7 +236,6 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             except Exception as e:
                 raw_errors.append((i, f'保存失败: {str(e)}'))
 
-        wb.close()
         errors = merge_errors(raw_errors)
         return Response({'imported': imported, 'errors': errors})
 

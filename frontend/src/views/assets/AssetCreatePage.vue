@@ -7,6 +7,7 @@ import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import { DEPARTMENT_OPTIONS } from '@/constants'
 import type { Asset, Category } from '@/types'
 
 const router = useRouter()
@@ -23,6 +24,7 @@ async function onAssetCodeBlur() {
     newAsset.value.资产名称 = result.资产名称
     newAsset.value.资产类目 = result.资产类目
     newAsset.value.物品分类 = result.物品分类
+    newAsset.value.警戒线 = result.警戒线
   }
 }
 
@@ -40,6 +42,7 @@ function getDefaultAsset(): Partial<Asset> {
     是否租用: false,
     所属部门: '',
     使用人: '',
+    警戒线: undefined,
     备注: '',
   }
 }
@@ -196,7 +199,10 @@ onMounted(() => {
           </div>
           <div class="form-item">
             <label class="form-label">所属部门</label>
-            <input v-model="newAsset.所属部门" type="text" class="form-input" />
+            <select v-model="newAsset.所属部门" class="form-select">
+              <option value="">请选择</option>
+              <option v-for="d in DEPARTMENT_OPTIONS" :key="d" :value="d">{{ d }}</option>
+            </select>
           </div>
           <div class="form-item">
             <label class="form-label">使用人</label>

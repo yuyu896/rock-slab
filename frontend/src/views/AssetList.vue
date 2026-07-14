@@ -474,7 +474,7 @@ onMounted(() => {
         </thead>
         <tbody>
           <tr
-            v-for="asset in assets"
+            v-for="(asset, index) in assets"
             :key="asset.id"
             :class="{ selected: selectedAssets.includes(asset.id) }"
           >
@@ -486,7 +486,7 @@ onMounted(() => {
                 class="checkbox"
               />
             </td>
-            <td class="col-index">{{ asset.序号 }}</td>
+            <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td class="col-branch">{{ asset.分公司 }}</td>
             <td class="col-code">
               <span class="asset-code">{{ asset.资产编号 }}</span>

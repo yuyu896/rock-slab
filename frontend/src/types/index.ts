@@ -107,7 +107,7 @@ export interface Category {
   资产名称: string
   资产编号: string
   计量单位: string
-  警戒线?: number
+  警戒线?: number | null
   备注?: string
   资产数量?: number
   在库数量?: number
@@ -152,7 +152,7 @@ export interface Asset {
   所属部门?: string
   使用人?: string
   当前状态: AssetStatusType
-  警戒线?: number
+  警戒线?: number | null
   是否充足?: boolean
   电脑序列号?: string
   备注?: string
