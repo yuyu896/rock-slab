@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useTransferList } from '@/composables/useTransferList'
-import { warehouseTransfer } from '@/api/transfers'
+import { submitTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { Transfer } from '@/types'
@@ -23,10 +23,10 @@ function openCreatePage() {
   router.push('/transfers/purchase/create')
 }
 
-async function handleWarehouse(item: Transfer) {
+async function handleSubmitDraft(item: Transfer) {
   try {
-    await warehouseTransfer(item.id)
-    ElMessage.success('入库成功')
+    await submitTransfer(item.id)
+    ElMessage.success('已提交审批')
     await fetchTransfers()
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -95,7 +95,7 @@ async function handleWarehouse(item: Transfer) {
                 <button class="action-btn" @click="viewDetail(item)">详情</button>
                 <button v-if="item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
-                <button v-if="item.审批状态 === '已通过'" class="action-btn warehouse" @click="handleWarehouse(item)">入库</button>
+                <button v-if="item.审批状态 === '草稿'" class="action-btn" @click="handleSubmitDraft(item)">提交</button>
               </div>
             </td>
           </tr>
@@ -130,7 +130,7 @@ async function handleWarehouse(item: Transfer) {
         <div class="modal-footer">
           <button v-if="detailItem?.审批状态 === '待审批'" class="btn-reject" @click="handleReject(detailItem); showDetailModal = false">驳回</button>
           <button v-if="detailItem?.审批状态 === '待审批'" class="btn-confirm" @click="handleApprove(detailItem); showDetailModal = false">通过</button>
-          <button v-if="detailItem?.审批状态 === '已通过'" class="btn-confirm" @click="handleWarehouse(detailItem); showDetailModal = false">入库</button>
+          <button v-if="detailItem?.审批状态 === '草稿'" class="btn-confirm" @click="handleSubmitDraft(detailItem); showDetailModal = false">提交</button>
           <button class="btn-cancel" @click="showDetailModal = false">关闭</button>
         </div>
       </div>

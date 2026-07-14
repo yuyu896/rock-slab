@@ -72,6 +72,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if not data.get('创建人'):
             data['创建人'] = request.user.name or request.user.phone
 
+        # 草稿：保存为「草稿」状态，不进入审批流
+        if request.data.get('draft'):
+            data['审批状态'] = '草稿'
+
         # Auto-fill FK from CharField if not provided
         from apps.organizations.models import Branch
         from_branch = data.pop('from_branch', None)
@@ -182,6 +186,43 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             asset.分公司编号 = transfer.to_branch.code
         asset.save(update_fields=['branch', '分公司', '分公司编号', 'updated_at'])
 
+    def _apply_warehouse_stock(self, transfer):
+        """采购入库：按调拨数量增加资产库存（存在则累加、不存在则创建）。须在事务内调用。"""
+        from django.db.models import F
+        from apps.assets.models import Asset
+        from datetime import date
+
+        # 入库分公司：优先调入（前端表单 toBranch），回退调出（导入/旧测试）
+        branch = transfer.to_branch or transfer.from_branch
+        branch_code = branch.code if branch else ''
+        company = transfer.调入分公司 or transfer.调出分公司 or ''
+
+        existing = Asset.objects.select_for_update().filter(资产编号=transfer.资产编号).first()
+        if existing:
+            Asset.objects.filter(pk=existing.pk).update(
+                数量=F('数量') + transfer.调拨数量,
+                当前状态='在库',
+            )
+        else:
+            max_seq = Asset.objects.order_by('-序号').values_list('序号', flat=True).first() or 0
+            Asset.objects.create(
+                序号=max_seq + 1,
+                分公司=company,
+                分公司编号=branch_code,
+                branch=branch,
+                资产编号=transfer.资产编号,
+                资产名称=transfer.资产名称,
+                规格=transfer.规格型号,
+                供应商=transfer.供应商 or '',
+                入库日期=date.today(),
+                数量=transfer.调拨数量,
+                单价=transfer.单价,
+                购入金额=transfer.总金额,
+                所属部门=transfer.需求部门 or '',
+                当前状态='在库',
+                备注=transfer.备注 or '',
+            )
+
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='Transfer', description_template='审批流转单')
     def approve(self, request, pk=None):
@@ -210,8 +251,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if approved:
-                locked.审批状态 = '已通过'
-                self._sync_asset(locked)
+                if locked.action_type == Transfer.ACTION_PURCHASE:
+                    # 采购：审批通过即入库，联动增加资产库存
+                    self._apply_warehouse_stock(locked)
+                    locked.审批状态 = '已入库'
+                else:
+                    locked.审批状态 = '已通过'
+                    self._sync_asset(locked)
             else:
                 locked.审批状态 = '已驳回'
 
@@ -225,54 +271,14 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(TransferSerializer(locked).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
-    @audit_log(action='warehouse', resource_type='Transfer', description_template='采购入库确认')
-    def warehouse(self, request, pk=None):
-        """采购入库确认 - 审批通过后手动入库，更新资产库存"""
-        from django.db import transaction
-        from django.db.models import F
-        from apps.assets.models import Asset
-        from datetime import date
-
+    @audit_log(action='submit', resource_type='Transfer', description_template='提交采购草稿')
+    def submit(self, request, pk=None):
+        """提交草稿：将「草稿」转为「待审批」进入审批流。"""
         transfer = self.get_object()
-
-        if transfer.action_type != Transfer.ACTION_PURCHASE:
-            return Response({'detail': '仅采购入库类型可执行入库操作'}, status=status.HTTP_400_BAD_REQUEST)
-        if transfer.审批状态 != '已通过':
-            return Response({'detail': '仅已通过的记录可执行入库操作'}, status=status.HTTP_400_BAD_REQUEST)
-
-        branch = transfer.from_branch
-        branch_code = branch.code if branch else ''
-
-        with transaction.atomic():
-            existing = Asset.objects.select_for_update().filter(资产编号=transfer.资产编号).first()
-            if existing:
-                Asset.objects.filter(pk=existing.pk).update(
-                    数量=F('数量') + transfer.调拨数量,
-                    当前状态='在库',
-                )
-            else:
-                max_seq = Asset.objects.order_by('-序号').values_list('序号', flat=True).first() or 0
-                Asset.objects.create(
-                    序号=max_seq + 1,
-                    分公司=transfer.调出分公司,
-                    分公司编号=branch_code,
-                    branch=branch,
-                    资产编号=transfer.资产编号,
-                    资产名称=transfer.资产名称,
-                    规格=transfer.规格型号,
-                    供应商=transfer.供应商 or '',
-                    入库日期=date.today(),
-                    数量=transfer.调拨数量,
-                    单价=transfer.单价,
-                    购入金额=transfer.总金额,
-                    所属部门=transfer.需求部门 or '',
-                    当前状态='在库',
-                    备注=transfer.备注 or '',
-                )
-
-            transfer.审批状态 = '已入库'
-            transfer.save(update_fields=['审批状态', 'updated_at'])
-
+        if transfer.审批状态 != '草稿':
+            return Response({'detail': '仅草稿可提交'}, status=status.HTTP_400_BAD_REQUEST)
+        transfer.审批状态 = '待审批'
+        transfer.save(update_fields=['审批状态', 'updated_at'])
         return Response(TransferSerializer(transfer).data)
 
     ACTION_TYPE_MAP = {

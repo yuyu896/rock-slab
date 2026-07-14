@@ -52,6 +52,7 @@ export const ASSET_STATUS_COLORS: Record<AssetStatusType, { bg: string; color: s
 // ============ 审批状态 ============
 
 export const APPROVAL_STATUS_OPTIONS: { value: ApprovalStatusType; label: string }[] = [
+  { value: '草稿', label: '草稿' },
   { value: '待审批', label: '待审批' },
   { value: '已通过', label: '已通过' },
   { value: '已驳回', label: '已驳回' },
@@ -59,6 +60,7 @@ export const APPROVAL_STATUS_OPTIONS: { value: ApprovalStatusType; label: string
 ]
 
 export const APPROVAL_STATUS_COLORS: Record<ApprovalStatusType, { bg: string; color: string }> = {
+  '草稿': { bg: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)' },
   '待审批': { bg: 'var(--color-approval-pending-bg)', color: 'var(--color-approval-pending-text)' },
   '已通过': { bg: 'var(--color-approval-approved-bg)', color: 'var(--color-approval-approved-text)' },
   '已驳回': { bg: 'var(--color-approval-rejected-bg)', color: 'var(--color-approval-rejected-text)' },

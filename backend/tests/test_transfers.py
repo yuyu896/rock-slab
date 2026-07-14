@@ -188,7 +188,7 @@ class TestApproveFlow:
         )
         assert resp.status_code == status.HTTP_200_OK
         data = resp.data
-        assert data['审批状态'] == '已通过'
+        assert data['审批状态'] == '已入库'
 
     def test_reject_success(self, authenticated_client):
         transfer_id = self._create_pending_transfer(authenticated_client)

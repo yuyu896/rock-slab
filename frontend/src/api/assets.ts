@@ -21,7 +21,7 @@ export function createAsset(data: Partial<Asset>) {
 }
 
 export function updateAsset(id: string, data: Partial<Asset>) {
-  return request.put<Asset>(`/api/assets/${id}`, data)
+  return request.patch<Asset>(`/api/assets/${id}`, data)
 }
 
 export function deleteAsset(id: string) {

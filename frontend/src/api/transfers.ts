@@ -17,8 +17,8 @@ export function getTransfer(id: string) {
   return request.get<Transfer>(`/api/transfers/${id}`)
 }
 
-/** 采购入库 */
-export function purchaseAsset(data: Partial<Transfer>) {
+/** 采购入库（draft=true 保存为草稿） */
+export function purchaseAsset(data: Partial<Transfer> & { draft?: boolean }) {
   return request.post<Transfer>('/api/transfers/purchase', data)
 }
 
@@ -52,9 +52,9 @@ export function rejectTransfer(id: string, data: { reason?: string }) {
   return request.post<Transfer>(`/api/transfers/${id}/approve`, { approved: false, ...data })
 }
 
-/** 采购入库确认 */
-export function warehouseTransfer(id: string) {
-  return request.post<Transfer>(`/api/transfers/${id}/warehouse`)
+/** 提交采购草稿（草稿→待审批） */
+export function submitTransfer(id: string) {
+  return request.post<Transfer>(`/api/transfers/${id}/submit`)
 }
 
 /** 获取待审批列表 */

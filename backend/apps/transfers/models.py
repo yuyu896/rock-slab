@@ -5,6 +5,7 @@ from core.models import UUIDModel, TimestampedModel
 class Transfer(UUIDModel, TimestampedModel):
     """调拨/流转记录 - uses Chinese Python field names directly."""
     APPROVAL_CHOICES = [
+        ('草稿', '草稿'),
         ('待审批', '待审批'),
         ('已通过', '已通过'),
         ('已驳回', '已驳回'),

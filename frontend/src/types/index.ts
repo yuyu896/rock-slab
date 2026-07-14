@@ -24,6 +24,7 @@ export type AssetStatusType = (typeof AssetStatus)[keyof typeof AssetStatus]
 
 /** 审批状态 */
 export const ApprovalStatus = {
+  DRAFT: '草稿',
   PENDING: '待审批',
   APPROVED: '已通过',
   REJECTED: '已驳回',

@@ -51,7 +51,7 @@ const getStatusStyle = (status: string) => {
   return styles[status as keyof typeof styles] || { bg: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)' }
 }
 
-async function submitPurchaseItems(order: any) {
+async function submitPurchaseItems(order: any, draft = false) {
   for (const item of order.items) {
     await purchaseAsset({
       调拨日期: order.purchaseDate,
@@ -61,6 +61,7 @@ async function submitPurchaseItems(order: any) {
       toBranch: order.branch || undefined,
       调拨原因: order.supplier || '',
       备注: order.remark || '',
+      draft,
     })
   }
 }
@@ -137,7 +138,7 @@ const rejectOrder = async (order: any) => {
 // 保存草稿
 const saveDraft = async (order: any) => {
   try {
-    await submitPurchaseItems(order)
+    await submitPurchaseItems(order, true)
     ElMessage.success('草稿保存成功')
     currentView.value = 'list'
     fetchPurchaseOrders()
