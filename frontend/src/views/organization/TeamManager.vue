@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { usePermission } from '@/hooks/usePermission'
+
+const { canManageOrganizations } = usePermission()
+
 interface TeamUI {
   id: string
   name: string
@@ -24,7 +28,6 @@ interface UserUI {
 defineProps<{
   teams: TeamUI[]
   users: UserUI[]
-  canManageOrg: boolean
 }>()
 
 const emit = defineEmits<{
@@ -59,7 +62,7 @@ function getUserName(users: UserUI[], id?: string) {
             <h3 class="region-name">{{ team.name }}</h3>
             <span class="region-code">{{ team.regionName || '-' }}</span>
           </div>
-          <div v-if="canManageOrg" class="region-actions">
+          <div v-if="canManageOrganizations" class="region-actions">
             <button class="card-action-btn" title="编辑" @click="emit('edit', team, 'team')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>

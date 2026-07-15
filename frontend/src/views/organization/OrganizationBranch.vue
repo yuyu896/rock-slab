@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { usePermission } from '@/hooks/usePermission'
+
+const { canManageOrganizations } = usePermission()
 defineProps<{
   branches: any[]
   regions: any[]
@@ -78,7 +81,7 @@ function getUserName(users: any[], id?: string) {
             </label>
           </td>
           <td>
-            <div class="action-buttons">
+            <div v-if="canManageOrganizations" class="action-buttons">
               <button class="action-btn" title="编辑" @click="emit('edit', branch, 'branch')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>

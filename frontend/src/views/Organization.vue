@@ -20,19 +20,11 @@ type UserRoleType = typeof UserRole[keyof typeof UserRole]
 // 加载状态
 const loading = ref(false)
 
-// 角色权限
-const { hasMinRole } = usePermission()
-const canManageOrg = computed(() => hasMinRole('supervisor'))
+// 权限：查看对所有人开放；修改按操作授权（区域/分公司/行政组=manage_organizations，人员=manage_users）
+const { canManageOrganizations, canManageUsers } = usePermission()
 
 // 当前标签页
 const activeTab = ref<'orgchart' | 'regions' | 'branches' | 'teams' | 'personnel'>('orgchart')
-
-// 非管理员用户不允许切换到管理标签页
-watch(canManageOrg, (val) => {
-  if (!val && ['regions', 'branches', 'teams', 'personnel'].includes(activeTab.value)) {
-    activeTab.value = 'orgchart'
-  }
-})
 
 
 
@@ -951,21 +943,21 @@ onMounted(async () => {
           </svg>
           组织架构
         </button>
-        <button v-if="canManageOrg" class="main-tab" :class="{ active: activeTab === 'regions' }" @click="activeTab = 'regions'">
+        <button class="main-tab" :class="{ active: activeTab === 'regions' }" @click="activeTab = 'regions'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
             <circle cx="12" cy="10" r="3"/>
           </svg>
           区域管理
         </button>
-        <button v-if="canManageOrg" class="main-tab" :class="{ active: activeTab === 'branches' }" @click="activeTab = 'branches'">
+        <button class="main-tab" :class="{ active: activeTab === 'branches' }" @click="activeTab = 'branches'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
             <polyline points="9 22 9 12 15 12 15 22"/>
           </svg>
           分公司管理
         </button>
-        <button v-if="canManageOrg" class="main-tab" :class="{ active: activeTab === 'teams' }" @click="activeTab = 'teams'">
+        <button class="main-tab" :class="{ active: activeTab === 'teams' }" @click="activeTab = 'teams'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
             <circle cx="9" cy="7" r="4"/>
@@ -973,7 +965,7 @@ onMounted(async () => {
           </svg>
           行政组
         </button>
-        <button v-if="canManageOrg" class="main-tab" :class="{ active: activeTab === 'personnel' }" @click="activeTab = 'personnel'">
+        <button class="main-tab" :class="{ active: activeTab === 'personnel' }" @click="activeTab = 'personnel'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
             <circle cx="12" cy="7" r="4"/>
@@ -981,28 +973,28 @@ onMounted(async () => {
           人员管理
         </button>
         <div class="tab-actions">
-          <button v-if="activeTab === 'regions'" class="btn-add" @click="addItem('region')">
+          <button v-if="canManageOrganizations && activeTab === 'regions'" class="btn-add" @click="addItem('region')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/>
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             新增区域
           </button>
-          <button v-if="activeTab === 'branches'" class="btn-add" @click="addItem('branch')">
+          <button v-if="canManageOrganizations && activeTab === 'branches'" class="btn-add" @click="addItem('branch')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/>
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             新增分公司
           </button>
-          <button v-if="activeTab === 'teams'" class="btn-add" @click="addItem('team')">
+          <button v-if="canManageOrganizations && activeTab === 'teams'" class="btn-add" @click="addItem('team')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/>
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             新增行政组
           </button>
-          <button v-if="canManageOrg && activeTab === 'personnel'" class="btn-add" @click="addItem('users')">
+          <button v-if="canManageUsers && activeTab === 'personnel'" class="btn-add" @click="addItem('users')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"/>
               <line x1="5" y1="12" x2="19" y2="12"/>
@@ -1183,7 +1175,7 @@ onMounted(async () => {
       </div>
 
       <!-- 区域管理内容 -->
-      <div v-else-if="canManageOrg && activeTab === 'regions'" class="tab-content">
+      <div v-else-if="activeTab ==='regions'" class="tab-content">
         <OrganizationRegion
           :regions="regions"
           :users="users"
@@ -1195,7 +1187,7 @@ onMounted(async () => {
       </div>
 
       <!-- 分公司管理内容 -->
-      <div v-else-if="canManageOrg && activeTab === 'branches'" class="tab-content">
+      <div v-else-if="activeTab ==='branches'" class="tab-content">
         <OrganizationBranch
           :branches="branches"
           :regions="regions"
@@ -1207,11 +1199,10 @@ onMounted(async () => {
       </div>
 
       <!-- 行政组管理内容 -->
-      <div v-else-if="canManageOrg && activeTab === 'teams'" class="tab-content">
+      <div v-else-if="activeTab ==='teams'" class="tab-content">
         <TeamManager
           :teams="teams"
           :users="users"
-          :can-manage-org="canManageOrg"
           @edit="(item) => editItem(item, 'team')"
           @delete="(item) => deleteTeamItem(item)"
           @toggle-status="(item) => toggleTeamStatus(item)"
@@ -1219,13 +1210,12 @@ onMounted(async () => {
       </div>
 
       <!-- 人员管理内容 -->
-      <div v-else-if="canManageOrg && activeTab === 'personnel'" class="tab-content">
+      <div v-else-if="activeTab ==='personnel'" class="tab-content">
         <PersonnelManager
           :users="users"
           :regions="regions"
           :branches="branches"
           :teams="teams"
-          :can-manage-org="canManageOrg"
           @edit="(item) => editItem(item, 'users')"
           @delete="(item) => deleteUserItem(item)"
           @toggle-status="(item) => toggleUserStatus(item)"
