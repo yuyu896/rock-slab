@@ -1287,10 +1287,10 @@ onMounted(async () => {
                 </select>
               </div>
               <div class="form-item">
-                <label class="form-label">负责人 <span class="required">*</span></label>
+                <label class="form-label">负责人</label>
                 <select v-model="editingItem.manager" class="form-select">
                   <option value="">请选择负责人</option>
-                  <option v-for="u in users.filter(u => ['admin', 'director', 'manager', 'supervisor', 'leader'].includes(u.role))" :key="u.id" :value="u.id">{{ u.name }} ({{ ROLE_LABELS[u.role] || u.role }})</option>
+                  <option v-for="u in users.filter(u => u.branch === editingItem.id)" :key="u.id" :value="u.id">{{ u.name }} ({{ ROLE_LABELS[u.role] || u.role }})</option>
                 </select>
               </div>
               <div class="form-item full">
