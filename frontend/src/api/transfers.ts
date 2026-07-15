@@ -17,6 +17,11 @@ export function getTransfer(id: string) {
   return request.get<Transfer>(`/api/transfers/${id}`)
 }
 
+/** 修改流转（仅已驳回可改） */
+export function updateTransfer(id: string, data: Partial<Transfer>) {
+  return request.patch<Transfer>(`/api/transfers/${id}`, data)
+}
+
 /** 采购入库（draft=true 保存为草稿） */
 export function purchaseAsset(data: Partial<Transfer> & { draft?: boolean }) {
   return request.post<Transfer>('/api/transfers/purchase', data)
@@ -55,6 +60,11 @@ export function rejectTransfer(id: string, data: { reason?: string }) {
 /** 提交采购草稿（草稿→待审批） */
 export function submitTransfer(id: string) {
   return request.post<Transfer>(`/api/transfers/${id}/submit`)
+}
+
+/** 重新提交流转（已驳回→待审批） */
+export function resubmitTransfer(id: string) {
+  return request.post<Transfer>(`/api/transfers/${id}/resubmit`)
 }
 
 /** 获取待审批列表 */

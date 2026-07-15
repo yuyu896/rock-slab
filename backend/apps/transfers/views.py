@@ -281,6 +281,24 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         transfer.save(update_fields=['审批状态', 'updated_at'])
         return Response(TransferSerializer(transfer).data)
 
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
+    @audit_log(action='resubmit', resource_type='Transfer', description_template='重新提交流转')
+    def resubmit(self, request, pk=None):
+        """重新提交：将「已驳回」转为「待审批」重新进入审批流。"""
+        transfer = self.get_object()
+        if transfer.审批状态 != '已驳回':
+            return Response({'detail': '仅已驳回的记录可重新提交'}, status=status.HTTP_400_BAD_REQUEST)
+        transfer.审批状态 = '待审批'
+        transfer.save(update_fields=['审批状态', 'updated_at'])
+        return Response(TransferSerializer(transfer).data)
+
+    def perform_update(self, serializer):
+        # 仅「已驳回」的流转可编辑（驳回后修正重提）
+        if serializer.instance.审批状态 != '已驳回':
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'detail': '仅已驳回的记录可编辑'})
+        serializer.save()
+
     ACTION_TYPE_MAP = {
         '采购入库': Transfer.ACTION_PURCHASE,
         '领用': Transfer.ACTION_ASSIGN,

@@ -218,6 +218,10 @@ export interface Transfer {
   规格型号?: string
   调拨数量: number
   调拨原因?: string
+  供应商?: string
+  单价?: number
+  总金额?: number
+  需求部门?: string
   调出负责人?: string
   调入负责人?: string
   使用人?: string

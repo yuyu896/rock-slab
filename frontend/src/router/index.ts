@@ -26,6 +26,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'assets/transfer', redirect: '/transfers/transfer' },
       { path: 'transfers/purchase', component: () => import('@/views/transfers/PurchaseList.vue'), meta: { title: '采购入库' } },
       { path: 'transfers/purchase/create', component: () => import('@/views/transfers/PurchaseCreate.vue'), meta: { title: '新建采购入库' } },
+      { path: 'transfers/purchase/:id', component: () => import('@/views/transfers/PurchaseDetail.vue'), meta: { title: '采购入库详情' } },
       { path: 'transfers/assign', component: () => import('@/views/transfers/AssignList.vue'), meta: { title: '领用出库' } },
       { path: 'transfers/assign/create', component: () => import('@/views/transfers/AssignCreate.vue'), meta: { title: '新建领用出库' } },
       { path: 'transfers/transfer', component: () => import('@/views/transfers/TransferList.vue'), meta: { title: '调拨' } },
