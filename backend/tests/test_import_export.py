@@ -105,10 +105,9 @@ class TestAssetTemplate:
         assert rows == []
         for h in ['分公司', '资产编号', '资产类目', '资产名称', '数量']:
             assert h in headers, f"Missing header: {h}"
-        # 模板不应含系统派生列（序号自动、警戒线取自分类、分公司编号按名回填）
-        assert '序号' not in headers
-        assert '警戒线' not in headers
-        assert '分公司编号' not in headers
+        # 模板不应含系统派生/无需填写列
+        for absent in ('序号', '警戒线', '分公司编号', '电脑序列号', '图片', '是否租用', '是否充足', '使用人'):
+            assert absent not in headers, f"模板不应含 {absent}"
 
 
 class TestAssetImport:
@@ -220,7 +219,12 @@ class TestFixedAssetTemplate:
         resp = admin_client.get('/api/assets/fixed-assets/template')
         headers, rows = _parse_excel_response(resp)
         assert rows == []
-        assert len(headers) > 0
+        # 模板仅含用户填写列（其余导入时自动继承自父资产）
+        expected = ['资产编号', '电脑序列号', '供应商', '入库日期', '所属部门', '使用人', '当前状态']
+        for h in expected:
+            assert h in headers, f"Missing header: {h}"
+        assert len(headers) == len(expected)
+        assert '序号' not in headers
 
 
 class TestFixedAssetImport:

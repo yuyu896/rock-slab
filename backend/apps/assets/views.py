@@ -73,10 +73,10 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         headers = [
             '分公司', '资产编号', '资产类目',
-            '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
-            '入库日期', '是否租用', '数量', '规格', '单价',
-            '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
-            '是否充足', '备注',
+            '供应商', '物品分类', '资产名称',
+            '入库日期', '数量', '规格', '单价',
+            '购入金额', '出库日期', '所属部门', '当前状态',
+            '备注',
         ]
         ws.append(headers)
 
@@ -316,28 +316,30 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """批量删除固定资产（受数据范围与 manage_assets 权限约束）。"""
         return _batch_delete(self, request)
 
-    # 固定资产表 19 列定义（顺序固定）
+    # 固定资产表 19 列定义（顺序固定）——用于导出
     FA_HEADERS = [
         '序号', '分公司编号', '分公司', '资产编号', '资产类目',
         '物品分类', '资产名称', '电脑序列号', '供应商', '入库日期',
         '是否租用', '数量', '规格', '单价', '购入金额',
         '出库日期', '所属部门', '使用人', '当前状态',
     ]
-    # 只读列（导入时自动继承，无需填写）的索引
-    FA_READONLY_COLS = {0, 1, 2, 4, 5, 6, 10, 11, 12, 13, 14, 15}
+    # 导入模板仅含用户填写列（其余导入时自动继承自父资产）
+    FA_TEMPLATE_HEADERS = [
+        '资产编号', '电脑序列号', '供应商', '入库日期',
+        '所属部门', '使用人', '当前状态',
+    ]
 
     @action(detail=False, methods=['get'], url_path='template')
     def download_template(self, request):
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from openpyxl.comments import Comment
         from openpyxl.utils import get_column_letter
         from django.http import HttpResponse
 
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = '固定资产实例'
-        ws.append(self.FA_HEADERS)
+        ws.append(self.FA_TEMPLATE_HEADERS)
 
         # 表头样式：加粗、浅绿底、居中、边框
         header_font = Font(bold=True)
@@ -346,21 +348,18 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         thin = Side(style='thin')
         border = Border(top=thin, bottom=thin, left=thin, right=thin)
 
-        for col_idx in range(1, len(self.FA_HEADERS) + 1):
+        for col_idx in range(1, len(self.FA_TEMPLATE_HEADERS) + 1):
             cell = ws.cell(row=1, column=col_idx)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = center
             cell.border = border
-            # 只读列加批注
-            if (col_idx - 1) in self.FA_READONLY_COLS:
-                cell.comment = Comment('此列自动继承，无需填写', '系统')
 
         ws.row_dimensions[1].height = 15
         ws.freeze_panes = 'A2'
 
         # 自适应列宽（不在数据区创建单元格，避免模板出现空数据行）
-        for col_idx, header in enumerate(self.FA_HEADERS, start=1):
+        for col_idx, header in enumerate(self.FA_TEMPLATE_HEADERS, start=1):
             width = max(len(header) * 2.2 + 2, 10)
             ws.column_dimensions[get_column_letter(col_idx)].width = width
 
