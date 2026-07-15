@@ -103,11 +103,12 @@ class TestAssetTemplate:
         resp = admin_client.get('/api/assets/template')
         headers, rows = _parse_excel_response(resp)
         assert rows == []
-        for h in ASSET_HEADERS:
+        for h in ['分公司', '资产编号', '资产类目', '资产名称', '数量']:
             assert h in headers, f"Missing header: {h}"
-        # 模板不应再含序号/警戒线列（序号自动、警戒线取自分类）
+        # 模板不应含系统派生列（序号自动、警戒线取自分类、分公司编号按名回填）
         assert '序号' not in headers
         assert '警戒线' not in headers
+        assert '分公司编号' not in headers
 
 
 class TestAssetImport:
@@ -130,6 +131,17 @@ class TestAssetImport:
         assert a1.数量 == 10
         assert a1.供应商 == '供应商A'
         assert float(a1.单价) == 100.5
+
+    def test_import_derives_branch_code_ignoring_file_value(self, admin_client, test_branch):
+        # 即便文件含「分公司编号」列且值错误，导入也按分公司名称回填真实 code
+        from apps.assets.models import Asset
+        headers = ['分公司', '资产编号', '分公司编号', '资产名称', '数量']
+        buf = _make_xlsx(headers, [[test_branch.name, 'IMP-D01', 'WRONG-CODE', '资产D', 1]])
+        resp = _upload_url(admin_client, '/api/assets/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        a = Asset.objects.get(资产编号='IMP-D01')
+        assert a.分公司编号 == test_branch.code  # 回填真实 code，忽略文件的 WRONG-CODE
 
     def test_import_warning_line_from_category_and_auto_seq(self, admin_client, test_branch):
         from apps.assets.models import Asset

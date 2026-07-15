@@ -72,7 +72,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.title = '资产列表'
 
         headers = [
-            '分公司', '资产编号', '分公司编号', '资产类目',
+            '分公司', '资产编号', '资产类目',
             '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
             '入库日期', '是否租用', '数量', '规格', '单价',
             '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
@@ -98,7 +98,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from apps.assets.utils.import_helpers import (
             excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
         )
-        from apps.organizations.utils import get_branch_name_set, branch_validation_error
+        from apps.organizations.utils import get_branch_name_set, branch_validation_error, get_branch_code_map
         from apps.categories.models import Category
         from django.db import IntegrityError
         from django.db.models import Max
@@ -154,6 +154,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         imported = 0
         raw_errors = []
         valid_branches = get_branch_name_set()
+        branch_code_map = get_branch_code_map()
         next_seq = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
 
         for i, row in enumerate(all_rows[1:], start=2):
@@ -210,7 +211,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     序号=next_seq,
                     分公司=分公司_name,
                     资产编号=asset_code,
-                    分公司编号=str(cell(row, '分公司编号')),
+                    分公司编号=branch_code_map.get(分公司_name, ''),
                     资产类目=str(cell(row, '资产类目')),
                     电脑序列号=str(cell(row, '电脑序列号')),
                     供应商=str(cell(row, '供应商')),

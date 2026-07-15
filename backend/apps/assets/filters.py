@@ -3,7 +3,7 @@ from .models import Asset, FixedAsset
 
 
 class AssetFilterSet(django_filters.FilterSet):
-    branch = django_filters.CharFilter(field_name='分公司编号')
+    branch = django_filters.CharFilter(field_name='分公司')
     category = django_filters.CharFilter(field_name='资产类目')
     status = django_filters.CharFilter(field_name='当前状态')
     keyword = django_filters.CharFilter(method='filter_keyword')
@@ -30,7 +30,7 @@ class AssetFilterSet(django_filters.FilterSet):
 
 
 class FixedAssetFilterSet(django_filters.FilterSet):
-    branch = django_filters.CharFilter(field_name='分公司编号')
+    branch = django_filters.CharFilter(field_name='分公司')
     asset_code = django_filters.CharFilter(field_name='资产编号')
     status = django_filters.CharFilter(field_name='当前状态')
     keyword = django_filters.CharFilter(method='filter_keyword')

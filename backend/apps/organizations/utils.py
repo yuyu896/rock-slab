@@ -7,6 +7,11 @@ def get_branch_name_set():
     return set(Branch.objects.values_list('name', flat=True))
 
 
+def get_branch_code_map():
+    """返回 {分公司名称: 分公司编号} 映射，供导入按名称回填分公司编号（一次查询）。"""
+    return dict(Branch.objects.values_list('name', 'code'))
+
+
 def branch_validation_error(name, label='分公司', valid_names=None):
     """校验分公司名称；通过返回 None，不通过返回中文错误消息。
 
