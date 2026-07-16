@@ -149,7 +149,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return self._create_action(request, Transfer.ACTION_RECOVERY)
 
     def _sync_asset(self, transfer):
-        """Sync Asset state after transfer approval."""
+        """Sync Asset state after transfer approval (按分公司匹配资产)."""
         from django.db import transaction as tx
         from apps.assets.models import Asset
 
@@ -163,28 +163,75 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             return
 
         with tx.atomic():
-            asset = (
-                Asset.objects.select_for_update()
-                .filter(资产编号=transfer.资产编号)
-                .first()
-            )
+            # 优先按 branch FK 匹配调出分公司，回退按分公司名称匹配
+            from_branch = transfer.from_branch
+            from_company = transfer.调出分公司 or ''
+            asset = None
+            if from_branch:
+                asset = Asset.objects.select_for_update().filter(
+                    资产编号=transfer.资产编号, branch=from_branch
+                ).first()
+            if not asset and from_company:
+                asset = Asset.objects.select_for_update().filter(
+                    资产编号=transfer.资产编号, 分公司=from_company
+                ).first()
+            if not asset:
+                asset = Asset.objects.select_for_update().filter(
+                    资产编号=transfer.资产编号
+                ).first()
             if asset:
                 handler(asset, transfer)
 
     def _sync_assign(self, asset, transfer):
+        """领用出库：扣减库存数量，状态改使用中。"""
+        asset.数量 = max(0, (asset.数量 or 0) - transfer.调拨数量)
         asset.当前状态 = '使用中'
-        asset.save(update_fields=['当前状态', 'updated_at'])
+        asset.save(update_fields=['数量', '当前状态', 'updated_at'])
 
     def _sync_return(self, asset, transfer):
+        """退回：恢复库存，状态改在库。"""
+        asset.数量 = (asset.数量 or 0) + transfer.调拨数量
         asset.当前状态 = '在库'
-        asset.save(update_fields=['当前状态', 'updated_at'])
+        asset.save(update_fields=['数量', '当前状态', 'updated_at'])
 
     def _sync_transfer(self, asset, transfer):
+        """调拨：调出扣减、调入增加（存在则累加、不存在则新建）。"""
+        from django.db.models import F
+        from apps.assets.models import Asset
+        from datetime import date
+
+        qty = transfer.调拨数量 or 1
+
+        # 调出扣减
+        asset.数量 = max(0, (asset.数量 or 0) - qty)
+        asset.save(update_fields=['数量', 'updated_at'])
+
+        # 调入增加
         if transfer.to_branch:
-            asset.branch = transfer.to_branch
-            asset.分公司 = transfer.调入分公司
-            asset.分公司编号 = transfer.to_branch.code
-        asset.save(update_fields=['branch', '分公司', '分公司编号', 'updated_at'])
+            target_company = transfer.调入分公司 or ''
+            target_code = transfer.to_branch.code if transfer.to_branch else ''
+            existing = Asset.objects.filter(
+                资产编号=transfer.资产编号, branch=transfer.to_branch
+            ).first()
+            if existing:
+                existing.数量 = (existing.数量 or 0) + qty
+                existing.save(update_fields=['数量', 'updated_at'])
+            else:
+                max_seq = Asset.objects.order_by('-序号').values_list('序号', flat=True).first() or 0
+                Asset.objects.create(
+                    序号=max_seq + 1,
+                    分公司=target_company,
+                    分公司编号=target_code,
+                    branch=transfer.to_branch,
+                    资产编号=transfer.资产编号,
+                    资产名称=transfer.资产名称 or asset.资产名称,
+                    资产类目=asset.资产类目,
+                    物品分类=asset.物品分类,
+                    规格=transfer.规格型号 or asset.规格,
+                    数量=qty,
+                    当前状态='在库',
+                    入库日期=date.today(),
+                )
 
     def _apply_warehouse_stock(self, transfer):
         """采购入库：按调拨数量增加资产库存（存在则累加、不存在则创建）。须在事务内调用。"""
@@ -255,7 +302,25 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     # 采购：审批通过即入库，联动增加资产库存
                     self._apply_warehouse_stock(locked)
                     locked.审批状态 = '已入库'
+                elif locked.action_type == Transfer.ACTION_ASSIGN:
+                    # 领用出库：校验库存是否足够
+                    from apps.assets.models import Asset
+                    from_branch = locked.from_branch
+                    asset = (
+                        Asset.objects.filter(资产编号=locked.资产编号, branch=from_branch).first()
+                    ) if from_branch else (
+                        Asset.objects.filter(资产编号=locked.资产编号).first()
+                    )
+                    if not asset or (asset.数量 or 0) < (locked.调拨数量 or 1):
+                        locked.审批状态 = '待审批'
+                        return Response(
+                            {'detail': f'资产 {locked.资产编号} 库存不足（当前 {(asset.数量 or 0) if asset else 0}，需 {locked.调拨数量 or 1}），领用失败'},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    locked.审批状态 = '已通过'
+                    self._sync_asset(locked)
                 else:
+                    # 退回/调拨/回收等：直接同步
                     locked.审批状态 = '已通过'
                     self._sync_asset(locked)
             else:

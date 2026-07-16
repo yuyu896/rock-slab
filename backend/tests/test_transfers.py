@@ -306,7 +306,8 @@ class TestApproveAssetSync:
 
     def test_transfer_approve_updates_asset_branch(self, authenticated_client, branch, db):
         from apps.organizations.models import Branch
-        asset = self._create_asset()
+        from apps.assets.models import Asset
+        asset = self._create_asset(qty=10)
         target_branch = Branch.objects.create(
             name='目标分公司', code='MB001', region=branch.region, status='active',
         )
@@ -314,7 +315,7 @@ class TestApproveAssetSync:
             '调拨日期': '2026-02-03',
             '资产编号': asset.资产编号,
             '资产名称': asset.资产名称,
-            '调拨数量': 1,
+            '调拨数量': 3,
             '调出分公司': '测试分公司',
             '调入分公司': '目标分公司',
             'to_branch': target_branch.id,
@@ -328,10 +329,17 @@ class TestApproveAssetSync:
             format='json',
         )
 
+        # 调出分公司库存扣减
         asset.refresh_from_db()
-        assert asset.branch_id == target_branch.id
-        assert asset.分公司 == '目标分公司'
-        assert asset.分公司编号 == 'MB001'
+        assert asset.数量 == 7  # 10 - 3
+
+        # 调入分公司库存新建（同编号）
+        target_asset = Asset.objects.filter(
+            资产编号=asset.资产编号, branch=target_branch
+        ).first()
+        assert target_asset is not None
+        assert target_asset.数量 == 3
+        assert target_asset.分公司 == '目标分公司'
 
     def test_reject_does_not_update_asset(self, authenticated_client):
         asset = self._create_asset()

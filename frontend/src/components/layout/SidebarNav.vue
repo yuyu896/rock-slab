@@ -66,8 +66,12 @@ const navItems = computed<NavItem[]>(() => [
       { icon: '', label: '采购入库', path: '/assets/purchase' },
       { icon: '', label: '领用出库', path: '/transfers/assign' },
       { icon: '', label: '调拨', path: '/transfers/transfer' },
-      { icon: '', label: '回收', path: '/transfers/recovery' },
     ]
+  },
+  {
+    icon: 'recovery',
+    label: '回收',
+    path: '/transfers/recovery',
   },
   {
     icon: 'scan',
