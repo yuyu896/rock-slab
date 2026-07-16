@@ -1,4 +1,5 @@
 import io
+from django.db.models import Count
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -520,8 +521,13 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         imported = 0
         raw_errors = []
-        seen_fa_keys = set()  # 表内去重：(分公司, 分公司编号, 电脑序列号, 所属部门, 使用人)
+        seen_fa_keys = set()  # 表内去重：(分公司, 分公司编号, 电脑序列号, 所属部门)
         valid_branches = get_branch_name_set()
+        # 预加载每个资产编号的现有内部编号序号（避免导入同编号多行时 count 不更新）
+        from collections import defaultdict
+        fa_seq = defaultdict(int)
+        for code, cnt in FixedAsset.objects.values('资产编号').annotate(c=Count('id')).values_list('资产编号', 'c'):
+            fa_seq[code] = cnt
 
         for i, row in enumerate(all_rows[1:], start=2):
             资产编号 = str(cell(row, '资产编号')).strip()
@@ -569,9 +575,13 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             单价, _ = parse_decimal_safe(cell(row, '单价'), '单价')
             购入金额, _ = parse_decimal_safe(cell(row, '购入金额'), '购入金额')
 
+            # 内存递增序号（避免同编号多行 count 不更新导致内部编号重复）
+            fa_seq[资产编号] += 1
+            内部编号 = f'{资产编号}-{fa_seq[资产编号]}'
+
             try:
                 FixedAsset.objects.create(
-                    内部编号=FixedAsset.generate_internal_code(资产编号),
+                    内部编号=内部编号,
                     资产编号=资产编号,
                     资产类目=str(cell(row, '资产类目')) or category.asset_category,
                     资产名称=str(cell(row, '资产名称')) or category.asset_name,
