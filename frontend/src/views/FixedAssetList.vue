@@ -15,7 +15,8 @@ const { canManageAssets } = usePermission()
 const filters = ref({
   branch: '',
   status: '',
-  keyword: ''
+  keyword: '',
+  资产名称: ''
 })
 
 const pagination = ref({ page: 1, pageSize: 20, total: 0 })
@@ -211,6 +212,7 @@ async function fetchAssets() {
       branch: filters.value.branch || undefined,
       status: filters.value.status || undefined,
       keyword: filters.value.keyword || undefined,
+      资产名称: filters.value.资产名称 || undefined,
     })
     assets.value = data.results
     pagination.value.total = data.count
@@ -232,7 +234,7 @@ async function fetchBranches() {
 }
 
 const resetFilters = () => {
-  filters.value = { branch: '', status: '', keyword: '' }
+  filters.value = { branch: '', status: '', keyword: '', 资产名称: '' }
   pagination.value.page = 1
   fetchAssets()
 }
@@ -300,6 +302,9 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           <select v-model="filters.status" class="filter-select">
             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
+        </div>
+        <div class="filter-item">
+          <input v-model="filters.资产名称" type="text" placeholder="资产名称" class="filter-input" />
         </div>
         <button class="filter-reset" @click="resetFilters">重置</button>
       </div>

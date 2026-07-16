@@ -154,6 +154,9 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         raw_errors = []
         valid_branches = get_branch_name_set()
         branch_code_map = get_branch_code_map()
+        # 预加载分公司名→Branch 对象映射（设 branch FK，供数据范围过滤）
+        from apps.organizations.models import Branch as _Branch
+        branch_obj_map = {b.name: b for b in _Branch.objects.all()}
         seen_asset_keys = set()  # 表内去重：(分公司, 资产编号)
         next_seq = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
 
@@ -224,6 +227,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 Asset.objects.create(
                     序号=next_seq,
                     分公司=分公司_name,
+                    branch=branch_obj_map.get(分公司_name),
                     资产编号=asset_code,
                     分公司编号=branch_code_map.get(分公司_name, ''),
                     资产类目=str(cell(row, '资产类目')),

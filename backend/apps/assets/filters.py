@@ -32,6 +32,7 @@ class AssetFilterSet(django_filters.FilterSet):
 class FixedAssetFilterSet(django_filters.FilterSet):
     branch = django_filters.CharFilter(field_name='分公司')
     asset_code = django_filters.CharFilter(field_name='资产编号')
+    资产名称 = django_filters.CharFilter(field_name='资产名称')
     status = django_filters.CharFilter(field_name='当前状态')
     keyword = django_filters.CharFilter(method='filter_keyword')
 

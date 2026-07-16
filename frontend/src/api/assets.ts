@@ -53,6 +53,7 @@ export function getFixedAssets(params?: PaginationParams & {
   branch?: string
   status?: string
   keyword?: string
+  资产名称?: string
   ordering?: string
 }) {
   return request.get<PaginatedResponse<Record<string, any>>>('/api/assets/fixed-assets', { params })
