@@ -171,15 +171,22 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 raw_errors.append((i, branch_err))
                 continue
 
-            # 表内去重：同分公司 + 同资产编号（先于 DB 检查，给出「重复」提示）
-            asset_key = (分公司_name, asset_code)
+            # 所属部门必填
+            所属部门 = str(cell(row, '所属部门')).strip()
+            if not 所属部门:
+                raw_errors.append((i, '所属部门为空，请填写'))
+                continue
+            规格_val = str(cell(row, '规格')).strip()
+
+            # 表内去重：同分公司 + 同资产编号 + 同所属部门 + 同规格（四元组全同才算重复）
+            asset_key = (分公司_name, asset_code, 所属部门, 规格_val)
             if asset_key in seen_asset_keys:
                 raw_errors.append((i, f'资产编号 {asset_code} 重复'))
                 continue
             seen_asset_keys.add(asset_key)
 
-            if Asset.objects.filter(资产编号=asset_code).exists():
-                raw_errors.append((i, f'资产编号 {asset_code} 已存在，请修改或删除重复行'))
+            if Asset.objects.filter(分公司=分公司_name, 资产编号=asset_code, 所属部门=所属部门, 规格=规格_val).exists():
+                raw_errors.append((i, f'资产编号 {asset_code} 在该分公司/部门/规格下已存在'))
                 continue
 
             # 警戒线取自按资产编号反查的资产分类（不再读模板列）
@@ -296,7 +303,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
 class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     """固定资产实例管理视图。"""
-    queryset = FixedAsset.objects.select_related('asset', 'branch').all()
+    queryset = FixedAsset.objects.select_related('branch').all()
     serializer_class = FixedAssetSerializer
     filterset_class = FixedAssetFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
@@ -396,24 +403,23 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.append(self.FA_HEADERS)
 
         for inst in queryset:
-            asset = inst.asset
             ws.append([
-                asset.序号 if asset else '',
+                '',
                 inst.分公司编号,
                 inst.分公司,
                 inst.资产编号,
-                asset.资产类目 if asset else '',
-                asset.物品分类 if asset else '',
-                asset.资产名称 if asset else '',
+                inst.资产类目,
+                inst.物品分类,
+                inst.资产名称,
                 inst.序列号,
                 inst.供应商,
                 str(inst.入库日期) if inst.入库日期 else '',
-                asset.是否租用 if asset else '',
-                asset.数量 if asset else '',
-                asset.规格 if asset else '',
-                asset.单价 if asset else '',
-                asset.购入金额 if asset else '',
-                str(asset.出库日期) if asset and asset.出库日期 else '',
+                inst.是否租用,
+                inst.数量,
+                inst.规格,
+                inst.单价 or '',
+                inst.购入金额 or '',
+                str(inst.出库日期) if inst.出库日期 else '',
                 inst.所属部门,
                 inst.使用人,
                 inst.当前状态,
@@ -436,6 +442,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
         )
         from apps.organizations.models import Branch
+        from apps.categories.models import Category
 
         file = request.FILES.get('file')
         if not file:
@@ -497,14 +504,14 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 raw_errors.append((i, '资产编号为空，跳过该行'))
                 continue
 
-            try:
-                parent_asset = Asset.objects.get(资产编号=资产编号)
-            except Asset.DoesNotExist:
-                raw_errors.append((i, f'资产编号 {资产编号} 不存在'))
+            # 校验资产编号存在于品目（Category），不再关联资产库存
+            category = Category.objects.filter(asset_code=资产编号).first()
+            if not category:
+                raw_errors.append((i, f'资产编号 {资产编号} 未在品目登记'))
                 continue
 
-            分公司 = str(cell(row, '分公司')).strip() or parent_asset.分公司
-            分公司编号 = str(cell(row, '分公司编号')).strip() or parent_asset.分公司编号
+            分公司 = str(cell(row, '分公司')).strip()
+            分公司编号 = str(cell(row, '分公司编号')).strip()
             电脑序列号 = str(cell(row, '电脑序列号')).strip()
 
             # 表内去重：同分公司 + 同电脑序列号（序列号非空才计入）
@@ -515,10 +522,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     continue
                 seen_fa_keys.add(fa_key)
 
-            # branch FK 优先按分公司编号解析，否则沿用父资产
-            fa_branch = parent_asset.branch
-            if 分公司编号:
-                fa_branch = Branch.objects.filter(code=分公司编号).first() or fa_branch
+            # branch FK 按分公司编号解析
+            fa_branch = Branch.objects.filter(code=分公司编号).first() if 分公司编号 else None
 
             try:
                 数量 = int(cell(row, '数量')) if cell(row, '数量') else 1
@@ -529,13 +534,13 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
             try:
                 FixedAsset.objects.create(
-                    asset=parent_asset,
                     内部编号=FixedAsset.generate_internal_code(资产编号),
                     资产编号=资产编号,
-                    资产名称=str(cell(row, '资产名称')) or parent_asset.资产名称,
+                    资产类目=str(cell(row, '资产类目')) or category.asset_category,
+                    资产名称=str(cell(row, '资产名称')) or category.asset_name,
                     序列号=电脑序列号,
                     供应商=str(cell(row, '供应商')),
-                    物品分类=str(cell(row, '物品分类')),
+                    物品分类=str(cell(row, '物品分类')) or category.item_category,
                     入库日期=excel_date_to_python(cell(row, '入库日期') or None),
                     是否租用=parse_bool_cn(cell(row, '是否租用')),
                     数量=数量,

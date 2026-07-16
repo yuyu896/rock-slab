@@ -25,10 +25,13 @@ def parent_asset_no_branch(db):
     )
 
 
-def _sync_counts(asset):
-    """Manually trigger sync since on_commit doesn't fire in pytest."""
-    from apps.assets.signals import _sync_asset_counts
-    _sync_asset_counts(asset)
+@pytest.fixture
+def category_comp001(db):
+    from apps.categories.models import Category
+    return Category.objects.create(
+        asset_category='固定', item_category='办公',
+        asset_name='ThinkPad T14', asset_code='COMP-001', unit='台',
+    )
 
 
 @pytest.mark.django_db
@@ -41,7 +44,7 @@ class TestFixedAssetModel:
     def test_internal_code_increments(self, parent_asset):
         from apps.assets.models import FixedAsset
         FixedAsset.objects.create(
-            asset=parent_asset, 内部编号='COMP-001-1',
+            内部编号='COMP-001-1',
             资产编号='COMP-001', 资产名称='ThinkPad T14',
         )
         code = FixedAsset.generate_internal_code('COMP-001')
@@ -49,46 +52,10 @@ class TestFixedAssetModel:
 
 
 @pytest.mark.django_db
-class TestQuantitySync:
-    def test_create_instance_syncs_count(self, parent_asset, branch):
-        from apps.assets.models import FixedAsset
-        FixedAsset.objects.create(
-            asset=parent_asset, 内部编号='COMP-001-1',
-            资产编号='COMP-001', 资产名称='ThinkPad T14',
-            branch=branch,
-        )
-        _sync_counts(parent_asset)
-        parent_asset.refresh_from_db()
-        assert parent_asset.数量 == 1
-
-    def test_delete_instance_syncs_count(self, parent_asset, branch):
-        from apps.assets.models import FixedAsset
-        inst = FixedAsset.objects.create(
-            asset=parent_asset, 内部编号='COMP-001-1',
-            资产编号='COMP-001', 资产名称='ThinkPad T14',
-            branch=branch,
-        )
-        FixedAsset.objects.create(
-            asset=parent_asset, 内部编号='COMP-001-2',
-            资产编号='COMP-001', 资产名称='ThinkPad T14',
-            branch=branch,
-        )
-        _sync_counts(parent_asset)
-        parent_asset.refresh_from_db()
-        assert parent_asset.数量 == 2
-
-        inst.delete()
-        _sync_counts(parent_asset)
-        parent_asset.refresh_from_db()
-        assert parent_asset.数量 == 1
-
-
-@pytest.mark.django_db
 class TestFixedAssetAPI:
-    def test_create_instance_via_api(self, supervisor_user, parent_asset):
+    def test_create_instance_via_api(self, supervisor_user, category_comp001):
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets', {
-            'asset': parent_asset.id,
             '资产编号': 'COMP-001',
             '序列号': 'SN-AAA',
             '供应商': '联想',
@@ -102,7 +69,7 @@ class TestFixedAssetAPI:
     def test_list_instances(self, supervisor_user, parent_asset, branch):
         from apps.assets.models import FixedAsset
         FixedAsset.objects.create(
-            asset=parent_asset, 内部编号='COMP-001-1',
+            内部编号='COMP-001-1',
             资产编号='COMP-001', 资产名称='ThinkPad T14',
             序列号='SN-AAA', 供应商='联想', branch=branch,
         )
@@ -119,8 +86,8 @@ class TestFixedAssetAPI:
         })
         assert resp.status_code == 403
 
-    def test_create_by_asset_code_only(self, supervisor_user, parent_asset):
-        """仅传资产编号（不传 asset 外键）也能创建，并反查关联品目。"""
+    def test_create_by_asset_code_only(self, supervisor_user, category_comp001):
+        """仅传资产编号也能创建，并从品目继承资产名称。"""
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets', {
             '资产编号': 'COMP-001',
@@ -129,10 +96,8 @@ class TestFixedAssetAPI:
         })
         assert resp.status_code == 201
         data = resp.data
-        assert str(data['asset']) == str(parent_asset.id)
         assert data['内部编号'] == 'COMP-001-1'
-        assert data['资产名称'] == 'ThinkPad T14'  # 从父级品目继承
-        assert data['分公司'] == parent_asset.分公司
+        assert data['资产名称'] == 'ThinkPad T14'  # 从品目继承
 
     def test_create_unknown_asset_code_rejected(self, supervisor_user, parent_asset):
         """资产编号在品目表不存在时拒绝录入，返回 400。"""
@@ -143,12 +108,12 @@ class TestFixedAssetAPI:
         })
         assert resp.status_code == 400
         assert '资产编号' in resp.data
-        assert '不存在' in str(resp.data['资产编号'])
+        assert '未在品目登记' in str(resp.data['资产编号'])
 
     def test_update_instance(self, supervisor_user, parent_asset, branch):
         from apps.assets.models import FixedAsset
         inst = FixedAsset.objects.create(
-            asset=parent_asset, 内部编号='COMP-001-1',
+            内部编号='COMP-001-1',
             资产编号='COMP-001', 资产名称='ThinkPad T14',
             使用人='', 当前状态='在库', branch=branch,
         )
@@ -165,7 +130,7 @@ class TestFixedAssetAPI:
     def test_delete_instance(self, supervisor_user, parent_asset, branch):
         from apps.assets.models import FixedAsset
         inst = FixedAsset.objects.create(
-            asset=parent_asset, 内部编号='COMP-001-1',
+            内部编号='COMP-001-1',
             资产编号='COMP-001', 资产名称='ThinkPad T14',
             branch=branch,
         )
@@ -191,7 +156,7 @@ class TestFixedAssetImport:
         buf.name = 'test.xlsx'
         return buf
 
-    def test_import_creates_instances(self, supervisor_user, parent_asset):
+    def test_import_creates_instances(self, supervisor_user, category_comp001):
         buf = self._make_xlsx([
             ['COMP-001', 'SN-001', '联想', '张三', '技术部', '在用', '', ''],
             ['COMP-001', 'SN-002', '戴尔', '李四', '市场部', '在用', '', ''],
@@ -210,4 +175,4 @@ class TestFixedAssetImport:
         resp = client.post('/api/assets/fixed-assets/import', {'file': buf}, format='multipart')
         assert resp.status_code == 200
         assert resp.data['imported'] == 0
-        assert any('不存在' in e for e in resp.data['errors'])
+        assert any('未在品目登记' in e for e in resp.data['errors'])

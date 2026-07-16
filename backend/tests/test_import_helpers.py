@@ -132,6 +132,7 @@ class TestAssetImportFriendlyErrors:
         Asset.objects.create(
             序号=1, 分公司='测试', 分公司编号='CS001', 资产编号='DUP-001',
             资产类目='固定', 物品分类='办公', 资产名称='已存在', 数量=1,
+            所属部门='部门', 规格='/',
         )
         resp = authenticated_client.post('/api/assets/import', {
             'file': self._make_xlsx([

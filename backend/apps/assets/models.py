@@ -22,7 +22,7 @@ class Asset(UUIDModel, TimestampedModel):
         blank=True,
         verbose_name='所属分公司',
     )
-    资产编号 = models.CharField('资产编号', max_length=100, unique=True)
+    资产编号 = models.CharField('资产编号', max_length=100, db_index=True)
     资产类目 = models.CharField('资产类目', max_length=100, db_index=True)
     物品分类 = models.CharField('物品分类', max_length=100)
     资产名称 = models.CharField('资产名称', max_length=200)
@@ -61,14 +61,9 @@ class FixedAsset(UUIDModel, TimestampedModel):
         ('空闲', '空闲'),
     ]
 
-    asset = models.ForeignKey(
-        Asset,
-        on_delete=models.CASCADE,
-        related_name='instances',
-        verbose_name='所属品目',
-    )
     内部编号 = models.CharField('内部编号', max_length=100, unique=True)
     资产编号 = models.CharField('资产编号', max_length=100)
+    资产类目 = models.CharField('资产类目', max_length=100, blank=True, default='')
     资产名称 = models.CharField('资产名称', max_length=200, blank=True, default='')
     序列号 = models.CharField('序列号', max_length=200, blank=True, default='')
     供应商 = models.CharField('供应商', max_length=200, blank=True, default='')

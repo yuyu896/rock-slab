@@ -57,15 +57,10 @@ class TestAssetBatchDelete:
 @pytest.mark.django_db
 class TestFixedAssetBatchDelete:
     def test_admin_batch_delete(self, admin_user, branch):
-        from apps.assets.models import Asset, FixedAsset
-        parent = Asset.objects.create(
-            序号=1, 分公司=branch.name, 分公司编号=branch.code,
-            资产编号='BD-FA-P', 资产类目='固定', 物品分类='办公',
-            资产名称='父资产', 数量=0, branch=branch,
-        )
-        f1 = FixedAsset.objects.create(asset=parent, 内部编号='BD-FA-P-1',
+        from apps.assets.models import FixedAsset
+        f1 = FixedAsset.objects.create(内部编号='BD-FA-P-1',
                                        资产编号='BD-FA-P', 资产名称='实例1')
-        f2 = FixedAsset.objects.create(asset=parent, 内部编号='BD-FA-P-2',
+        f2 = FixedAsset.objects.create(内部编号='BD-FA-P-2',
                                        资产编号='BD-FA-P', 资产名称='实例2')
         client = _client_for(admin_user)
         resp = client.post('/api/assets/fixed-assets/batch-delete',

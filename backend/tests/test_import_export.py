@@ -85,6 +85,15 @@ def test_asset(db, test_branch):
     )
 
 
+@pytest.fixture
+def ta001_category(db):
+    from apps.categories.models import Category
+    return Category.objects.create(
+        asset_category='测试类目', item_category='测试分类',
+        asset_name='测试资产', asset_code='TA001', unit='台',
+    )
+
+
 # ===========================================================================
 # 2. Asset module
 # ===========================================================================
@@ -118,7 +127,7 @@ class TestAssetImport:
              'SN001', '供应商A', '分类A', '资产A', '', '2026-01-15', '否',
              10, '规格A', 100.5, 1005, '', '部门A', '张三', '在库', '是', '备注A'],
             [test_branch.name, 'IMP-A002', test_branch.code, '类目B',
-             '', '', '分类B', '资产B', '', '', '否', 3, '', '', '', '', '', '', '在库', '是', ''],
+             '', '', '分类B', '资产B', '', '', '否', 3, '', '', '', '', '部门B', '', '在库', '是', ''],
         ]
         buf = _make_xlsx(ASSET_HEADERS, rows)
         resp = _upload_url(admin_client, '/api/assets/import', buf)
@@ -135,8 +144,8 @@ class TestAssetImport:
     def test_import_derives_branch_code_ignoring_file_value(self, admin_client, test_branch):
         # 即便文件含「分公司编号」列且值错误，导入也按分公司名称回填真实 code
         from apps.assets.models import Asset
-        headers = ['分公司', '资产编号', '分公司编号', '资产名称', '数量']
-        buf = _make_xlsx(headers, [[test_branch.name, 'IMP-D01', 'WRONG-CODE', '资产D', 1]])
+        headers = ['分公司', '资产编号', '分公司编号', '资产名称', '数量', '所属部门']
+        buf = _make_xlsx(headers, [[test_branch.name, 'IMP-D01', 'WRONG-CODE', '资产D', 1, '测试部门']])
         resp = _upload_url(admin_client, '/api/assets/import', buf)
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['imported'] == 1
@@ -146,7 +155,7 @@ class TestAssetImport:
     def test_import_rejects_duplicate_within_file(self, admin_client, test_branch):
         # 同表内「相同分公司 + 相同资产编号」→ 第二行提醒资产编号重复
         row = [test_branch.name, 'DUP-A01', test_branch.code, '类目A',
-               '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']
+               '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '测试部门', '', '在库', '是', '']
         buf = _make_xlsx(ASSET_HEADERS, [row, row])
         resp = _upload_url(admin_client, '/api/assets/import', buf)
         assert resp.status_code == status.HTTP_200_OK
@@ -164,7 +173,7 @@ class TestAssetImport:
         )
         before_max = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
         rows = [[test_branch.name, 'IMP-WL01', test_branch.code, '电子',
-                 '', '', '电脑', '笔电', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']]
+                 '', '', '电脑', '笔电', '', '', '否', 1, '', '', '', '', '测试部门', '', '在库', '是', '']]
         buf = _make_xlsx(ASSET_HEADERS, rows)
         resp = _upload_url(admin_client, '/api/assets/import', buf)
         assert resp.status_code == status.HTTP_200_OK
@@ -240,7 +249,7 @@ class TestFixedAssetTemplate:
 
 
 class TestFixedAssetImport:
-    def test_import_valid_data(self, admin_client, test_asset):
+    def test_import_valid_data(self, admin_client, test_asset, ta001_category):
         headers = ['资产编号', '资产名称', '序列号', '分公司编号', '分公司',
                    '入库日期', '当前状态', '存放位置', '使用人', '所属部门', '备注']
         rows = [
@@ -252,7 +261,7 @@ class TestFixedAssetImport:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['imported'] >= 1
 
-    def test_import_rejects_duplicate_serial_within_file(self, admin_client, test_asset):
+    def test_import_rejects_duplicate_serial_within_file(self, admin_client, test_asset, ta001_category):
         # 同表内「相同分公司 + 相同电脑序列号」→ 第二行提醒电脑序列号重复
         headers = ['资产编号', '电脑序列号', '分公司', '入库日期', '当前状态']
         rows = [
@@ -502,7 +511,7 @@ class TestImportEdgeCases:
         name_with_specials = '资产"含引号"\n换行,逗号'
         rows = [
             [test_branch.name, 'SPE-001', test_branch.code, '类目',
-             '', '', '分类', name_with_specials, '', '', '否', 1, '', '', '', '', '', '', '在库', '是', ''],
+             '', '', '分类', name_with_specials, '', '', '否', 1, '', '', '', '', '测试部门', '', '在库', '是', ''],
         ]
         buf = _make_xlsx(ASSET_HEADERS, rows)
         resp = _upload_url(admin_client, '/api/assets/import', buf)

@@ -65,67 +65,44 @@ class AssetSerializer(serializers.ModelSerializer):
 
 
 class FixedAssetSerializer(serializers.ModelSerializer):
-    """Serializer for FixedAsset instances."""
-    # 前端新增只传资产编号，asset 由 validate() 按编号反查补全，故非必填
-    asset = serializers.PrimaryKeyRelatedField(
-        queryset=Asset.objects.all(), required=False, allow_null=True,
-    )
+    """Serializer for FixedAsset instances（与资产库存解耦，挂品目）。"""
     branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
-    asset_name = serializers.CharField(source='asset.资产名称', read_only=True, default='')
-    序号 = serializers.IntegerField(source='asset.序号', read_only=True, default=None)
-    资产类目 = serializers.CharField(source='asset.资产类目', read_only=True, default='')
-    物品分类 = serializers.CharField(source='asset.物品分类', read_only=True, default='')
-    是否租用 = serializers.BooleanField(source='asset.是否租用', read_only=True, default=False)
-    数量 = serializers.IntegerField(source='asset.数量', read_only=True, default=None)
-    规格 = serializers.CharField(source='asset.规格', read_only=True, default='')
-    单价 = serializers.DecimalField(source='asset.单价', max_digits=12, decimal_places=2, read_only=True, default=None)
-    购入金额 = serializers.DecimalField(source='asset.购入金额', max_digits=14, decimal_places=2, read_only=True, default=None)
-    出库日期 = serializers.DateField(source='asset.出库日期', read_only=True, default=None)
 
     class Meta:
         model = FixedAsset
         fields = [
-            'id', 'asset', '内部编号', '资产编号', '资产名称', 'asset_name',
+            'id', '内部编号', '资产编号', '资产类目', '资产名称',
             '序列号', '供应商', '使用人', '所属部门', '当前状态',
             '分公司', '分公司编号', 'branch', 'branch_name',
-            '入库日期', '备注', 'created_at', 'updated_at',
-            '序号', '资产类目', '物品分类', '是否租用', '数量',
-            '规格', '单价', '购入金额', '出库日期',
+            '入库日期', '是否租用', '数量', '规格', '单价', '购入金额', '出库日期',
+            '物品分类', '备注', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at', '内部编号', '资产名称']
+        read_only_fields = ['created_at', 'updated_at', '内部编号']
 
     def validate(self, attrs):
-        """未提交 asset 时，按资产编号反查父级品目；查不到则拒绝录入。"""
-        if not attrs.get('asset'):
-            code = attrs.get('资产编号')
-            if code:
-                asset = Asset.objects.filter(资产编号=code).first()
-                if asset:
-                    attrs['asset'] = asset
-                else:
-                    raise serializers.ValidationError(
-                        {'资产编号': ['资产编号不存在']}
-                    )
+        """资产编号必须存在于品目（Category）。"""
+        code = attrs.get('资产编号')
+        if code:
+            from apps.categories.models import Category
+            if not Category.objects.filter(asset_code=code).exists():
+                raise serializers.ValidationError(
+                    {'资产编号': ['资产编号未在品目登记']}
+                )
         return attrs
 
     def create(self, validated_data):
         validated_data['内部编号'] = FixedAsset.generate_internal_code(
             validated_data['资产编号']
         )
-        asset = validated_data.get('asset')
-        # 前端新增只传资产编号，按编号解析关联品目 FK
-        if not asset and validated_data.get('资产编号'):
-            asset = Asset.objects.filter(资产编号=validated_data['资产编号']).first()
-            if asset:
-                validated_data['asset'] = asset
-        if asset:
-            validated_data['资产名称'] = asset.资产名称
-            if not validated_data.get('分公司'):
-                validated_data['分公司'] = asset.分公司
-            if not validated_data.get('分公司编号'):
-                validated_data['分公司编号'] = asset.分公司编号
-            if not validated_data.get('branch'):
-                validated_data['branch'] = asset.branch
+        # 资产类目/物品分类/资产名称 缺省从品目取
+        code = validated_data.get('资产编号')
+        if code:
+            from apps.categories.models import Category
+            cat = Category.objects.filter(asset_code=code).first()
+            if cat:
+                validated_data.setdefault('资产类目', cat.asset_category)
+                validated_data.setdefault('物品分类', cat.item_category)
+                validated_data.setdefault('资产名称', cat.asset_name)
         return super().create(validated_data)
 
     def update(self, instance, validated_data):

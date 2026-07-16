@@ -27,11 +27,9 @@ class TestBranchFilter:
 
     def test_fixed_asset_filter_by_branch_name(self, admin_user, branch, second_branch):
         from apps.assets.models import FixedAsset
-        p1 = _make_asset(branch, 'BF-FA-P1')
-        p2 = _make_asset(second_branch, 'BF-FA-P2')
-        FixedAsset.objects.create(asset=p1, 内部编号='BF-FA-P1-1', 资产编号='BF-FA-P1',
+        FixedAsset.objects.create(内部编号='BF-FA-P1-1', 资产编号='BF-FA-P1',
                                   资产名称='X', 分公司=branch.name, 分公司编号='WRONG-CODE', branch=branch)
-        FixedAsset.objects.create(asset=p2, 内部编号='BF-FA-P2-1', 资产编号='BF-FA-P2',
+        FixedAsset.objects.create(内部编号='BF-FA-P2-1', 资产编号='BF-FA-P2',
                                   资产名称='Y', 分公司=second_branch.name, 分公司编号='WRONG-CODE', branch=second_branch)
         client = _client_for(admin_user)
         resp = client.get('/api/assets/fixed-assets', {'branch': branch.name})
