@@ -126,6 +126,9 @@ class TestMergeErrors:
 class TestAssetImportFriendlyErrors:
     def test_duplicate_asset_code_friendly(self, authenticated_client):
         from apps.assets.models import Asset
+        from apps.organizations.models import Region, Branch
+        region = Region.objects.create(name='测试区域', code='TEST', status='active')
+        Branch.objects.create(name='测试', code='CS001', region=region)
         Asset.objects.create(
             序号=1, 分公司='测试', 分公司编号='CS001', 资产编号='DUP-001',
             资产类目='固定', 物品分类='办公', 资产名称='已存在', 数量=1,

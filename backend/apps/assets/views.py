@@ -73,10 +73,9 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         headers = [
             '分公司', '资产编号', '资产类目',
-            '供应商', '物品分类', '资产名称',
-            '入库日期', '数量', '规格', '单价',
-            '购入金额', '出库日期', '所属部门', '当前状态',
-            '备注',
+            '物品分类', '资产名称', '入库日期', '是否租用',
+            '数量', '规格', '单价', '购入金额',
+            '出库日期', '所属部门', '当前状态', '备注',
         ]
         ws.append(headers)
 
@@ -155,6 +154,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         raw_errors = []
         valid_branches = get_branch_name_set()
         branch_code_map = get_branch_code_map()
+        seen_asset_keys = set()  # 表内去重：(分公司, 资产编号)
         next_seq = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
 
         for i, row in enumerate(all_rows[1:], start=2):
@@ -165,14 +165,21 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 raw_errors.append((i, '资产编号为空，跳过该行'))
                 continue
 
-            if Asset.objects.filter(资产编号=asset_code).exists():
-                raw_errors.append((i, f'资产编号 {asset_code} 已存在，请修改或删除重复行'))
-                continue
-
             分公司_name = str(cell(row, '分公司')).strip()
             branch_err = branch_validation_error(分公司_name, '分公司', valid_branches)
             if branch_err:
                 raw_errors.append((i, branch_err))
+                continue
+
+            # 表内去重：同分公司 + 同资产编号（先于 DB 检查，给出「重复」提示）
+            asset_key = (分公司_name, asset_code)
+            if asset_key in seen_asset_keys:
+                raw_errors.append((i, f'资产编号 {asset_code} 重复'))
+                continue
+            seen_asset_keys.add(asset_key)
+
+            if Asset.objects.filter(资产编号=asset_code).exists():
+                raw_errors.append((i, f'资产编号 {asset_code} 已存在，请修改或删除重复行'))
                 continue
 
             # 警戒线取自按资产编号反查的资产分类（不再读模板列）
@@ -325,8 +332,10 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     ]
     # 导入模板仅含用户填写列（其余导入时自动继承自父资产）
     FA_TEMPLATE_HEADERS = [
-        '资产编号', '电脑序列号', '供应商', '入库日期',
-        '所属部门', '使用人', '当前状态',
+        '分公司', '资产编号', '分公司编号', '电脑序列号', '供应商',
+        '物品分类', '资产名称', '入库日期', '是否租用', '数量',
+        '规格', '单价', '购入金额', '出库日期',
+        '所属部门', '使用人', '当前状态', '备注',
     ]
 
     @action(detail=False, methods=['get'], url_path='template')
@@ -423,7 +432,10 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
             permission_classes=[IsAuthenticated, OperationPermission])
     def import_excel(self, request):
-        from apps.assets.utils.import_helpers import excel_date_to_python, merge_errors
+        from apps.assets.utils.import_helpers import (
+            excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
+        )
+        from apps.organizations.models import Branch
 
         file = request.FILES.get('file')
         if not file:
@@ -477,6 +489,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         imported = 0
         raw_errors = []
+        seen_fa_keys = set()  # 表内去重：(分公司, 电脑序列号)
 
         for i, row in enumerate(all_rows[1:], start=2):
             资产编号 = str(cell(row, '资产编号')).strip()
@@ -490,21 +503,53 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 raw_errors.append((i, f'资产编号 {资产编号} 不存在'))
                 continue
 
+            分公司 = str(cell(row, '分公司')).strip() or parent_asset.分公司
+            分公司编号 = str(cell(row, '分公司编号')).strip() or parent_asset.分公司编号
+            电脑序列号 = str(cell(row, '电脑序列号')).strip()
+
+            # 表内去重：同分公司 + 同电脑序列号（序列号非空才计入）
+            if 电脑序列号:
+                fa_key = (分公司, 电脑序列号)
+                if fa_key in seen_fa_keys:
+                    raw_errors.append((i, f'电脑序列号 {电脑序列号} 重复'))
+                    continue
+                seen_fa_keys.add(fa_key)
+
+            # branch FK 优先按分公司编号解析，否则沿用父资产
+            fa_branch = parent_asset.branch
+            if 分公司编号:
+                fa_branch = Branch.objects.filter(code=分公司编号).first() or fa_branch
+
+            try:
+                数量 = int(cell(row, '数量')) if cell(row, '数量') else 1
+            except (ValueError, TypeError):
+                数量 = 1
+            单价, _ = parse_decimal_safe(cell(row, '单价'), '单价')
+            购入金额, _ = parse_decimal_safe(cell(row, '购入金额'), '购入金额')
+
             try:
                 FixedAsset.objects.create(
                     asset=parent_asset,
                     内部编号=FixedAsset.generate_internal_code(资产编号),
                     资产编号=资产编号,
                     资产名称=str(cell(row, '资产名称')) or parent_asset.资产名称,
-                    序列号=str(cell(row, '序列号')),
+                    序列号=电脑序列号,
                     供应商=str(cell(row, '供应商')),
+                    物品分类=str(cell(row, '物品分类')),
                     入库日期=excel_date_to_python(cell(row, '入库日期') or None),
+                    是否租用=parse_bool_cn(cell(row, '是否租用')),
+                    数量=数量,
+                    规格=str(cell(row, '规格')),
+                    单价=单价,
+                    购入金额=购入金额,
+                    出库日期=excel_date_to_python(cell(row, '出库日期') or None),
                     所属部门=str(cell(row, '所属部门')),
                     使用人=str(cell(row, '使用人')),
                     当前状态=str(cell(row, '当前状态') or '在库'),
-                    分公司=parent_asset.分公司,
-                    分公司编号=parent_asset.分公司编号,
-                    branch=parent_asset.branch,
+                    分公司=分公司,
+                    分公司编号=分公司编号,
+                    branch=fa_branch,
+                    备注=str(cell(row, '备注')),
                 )
                 imported += 1
             except Exception as e:

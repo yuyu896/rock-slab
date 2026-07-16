@@ -89,12 +89,26 @@ class FixedAsset(UUIDModel, TimestampedModel):
     )
     入库日期 = models.DateField('入库日期', null=True, blank=True)
     备注 = models.TextField('备注', blank=True, default='')
+    物品分类 = models.CharField('物品分类', max_length=100, blank=True, default='')
+    规格 = models.CharField('规格', max_length=200, blank=True, default='')
+    是否租用 = models.BooleanField('是否租用', default=False)
+    数量 = models.IntegerField('数量', default=1)
+    单价 = models.DecimalField('单价', max_digits=12, decimal_places=2, null=True, blank=True)
+    购入金额 = models.DecimalField('购入金额', max_digits=14, decimal_places=2, null=True, blank=True)
+    出库日期 = models.DateField('出库日期', null=True, blank=True)
 
     class Meta:
         db_table = 'assets_fixedasset'
         ordering = ['内部编号']
         verbose_name = '固定资产实例'
         verbose_name_plural = '固定资产实例'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['分公司', '序列号'],
+                condition=~models.Q(序列号=''),
+                name='unique_branch_serial',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.内部编号} ({self.资产名称})'

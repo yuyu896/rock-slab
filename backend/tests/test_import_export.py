@@ -103,11 +103,12 @@ class TestAssetTemplate:
         resp = admin_client.get('/api/assets/template')
         headers, rows = _parse_excel_response(resp)
         assert rows == []
-        for h in ['分公司', '资产编号', '资产类目', '资产名称', '数量']:
+        expected = ['分公司', '资产编号', '资产类目', '物品分类', '资产名称', '入库日期', '是否租用',
+                    '数量', '规格', '单价', '购入金额', '出库日期', '所属部门', '当前状态', '备注']
+        for h in expected:
             assert h in headers, f"Missing header: {h}"
-        # 模板不应含系统派生/无需填写列
-        for absent in ('序号', '警戒线', '分公司编号', '电脑序列号', '图片', '是否租用', '是否充足', '使用人'):
-            assert absent not in headers, f"模板不应含 {absent}"
+        assert len(headers) == len(expected)
+        assert '供应商' not in headers
 
 
 class TestAssetImport:
@@ -141,6 +142,16 @@ class TestAssetImport:
         assert resp.data['imported'] == 1
         a = Asset.objects.get(资产编号='IMP-D01')
         assert a.分公司编号 == test_branch.code  # 回填真实 code，忽略文件的 WRONG-CODE
+
+    def test_import_rejects_duplicate_within_file(self, admin_client, test_branch):
+        # 同表内「相同分公司 + 相同资产编号」→ 第二行提醒资产编号重复
+        row = [test_branch.name, 'DUP-A01', test_branch.code, '类目A',
+               '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']
+        buf = _make_xlsx(ASSET_HEADERS, [row, row])
+        resp = _upload_url(admin_client, '/api/assets/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        assert any('资产编号 DUP-A01 重复' in e for e in resp.data['errors'])
 
     def test_import_warning_line_from_category_and_auto_seq(self, admin_client, test_branch):
         from apps.assets.models import Asset
@@ -219,8 +230,9 @@ class TestFixedAssetTemplate:
         resp = admin_client.get('/api/assets/fixed-assets/template')
         headers, rows = _parse_excel_response(resp)
         assert rows == []
-        # 模板仅含用户填写列（其余导入时自动继承自父资产）
-        expected = ['资产编号', '电脑序列号', '供应商', '入库日期', '所属部门', '使用人', '当前状态']
+        expected = ['分公司', '资产编号', '分公司编号', '电脑序列号', '供应商', '物品分类', '资产名称',
+                    '入库日期', '是否租用', '数量', '规格', '单价', '购入金额', '出库日期',
+                    '所属部门', '使用人', '当前状态', '备注']
         for h in expected:
             assert h in headers, f"Missing header: {h}"
         assert len(headers) == len(expected)
@@ -239,6 +251,19 @@ class TestFixedAssetImport:
         resp = _upload_url(admin_client, '/api/assets/fixed-assets/import', buf)
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['imported'] >= 1
+
+    def test_import_rejects_duplicate_serial_within_file(self, admin_client, test_asset):
+        # 同表内「相同分公司 + 相同电脑序列号」→ 第二行提醒电脑序列号重复
+        headers = ['资产编号', '电脑序列号', '分公司', '入库日期', '当前状态']
+        rows = [
+            ['TA001', 'SN-DUP', '测试分公司', '2026-03-01', '在库'],
+            ['TA001', 'SN-DUP', '测试分公司', '2026-03-01', '在库'],
+        ]
+        buf = _make_xlsx(headers, rows)
+        resp = _upload_url(admin_client, '/api/assets/fixed-assets/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        assert any('电脑序列号 SN-DUP 重复' in e for e in resp.data['errors'])
 
 
 # ===========================================================================
