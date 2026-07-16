@@ -531,8 +531,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             所属部门_val = str(cell(row, '所属部门')).strip()
             使用人_val = str(cell(row, '使用人')).strip()
 
-            # 表内去重：分公司 + 分公司编号 + 电脑序列号 + 所属部门 + 使用人（五元组全同才算重复）
-            fa_key = (分公司, 分公司编号, 电脑序列号, 所属部门_val, 使用人_val)
+            # 表内去重：分公司 + 分公司编号 + 电脑序列号 + 所属部门（四元组全同才算重复）
+            fa_key = (分公司, 分公司编号, 电脑序列号, 所属部门_val)
             if fa_key in seen_fa_keys:
                 raw_errors.append((i, f'资产编号 {资产编号} 重复'))
                 continue
