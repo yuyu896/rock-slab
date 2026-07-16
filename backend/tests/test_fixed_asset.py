@@ -4,6 +4,10 @@ Tests for FixedAsset model, API, and quantity sync.
 import pytest
 from conftest import _client_for
 
+from apps.assets.views import FixedAssetViewSet
+
+FA_TEMPLATE_HEADERS = FixedAssetViewSet.FA_TEMPLATE_HEADERS
+
 
 @pytest.fixture
 def parent_asset(branch):
@@ -147,7 +151,7 @@ class TestFixedAssetImport:
         import io
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.append(['资产编号', '序列号', '供应商', '使用人', '所属部门', '当前状态', '入库日期', '备注', '分公司', '分公司编号'])
+        ws.append(FA_TEMPLATE_HEADERS)
         for row in rows:
             ws.append(row)
         buf = io.BytesIO()
@@ -157,9 +161,14 @@ class TestFixedAssetImport:
         return buf
 
     def test_import_creates_instances(self, supervisor_user, category_comp001, branch):
+        # 行顺序与 FA_TEMPLATE_HEADERS 一致：分公司, 资产编号, 分公司编号, 电脑序列号, 供应商,
+        # 物品分类, 资产名称, 入库日期, 是否租用, 数量, 规格, 单价, 购入金额, 出库日期,
+        # 所属部门, 使用人, 当前状态, 备注
         buf = self._make_xlsx([
-            ['COMP-001', 'SN-001', '联想', '张三', '技术部', '在用', '', '', branch.name, branch.code],
-            ['COMP-001', 'SN-002', '戴尔', '李四', '市场部', '在用', '', '', branch.name, branch.code],
+            [branch.name, 'COMP-001', branch.code, 'SN-001', '联想',
+             '', '', '', '', '', '', '', '', '', '技术部', '张三', '在用', ''],
+            [branch.name, 'COMP-001', branch.code, 'SN-002', '戴尔',
+             '', '', '', '', '', '', '', '', '', '市场部', '李四', '在用', ''],
         ])
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/import', {'file': buf}, format='multipart')
@@ -168,8 +177,10 @@ class TestFixedAssetImport:
         assert resp.data['errors'] == []
 
     def test_import_invalid_asset_code(self, supervisor_user, parent_asset):
+        # 资产编号 NOT-EXIST 未在品目登记，应在品类校验阶段被拒（分公司字段无影响）
         buf = self._make_xlsx([
-            ['NOT-EXIST', 'SN-001', '联想', '', '', '在库', '', ''],
+            [parent_asset.分公司, 'NOT-EXIST', parent_asset.分公司编号, 'SN-001', '联想',
+             '', '', '', '', '', '', '', '', '', '', '', '在库', ''],
         ])
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/import', {'file': buf}, format='multipart')

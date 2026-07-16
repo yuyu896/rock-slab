@@ -481,6 +481,23 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         # 按表头列名建立映射（列顺序无关，兼容用户自定义或简化模板）
         header_row = [str(c or '').strip() for c in all_rows[0]]
+
+        # 校验表头与模板一致（列名集合相同，顺序不限）
+        template_set = set(self.FA_TEMPLATE_HEADERS)
+        uploaded_set = set(h for h in header_row if h)
+        if uploaded_set != template_set:
+            missing = sorted(template_set - uploaded_set)
+            extra = sorted(uploaded_set - template_set)
+            parts = []
+            if missing:
+                parts.append(f'缺少：{"、".join(missing)}')
+            if extra:
+                parts.append(f'多余：{"、".join(extra)}')
+            return Response(
+                {'detail': f'表头与模板不一致（{"；".join(parts)}）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         col = {}
         for idx, name in enumerate(header_row):
             if name and name not in col:

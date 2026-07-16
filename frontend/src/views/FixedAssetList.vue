@@ -328,9 +328,9 @@ onMounted(() => { fetchAssets(); fetchBranches() })
         <tbody>
           <tr v-if="loading"><td :colspan="canManageAssets ? 21 : 19" class="empty-cell">加载中...</td></tr>
           <tr v-else-if="assets.length === 0"><td :colspan="canManageAssets ? 21 : 19" class="empty-cell">暂无固定资产数据</td></tr>
-          <tr v-for="item in assets" :key="item.id" v-else>
+          <tr v-for="(item, index) in assets" :key="item.id" v-else>
             <td v-if="canManageAssets" class="col-check"><input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleSelect(item.id)" /></td>
-            <td>{{ item.序号 ?? '-' }}</td>
+            <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td>{{ item.分公司编号 || '-' }}</td>
             <td>{{ item.分公司 || '-' }}</td>
             <td><span class="asset-code">{{ item.资产编号 }}</span></td>
