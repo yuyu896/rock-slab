@@ -5,7 +5,7 @@ import type { Asset } from '@/types'
 
 const props = defineProps<{
   visible: boolean
-  assets: Asset[]
+  assets: Array<Asset | Record<string, any>>
 }>()
 
 const emit = defineEmits<{

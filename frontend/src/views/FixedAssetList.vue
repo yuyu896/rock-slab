@@ -8,6 +8,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import AssetPrintDialog from './assets/AssetPrintDialog.vue'
 
 const { canManageAssets } = usePermission()
 
@@ -182,6 +183,24 @@ async function handleBatchDelete() {
   }
 }
 
+// ── 标签打印 ──
+const showPrintDialog = ref(false)
+const printItems = ref<any[]>([])
+
+function printSingleLabel(item: any) {
+  printItems.value = [item]
+  showPrintDialog.value = true
+}
+
+function handlePrintLabels() {
+  if (selectedIds.value.length === 0) {
+    ElMessage.warning('请先选择要打印的固定资产')
+    return
+  }
+  printItems.value = assets.value.filter(a => selectedIds.value.includes(a.id))
+  showPrintDialog.value = true
+}
+
 // ── 列表 ──
 async function fetchAssets() {
   loading.value = true
@@ -287,9 +306,17 @@ onMounted(() => { fetchAssets(); fetchBranches() })
     </div>
 
     <!-- 批量操作栏 -->
-    <div v-if="selectedIds.length > 0 && canManageAssets" class="fa-batch-actions">
+    <div v-if="selectedIds.length > 0" class="fa-batch-actions">
       <span class="fa-batch-info">已选择 {{ selectedIds.length }} 项</span>
-      <button class="fa-batch-btn danger" @click="handleBatchDelete">
+      <button class="fa-batch-btn" @click="handlePrintLabels">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 6 2 18 2 18 9"/>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+          <rect x="6" y="14" width="12" height="8"/>
+        </svg>
+        打印标签
+      </button>
+      <button v-if="canManageAssets" class="fa-batch-btn danger" @click="handleBatchDelete">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
         </svg>
@@ -349,8 +376,15 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <td>{{ item.所属部门 || '-' }}</td>
             <td>{{ item.使用人 || '-' }}</td>
             <td><StatusBadge :status="item.当前状态" /></td>
-            <td v-if="canManageAssets" class="action-col">
-              <button class="action-btn" title="编辑" @click="openEdit(item)">
+            <td class="action-col">
+              <button class="action-btn" title="打印标签" @click="printSingleLabel(item)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 6 2 18 2 18 9"/>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                  <rect x="6" y="14" width="12" height="8"/>
+                </svg>
+              </button>
+              <button v-if="canManageAssets" class="action-btn" title="编辑" @click="openEdit(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -444,6 +478,9 @@ onMounted(() => { fetchAssets(); fetchBranches() })
         <el-button @click="showImportModal = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 标签打印弹窗 -->
+    <AssetPrintDialog :visible="showPrintDialog" :assets="printItems" @close="showPrintDialog = false" />
   </div>
 </template>
 
@@ -471,7 +508,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .filter-select { height: 38px; padding: 0 var(--space-4); padding-right: var(--space-8); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; min-width: 140px; }
 .filter-reset { height: 38px; padding: 0 var(--space-4); background: transparent; border: none; color: var(--color-text-secondary); font-size: var(--text-sm); cursor: pointer; }
 .filter-reset:hover { color: var(--color-primary-500); }
-.table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: hidden; }
+.table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow-x: auto; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th { background: var(--color-bg-elevated); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 .data-table td { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--color-text-primary); border-bottom: 1px solid var(--color-border-light); vertical-align: middle; }
