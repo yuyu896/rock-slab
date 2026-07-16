@@ -147,7 +147,7 @@ class TestFixedAssetImport:
         import io
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.append(['资产编号', '序列号', '供应商', '使用人', '所属部门', '当前状态', '入库日期', '备注'])
+        ws.append(['资产编号', '序列号', '供应商', '使用人', '所属部门', '当前状态', '入库日期', '备注', '分公司', '分公司编号'])
         for row in rows:
             ws.append(row)
         buf = io.BytesIO()
@@ -156,10 +156,10 @@ class TestFixedAssetImport:
         buf.name = 'test.xlsx'
         return buf
 
-    def test_import_creates_instances(self, supervisor_user, category_comp001):
+    def test_import_creates_instances(self, supervisor_user, category_comp001, branch):
         buf = self._make_xlsx([
-            ['COMP-001', 'SN-001', '联想', '张三', '技术部', '在用', '', ''],
-            ['COMP-001', 'SN-002', '戴尔', '李四', '市场部', '在用', '', ''],
+            ['COMP-001', 'SN-001', '联想', '张三', '技术部', '在用', '', '', branch.name, branch.code],
+            ['COMP-001', 'SN-002', '戴尔', '李四', '市场部', '在用', '', '', branch.name, branch.code],
         ])
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/import', {'file': buf}, format='multipart')

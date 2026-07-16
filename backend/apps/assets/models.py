@@ -97,13 +97,6 @@ class FixedAsset(UUIDModel, TimestampedModel):
         ordering = ['内部编号']
         verbose_name = '固定资产实例'
         verbose_name_plural = '固定资产实例'
-        constraints = [
-            models.UniqueConstraint(
-                fields=['分公司', '序列号'],
-                condition=~models.Q(序列号=''),
-                name='unique_branch_serial',
-            ),
-        ]
 
     def __str__(self):
         return f'{self.内部编号} ({self.资产名称})'

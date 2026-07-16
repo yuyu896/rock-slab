@@ -442,6 +442,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
         )
         from apps.organizations.models import Branch
+        from apps.organizations.utils import get_branch_name_set, branch_validation_error
         from apps.categories.models import Category
 
         file = request.FILES.get('file')
@@ -486,6 +487,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 col[name] = idx
         if '序列号' not in col and '电脑序列号' in col:
             col['序列号'] = col['电脑序列号']
+        if '电脑序列号' not in col and '序列号' in col:
+            col['电脑序列号'] = col['序列号']
 
         def cell(row, name):
             idx = col.get(name)
@@ -496,7 +499,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         imported = 0
         raw_errors = []
-        seen_fa_keys = set()  # 表内去重：(分公司, 电脑序列号)
+        seen_fa_keys = set()  # 表内去重：(分公司, 分公司编号, 电脑序列号, 所属部门, 使用人)
+        valid_branches = get_branch_name_set()
 
         for i, row in enumerate(all_rows[1:], start=2):
             资产编号 = str(cell(row, '资产编号')).strip()
@@ -511,16 +515,28 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 continue
 
             分公司 = str(cell(row, '分公司')).strip()
-            分公司编号 = str(cell(row, '分公司编号')).strip()
-            电脑序列号 = str(cell(row, '电脑序列号')).strip()
+            branch_err = branch_validation_error(分公司, '分公司', valid_branches)
+            if branch_err:
+                raw_errors.append((i, branch_err))
+                continue
 
-            # 表内去重：同分公司 + 同电脑序列号（序列号非空才计入）
-            if 电脑序列号:
-                fa_key = (分公司, 电脑序列号)
-                if fa_key in seen_fa_keys:
-                    raw_errors.append((i, f'电脑序列号 {电脑序列号} 重复'))
-                    continue
-                seen_fa_keys.add(fa_key)
+            分公司编号 = str(cell(row, '分公司编号')).strip()
+            if not 分公司编号:
+                raw_errors.append((i, '分公司编号为空，请填写'))
+                continue
+            电脑序列号 = str(cell(row, '电脑序列号')).strip()
+            if not 电脑序列号:
+                raw_errors.append((i, '电脑序列号为空，请填写'))
+                continue
+            所属部门_val = str(cell(row, '所属部门')).strip()
+            使用人_val = str(cell(row, '使用人')).strip()
+
+            # 表内去重：分公司 + 分公司编号 + 电脑序列号 + 所属部门 + 使用人（五元组全同才算重复）
+            fa_key = (分公司, 分公司编号, 电脑序列号, 所属部门_val, 使用人_val)
+            if fa_key in seen_fa_keys:
+                raw_errors.append((i, f'资产编号 {资产编号} 重复'))
+                continue
+            seen_fa_keys.add(fa_key)
 
             # branch FK 按分公司编号解析
             fa_branch = Branch.objects.filter(code=分公司编号).first() if 分公司编号 else None

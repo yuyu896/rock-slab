@@ -262,17 +262,17 @@ class TestFixedAssetImport:
         assert resp.data['imported'] >= 1
 
     def test_import_rejects_duplicate_serial_within_file(self, admin_client, test_asset, ta001_category):
-        # 同表内「相同分公司 + 相同电脑序列号」→ 第二行提醒电脑序列号重复
-        headers = ['资产编号', '电脑序列号', '分公司', '入库日期', '当前状态']
+        # 同表内「相同分公司 + 相同电脑序列号」→ 第二行提醒重复
+        headers = ['资产编号', '电脑序列号', '分公司', '分公司编号', '入库日期', '当前状态']
         rows = [
-            ['TA001', 'SN-DUP', '测试分公司', '2026-03-01', '在库'],
-            ['TA001', 'SN-DUP', '测试分公司', '2026-03-01', '在库'],
+            ['TA001', 'SN-DUP', '测试分公司', 'TB001', '2026-03-01', '在库'],
+            ['TA001', 'SN-DUP', '测试分公司', 'TB001', '2026-03-01', '在库'],
         ]
         buf = _make_xlsx(headers, rows)
         resp = _upload_url(admin_client, '/api/assets/fixed-assets/import', buf)
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['imported'] == 1
-        assert any('电脑序列号 SN-DUP 重复' in e for e in resp.data['errors'])
+        assert any('资产编号 TA001 重复' in e for e in resp.data['errors'])
 
 
 # ===========================================================================
