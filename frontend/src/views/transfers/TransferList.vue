@@ -208,7 +208,6 @@ function openCreatePage() {
 .flow-text { font-size: var(--text-sm); color: var(--color-text-secondary); }
 .qty-value { font-weight: 600; font-size: var(--text-base); }
 .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: var(--text-xs); font-weight: 500; }
-@import '@/styles/action-buttons.css';
 
 .pagination-section { display: flex; justify-content: space-between; align-items: center; }
 .pagination-info { font-size: var(--text-sm); color: var(--color-text-tertiary); }

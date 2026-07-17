@@ -220,7 +220,6 @@ function openCreatePage() {
 .asset-name { font-weight: 500; }
 .qty-value { font-weight: 600; }
 .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: var(--text-xs); font-weight: 500; }
-@import '@/styles/action-buttons.css';
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-content { width: 640px; max-height: 90vh; overflow-y: auto; background: var(--color-bg-card); border-radius: 16px; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--color-border); }
