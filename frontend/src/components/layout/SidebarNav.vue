@@ -63,7 +63,7 @@ const navItems = computed<NavItem[]>(() => [
     label: '资产流转',
     path: '/transfers',
     children: [
-      { icon: '', label: '采购入库', path: '/assets/purchase' },
+      { icon: '', label: '采购入库', path: '/transfers/purchase' },
       { icon: '', label: '领用出库', path: '/transfers/assign' },
       { icon: '', label: '调拨', path: '/transfers/transfer' },
     ]
