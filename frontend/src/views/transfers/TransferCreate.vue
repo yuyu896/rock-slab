@@ -12,7 +12,7 @@ const router = useRouter()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const form = ref({
-  调拨日期: '', 资产编号: '', 资产名称: '', 调拨数量: 1,
+  调拨日期: '', 资产编号: '', 资产名称: '', 规格型号: '', 调拨数量: 1,
   fromBranch: '', toBranch: '',
   调出部门: '', 调入部门: '',
   调出负责人: '', 调入负责人: '', 调拨原因: '', 备注: '',
@@ -67,6 +67,7 @@ async function submit() {
       <div class="form-item"><label class="form-label">调拨日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
       <div class="form-item"><label class="form-label">资产编号 <span class="required">*</span></label><input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" @blur="onAssetCodeBlur" /><span v-if="notFoundCode && notFoundCode === form.资产编号" class="field-hint">该编号未在资产分类登记</span></div>
       <div class="form-item"><label class="form-label">资产名称 <span class="required">*</span></label><input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" /></div>
+      <div class="form-item"><label class="form-label">规格</label><input v-model="form.规格型号" type="text" class="form-input" placeholder="规格型号" /></div>
       <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.调拨数量" type="number" class="form-input" min="1" /></div>
       <div class="form-item">
         <label class="form-label">调出分公司 <span class="required">*</span></label>

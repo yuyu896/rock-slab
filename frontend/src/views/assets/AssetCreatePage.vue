@@ -40,6 +40,9 @@ function getDefaultAsset(): Partial<Asset> {
     单价: 0,
     供应商: '',
     是否租用: false,
+    入库日期: new Date().toISOString().slice(0, 10),
+    出库日期: '',
+    当前状态: '在库',
     所属部门: '',
     使用人: '',
     警戒线: undefined,
@@ -114,8 +117,8 @@ async function handleSubmit() {
   const payload: Partial<Asset> = {
     ...a,
     购入金额: (a.数量 ?? 0) * (a.单价 ?? 0),
-    当前状态: '在库',
-    入库日期: new Date().toISOString().slice(0, 10),
+    当前状态: a.当前状态 || '在库',
+    入库日期: a.入库日期 || new Date().toISOString().slice(0, 10),
   }
   if (Object.keys(dynamicAttrValues.value).length > 0) {
     const attrParts = Object.entries(dynamicAttrValues.value).map(([k, v]) => `${k}:${v}`)
@@ -198,6 +201,14 @@ onMounted(() => {
             <input v-model="newAsset.供应商" type="text" class="form-input" />
           </div>
           <div class="form-item">
+            <label class="form-label">入库日期</label>
+            <input v-model="newAsset.入库日期" type="date" class="form-input" />
+          </div>
+          <div class="form-item">
+            <label class="form-label">出库日期</label>
+            <input v-model="newAsset.出库日期" type="date" class="form-input" />
+          </div>
+          <div class="form-item">
             <label class="form-label">所属部门</label>
             <select v-model="newAsset.所属部门" class="form-select">
               <option value="">请选择</option>
@@ -214,6 +225,15 @@ onMounted(() => {
               <label><input type="radio" :value="false" v-model="newAsset.是否租用" /> 自购</label>
               <label><input type="radio" :value="true" v-model="newAsset.是否租用" /> 租用</label>
             </div>
+          </div>
+          <div class="form-item">
+            <label class="form-label">当前状态</label>
+            <select v-model="newAsset.当前状态" class="form-select">
+              <option value="在库">在库</option>
+              <option value="使用中">使用中</option>
+              <option value="维修中">维修中</option>
+              <option value="报废">报废</option>
+            </select>
           </div>
           <template v-if="currentCategoryAttrs.length > 0">
             <div v-for="attr in currentCategoryAttrs" :key="attr.name" class="form-item">

@@ -11,7 +11,7 @@ import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
 const router = useRouter()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
-const form = ref({ 调拨日期: '', 资产编号: '', 资产名称: '', 规格型号: '', 调拨数量: 1, toBranch: '', 备注: '' })
+const form = ref({ 调拨日期: '', 资产编号: '', 资产名称: '', 规格型号: '', 调拨数量: 1, toBranch: '', 供应商: '', 需求部门: '', 采购经办人: '', 备注: '' })
 
 const { lookupByCode, notFoundCode } = useAssetCodeAutofill()
 
@@ -48,6 +48,9 @@ async function submit() {
       规格型号: f.规格型号,
       调拨数量: f.调拨数量,
       toBranch: f.toBranch,
+      供应商: f.供应商,
+      需求部门: f.需求部门,
+      采购经办人: f.采购经办人,
       备注: f.备注,
     })
     ElMessage.success('提交成功')
@@ -75,6 +78,9 @@ async function submit() {
       <div class="form-item"><label class="form-label">资产名称 <span class="required">*</span></label><input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" /></div>
       <div class="form-item"><label class="form-label">规格</label><input v-model="form.规格型号" type="text" class="form-input" placeholder="规格型号" /></div>
       <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.调拨数量" type="number" class="form-input" min="1" /></div>
+      <div class="form-item"><label class="form-label">供应商</label><input v-model="form.供应商" type="text" class="form-input" placeholder="选填" /></div>
+      <div class="form-item"><label class="form-label">需求部门</label><input v-model="form.需求部门" type="text" class="form-input" placeholder="选填" /></div>
+      <div class="form-item"><label class="form-label">采购经办人</label><input v-model="form.采购经办人" type="text" class="form-input" placeholder="选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
   </TransferCreateLayout>
