@@ -134,6 +134,12 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         all_rows = list(ws.iter_rows(values_only=True))
         wb.close()
 
+        if len(all_rows) > 201:
+            return Response(
+                {'detail': f'数据量过大（{len(all_rows) - 1} 行），建议分批导入（每次不超过 200 行）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if not all_rows:
             return Response({'imported': 0, 'errors': []})
 
@@ -481,6 +487,12 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         all_rows = list(ws.iter_rows(values_only=True))
         wb.close()
 
+        if len(all_rows) > 201:
+            return Response(
+                {'detail': f'数据量过大（{len(all_rows) - 1} 行），建议分批导入（每次不超过 200 行）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if not all_rows:
             return Response({'imported': 0, 'errors': []})
 
@@ -523,6 +535,10 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         raw_errors = []
         seen_fa_keys = set()  # 表内去重：(分公司, 分公司编号, 电脑序列号, 所属部门)
         valid_branches = get_branch_name_set()
+        # 预加载 DB 已有四元组（防止重复导入）
+        existing_fa_keys = set()
+        for fa in FixedAsset.objects.values_list('分公司', '分公司编号', '序列号', '所属部门'):
+            existing_fa_keys.add(tuple(str(v or '').strip() for v in fa))
         # 预加载每个资产编号的最大内部编号后缀（用 max 后缀而非 count，避免删除/失败导入后序号空洞）
         import re
         from collections import defaultdict
@@ -563,12 +579,16 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             所属部门_val = str(cell(row, '所属部门')).strip()
             使用人_val = str(cell(row, '使用人')).strip()
 
-            # 表内去重：分公司 + 分公司编号 + 电脑序列号 + 所属部门（四元组全同才算重复）
+            # 表内去重 + DB 级去重：分公司 + 分公司编号 + 电脑序列号 + 所属部门
             fa_key = (分公司, 分公司编号, 电脑序列号, 所属部门_val)
             if fa_key in seen_fa_keys:
                 raw_errors.append((i, f'资产编号 {资产编号} 重复'))
                 continue
+            if fa_key in existing_fa_keys:
+                raw_errors.append((i, f'该行数据已存在（分公司+编号+序列号+部门重复），跳过'))
+                continue
             seen_fa_keys.add(fa_key)
+            existing_fa_keys.add(fa_key)
 
             # branch FK 按分公司名称解析（分公司编号是资产内部编号，不是组织编码）
             fa_branch = Branch.objects.filter(name=分公司).first() if 分公司 else None

@@ -856,7 +856,9 @@ onMounted(() => {
   background: var(--color-bg-card);
   border-radius: 12px;
   border: 1px solid var(--color-border);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 340px);
 }
 
 .data-table {
@@ -864,8 +866,14 @@ onMounted(() => {
   border-collapse: collapse;
 }
 
-.data-table th {
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: var(--color-bg-elevated);
+}
+
+.data-table th {
   padding: var(--space-3) var(--space-4);
   text-align: left;
   font-size: var(--text-sm);
