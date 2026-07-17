@@ -523,11 +523,16 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         raw_errors = []
         seen_fa_keys = set()  # 表内去重：(分公司, 分公司编号, 电脑序列号, 所属部门)
         valid_branches = get_branch_name_set()
-        # 预加载每个资产编号的现有内部编号序号（避免导入同编号多行时 count 不更新）
+        # 预加载每个资产编号的最大内部编号后缀（用 max 后缀而非 count，避免删除/失败导入后序号空洞）
+        import re
         from collections import defaultdict
         fa_seq = defaultdict(int)
-        for code, cnt in FixedAsset.objects.values('资产编号').annotate(c=Count('id')).values_list('资产编号', 'c'):
-            fa_seq[code] = cnt
+        for code, inner_code in FixedAsset.objects.values_list('资产编号', '内部编号'):
+            match = re.search(r'-(\d+)$', inner_code or '')
+            if match:
+                seq = int(match.group(1))
+                if seq > fa_seq[code]:
+                    fa_seq[code] = seq
 
         for i, row in enumerate(all_rows[1:], start=2):
             资产编号 = str(cell(row, '资产编号')).strip()
