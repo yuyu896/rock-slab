@@ -565,8 +565,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 continue
             seen_fa_keys.add(fa_key)
 
-            # branch FK 按分公司编号解析
-            fa_branch = Branch.objects.filter(code=分公司编号).first() if 分公司编号 else None
+            # branch FK 按分公司名称解析（分公司编号是资产内部编号，不是组织编码）
+            fa_branch = Branch.objects.filter(name=分公司).first() if 分公司 else None
 
             try:
                 数量 = int(cell(row, '数量')) if cell(row, '数量') else 1

@@ -103,6 +103,13 @@ class FixedAssetSerializer(serializers.ModelSerializer):
                 validated_data.setdefault('资产类目', cat.asset_category)
                 validated_data.setdefault('物品分类', cat.item_category)
                 validated_data.setdefault('资产名称', cat.asset_name)
+        # branch FK 按分公司名称自动解析
+        company = validated_data.get('分公司', '')
+        if company and not validated_data.get('branch'):
+            from apps.organizations.models import Branch
+            br = Branch.objects.filter(name=company).first()
+            if br:
+                validated_data['branch'] = br
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
