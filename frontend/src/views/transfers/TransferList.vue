@@ -6,10 +6,9 @@ import { ElMessage } from 'element-plus'
 import BasePagination from '@/components/BasePagination.vue'
 
 const {
-  typeLabel, typeColor, branchOptions: composableBranches,
+  typeLabel,
   filters, pagination, loading, transfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
-  showDetailModal, detailItem, detailLoading, viewDetail,
   handleApprove, handleReject,
   showImportModal, importLoading, importResult, openImportModal, handleDownloadTemplate, handleImportFile,
   handleExport,
@@ -91,7 +90,7 @@ function openCreatePage() {
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
             <td>
               <div class="action-buttons">
-                <button class="action-btn" @click="viewDetail(item)">详情</button>
+                <button class="action-btn" @click="router.push('/transfers/transfer/' + item.id)">详情</button>
                 <button v-if="item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
               </div>
@@ -107,37 +106,6 @@ function openCreatePage() {
       :page-size="pagination.pageSize"
       @change="(page, pageSize) => { pagination.page = page; pagination.pageSize = pageSize; fetchTransfers() }"
     />
-
-    <!-- 详情弹窗 -->
-    <div v-if="showDetailModal" class="modal-overlay" @click.self="showDetailModal = false">
-      <div class="modal-content">
-        <div class="modal-header"><h3>流转详情</h3><button class="modal-close" @click="showDetailModal = false">&times;</button></div>
-        <div v-if="detailItem" class="modal-body">
-          <div class="detail-grid">
-            <div class="detail-field"><span class="detail-label">流转类型</span><span class="detail-value"><span class="type-badge" :style="typeColor">{{ typeLabel }}</span></span></div>
-            <div class="detail-field"><span class="detail-label">审批状态</span><span class="detail-value"><span class="status-badge" :style="getStatusStyle(detailItem.审批状态)">{{ detailItem.审批状态 }}</span></span></div>
-            <div class="detail-field"><span class="detail-label">资产编号</span><span class="detail-value code">{{ detailItem.资产编号 }}</span></div>
-            <div class="detail-field"><span class="detail-label">资产名称</span><span class="detail-value">{{ detailItem.资产名称 }}</span></div>
-            <div class="detail-field"><span class="detail-label">数量</span><span class="detail-value">{{ detailItem.调拨数量 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">调出分公司</span><span class="detail-value">{{ detailItem.调出分公司 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">调入分公司</span><span class="detail-value">{{ detailItem.调入分公司 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">调出部门</span><span class="detail-value">{{ detailItem.调出部门 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">调入部门</span><span class="detail-value">{{ detailItem.调入部门 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">调出负责人</span><span class="detail-value">{{ detailItem.调出负责人 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">调入负责人</span><span class="detail-value">{{ detailItem.调入负责人 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">调拨原因</span><span class="detail-value">{{ detailItem.调拨原因 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">备注</span><span class="detail-value">{{ detailItem.备注 || '-' }}</span></div>
-            <div v-if="detailItem.审批人" class="detail-field"><span class="detail-label">审批人</span><span class="detail-value">{{ detailItem.审批人 }}</span></div>
-            <div class="detail-field"><span class="detail-label">创建时间</span><span class="detail-value">{{ detailItem.createdAt?.slice(0, 10) }}</span></div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button v-if="detailItem?.审批状态 === '待审批'" class="btn-reject" @click="handleReject(detailItem); showDetailModal = false">驳回</button>
-          <button v-if="detailItem?.审批状态 === '待审批'" class="btn-confirm" @click="handleApprove(detailItem); showDetailModal = false">通过</button>
-          <button class="btn-cancel" @click="showDetailModal = false">关闭</button>
-        </div>
-      </div>
-    </div>
 
     <!-- 批量导入弹窗 -->
     <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
