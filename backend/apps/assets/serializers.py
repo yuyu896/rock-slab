@@ -80,7 +80,11 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at', '内部编号']
 
     def validate(self, attrs):
-        """资产编号必须存在于品目（Category）。"""
+        """必填校验 + 资产编号须存在于品目（Category）。"""
+        for field in ('分公司', '资产名称', '序列号'):
+            val = attrs.get(field, '')
+            if not val or not str(val).strip():
+                raise serializers.ValidationError({field: [f'{field}不能为空']})
         code = attrs.get('资产编号')
         if code:
             from apps.categories.models import Category

@@ -54,12 +54,14 @@ class TestBranchFilter:
     def test_transfer_create_backfills_branch_name(self, admin_user, branch, second_branch):
         from apps.transfers.models import Transfer
         client = _client_for(admin_user)
-        # 表单只传分公司外键 id（fromBranch/toBranch），不传调出/调入分公司名称
+        # 表单只传分公司外键 id（fromBranch/toBranch）；调出分公司名称仅用于通过必填校验，
+        # 调入分公司名称留空以验证由 toBranch 外键回填
         resp = client.post('/api/transfers/transfer', {
             '调拨日期': '2026-07-10',
             '资产编号': 'BF-C1',
             '资产名称': 'X',
             '调拨数量': 1,
+            '调出分公司': branch.name,
             'fromBranch': str(branch.id),
             'toBranch': str(second_branch.id),
         }, format='json')

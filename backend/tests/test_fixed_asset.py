@@ -61,7 +61,9 @@ class TestFixedAssetAPI:
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets', {
             '资产编号': 'COMP-001',
+            '资产名称': 'ThinkPad T14',
             '序列号': 'SN-AAA',
+            '分公司': '测试分公司',
             '供应商': '联想',
         })
         assert resp.status_code == 201
@@ -91,24 +93,28 @@ class TestFixedAssetAPI:
         assert resp.status_code == 403
 
     def test_create_by_asset_code_only(self, supervisor_user, category_comp001):
-        """仅传资产编号也能创建，并从品目继承资产名称。"""
+        """按资产编号定位品目创建实例（资产名称需显式提交）。"""
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets', {
             '资产编号': 'COMP-001',
+            '资产名称': 'ThinkPad T14',
             '序列号': 'SN-CODE',
+            '分公司': '测试分公司',
             '供应商': '联想',
         })
         assert resp.status_code == 201
         data = resp.data
         assert data['内部编号'] == 'COMP-001-1'
-        assert data['资产名称'] == 'ThinkPad T14'  # 从品目继承
+        assert data['资产名称'] == 'ThinkPad T14'
 
     def test_create_unknown_asset_code_rejected(self, supervisor_user, parent_asset):
         """资产编号在品目表不存在时拒绝录入，返回 400。"""
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets', {
             '资产编号': 'NOT-EXIST',
+            '资产名称': 'ThinkPad T14',
             '序列号': 'SN-X',
+            '分公司': '测试分公司',
         })
         assert resp.status_code == 400
         assert '资产编号' in resp.data
@@ -125,6 +131,9 @@ class TestFixedAssetAPI:
         resp = client.patch(f'/api/assets/fixed-assets/{inst.id}', {
             '使用人': '张三',
             '当前状态': '在用',
+            '资产名称': 'ThinkPad T14',
+            '序列号': 'SN-1',
+            '分公司': '测试分公司',
         })
         assert resp.status_code == 200
         inst.refresh_from_db()

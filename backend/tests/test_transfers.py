@@ -87,6 +87,7 @@ class TestAssignFlow:
             '调拨日期': '2026-01-16',
             '资产编号': 'AST-TEST-002',
             '资产名称': '测试资产2',
+            '调出分公司': '测试分公司',
             'action_type': 'assign',
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')
