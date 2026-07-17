@@ -985,39 +985,9 @@ onMounted(() => {
   gap: var(--space-1);
 }
 
-.action-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.action-btn:hover {
-  background: var(--color-bg-elevated);
-  color: var(--color-primary-500);
-}
-
-.action-btn.danger:hover {
-  background: oklch(0.97 0.02 25);
-  color: var(--color-danger);
-}
-
-.action-btn:focus-visible {
-  outline: 2px solid var(--color-primary-500);
-  outline-offset: 2px;
-  background: var(--color-primary-50);
-}
-
 .action-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 /* 分页 */

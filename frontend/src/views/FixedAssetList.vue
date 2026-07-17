@@ -522,14 +522,9 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }
 .empty-cell { text-align: center; color: var(--color-text-tertiary); padding: var(--space-8) var(--space-4) !important; }
 .asset-code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-primary-600); background: var(--color-primary-50); padding: 2px 8px; border-radius: 4px; }
-.action-col .action-btn { padding: 8px 16px; font-size: 14px; }
-.action-col .action-btn svg { width: 18px; height: 18px; }
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; }
 .action-col { display: flex; gap: var(--space-1); }
-.action-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 6px; color: var(--color-text-tertiary); cursor: pointer; transition: all var(--transition-fast); }
-.action-btn:hover { background: var(--color-bg-elevated); color: var(--color-primary-500); }
-.action-btn.danger:hover { color: var(--color-danger); }
-.action-btn svg { width: 16px; height: 16px; }
+.action-btn svg { width: 18px; height: 18px; }
 /* 导入弹窗 */
 .import-step { margin-bottom: 16px; }
 .import-step-header { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
