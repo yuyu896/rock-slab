@@ -69,8 +69,10 @@ class TransferActionSerializer(serializers.Serializer):
         self.fields['to_branch'].queryset = Branch.objects.all()
 
     def validate(self, attrs):
-        """分公司必填：调出/调入至少一个非空。"""
-        if not str(attrs.get('调出分公司', '')).strip() and not str(attrs.get('调入分公司', '')).strip():
+        """分公司必填：调出/调入至少一个非空（文字或外键均可）。"""
+        has_text = str(attrs.get('调出分公司', '')).strip() or str(attrs.get('调入分公司', '')).strip()
+        has_fk = attrs.get('from_branch') or attrs.get('to_branch')
+        if not has_text and not has_fk:
             raise serializers.ValidationError({'调出分公司': ['请填写分公司']})
         return attrs
 
