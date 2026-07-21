@@ -82,7 +82,9 @@ class FixedAssetSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """必填校验 + 资产编号须存在于品目（Category）。"""
         for field in ('分公司', '资产名称', '序列号'):
-            val = attrs.get(field, '')
+            val = attrs.get(field)
+            if val is None and self.instance:
+                val = getattr(self.instance, field, '')
             if not val or not str(val).strip():
                 raise serializers.ValidationError({field: [f'{field}不能为空']})
         code = attrs.get('资产编号')
