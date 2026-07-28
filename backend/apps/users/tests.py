@@ -60,14 +60,14 @@ class SystemAvatarTests(TestCase):
         self.assertEqual(self.staff.system_avatar, 'geo-1')
 
     def test_set_system_avatar_forbidden(self):
-        """非本人非管理员无权操作"""
+        """非本人且不在数据范围内的用户不可见（用户列表收口后返回 404，不泄露存在性）"""
         self._login(self.staff)
         resp = self.client.post(
             f'/api/users/{self.admin.id}/system-avatar',
             {'system_avatar': 'geo-1'},
             format='json',
         )
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 404)
 
     def test_system_avatar_choices_constant(self):
         """验证 SYSTEM_AVATAR_CHOICES 生成正确的值"""

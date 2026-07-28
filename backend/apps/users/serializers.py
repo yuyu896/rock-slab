@@ -1,5 +1,9 @@
+from django.contrib.auth import password_validation
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
+
 from .models import User
 
 phone_validator = RegexValidator(
@@ -14,7 +18,7 @@ class UserSerializer(serializers.ModelSerializer):
     )
     password = serializers.CharField(
         write_only=True, required=False,
-        help_text='用户初始密码（创建时必填）',
+        help_text='用户初始密码（创建时必填；更新时不接受，改密请走 /api/auth/password/）',
     )
     branch_name = serializers.SerializerMethodField()
     region_name = serializers.SerializerMethodField()
@@ -33,7 +37,14 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
-        password = validated_data.pop('password', '123456')
+        # 创建时 password 必填，且必须通过密码强度校验（不再回退默认弱口令 '123456'）
+        password = validated_data.pop('password', None)
+        if not password:
+            raise ValidationError({'password': '创建用户时必须设置密码'})
+        try:
+            password_validation.validate_password(password)
+        except DjangoValidationError as e:
+            raise ValidationError({'password': list(e.messages)})
         user = User.objects.create_user(
             phone=validated_data['phone'],
             name=validated_data['name'],
@@ -41,6 +52,23 @@ class UserSerializer(serializers.ModelSerializer):
             **{k: v for k, v in validated_data.items() if k not in ('phone', 'name')},
         )
         return user
+
+    def update(self, instance, validated_data):
+        # password 为 create-only：更新路径绝不接受密码字段（防账号接管）。
+        # 即便误传也丢弃，绝不走 ModelSerializer 默认的 setattr 原样写入 password 列。
+        validated_data.pop('password', None)
+        instance = super().update(instance, validated_data)
+        # status 与 is_active 联动：停用即禁用登录并失效存量 token，启用则恢复
+        if instance.status == 'inactive' and instance.is_active:
+            instance.is_active = False
+            instance.save(update_fields=['is_active'])
+        elif instance.status == 'active' and not instance.is_active:
+            instance.is_active = True
+            instance.save(update_fields=['is_active'])
+        if instance.status == 'inactive':
+            from apps.authentication.models import ExpiringToken
+            ExpiringToken.objects.filter(user=instance).delete()
+        return instance
 
     def get_branch_name(self, obj):
         return obj.branch.name if obj.branch else None

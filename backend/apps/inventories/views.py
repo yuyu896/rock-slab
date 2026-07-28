@@ -5,7 +5,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from core.pagination import StandardPagination
-from core.permissions import DataScopeMixin
+from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
 from .models import InventoryTask, InventoryItem, InventoryCheck
@@ -40,6 +40,8 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return self.get_scoped_queryset(qs)
 
     def perform_create(self, serializer):
+        # 越权校验：盘点目标分公司必须在操作者授权范围内（admin 豁免）
+        validate_branches_in_scope(self.request.user, serializer.validated_data.get('branch'))
         serializer.save(created_by=self.request.user)
 
     # ---- State transition actions ----
@@ -87,11 +89,12 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         from apps.assets.models import Asset
-        try:
-            asset = Asset.objects.get(id=serializer.validated_data['asset_id'])
-        except Asset.DoesNotExist:
+        asset = Asset.objects.filter(
+            id=serializer.validated_data['asset_id'], branch=task.branch,
+        ).first()
+        if not asset:
             return Response(
-                {'detail': '资产不存在'},
+                {'detail': '资产不存在或不属于本盘点任务分公司'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 

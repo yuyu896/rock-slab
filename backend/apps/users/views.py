@@ -62,8 +62,8 @@ class UserViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        if self.action in ('list', 'retrieve', 'set_system_avatar'):
-            return User.objects.select_related('branch', 'region', 'leader', 'created_by').all()
+        # 用户列表 / 详情 / 头像等均遵循数据范围隔离（admin 全量；其余为授权范围内 + 本人），
+        # 不再对 list/retrieve 全量放行，避免手机号（登录账号）向无权用户泄露。
         return _get_user_queryset(self.request.user)
 
     @audit_log(action='create', resource_type='User', description_template='创建用户')

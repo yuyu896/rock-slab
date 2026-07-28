@@ -70,3 +70,29 @@ class DataScopeMixin:
         if not q:
             return queryset.none()
         return queryset.filter(q).distinct()
+
+
+def _branch_id(value):
+    """Normalize a Branch instance / id / None to an id or None."""
+    if value is None:
+        return None
+    return value.id if hasattr(value, 'id') else value
+
+
+def validate_branches_in_scope(user, *branch_values):
+    """写操作前校验：给定分公司（Branch 实例或 id）必须都在用户管理授权范围内。
+
+    admin / 拥有「全部数据」授权的用户豁免；其余用户若任一目标分公司不在其
+    resolve_user_scope 的 branches 内，抛 ValidationError。用于流转、盘点等
+    写操作，防止越权改写其他区域的资产 / 库存。
+    """
+    from rest_framework.exceptions import ValidationError
+    from apps.permissions.scope import resolve_user_scope
+
+    scope = resolve_user_scope(user)
+    if scope.all:
+        return
+    targets = {_branch_id(v) for v in branch_values if _branch_id(v) is not None}
+    out_of_scope = targets - scope.branches
+    if out_of_scope:
+        raise ValidationError({'detail': '您只能操作授权范围内的分公司'})

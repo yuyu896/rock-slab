@@ -34,7 +34,7 @@ class ExpiringTokenAuthentication(authentication.TokenAuthentication):
         except self.model.DoesNotExist:
             raise exceptions.AuthenticationFailed('无效的认证令牌')
 
-        if not token.user.is_active:
+        if not token.user.is_active or token.user.status != 'active':
             raise exceptions.AuthenticationFailed('用户已被禁用')
 
         if token.is_expired:
