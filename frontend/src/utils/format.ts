@@ -2,12 +2,13 @@
 import { ROLE_LABELS, INVENTORY_STATUS_MAP, INVENTORY_RESULT_MAP, ENTITY_STATUS_LABELS } from '@/constants'
 import type { UserRoleType, InventoryTaskStatusType, InventoryItemResultType, EntityStatusType } from '@/types'
 
-/** 货币格式化 */
-export function formatMoney(value: number): string {
-  if (value >= 10000) {
-    return `¥${(value / 10000).toFixed(1)}万`
+/** 货币格式化（容错 DRF DecimalField 返回的字符串，如 "99.50"） */
+export function formatMoney(value: number | string): string {
+  const v = Number(value) || 0
+  if (v >= 10000) {
+    return `¥${(v / 10000).toFixed(1)}万`
   }
-  return `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+  return `¥${v.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
 
 /** 日期格式化 (YYYY-MM-DD) */

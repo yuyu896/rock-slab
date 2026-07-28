@@ -1,6 +1,6 @@
 /* 磐盘 - 资产 API */
 import request from '@/utils/request'
-import type { Asset, PaginatedResponse, PaginationParams } from '@/types'
+import type { Asset, FixedAsset, PaginatedResponse, PaginationParams } from '@/types'
 
 export function getAssets(params?: PaginationParams & {
   branch?: string
@@ -56,11 +56,11 @@ export function getFixedAssets(params?: PaginationParams & {
   资产名称?: string
   ordering?: string
 }) {
-  return request.get<PaginatedResponse<Record<string, any>>>('/api/assets/fixed-assets', { params })
+  return request.get<PaginatedResponse<FixedAsset>>('/api/assets/fixed-assets', { params })
 }
 
-export function updateFixedAsset(id: string, data: Record<string, any>) {
-  return request.patch<Record<string, any>>(`/api/assets/fixed-assets/${id}`, data)
+export function updateFixedAsset(id: string, data: Partial<FixedAsset>) {
+  return request.patch<FixedAsset>(`/api/assets/fixed-assets/${id}`, data)
 }
 
 export function deleteFixedAsset(id: string) {
@@ -86,8 +86,8 @@ export function exportFixedAssets(params?: Record<string, string>) {
 }
 
 /** 新增固定资产 */
-export function createFixedAsset(data: Record<string, any>) {
-  return request.post<Record<string, any>>('/api/assets/fixed-assets', data)
+export function createFixedAsset(data: Partial<FixedAsset>) {
+  return request.post<FixedAsset>('/api/assets/fixed-assets', data)
 }
 
 /** 下载固定资产导入模板 */

@@ -278,6 +278,35 @@ export interface InventoryItem {
   updatedAt: string
 }
 
+/** 固定资产实例（对照后端 FixedAssetSerializer，中文字段名保持原样） */
+export interface FixedAsset {
+  id: string
+  内部编号?: string
+  资产编号: string
+  资产类目?: string
+  资产名称: string
+  序列号: string
+  供应商?: string
+  使用人?: string
+  所属部门?: string
+  当前状态?: string
+  分公司?: string
+  分公司编号?: string
+  branch?: string
+  branchName?: string
+  入库日期?: string
+  是否租用?: boolean
+  数量?: number
+  规格?: string
+  单价?: number | string
+  购入金额?: number | string
+  出库日期?: string
+  物品分类?: string
+  备注?: string
+  createdAt: string
+  updatedAt: string
+}
+
 /** 盘点记录 */
 export interface InventoryCheck {
   id: string

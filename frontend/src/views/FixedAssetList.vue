@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getFixedAssets, updateFixedAsset, deleteFixedAsset, batchDeleteFixedAssets, importFixedAssets, exportFixedAssets, downloadFixedAssetTemplate } from '@/api/assets'
+import type { FixedAsset } from '@/types'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -21,7 +22,7 @@ const filters = ref({
 
 const pagination = ref({ page: 1, pageSize: 20, total: 0 })
 const loading = ref(false)
-const assets = ref<any[]>([])
+const assets = ref<FixedAsset[]>([])
 
 const statusOptions = [
   { value: '', label: '全部状态' },
@@ -105,11 +106,11 @@ function openCreatePage() {
 }
 
 // ── 编辑 ──
-const editingAsset = ref<any>(null)
+const editingAsset = ref<FixedAsset | null>(null)
 const showEditModal = ref(false)
 const saving = ref(false)
 
-function openEdit(asset: any) {
+function openEdit(asset: FixedAsset) {
   editingAsset.value = { ...asset }
   showEditModal.value = true
 }
@@ -137,7 +138,7 @@ async function handleUpdate() {
 }
 
 // ── 删除 ──
-async function handleDelete(asset: any) {
+async function handleDelete(asset: FixedAsset) {
   try {
     await ElMessageBox.confirm(
       `确定删除「${asset.内部编号}」？此操作不可恢复`,
@@ -380,7 +381,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <td><span class="date-text">{{ item.出库日期 || '-' }}</span></td>
             <td>{{ item.所属部门 || '-' }}</td>
             <td>{{ item.使用人 || '-' }}</td>
-            <td><StatusBadge :status="item.当前状态" /></td>
+            <td><StatusBadge :status="item.当前状态 || ''" /></td>
             <td class="action-col">
               <button class="action-btn" title="打印标签" @click="printSingleLabel(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
