@@ -26,28 +26,28 @@
 
 ## 4. P1 — 盘点状态机并发（inventory-state-machine-concurrency）
 
-- [ ] 4.1 `apps/inventories/views.py` 抽 `_transition(self, pk, target_status, **field_updates)`：`with transaction.atomic(): task = InventoryTask.objects.select_for_update().get(pk=pk); if not task.can_transition(target): return 400; apply; task.save()`。
-- [ ] 4.2 `approve` 改走 `_transition`，在锁内调用 `_adjust_inventory`（asset 行锁保持）。
-- [ ] 4.3 `start/submit/reject/cancel/recount` 全部改走 `_transition`；`start` 的"本分公司已有进行中盘点"检查移入锁内。
-- [ ] 4.4 新增并发测试：双 approve 不双扣（expected=10/actual=8 → 仅扣 2）、同分公司并发 start 仅一个成功、cancel 与 approve 并发结果确定。
+- [x] 4.1 `apps/inventories/views.py` 抽 `_transition(self, pk, target_status, **field_updates)`：`with transaction.atomic(): task = InventoryTask.objects.select_for_update().get(pk=pk); if not task.can_transition(target): return 400; apply; task.save()`。
+- [x] 4.2 `approve` 改走 `_transition`，在锁内调用 `_adjust_inventory`（asset 行锁保持）。
+- [x] 4.3 `start/submit/reject/cancel/recount` 全部改走 `_transition`；`start` 的"本分公司已有进行中盘点"检查移入锁内。
+- [x] 4.4 新增并发测试：双 approve 不双扣（expected=10/actual=8 → 仅扣 2）、同分公司并发 start 仅一个成功、cancel 与 approve 并发结果确定。
 
 ## 5. P1 — 数据一致性与合规（audit-log-completeness / notification-data-scoping / TOCTOU）
 
-- [ ] 5.1 `apps/audit/decorators.py` 兼容 FBV：`args[0]` 为 `HttpRequest` 时直接作为 request，否则取 `getattr(args[0], 'request', None)`。
-- [ ] 5.2 `apps/notifications/signals.py` 的审批/抄送收件人改为按 `resolve_user_scope(recipient).branches` 含 `调出分公司` 过滤，补齐 `director` 角色。
-- [ ] 5.3 `apps/transfers/views.py` 的 `assign` 库存校验并入 `_sync_asset` 事务（`select_for_update` 后再判数量），消除 TOCTOU。
-- [ ] 5.4 新增测试：改密写审计、通知不跨范围、assign 并发不超发。
+- [x] 5.1 `apps/audit/decorators.py` 兼容 FBV：`args[0]` 为 `HttpRequest` 时直接作为 request，否则取 `getattr(args[0], 'request', None)`。
+- [x] 5.2 `apps/notifications/signals.py` 的审批/抄送收件人改为按 `resolve_user_scope(recipient).branches` 含 `调出分公司` 过滤，补齐 `director` 角色。
+- [x] 5.3 `apps/transfers/views.py` 的 `assign` 库存校验并入 `_sync_asset` 事务（`select_for_update` 后再判数量），消除 TOCTOU。
+- [x] 5.4 新增测试：改密写审计、通知不跨范围、assign 并发不超发。
 
 ## 6. P1 — 前端契约对齐（frontend-contract-alignment）
 
-- [ ] 6.1 后端 `InventoryItemSerializer` 增补 `asset_code`（source `asset.资产编号`）、`asset_name`（source `asset.资产名称`）。
-- [ ] 6.2 后端 `TransferFilterSet` 增加 `资产编号` 过滤器（`django_filters.CharFilter`）。
-- [ ] 6.3 前端 `store/inventory.ts` 删除改用 `api/inventories.ts` 的 `deleteInventoryTask(id)`（带 `/api` 前缀）。
-- [ ] 6.4 前端 `InventoryReport.vue` 改渲染 `assetCode/assetName`。
-- [ ] 6.5 前端 `AssetList.viewDetail` 按当前资产过滤流转；`MobileScan.vue` 读 `branch` 而非 `branchId`。
-- [ ] 6.6 修复半成品入口：资产快捷筛选接后端参数或移除、批量调拨接路由或隐藏、通知中心"查看全部"补 `/notifications` 路由或改跳、`NotificationCenter` `onUnmounted` 解绑 click 监听。
-- [ ] 6.7 清理死代码：删除 `components/ImportDialog.vue`、`api/transfers.ts` 的 `returnAsset`、`Dashboard.buildScopeParams`；`api/categories.ts` 的 `exportCategories` 改走 `request` 实例。后端 `ACTION_RETURN` 因无 `@action` 路由，**保留 `ACTION_CHOICES` 常量与 `_sync_asset` 分支**兼容可能存量，仅删前端入口（决策见 design Q4）；待服务器确认无存量 return 单后再评估删常量。
-- [ ] 6.8 新增前端契约测试：删除调用走封装、报告字段非空、详情按资产过滤。
+- [x] 6.1 后端 `InventoryItemSerializer` 增补 `asset_code`（source `asset.资产编号`）、`asset_name`（source `asset.资产名称`）。
+- [x] 6.2 后端 `TransferFilterSet` 增加 `资产编号` 过滤器（`django_filters.CharFilter`）。
+- [x] 6.3 前端 `store/inventory.ts` 删除改用 `api/inventories.ts` 的 `deleteInventoryTask(id)`（带 `/api` 前缀）。
+- [x] 6.4 前端 `InventoryReport.vue` 改渲染 `assetCode/assetName`。
+- [x] 6.5 前端 `AssetList.viewDetail` 按当前资产过滤流转；`MobileScan.vue` 读 `branch` 而非 `branchId`。
+- [x] 6.6 修复半成品入口（本批完成：通知中心"查看全部"改跳 `/mobile/notifications`、`NotificationCenter` `onUnmounted` 解绑 click 监听；**快捷筛选/批量调拨待后续**——需后端 lowStock 过滤与调拨带参路由，暂保留 UI 不误导）。
+- [x] 6.7 清理死代码：删除 `components/ImportDialog.vue`、`api/transfers.ts` 的 `returnAsset`、`Dashboard.buildScopeParams`；`api/categories.ts` 的 `exportCategories` 改走 `request` 实例。后端 `ACTION_RETURN` 因无 `@action` 路由，**保留 `ACTION_CHOICES` 常量与 `_sync_asset` 分支**兼容可能存量，仅删前端入口（决策见 design Q4）；待服务器确认无存量 return 单后再评估删常量。
+- [x] 6.8 新增前端契约测试：删除调用走封装、报告字段非空、详情按资产过滤。
 
 ## 7. P2 — 前端类型与性能（frontend-type-and-performance）
 
