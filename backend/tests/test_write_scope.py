@@ -1,0 +1,110 @@
+"""
+写操作数据范围校验回归测试（write-authorization-scoping）。
+
+验证：即便业务发起（流转/盘点创建）按产品设计对所有登录用户开放，操作者也只能
+作用于其授权范围内的分公司——跨范围写操作必须被拒；盘点 check 提交跨范围资产必须 404。
+"""
+import pytest
+from conftest import _client_for
+
+
+@pytest.mark.django_db
+class TestWriteScopeEnforcement:
+    def test_transfer_create_out_of_scope_rejected(self, staff_user, second_branch):
+        # staff_user 授权范围 = fixture branch，对第二分公司发起调拨应被拒
+        client = _client_for(staff_user)
+        resp = client.post('/api/transfers/transfer', {
+            '调拨日期': '2026-01-15',
+            '资产编号': 'SCOPE-OUT-001',
+            '资产名称': '越权调拨',
+            '调出分公司': second_branch.name,
+            '调入分公司': second_branch.name,
+            '调拨数量': 1,
+            'action_type': 'transfer',
+        }, format='json')
+        assert resp.status_code == 400
+
+    def test_transfer_create_in_scope_allowed(self, staff_user, branch):
+        # staff_user 对自己授权分公司发起调拨应通过 scope 校验
+        client = _client_for(staff_user)
+        resp = client.post('/api/transfers/transfer', {
+            '调拨日期': '2026-01-15',
+            '资产编号': 'SCOPE-IN-001',
+            '资产名称': '范围内调拨',
+            '调出分公司': branch.name,
+            '调入分公司': branch.name,
+            '调拨数量': 1,
+            'action_type': 'transfer',
+        }, format='json')
+        assert resp.status_code == 201
+
+    def test_inventory_create_out_of_scope_rejected(self, staff_user, second_branch):
+        client = _client_for(staff_user)
+        resp = client.post('/api/inventories/', {
+            'name': '越权盘点',
+            'branch': second_branch.id,
+        }, format='json')
+        assert resp.status_code == 400
+
+    def test_check_asset_out_of_branch_rejected(
+        self, staff_user, admin_user, branch, second_branch,
+    ):
+        """盘点 check 提交不属于任务分公司的资产 → 404（IDOR 修复）。"""
+        from apps.assets.models import Asset
+        asset = Asset.objects.create(
+            序号=901, 资产编号='CROSS-CHECK-001', 资产名称='跨范围资产',
+            资产类目='固定', 物品分类='办公',
+            分公司=second_branch.name, 分公司编号=second_branch.code,
+            branch=second_branch, 数量=5, 当前状态='在库',
+        )
+        client_admin = _client_for(admin_user)
+        resp = client_admin.post('/api/inventories/', {'name': '跨范围盘点', 'branch': branch.id})
+        assert resp.status_code == 201
+        task_id = resp.data['id']
+        assert client_admin.post(f'/api/inventories/{task_id}/start').status_code == 200
+
+        client_staff = _client_for(staff_user)
+        resp = client_staff.post(f'/api/inventories/{task_id}/check', {
+            'assetId': str(asset.id), 'qty': 1,
+        }, format='json')
+        assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+class TestWritePermissionBaseline:
+    """关键写 action 权限声明基线（防回归）。
+
+    业务发起 action（purchase/assign/return/transfer/recovery）按产品设计对所有登录
+    用户开放，不在本约束内；审批 / 入库 / 导入类必须声明权限码。
+    """
+
+    def test_transfer_sensitive_actions_declared(self):
+        from apps.transfers.views import TransferViewSet
+        required = TransferViewSet.required_operations
+        for action in ('import_excel', 'approve', 'warehouse'):
+            assert action in required, f'transfers.{action} 必须在 required_operations 中声明'
+
+    def test_assets_edit_actions_declared(self):
+        from apps.assets.views import AssetViewSet
+        required = AssetViewSet.required_operations
+        for action in ('update', 'partial_update', 'destroy', 'import_excel', 'batch_delete'):
+            assert action in required, f'assets.{action} 必须在 required_operations 中声明'
+
+
+@pytest.mark.django_db
+class TestUserDirectoryScoping:
+    """用户列表 / 详情按数据范围隔离（write-authorization-scoping R4）。"""
+
+    def test_non_admin_list_users_excludes_out_of_scope(self, staff_user, staff_b):
+        # staff_user 仅见授权范围内 + 本人，看不到另一区域的 staff_b
+        client = _client_for(staff_user)
+        resp = client.get('/api/users/')
+        assert resp.status_code == 200
+        ids = {str(u['id']) for u in resp.data}
+        assert str(staff_user.id) in ids
+        assert str(staff_b.id) not in ids
+
+    def test_non_admin_retrieve_out_of_scope_user_404(self, staff_user, staff_b):
+        client = _client_for(staff_user)
+        resp = client.get(f'/api/users/{staff_b.id}')
+        assert resp.status_code == 404

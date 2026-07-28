@@ -8,7 +8,7 @@
 
 | 层级 | 技术 |
 |------|------|
-| 后端 | Python 3.11, Django 5.1, Django REST Framework |
+| 后端 | Python 3.13, Django 5.1, Django REST Framework |
 | 前端 | Vue 3.5+ (Composition API), TypeScript 5.7, Vite 6.2+ |
 | UI 库 | Element Plus (中文locale) |
 | 状态管理 | Pinia 3.0 |
@@ -79,10 +79,10 @@ bash deploy.sh            # git pull → docker build → migrate → collectsta
 - **模型字段**: Django 模型使用**中文字段名** (如 `分公司`、`资产名称`、`当前状态`)，这是有意为之的设计
 - **JSON 序列化**: 使用 `djangorestframework-camel-case`，后端 snake_case/中文 → 前端 camelCase
 - **URL 风格**: `trailing_slash=False`, `APPEND_SLASH = False`
-- **权限系统**: 5 级角色体系 admin(L1) > manager(L2) > supervisor(L3) > leader(L4) > staff(L5)
+- **权限系统**: 6 级角色体系 admin(L1) > director(L2) > manager(L3) > supervisor(L4) > leader(L5) > staff(L6)
 - **数据隔离**: `DataScopeMixin` 根据角色自动过滤查询集
 - **所有模型**: 继承 `UUIDModel` (UUID主键) + `TimestampedModel` (created_at, updated_at)
-- **认证**: 手机号+密码登录, 自定义 `ExpiringToken` (30天过期)
+- **认证**: 手机号+密码登录, 自定义 `ExpiringToken` (7天过期，`TOKEN_EXPIRATION_DAYS`)
 
 ### 前端
 - **样式**: 纯 CSS + 自定义属性，变量定义在 `styles/variables.css`，主色为暖绿色 oklch 色板，无 Tailwind
@@ -94,7 +94,7 @@ bash deploy.sh            # git pull → docker build → migrate → collectsta
 - **深色模式**: 通过 `prefers-color-scheme: dark` 媒体查询支持
 
 ### 资产流转 (核心业务)
-6 种操作类型: purchase(采购入库), assign(领用), return(退回), transfer(调拨), repair(维修), scrap(报废)
+5 种操作类型: purchase(采购入库), assign(领用), return(归还), transfer(调拨), recovery(回收)
 - 每种类型有不同的审批流程和状态转换
 - 资产本身不可直接修改，只能通过流转操作间接更新
 

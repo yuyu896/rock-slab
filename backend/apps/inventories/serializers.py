@@ -3,10 +3,14 @@ from .models import InventoryTask, InventoryItem, InventoryCheck
 
 
 class InventoryItemSerializer(serializers.ModelSerializer):
+    asset_code = serializers.CharField(source='asset.资产编号', read_only=True)
+    asset_name = serializers.CharField(source='asset.资产名称', read_only=True)
+
     class Meta:
         model = InventoryItem
         fields = [
-            'id', 'task', 'asset', 'expected_qty', 'actual_qty',
+            'id', 'task', 'asset', 'asset_code', 'asset_name',
+            'expected_qty', 'actual_qty',
             'result', 'check_count', 'checked_by', 'checked_at',
             'remarks', 'created_at', 'updated_at',
         ]

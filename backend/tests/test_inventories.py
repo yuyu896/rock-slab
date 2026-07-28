@@ -122,6 +122,7 @@ class TestCheckItem:
             物品分类='测试分类',
             分公司=in_progress_task.branch.name if in_progress_task.branch else '',
             分公司编号='CS001',
+            branch=in_progress_task.branch,
             数量=10,
             当前状态='在库',
         )

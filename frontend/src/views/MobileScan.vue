@@ -138,7 +138,7 @@ async function fetchTaskData() {
     taskInfo.value = {
       id: taskId,
       name: taskRes.data.name,
-      branch: taskRes.data.branchId || '',
+      branch: taskRes.data.branch || '',
       totalItems: progressRes.data.totalItems,
       checkedItems: progressRes.data.checkedItems,
       surplusCount: progressRes.data.surplusCount,

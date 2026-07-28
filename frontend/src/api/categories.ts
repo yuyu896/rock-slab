@@ -1,5 +1,5 @@
 /* 磐盘 - 资产类目 API */
-import request, { TOKEN_KEY } from '@/utils/request'
+import request from '@/utils/request'
 import type { Category, CategoryRequest } from '@/types'
 
 export function getCategories(params?: { 资产类目?: string; 物品分类?: string; keyword?: string; page?: number; pageSize?: number }) {
@@ -44,21 +44,16 @@ export function downloadCategoryTemplate() {
   return request.get<Blob>('/api/categories/template', { responseType: 'blob' })
 }
 
-/** 导出分类数据为 Excel */
-export function exportCategories(params?: { 资产类目?: string; keyword?: string }) {
-  const query = new URLSearchParams()
-  if (params?.资产类目) query.set('资产类目', params.资产类目)
-  if (params?.keyword) query.set('keyword', params.keyword)
-  const url = `/api/categories/export${query.toString() ? '?' + query.toString() : ''}`
-  const token = localStorage.getItem(TOKEN_KEY) || ''
-  fetch(url, { headers: { Authorization: `Token ${token}` } })
-    .then(res => res.blob())
-    .then(blob => {
-      const blobUrl = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = '分类数据导出.xlsx'
-      link.click()
-      URL.revokeObjectURL(blobUrl)
-    })
+/** 导出分类数据为 Excel（走统一请求实例，401/400 由拦截器处理） */
+export async function exportCategories(params?: { 资产类目?: string; keyword?: string }) {
+  const { data: blob } = await request.get<Blob>('/api/categories/export', {
+    params,
+    responseType: 'blob',
+  })
+  const blobUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = blobUrl
+  link.download = '分类数据导出.xlsx'
+  link.click()
+  URL.revokeObjectURL(blobUrl)
 }

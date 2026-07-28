@@ -11,7 +11,7 @@ def _user_payload(**overrides):
         name='新建用户',
         role='staff',
         status='active',
-        password='123456',
+        password='test123456',
     )
     defaults.update(overrides)
     return defaults
@@ -247,11 +247,11 @@ class TestSystemAvatar:
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_set_system_avatar_non_owner_forbidden(self, staff_user, admin_user):
-        # staff cannot set another user's system avatar → 403
+    def test_set_system_avatar_non_owner_forbidden(self, staff_user, leader_user):
+        # staff 不能改同范围内非本人用户的头像 → 403（avatar 的 owner 二次校验）
         client = _client_for(staff_user)
         resp = client.post(
-            f'/api/users/{admin_user.id}/system-avatar',
+            f'/api/users/{leader_user.id}/system-avatar',
             {'system_avatar': 'geo-2'},
             format='json',
         )

@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
-from core.permissions import DataScopeMixin
+from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
 from .models import Transfer
@@ -27,7 +27,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     # 调拨按「调出 / 调入」双向分公司过滤
     scope_transfer_fields = ('from_branch', 'to_branch')
     # 审批要求 approve_transfer；入库确认要求 manage_assets；其余读写无声明即放行
+    # 业务发起（purchase/assign/return/transfer/recovery）对所有登录用户开放
+    # （员工申请领用 / 采购），数据范围由 _create_action 内 validate_branches_in_scope 控制；
+    # 审批 / 入库 / 导入需授权。
     required_operations = {
+        'import_excel': 'manage_assets',
         'approve': 'approve_transfer',
         'warehouse': 'manage_assets',
     }
@@ -97,6 +101,9 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             data['调出分公司'] = from_branch.name
         if to_branch and not data.get('调入分公司'):
             data['调入分公司'] = to_branch.name
+
+        # 写操作越权校验：调出 / 调入分公司必须在操作者授权范围内（admin 豁免）
+        validate_branches_in_scope(request.user, from_branch, to_branch)
 
         # Check inventory lock on both source and target branches
         self._check_inventory_lock(
@@ -303,13 +310,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     self._apply_warehouse_stock(locked)
                     locked.审批状态 = '已入库'
                 elif locked.action_type == Transfer.ACTION_ASSIGN:
-                    # 领用出库：校验库存是否足够
+                    # 领用出库：校验库存是否足够（行锁，消除与 _sync_asset 的 TOCTOU）
                     from apps.assets.models import Asset
                     from_branch = locked.from_branch
                     asset = (
-                        Asset.objects.filter(资产编号=locked.资产编号, branch=from_branch).first()
+                        Asset.objects.select_for_update().filter(资产编号=locked.资产编号, branch=from_branch).first()
                     ) if from_branch else (
-                        Asset.objects.filter(资产编号=locked.资产编号).first()
+                        Asset.objects.select_for_update().filter(资产编号=locked.资产编号).first()
                     )
                     if not asset or (asset.数量 or 0) < (locked.调拨数量 or 1):
                         locked.审批状态 = '待审批'
@@ -358,10 +365,17 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(TransferSerializer(transfer).data)
 
     def perform_update(self, serializer):
+        from rest_framework.exceptions import ValidationError
         # 仅「已驳回」的流转可编辑（驳回后修正重提）
         if serializer.instance.审批状态 != '已驳回':
-            from rest_framework.exceptions import ValidationError
             raise ValidationError({'detail': '仅已驳回的记录可编辑'})
+        # 越权校验：编辑后的调出 / 调入分公司必须在操作者授权范围内
+        data = serializer.validated_data
+        validate_branches_in_scope(
+            self.request.user,
+            data.get('from_branch', serializer.instance.from_branch),
+            data.get('to_branch', serializer.instance.to_branch),
+        )
         serializer.save()
 
     ACTION_TYPE_MAP = {

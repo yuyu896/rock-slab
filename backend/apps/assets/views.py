@@ -38,7 +38,7 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
-    # 写操作要求 manage_assets；读/导出无声明即放行（范围由 DataScopeMixin 控制）
+    # 资产创建对所有登录用户开放（min_role staff 语义）；编辑/删除/导入需 manage_assets
     required_operations = {
         'update': 'manage_assets',
         'partial_update': 'manage_assets',

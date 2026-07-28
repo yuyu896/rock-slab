@@ -102,7 +102,7 @@ defineExpose({ open })
               </thead>
               <tbody>
                 <tr v-for="item in reportData.items" :key="item.id">
-                  <td>{{ item.assetId }}</td>
+                  <td>{{ item.assetCode ?? '-' }}</td>
                   <td>{{ item.assetName ?? '-' }}</td>
                   <td>{{ item.expectedQty }}</td>
                   <td>{{ item.actualQty ?? '-' }}</td>

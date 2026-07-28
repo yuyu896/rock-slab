@@ -15,8 +15,9 @@ import {
   getInventoryChecks,
   startInventory,
   submitInventory,
+  deleteInventoryTask,
 } from '@/api/inventories'
-import request, { handleApiError } from '@/utils/request'
+import { handleApiError } from '@/utils/request'
 import type {
   InventoryTask,
   InventoryReport,
@@ -75,7 +76,7 @@ export const useInventoryStore = defineStore('inventory', () => {
   }
 
   async function deleteTask(id: string) {
-    await request.delete(`/inventories/${id}`)
+    await deleteInventoryTask(id)
     await fetchTasks()
   }
 

@@ -7,6 +7,7 @@ class TransferFilterSet(django_filters.FilterSet):
     fromBranch = django_filters.CharFilter(field_name='调出分公司')
     toBranch = django_filters.CharFilter(field_name='调入分公司')
     type = django_filters.CharFilter(field_name='action_type')
+    assetCode = django_filters.CharFilter(field_name='资产编号')
     keyword = django_filters.CharFilter(method='filter_keyword')
 
     ordering = django_filters.OrderingFilter(fields=(
