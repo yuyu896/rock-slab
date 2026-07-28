@@ -310,13 +310,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     self._apply_warehouse_stock(locked)
                     locked.审批状态 = '已入库'
                 elif locked.action_type == Transfer.ACTION_ASSIGN:
-                    # 领用出库：校验库存是否足够
+                    # 领用出库：校验库存是否足够（行锁，消除与 _sync_asset 的 TOCTOU）
                     from apps.assets.models import Asset
                     from_branch = locked.from_branch
                     asset = (
-                        Asset.objects.filter(资产编号=locked.资产编号, branch=from_branch).first()
+                        Asset.objects.select_for_update().filter(资产编号=locked.资产编号, branch=from_branch).first()
                     ) if from_branch else (
-                        Asset.objects.filter(资产编号=locked.资产编号).first()
+                        Asset.objects.select_for_update().filter(资产编号=locked.资产编号).first()
                     )
                     if not asset or (asset.数量 or 0) < (locked.调拨数量 or 1):
                         locked.审批状态 = '待审批'

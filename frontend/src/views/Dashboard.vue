@@ -31,19 +31,6 @@ const pendingTasks = ref<any[]>([])
 const pendingInventoryTasks = ref<any[]>([])
 const recentActivities = ref<any[]>([])
 
-// 根据用户角色构建数据范围参数
-function buildScopeParams(): Record<string, string> {
-  const user = userStore.profile
-  if (!user) return {}
-  const role = user.role
-  if (role === 'admin' || role === 'director' || role === 'manager') return {}
-  if (role === 'supervisor') {
-    return user.region ? { region: user.region } : {}
-  }
-  // leader / staff
-  return user.branch ? { branch: user.branch } : {}
-}
-
 // 动态问候语
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -80,13 +67,12 @@ function getTransferTypeName(actionType?: string): string {
 async function fetchDashboardData() {
   loading.value = true
   try {
-    const scope = buildScopeParams()
     const [overviewRes, branchRes, statusRes, transfersRes, inventoriesRes] = await Promise.all([
-      getOverview(scope),
-      getByBranch(scope),
-      getByStatus(scope),
-      getTransfers({ status: '待审批', pageSize: 5, ...scope }),
-      getInventoryTasks({ status: 'pending,in_progress', pageSize: 5, ...scope }).catch(() => ({ data: { count: 0, results: [] } })),
+      getOverview(),
+      getByBranch(),
+      getByStatus(),
+      getTransfers({ status: '待审批', pageSize: 5 }),
+      getInventoryTasks({ status: 'pending,in_progress', pageSize: 5 }).catch(() => ({ data: { count: 0, results: [] } })),
     ])
     const overview = overviewRes.data
     stats.value = {

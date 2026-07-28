@@ -77,7 +77,7 @@ async function viewDetail(asset: Asset) {
   detailLoading.value = true
   try {
     // 获取流转历史
-    const { data } = await getTransfers({ pageSize: 50 })
+    const { data } = await getTransfers({ assetCode: asset.资产编号, pageSize: 50 })
     detailTransfers.value = data.results || []
   } catch {
     detailTransfers.value = []

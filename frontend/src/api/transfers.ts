@@ -7,6 +7,7 @@ export function getTransfers(params?: PaginationParams & {
   fromBranch?: string
   toBranch?: string
   type?: string
+  assetCode?: string
   keyword?: string
   createdAt__gte?: string
 }) {
@@ -30,11 +31,6 @@ export function purchaseAsset(data: Partial<Transfer> & { draft?: boolean }) {
 /** 资产领用 */
 export function assignAsset(data: Partial<Transfer>) {
   return request.post<Transfer>('/api/transfers/assign', data)
-}
-
-/** 资产归还 */
-export function returnAsset(data: Partial<Transfer>) {
-  return request.post<Transfer>('/api/transfers/return', data)
 }
 
 /** 资产调拨 */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotificationStore } from '@/store/notification'
 
@@ -84,6 +84,10 @@ onMounted(() => {
   notificationStore.init()
   document.addEventListener('click', handleClickOutside)
 })
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>
@@ -165,7 +169,7 @@ onMounted(() => {
 
         <!-- 底部 -->
         <div class="dropdown-footer">
-          <router-link to="/notifications" @click="closeDropdown">
+          <router-link to="/mobile/notifications" @click="closeDropdown">
             查看全部消息
           </router-link>
         </div>

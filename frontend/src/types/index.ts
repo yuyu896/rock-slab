@@ -246,6 +246,7 @@ export interface InventoryTask {
   id: string
   name: string
   branchId?: string
+  branch?: string
   categoryId?: string
   status: InventoryTaskStatusType
   missedRule: MissedRuleType

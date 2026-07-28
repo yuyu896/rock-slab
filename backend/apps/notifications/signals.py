@@ -10,12 +10,35 @@ from apps.users.models import User
 from .models import Notification, ApprovalCC
 
 
+def _users_with_branch_access(branch, roles):
+    """返回对指定分公司有数据范围授权的指定角色用户（admin 全量）。
+
+    branch 可为 Branch 实例、id 或名称字符串；为空时退化为按角色的全量候选
+    （避免因分公司信息缺失而漏发审批通知）。
+    """
+    from apps.organizations.models import Branch
+    from apps.permissions.scope import resolve_user_scope
+
+    if isinstance(branch, str):
+        branch = Branch.objects.filter(name=branch).first()
+    elif isinstance(branch, int):
+        branch = Branch.objects.filter(id=branch).first()
+
+    candidates = User.objects.filter(role__in=roles, status='active')
+    if branch is None:
+        return list(candidates)
+    result = []
+    for u in candidates:
+        scope = resolve_user_scope(u)
+        if scope.all or branch.id in scope.branches:
+            result.append(u)
+    return result
+
+
 def get_approvers_for_branch(branch_name):
-    """获取有权限审批某分公司的用户"""
-    # 审批权限：supervisor 及以上
-    return User.objects.filter(
-        role__in=['admin', 'director', 'manager', 'supervisor'],
-        status='active',
+    """获取对某分公司有数据范围授权的审批人（supervisor 及以上）。"""
+    return _users_with_branch_access(
+        branch_name, ['admin', 'director', 'manager', 'supervisor'],
     )
 
 
@@ -84,10 +107,9 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                     related_object_id=instance.id,
                 )
 
-        # 2. 抄送给所有行政经理
-        managers = User.objects.filter(
-            role__in=['manager', 'director'],
-            status='active',
+        # 2. 抄送给对该调拨分公司有授权的行政经理
+        managers = _users_with_branch_access(
+            instance.调出分公司, ['manager', 'director'],
         )
 
         action_display = dict(Transfer.ACTION_CHOICES).get(
@@ -176,9 +198,8 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
 
     # 提交审核时通知审批人
     if instance.status == 'pending_review':
-        approvers = User.objects.filter(
-            role__in=['admin', 'director', 'manager', 'supervisor'],
-            status='active',
+        approvers = _users_with_branch_access(
+            instance.branch, ['admin', 'director', 'manager', 'supervisor'],
         )
 
         for approver in approvers:
@@ -195,11 +216,10 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
                 related_object_id=instance.id,
             )
 
-    # 审批通过后抄送给行政经理
+    # 审批通过后抄送给对该盘点分公司有授权的行政经理
     if instance.status == 'completed':
-        managers = User.objects.filter(
-            role__in=['manager', 'director'],
-            status='active',
+        managers = _users_with_branch_access(
+            instance.branch, ['manager', 'director'],
         )
 
         for manager in managers:

@@ -24,9 +24,19 @@ def audit_log(action, resource_type=None, description_template=None):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # 获取 view 和 request 对象
-            view = args[0] if args else None
-            request = getattr(view, 'request', None)
+            # 获取 view 和 request 对象（兼容 ViewSet 方法与函数视图）
+            first = args[0] if args else None
+            if first is not None and hasattr(first, 'request'):
+                # ViewSet 方法：args[0] 是 self，request 取自 self.request
+                view = first
+                request = first.request
+            elif first is not None and hasattr(first, 'user'):
+                # 函数视图（如 change_password_view）：args[0] 是 HttpRequest 本身
+                view = None
+                request = first
+            else:
+                view = first
+                request = getattr(first, 'request', None) if first is not None else None
 
             # 记录执行前状态（用于 update 操作）
             before_data = None

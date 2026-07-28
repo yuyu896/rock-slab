@@ -44,6 +44,27 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         validate_branches_in_scope(self.request.user, serializer.validated_data.get('branch'))
         serializer.save(created_by=self.request.user)
 
+    def _transition(self, pk, target_status, before_save=None, **field_updates):
+        """状态机转换：事务内锁定任务行 + 二次状态校验后应用转换，防并发竞态
+        （如双 approve 导致库存双扣）。before_save(task) 在锁内、字段写入前调用，
+        用于需持锁的副作用（库存调整 / 生成盘点项等）；其内 raise ValidationError
+        会回滚事务并返回 400。返回 (task, error_response)，后者非 None 时直接返回。
+        """
+        from django.db import transaction
+        with transaction.atomic():
+            task = InventoryTask.objects.select_for_update().get(pk=pk)
+            if not task.can_transition(target_status):
+                return task, Response(
+                    {'detail': f'当前状态「{task.get_status_display()}」无法执行此操作'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if before_save is not None:
+                before_save(task)
+            for field, value in field_updates.items():
+                setattr(task, field, value)
+            task.save()
+            return task, None
+
     # ---- State transition actions ----
 
     @action(detail=True, methods=['post'])
@@ -56,21 +77,23 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 {'detail': f'无法从 {task.get_status_display()} 开始盘点'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Check concurrent inventory for same branch
-        if task.branch:
-            active = InventoryTask.objects.filter(
-                branch=task.branch,
-                status__in=['in_progress', 'pending_review'],
-            ).exclude(pk=task.pk).exists()
-            if active:
-                return Response(
-                    {'detail': f'分公司「{task.branch.name}」已有进行中的盘点任务，不可同时盘点'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        task.status = 'in_progress'
-        task.started_at = timezone.now()
-        task.save(update_fields=['status', 'started_at', 'updated_at'])
 
+        def _check_and_prep(t):
+            # 锁内复查同分公司是否已有进行中盘点，缩小并发窗口
+            if t.branch and InventoryTask.objects.filter(
+                branch=t.branch, status__in=['in_progress', 'pending_review'],
+            ).exclude(pk=t.pk).exists():
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError(
+                    {'detail': f'分公司「{t.branch.name}」已有进行中的盘点任务，不可同时盘点'}
+                )
+            t.started_at = timezone.now()
+
+        task, err = self._transition(
+            pk, 'in_progress', before_save=_check_and_prep, status='in_progress',
+        )
+        if err:
+            return err
         # Create inventory items from assets in scope
         self._generate_items(task)
         return Response(InventoryTaskSerializer(task).data)
@@ -144,31 +167,40 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 {'detail': f'无法从 {task.get_status_display()} 提交审核'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Apply missed rule to unchecked items before submission
-        self._apply_missed_rule(task)
-        task.status = 'pending_review'
-        task.submitted_at = timezone.now()
-        task.save(update_fields=['status', 'submitted_at', 'updated_at'])
+
+        def _prep(t):
+            # Apply missed rule to unchecked items before submission
+            self._apply_missed_rule(t)
+            t.submitted_at = timezone.now()
+
+        task, err = self._transition(
+            pk, 'pending_review', before_save=_prep, status='pending_review',
+        )
+        if err:
+            return err
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='InventoryTask', description_template='审批盘点任务')
     def approve(self, request, pk=None):
-        """审核通过: pending_review -> completed（事务内调整库存与状态，保证原子）"""
-        from django.db import transaction
-
+        """审核通过: pending_review -> completed（锁任务行 + 二次校验，防并发双扣库存）"""
         task = self.get_object()
         if not task.can_transition('completed'):
             return Response(
                 {'detail': f'无法从 {task.get_status_display()} 审核通过'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        with transaction.atomic():
-            # Adjust inventory: update asset quantities based on check results
-            self._adjust_inventory(task)
-            task.status = 'completed'
-            task.completed_at = timezone.now()
-            task.save(update_fields=['status', 'completed_at', 'updated_at'])
+
+        def _adjust(t):
+            # 在任务行锁内调整库存，确保并发审批只有一个生效
+            self._adjust_inventory(t)
+            t.completed_at = timezone.now()
+
+        task, err = self._transition(
+            pk, 'completed', before_save=_adjust, status='completed',
+        )
+        if err:
+            return err
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
@@ -185,13 +217,15 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer = RejectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        task.status = 'rejected'
-        task.rejected_at = timezone.now()
-        task.rejected_by = request.user
-        task.reject_reason = serializer.validated_data['reason']
-        task.save(update_fields=[
-            'status', 'rejected_at', 'rejected_by', 'reject_reason', 'updated_at',
-        ])
+        task, err = self._transition(
+            pk, 'rejected',
+            rejected_at=timezone.now(),
+            rejected_by=request.user,
+            reject_reason=serializer.validated_data['reason'],
+            status='rejected',
+        )
+        if err:
+            return err
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -208,21 +242,25 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         reset_scope = serializer.validated_data.get('reset_scope', 'all')
 
-        task.status = 'in_progress'
-        task.save(update_fields=['status', 'updated_at'])
+        def _reset(t):
+            if reset_scope == 'abnormal_only':
+                # Only reset abnormal items (surplus, missing, unchecked)
+                t.items.filter(result__in=['surplus', 'missing', 'unchecked']).update(
+                    actual_qty=None, result='unchecked',
+                    check_count=0, checked_by=None, checked_at=None,
+                )
+            else:
+                # Reset all items (original behavior)
+                t.items.all().update(
+                    actual_qty=None, result='unchecked',
+                    check_count=0, checked_by=None, checked_at=None,
+                )
 
-        if reset_scope == 'abnormal_only':
-            # Only reset abnormal items (surplus, missing, unchecked)
-            task.items.filter(result__in=['surplus', 'missing', 'unchecked']).update(
-                actual_qty=None, result='unchecked',
-                check_count=0, checked_by=None, checked_at=None,
-            )
-        else:
-            # Reset all items (original behavior)
-            task.items.all().update(
-                actual_qty=None, result='unchecked',
-                check_count=0, checked_by=None, checked_at=None,
-            )
+        task, err = self._transition(
+            pk, 'in_progress', before_save=_reset, status='in_progress',
+        )
+        if err:
+            return err
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -235,8 +273,9 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 {'detail': f'无法从 {task.get_status_display()} 作废'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        task.status = 'cancelled'
-        task.save(update_fields=['status', 'updated_at'])
+        task, err = self._transition(pk, 'cancelled', status='cancelled')
+        if err:
+            return err
         return Response(InventoryTaskSerializer(task).data)
 
     # ---- Read-only endpoints ----
