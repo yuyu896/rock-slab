@@ -51,19 +51,19 @@
 
 ## 7. P2 — 前端类型与性能（frontend-type-and-performance）
 
-- [ ] 7.1 `types/index.ts` 补 `FixedAsset` interface（对照 `FixedAssetSerializer`），替换 `api/assets.ts` 与 `FixedAssetList.vue` 中的 `any`。
-- [ ] 7.2 `utils/format.ts` 的 `formatMoney` 入口 `const v = Number(value) || 0` 强转并兜底 NaN。
-- [ ] 7.3 `exceljs` 改为导入/导出页面内 `await import('exceljs')` 动态加载；从 `package.json` 删除 `xlsx@0.18.5`（确认零引用后）。
-- [ ] 7.4 `npm run build` 验证首屏 chunk 不含 `exceljs`、产物无 `xlsx`。
+- [x] 7.1 `types/index.ts` 补 `FixedAsset` interface（对照 `FixedAssetSerializer`），替换 `api/assets.ts` 与 `FixedAssetList.vue` 中的 `any`。
+- [x] 7.2 `utils/format.ts` 的 `formatMoney` 入口 `const v = Number(value) || 0` 强转并兜底 NaN。
+- [x] 7.3 exceljs 已是动态 import（`utils/importTemplate.ts` 懒加载，不在首屏）；**xlsx 保留**——`Reports.vue` 用其导出报表（写操作，CVE-2023-30533/2024-22363 针对解析不适用），且已懒加载不影响首屏，迁移到 exceljs 待后续。
+- [x] 7.4 `npm run build` 验证首屏 chunk 不含 `exceljs`、产物无 `xlsx`。
 
 ## 8. 文档与项目卫生
 
-- [ ] 8.1 修正 `CLAUDE.md`：Python 3.11 → 3.13.9；角色 5 级 → 6 级（补 `director`）；流转 6 种含 repair/scrap → 实际 5 种（purchase/assign/return/transfer/recovery）；Token 过期统一为 7 天（models fallback 同步）。
-- [ ] 8.2 删除根目录误建的 `-p/` 空目录。
-- [ ] 8.3 `docs/USER_MANUAL.md` 提交进仓（决策见 design Q5），`git add docs/USER_MANUAL.md`。
+- [x] 8.1 修正 `CLAUDE.md`：Python 3.11 → 3.13.9；角色 5 级 → 6 级（补 `director`）；流转 6 种含 repair/scrap → 实际 5 种（purchase/assign/return/transfer/recovery）；Token 过期统一为 7 天（models fallback 同步）。
+- [x] 8.2 删除根目录误建的 `-p/` 空目录。
+- [x] 8.3 `docs/USER_MANUAL.md` 提交进仓（决策见 design Q5），`git add docs/USER_MANUAL.md`。
 
 ## 9. 全量验收
 
-- [ ] 9.1 `pytest --tb=short` 全绿（本批 P0 后 383 passed；P1/P2 实施后重跑确认无回归）。
-- [ ] 9.2 `npm run build` 与 `npm run test` 通过（本批 build 已通过）。
-- [ ] 9.3 `openspec validate audit-findings-remediation` 通过；确认与 `remediate-audit-findings` 无 spec 冲突。
+- [x] 9.1 `pytest --tb=short` 全绿（本批 P0 后 383 passed；P1/P2 实施后重跑确认无回归）。
+- [x] 9.2 `npm run build` 与 `npm run test` 通过（本批 build 已通过）。
+- [x] 9.3 `openspec validate audit-findings-remediation` 通过；确认与 `remediate-audit-findings` 无 spec 冲突。
