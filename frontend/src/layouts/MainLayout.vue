@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSystemAvatarSvg } from '@/utils/avatar'
 import SidebarNav from '@/components/layout/SidebarNav.vue'
 import UserPanel from '@/components/layout/UserPanel.vue'
+import BrandLogo from '@/components/BrandLogo.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -71,17 +72,7 @@ async function handleLogout() {
     <aside class="sidebar">
       <div class="sidebar-header">
         <div class="logo">
-          <div class="logo-icon">
-            <svg viewBox="0 0 32 32" fill="none">
-              <rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" opacity="0.9"/>
-              <rect x="18" y="2" width="12" height="12" rx="2" fill="currentColor" opacity="0.6"/>
-              <rect x="2" y="18" width="12" height="12" rx="2" fill="currentColor" opacity="0.6"/>
-              <rect x="18" y="18" width="12" height="12" rx="2" fill="currentColor" opacity="0.3"/>
-            </svg>
-          </div>
-          <transition name="fade">
-            <span v-if="!isCollapsed" class="logo-text">磐盘</span>
-          </transition>
+          <BrandLogo :size="28" variant="mono" :hide-text="isCollapsed" />
         </div>
         <button class="collapse-btn" @click="toggleSidebar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
