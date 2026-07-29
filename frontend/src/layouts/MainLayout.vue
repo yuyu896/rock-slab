@@ -158,20 +158,7 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-}
-
-.logo-icon {
-  width: 32px;
-  height: 32px;
-  color: var(--color-primary-500);
-  flex-shrink: 0;
-}
-
-.logo-text {
-  font-size: var(--text-xl);
-  font-weight: 700;
   color: rgba(255, 255, 255, 0.95);
-  letter-spacing: -0.02em;
 }
 
 .collapse-btn {
