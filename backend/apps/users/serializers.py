@@ -1,8 +1,5 @@
-from django.contrib.auth import password_validation
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
 
 from .models import User
 
@@ -37,14 +34,9 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
-        # 创建时 password 必填，且必须通过密码强度校验（不再回退默认弱口令 '123456'）
-        password = validated_data.pop('password', None)
-        if not password:
-            raise ValidationError({'password': '创建用户时必须设置密码'})
-        try:
-            password_validation.validate_password(password)
-        except DjangoValidationError as e:
-            raise ValidationError({'password': list(e.messages)})
+        # 未提供密码时回退默认初始密码 123456（临时策略，员工登录后自行修改；
+        # 后续提案将改为随机密码 + 首登强制改密，见 restore-default-initial-password）
+        password = validated_data.pop('password', '123456')
         user = User.objects.create_user(
             phone=validated_data['phone'],
             name=validated_data['name'],

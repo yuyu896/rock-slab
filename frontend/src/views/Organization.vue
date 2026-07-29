@@ -438,7 +438,7 @@ const editItem = (item: any, type: string) => {
 }
 
 const addItem = (type: string) => {
-  editingItem.value = { type, isNew: true, status: 'active', password: '' }
+  editingItem.value = { type, isNew: true, status: 'active' }
   showModal.value = true
 }
 
@@ -541,12 +541,6 @@ async function saveItem() {
         status: item.status || 'active',
       }
       if (item.isNew) {
-        if (!item.password || item.password.length < 8) {
-          ElMessage.warning('请设置初始密码（至少 8 位）')
-          saving.value = false
-          return
-        }
-        payload.password = item.password
         await createUser(payload as any)
       } else {
         await updateUser(item.id, payload)
@@ -1309,10 +1303,6 @@ onMounted(async () => {
               <div class="form-item">
                 <label class="form-label">手机号 <span class="required">*</span></label>
                 <input v-model="editingItem.phone" type="tel" maxlength="11" class="form-input" />
-              </div>
-              <div class="form-item" v-if="editingItem.isNew">
-                <label class="form-label">初始密码 <span class="required">*</span></label>
-                <input v-model="editingItem.password" type="password" minlength="8" class="form-input" placeholder="至少 8 位" />
               </div>
               <div class="form-item">
                 <label class="form-label">角色 <span class="required">*</span></label>

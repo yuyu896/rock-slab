@@ -25,20 +25,28 @@ class TestAccountLifecycleSecurity:
         # 原密码仍有效（未被改动）
         assert staff_user.check_password('test123456')
 
-    def test_create_without_password_rejected(self, admin_user):
+    def test_create_without_password_uses_default(self, admin_user):
+        """未传密码 → 用默认 123456 建号成功（restore-default-initial-password）。"""
+        from apps.users.models import User
         client = _client_for(admin_user)
         resp = client.post('/api/users/', {
-            'phone': '13800007777', 'name': '无密码', 'role': 'staff',
+            'phone': '13800007777', 'name': '默认密码', 'role': 'staff',
         }, format='json')
-        assert resp.status_code == 400
+        assert resp.status_code == 201
+        user = User.objects.get(phone='13800007777')
+        assert user.check_password('123456')
 
-    def test_create_weak_password_rejected(self, admin_user):
+    def test_create_accepts_weak_password(self, admin_user):
+        """建号接受弱口令作为初始密码（不再强度校验）。"""
+        from apps.users.models import User
         client = _client_for(admin_user)
         resp = client.post('/api/users/', {
             'phone': '13800007778', 'name': '弱密码', 'role': 'staff',
             'password': '123',
         }, format='json')
-        assert resp.status_code == 400
+        assert resp.status_code == 201
+        user = User.objects.get(phone='13800007778')
+        assert user.check_password('123')
 
     def test_disable_user_revokes_token(self, admin_user, staff_user):
         """停用账号（status=inactive）后旧 token 立即失效。"""
