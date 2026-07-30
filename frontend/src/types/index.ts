@@ -92,6 +92,7 @@ export interface Branch {
   name: string
   code: string
   region: string
+  team?: string
   address: string
   manager?: string
   phone?: string
