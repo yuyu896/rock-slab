@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getUsers, createUser, updateUser, deleteUser,
@@ -147,6 +147,41 @@ function editTeam(t: Team | undefined) { if (!t) return; editingItem.value = { t
 function editBranch(b: Branch | undefined) { if (!b) return; editingItem.value = { type: 'branch', isNew: false, id: b.id, name: b.name, code: b.code, region: b.region, team: b.team, address: b.address, phone: b.phone, manager: b.manager, status: b.status } ; showModal.value = true }
 function editUser(u: User) {
   editingEmployee.value = { isNew: false, id: u.id, name: u.name, phone: u.phone, role: u.role, region: u.region || '', branch: u.branch || '', team: u.team || '', leader: u.leader || '', status: u.status }
+}
+
+// ===== 移动员工（改所属分公司，同步该分公司的行政组/区域） =====
+const moveState = ref<{ employee: User; region: string; branch: string } | null>(null)
+const moveBranchOptions = computed(() => {
+  const r = moveState.value?.region
+  return r ? branches.value.filter(b => b.region === r) : branches.value
+})
+function startMove(emp: User) {
+  moveState.value = { employee: emp, region: emp.region || '', branch: '' }
+}
+// 切换区域时清空已选分公司，避免提交到不匹配的分公司
+watch(() => moveState.value?.region, () => {
+  if (moveState.value) moveState.value.branch = ''
+})
+async function confirmMove() {
+  const s = moveState.value
+  if (!s?.branch) { ElMessage.warning('请选择目标分公司'); return }
+  const target = branches.value.find(b => b.id === s.branch)
+  if (!target) return
+  saving.value = true
+  try {
+    await updateUser(s.employee.id, {
+      branch: target.id,
+      team: target.team || null,
+      region: target.region,
+    } as any)
+    ElMessage.success(`已将「${s.employee.name}」移动到「${target.name}」`)
+    moveState.value = null
+    await loadAll()
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
+  } finally {
+    saving.value = false
+  }
 }
 
 async function saveItem() {
@@ -371,6 +406,7 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
               <td>{{ getBranchName(emp.branch) }}</td>
               <td v-if="canManageUsers">
                 <button class="row-btn" @click="editUser(emp)">编辑</button>
+                <button class="row-btn" @click="startMove(emp)">移动</button>
                 <button class="row-btn danger" @click="removeItem(emp, 'user')">删除</button>
               </td>
             </tr>
@@ -467,6 +503,43 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
         </div>
       </div>
     </div>
+
+    <!-- 移动员工弹窗 -->
+    <div v-if="moveState" class="modal-mask" @click.self="moveState = null">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>移动员工</h3>
+          <button class="modal-close" @click="moveState = null">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label>员工</label>
+            <div class="move-employee-name">{{ moveState.employee.name }}（{{ moveState.employee.phone }}）</div>
+          </div>
+          <div class="form-row">
+            <label>目标区域 <span class="req">*</span></label>
+            <select v-model="moveState.region" class="form-input">
+              <option value="">请选择</option>
+              <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>目标分公司 <span class="req">*</span></label>
+            <select v-model="moveState.branch" class="form-input">
+              <option value="">请选择</option>
+              <option v-for="b in moveBranchOptions" :key="b.id" :value="b.id">{{ b.name }}</option>
+            </select>
+          </div>
+          <p v-if="moveState?.branch" class="move-team-hint">
+            将归属行政组：<strong>{{ getTeamName(branches.find(b => b.id === moveState?.branch)?.team) }}</strong>
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="action-btn" :disabled="saving" @click="moveState = null">取消</button>
+          <button class="action-btn primary" :disabled="saving" @click="confirmMove">{{ saving ? '移动中…' : '确认移动' }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -539,6 +612,8 @@ td.clickable { cursor: pointer; color: var(--color-primary-600); font-weight: 50
 .form-input { height: 36px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.88rem; background: var(--color-bg-page); color: var(--color-text-primary); outline: none; box-sizing: border-box; }
 .form-input:focus { border-color: var(--color-primary-400); }
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--color-border-light); }
+.move-employee-name { font-size: 0.9rem; color: var(--color-text-primary); padding: 4px 0; }
+.move-team-hint { margin: 0; font-size: 0.82rem; color: var(--color-text-secondary); }
 
 /* 员工编辑页（右侧切换） */
 .employee-form-page { flex: 1; overflow-y: auto; }
