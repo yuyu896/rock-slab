@@ -220,3 +220,36 @@ class TestTeamCRUD:
             'name': '组合法创建', 'region': region.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_201_CREATED
+
+
+@pytest.mark.django_db
+class TestBranchTeam:
+    """分公司隶属行政组（Branch.team）"""
+
+    def test_create_branch_with_team(self, authenticated_client, region):
+        from apps.organizations.models import Team
+        team = Team.objects.create(name='行政组A', region=region, status='active')
+        resp = authenticated_client.post('/api/branches/', {
+            'name': '测试分公司', 'code': 'TS001', 'region': region.id,
+            'team': team.id, 'status': 'active',
+        })
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.data['team'] == team.id
+
+    def test_branch_team_region_mismatch_rejected(self, authenticated_client, region, second_region):
+        from apps.organizations.models import Team
+        # team 属 region，分公司指定 second_region → 不一致被拒
+        team = Team.objects.create(name='行政组A', region=region, status='active')
+        resp = authenticated_client.post('/api/branches/', {
+            'name': '跨区分公司', 'code': 'TS002', 'region': second_region.id,
+            'team': team.id, 'status': 'active',
+        })
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_branch_without_team_ok(self, authenticated_client, region):
+        # team 可空（兼容现有数据）
+        resp = authenticated_client.post('/api/branches/', {
+            'name': '无组分公司', 'code': 'TS003', 'region': region.id, 'status': 'active',
+        })
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.data['team'] is None

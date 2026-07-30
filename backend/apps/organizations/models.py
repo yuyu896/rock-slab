@@ -44,6 +44,11 @@ class Branch(UUIDModel, TimestampedModel):
         Region, on_delete=models.CASCADE,
         related_name='branches', verbose_name='所属区域',
     )
+    team = models.ForeignKey(
+        'organizations.Team', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='branches',
+        verbose_name='所属行政组',
+    )
     address = models.CharField('地址', max_length=255, blank=True, default='')
     manager = models.ForeignKey(
         'users.User', on_delete=models.SET_NULL,

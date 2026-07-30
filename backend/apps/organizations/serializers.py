@@ -17,7 +17,7 @@ class BranchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Branch
         fields = [
-            'id', 'name', 'code', 'region', 'address',
+            'id', 'name', 'code', 'region', 'team', 'address',
             'manager', 'phone', 'status',
             'created_at', 'updated_at',
         ]
@@ -34,6 +34,15 @@ class BranchSerializer(serializers.ModelSerializer):
         )
         validator(value)
         return value
+
+    def validate(self, attrs):
+        region = attrs.get('region') or getattr(self.instance, 'region', None)
+        team = attrs.get('team') or getattr(self.instance, 'team', None)
+        if team and region and team.region_id != region.id:
+            raise serializers.ValidationError(
+                {'team': '行政组必须属于同一区域'}
+            )
+        return attrs
 
 
 class TeamSerializer(serializers.ModelSerializer):
