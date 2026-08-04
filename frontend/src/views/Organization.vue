@@ -11,6 +11,7 @@ import { handleApiError } from '@/utils/request'
 import { usePermission } from '@/hooks/usePermission'
 import { ROLE_LABELS } from '@/constants'
 import type { User, Region, Branch, Team } from '@/types'
+import { filterEmployeesByNode, type NodeType } from '@/utils/orgTree'
 
 const { canManageUsers, canManageOrganizations } = usePermission()
 
@@ -20,8 +21,7 @@ const teams = ref<Team[]>([])
 const users = ref<User[]>([])
 const loading = ref(false)
 
-type NodeType = 'region' | 'team' | 'branch'
-interface SelectedNode { type: NodeType; id: string; rawId: string; label: string }
+interface SelectedNode { type: NodeType; id: string; rawId: string; regionId?: string; label: string }
 const selectedNode = ref<SelectedNode | null>(null)
 const expandedNodes = ref<Set<string>>(new Set())
 const searchKeyword = ref('')
@@ -31,6 +31,7 @@ interface TreeNode {
   type: NodeType
   label: string
   rawId: string
+  regionId?: string
   children: TreeNode[]
 }
 
@@ -47,7 +48,7 @@ const orgTree = computed<TreeNode[]>(() => {
     const ungrouped = branches.value.filter(b => b.region === r.id && !b.team)
     if (ungrouped.length) {
       teamNodes.push({
-        key: `ungrouped-${r.id}`, type: 'team', label: '未分组', rawId: '',
+        key: `ungrouped-${r.id}`, type: 'team', label: '未分组', rawId: '', regionId: r.id,
         children: ungrouped.map(b => ({ key: `branch-${b.id}`, type: 'branch', label: b.name, rawId: b.id, children: [] })),
       })
     }
@@ -63,29 +64,16 @@ const employees = computed(() => {
     )
   }
   const node = selectedNode.value
-  if (!node) return []
-  if (node.type === 'branch') return users.value.filter(u => u.branch === node.rawId)
-  if (node.type === 'team' && node.rawId) {
-    const branchIds = branches.value.filter(b => b.team === node.rawId).map(b => b.id)
-    return users.value.filter(u => u.branch && branchIds.includes(u.branch))
-  }
-  if (node.type === 'region') return users.value.filter(u => u.region === node.rawId)
-  return []
+  return node ? filterEmployeesByNode(node, { users: users.value, branches: branches.value }) : []
 })
 
 function nodeCount(node: TreeNode): number {
-  if (node.type === 'branch') return users.value.filter(u => u.branch === node.rawId).length
-  if (node.type === 'team') {
-    if (!node.rawId) return 0
-    const branchIds = branches.value.filter(b => b.team === node.rawId).map(b => b.id)
-    return users.value.filter(u => u.branch && branchIds.includes(u.branch)).length
-  }
-  return users.value.filter(u => u.region === node.rawId).length
+  return filterEmployeesByNode(node, { users: users.value, branches: branches.value }).length
 }
 
 function selectNode(node: TreeNode) {
   searchKeyword.value = ''
-  selectedNode.value = { type: node.type, id: node.key, rawId: node.rawId, label: node.label }
+  selectedNode.value = { type: node.type, id: node.key, rawId: node.rawId, regionId: node.regionId, label: node.label }
 }
 function toggleExpand(key: string) {
   const s = new Set(expandedNodes.value)
@@ -149,17 +137,32 @@ function editUser(u: User) {
   editingEmployee.value = { isNew: false, id: u.id, name: u.name, phone: u.phone, role: u.role, region: u.region || '', branch: u.branch || '', team: u.team || '', leader: u.leader || '', status: u.status }
 }
 
-// ===== 移动员工（改所属分公司，同步该分公司的行政组/区域） =====
-const moveState = ref<{ employee: User; region: string; branch: string } | null>(null)
-const moveBranchOptions = computed(() => {
+// ===== 移动员工（区域 → 行政组 → 分公司 三级级联，分公司必选） =====
+const UNGROUPED = '__ungrouped__' // 行政组下拉中「未分组」的 sentinel，与「未选」('') 区分
+const moveState = ref<{ employee: User; region: string; team: string; branch: string } | null>(null)
+const moveTeamOptions = computed(() => {
   const r = moveState.value?.region
-  return r ? branches.value.filter(b => b.region === r) : branches.value
+  return r ? teams.value.filter(t => t.region === r) : []
+})
+const moveHasUngrouped = computed(() => {
+  const r = moveState.value?.region
+  return r ? branches.value.some(b => b.region === r && !b.team) : false
+})
+const moveBranchOptions = computed(() => {
+  const s = moveState.value
+  if (!s?.region) return []
+  if (s.team === UNGROUPED) return branches.value.filter(b => b.region === s.region && !b.team)
+  if (s.team) return branches.value.filter(b => b.team === s.team)
+  return []
 })
 function startMove(emp: User) {
-  moveState.value = { employee: emp, region: emp.region || '', branch: '' }
+  moveState.value = { employee: emp, region: emp.region || '', team: '', branch: '' }
 }
-// 切换区域时清空已选分公司，避免提交到不匹配的分公司
+// 切换区域/行政组时清空下级，避免提交到不匹配的目标
 watch(() => moveState.value?.region, () => {
+  if (moveState.value) { moveState.value.team = ''; moveState.value.branch = '' }
+})
+watch(() => moveState.value?.team, () => {
   if (moveState.value) moveState.value.branch = ''
 })
 async function confirmMove() {
@@ -521,6 +524,14 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
             <select v-model="moveState.region" class="form-input">
               <option value="">请选择</option>
               <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>目标行政组 <span class="req">*</span></label>
+            <select v-model="moveState.team" class="form-input">
+              <option value="">请选择</option>
+              <option v-for="t in moveTeamOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+              <option v-if="moveHasUngrouped" :value="UNGROUPED">未分组</option>
             </select>
           </div>
           <div class="form-row">
