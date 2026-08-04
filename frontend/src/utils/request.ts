@@ -47,13 +47,20 @@ request.interceptors.response.use(
 
 /** 从 DRF 错误响应中提取可读错误信息 */
 export function handleApiError(error: unknown): string {
-  if (axios.isAxiosError(error) && error.response?.data) {
-    const data = error.response.data as ApiError
-    if (data.detail) return data.detail
-    const messages = Object.entries(data)
-      .filter(([key]) => key !== 'detail')
-      .flatMap(([, value]) => (Array.isArray(value) ? value : [String(value)]))
-    if (messages.length > 0) return messages.join('；')
+  if (axios.isAxiosError(error) && error.response) {
+    const data = error.response.data
+    // 非 JSON 响应（如 5xx 的 HTML 错误页）：返回可读提示，避免逐字符乱码
+    if (typeof data === 'string') {
+      return `服务器错误（HTTP ${error.response.status}），请稍后重试或联系管理员`
+    }
+    if (data && typeof data === 'object') {
+      const apiError = data as ApiError
+      if (apiError.detail) return apiError.detail
+      const messages = Object.entries(apiError)
+        .filter(([key]) => key !== 'detail')
+        .flatMap(([, value]) => (Array.isArray(value) ? value : [String(value)]))
+      if (messages.length > 0) return messages.join('；')
+    }
   }
   if (error instanceof Error) return error.message
   return '请求失败，请稍后重试'

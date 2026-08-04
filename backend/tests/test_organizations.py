@@ -51,6 +51,21 @@ class TestBranchCodeValidation:
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['code'] == 'HRB001'
 
+    def test_create_branch_duplicate_code_returns_400(self, authenticated_client, branch, region):
+        # branch 已存在（code=CS001），再用同 code 创建 → 400（不再 500）
+        resp = authenticated_client.post('/api/branches/', {
+            'name': '重名分公司', 'code': branch.code, 'region': region.id, 'status': 'active',
+        })
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '已存在' in resp.data['code'][0]
+
+    def test_update_branch_keep_own_code(self, authenticated_client, branch):
+        # 编辑分公司，code 保持自身 → 通过（排除自身，不误判重复）
+        resp = authenticated_client.patch(f'/api/branches/{branch.id}', {
+            'code': branch.code,
+        })
+        assert resp.status_code == status.HTTP_200_OK
+
 
 # ---------------------------------------------------------------------------
 # Region CRUD
@@ -253,3 +268,56 @@ class TestBranchTeam:
         })
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['team'] is None
+
+
+@pytest.mark.django_db
+class TestAssignBranchTeamFromEmployees:
+    """assign_branch_team_from_employees：按员工 team 众数回填分公司 team"""
+
+    def test_dry_run_does_not_write(self, region):
+        from io import StringIO
+        from django.core.management import call_command
+        from apps.organizations.models import Branch, Team
+        from apps.users.models import User
+        team = Team.objects.create(name='行政组A', region=region, status='active')
+        branch = Branch.objects.create(name='B1', code='DZ001', region=region, status='active')
+        User.objects.create_user(
+            phone='13000000001', name='员工1', password='x', role='staff',
+            status='active', branch=branch, team=team,
+        )
+        out = StringIO()
+        call_command('assign_branch_team_from_employees', '--dry-run', stdout=out)
+        branch.refresh_from_db()
+        assert branch.team_id is None
+        assert 'DRY-RUN' in out.getvalue()
+
+    def test_execute_assigns_mode_team(self, region):
+        from io import StringIO
+        from django.core.management import call_command
+        from apps.organizations.models import Branch, Team
+        from apps.users.models import User
+        team_a = Team.objects.create(name='A组', region=region, status='active')
+        team_b = Team.objects.create(name='B组', region=region, status='active')
+        branch = Branch.objects.create(name='B1', code='DZ002', region=region, status='active')
+        for i, t in enumerate([team_a, team_a, team_a, team_b]):
+            User.objects.create_user(
+                phone=f'1300000001{i}', name=f'员工{i}', password='x', role='staff',
+                status='active', branch=branch, team=t,
+            )
+        call_command('assign_branch_team_from_employees', stdout=StringIO())
+        branch.refresh_from_db()
+        assert branch.team_id == team_a.id
+
+    def test_skip_branch_without_team_employees(self, region):
+        from io import StringIO
+        from django.core.management import call_command
+        from apps.organizations.models import Branch
+        from apps.users.models import User
+        branch = Branch.objects.create(name='B2', code='DZ003', region=region, status='active')
+        User.objects.create_user(
+            phone='13000000020', name='无组员工', password='x', role='staff',
+            status='active', branch=branch,  # team 不传 → null
+        )
+        call_command('assign_branch_team_from_employees', stdout=StringIO())
+        branch.refresh_from_db()
+        assert branch.team_id is None

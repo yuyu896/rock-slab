@@ -33,6 +33,11 @@ class BranchSerializer(serializers.ModelSerializer):
             message='编号格式为2-4位大写字母(城市缩写)+3位数字，如 SH001',
         )
         validator(value)
+        qs = Branch.objects.filter(code=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(f'分公司编码 {value} 已存在')
         return value
 
     def validate(self, attrs):
