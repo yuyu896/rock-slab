@@ -1,0 +1,78 @@
+# unified-organization-page Specification
+
+## Purpose
+TBD - created by archiving change unified-organization-page. Update Purpose after archive.
+## Requirements
+### Requirement: 分公司隶属行政组（数据模型）
+
+`Branch` MUST 增加 `team` 外键（所属行政组，允许为空），分公司隶属行政组，建立 **区域 → 行政组 → 分公司** 层级。`Branch.team.region` MUST 与 `Branch.region` 一致（serializer 校验，防止跨区域错挂）。
+
+#### Scenario: 分公司带行政组创建
+
+- **WHEN** 创建分公司时指定 team
+- **THEN** 分公司 team 保存为该行政组，层级关系正确
+
+#### Scenario: team 与 region 一致性校验
+
+- **WHEN** 创建/编辑分公司时 team 所属区域 != 分公司所属区域
+- **THEN** 返回 400 拒绝，提示区域不一致
+
+### Requirement: 组织架构单页面（删除多 tab）
+
+组织架构模块 MUST 为**单一页面**，MUST NOT 保留「区域 / 分公司 / 行政组 / 人员管理」的独立 tab。所有操作集中在单页面。
+
+#### Scenario: 单页面无 tab 切换
+
+- **WHEN** 用户进入组织架构
+- **THEN** 显示单一页面（左树 + 右主区），无四个独立 tab
+
+### Requirement: 左侧组织树（区域→行政组→分公司）
+
+左侧 MUST 按 **区域 → 行政组 → 分公司** 三层展现组织树。点击节点 MUST 选中，右侧显示该节点下的员工。
+
+#### Scenario: 点击节点显示员工
+
+- **WHEN** 点击区域 / 行政组 / 分公司节点
+- **THEN** 右侧显示该节点下所有员工（区域→全部；行政组→其下分公司员工；分公司→该分公司员工）
+
+### Requirement: 员工列表
+
+选中节点后，右侧 MUST 显示员工列表，列含：**姓名、职务、所属组织（行政组）、账号（手机号）、所属分公司**。
+
+#### Scenario: 员工列表展示
+
+- **WHEN** 选中某节点
+- **THEN** 列表显示对应员工，每行含姓名/职务/所属组织/账号/所属分公司
+
+### Requirement: 顶部组织操作栏（按层级动态）
+
+顶部栏 MUST：左 = 选中组织名称 + 人数；右 = **按层级动态**操作（受 `manage_organizations` 权限控制）：
+- 选中**区域** → 编辑区域 + 新增行政组
+- 选中**行政组** → 编辑行政组 + 新增分公司
+- 选中**分公司** → 编辑分公司
+
+新增下级时自动挂载到当前节点（区域/行政组预填）。
+
+#### Scenario: 按层级显示操作
+
+- **WHEN** 选中行政组
+- **THEN** 顶部右侧显示「编辑行政组」「新增分公司」（新分公司 team=该行政组）
+
+### Requirement: 员工操作（创建 / 移动 / 删除）
+
+员工列表上方 MUST 提供「创建 / 移动 / 删除员工」，受 `manage_users` 权限控制。创建默认挂当前节点；移动员工改 branch（并同步 team=目标分公司.team）。
+
+#### Scenario: 员工增删移动
+
+- **WHEN** 持 `manage_users` 权限用户在员工区
+- **THEN** 可创建员工（挂当前节点）、删除选中员工、移动选中员工到目标分公司
+
+### Requirement: 员工编辑（右侧切换表单）
+
+点击员工 MUST 在右侧切换为编辑表单（不离开页面），带「← 返回列表」。返回后回列表，选中节点不丢。
+
+#### Scenario: 点击员工切换编辑
+
+- **WHEN** 点击员工列表中某员工
+- **THEN** 右侧切换为该员工编辑表单；返回回列表，仍停留原选中节点
+
