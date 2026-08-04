@@ -25,6 +25,7 @@ backend/media/
 # Node
 node_modules/
 frontend/dist/
+*.tsbuildinfo
 
 # IDE
 .vscode/
