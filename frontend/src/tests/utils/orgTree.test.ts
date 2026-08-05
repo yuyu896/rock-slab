@@ -52,4 +52,10 @@ describe('filterEmployeesByNode', () => {
   it('跨区域隔离：r2 区域不含 r1 员工', () => {
     expect(ids(filterEmployeesByNode({ type: 'region', rawId: 'r2' }, data))).toEqual(['u4'])
   })
+
+  it('集团根：返回所有员工（一览全员）', () => {
+    const all = filterEmployeesByNode({ type: 'group', rawId: '' }, data)
+    expect(all.length).toBe(users.length)
+    expect(ids(all).length).toBe(6)
+  })
 })

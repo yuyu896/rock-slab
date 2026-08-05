@@ -23,7 +23,7 @@ const loading = ref(false)
 
 interface SelectedNode { type: NodeType; id: string; rawId: string; regionId?: string; label: string }
 const selectedNode = ref<SelectedNode | null>(null)
-const expandedNodes = ref<Set<string>>(new Set())
+const expandedNodes = ref<Set<string>>(new Set(['group-root']))
 const searchKeyword = ref('')
 
 interface TreeNode {
@@ -36,7 +36,7 @@ interface TreeNode {
 }
 
 const orgTree = computed<TreeNode[]>(() => {
-  return regions.value.map(r => {
+  const regionNodes: TreeNode[] = regions.value.map(r => {
     const teamNodes: TreeNode[] = teams.value
       .filter(t => t.region === r.id)
       .map(t => ({
@@ -54,6 +54,9 @@ const orgTree = computed<TreeNode[]>(() => {
     }
     return { key: `region-${r.id}`, type: 'region', label: r.name, rawId: r.id, children: teamNodes }
   })
+  return [{
+    key: 'group-root', type: 'group', label: '启航集团', rawId: '', children: regionNodes,
+  }]
 })
 
 const employees = computed(() => {
@@ -289,31 +292,40 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
       </div>
       <div class="tree-body">
         <p v-if="!orgTree.length" class="tree-empty">暂无组织数据</p>
-        <div v-for="region in orgTree" :key="region.key" class="tree-node">
-          <div class="node-row" :class="{ selected: selectedNode?.id === region.key }" @click="selectNode(region); toggleExpand(region.key)">
-            <span class="expand" :class="{ open: expandedNodes.has(region.key) }">▶</span>
-            <span class="node-label region-label">{{ region.label }}</span>
-            <span class="node-badge">{{ nodeCount(region) }}</span>
+        <div v-for="group in orgTree" :key="group.key" class="tree-node">
+          <div class="node-row" :class="{ selected: selectedNode?.id === group.key }" @click="selectNode(group); toggleExpand(group.key)">
+            <span class="expand" :class="{ open: expandedNodes.has(group.key) }">▶</span>
+            <span class="node-label group-label">{{ group.label }}</span>
+            <span class="node-badge">{{ nodeCount(group) }}</span>
           </div>
-          <div v-if="expandedNodes.has(region.key)" class="tree-children">
-            <div v-for="team in region.children" :key="team.key" class="tree-node">
-              <div class="node-row" :class="{ selected: selectedNode?.id === team.key }" @click="selectNode(team); toggleExpand(team.key)">
-                <span class="expand" :class="{ open: expandedNodes.has(team.key) }">▶</span>
-                <span class="node-label team-label">{{ team.label }}</span>
-                <span class="node-badge">{{ nodeCount(team) }}</span>
+          <div v-if="expandedNodes.has(group.key)" class="tree-children">
+            <div v-for="region in group.children" :key="region.key" class="tree-node">
+              <div class="node-row" :class="{ selected: selectedNode?.id === region.key }" @click="selectNode(region); toggleExpand(region.key)">
+                <span class="expand" :class="{ open: expandedNodes.has(region.key) }">▶</span>
+                <span class="node-label region-label">{{ region.label }}</span>
+                <span class="node-badge">{{ nodeCount(region) }}</span>
               </div>
-              <div v-if="expandedNodes.has(team.key)" class="tree-children">
-                <div v-for="branch in team.children" :key="branch.key" class="tree-node">
-                  <div class="node-row" :class="{ selected: selectedNode?.id === branch.key }" @click="selectNode(branch)">
-                    <span class="expand placeholder"></span>
-                    <span class="node-label branch-label">{{ branch.label }}</span>
-                    <span class="node-badge">{{ nodeCount(branch) }}</span>
+              <div v-if="expandedNodes.has(region.key)" class="tree-children">
+                <div v-for="team in region.children" :key="team.key" class="tree-node">
+                  <div class="node-row" :class="{ selected: selectedNode?.id === team.key }" @click="selectNode(team); toggleExpand(team.key)">
+                    <span class="expand" :class="{ open: expandedNodes.has(team.key) }">▶</span>
+                    <span class="node-label team-label">{{ team.label }}</span>
+                    <span class="node-badge">{{ nodeCount(team) }}</span>
+                  </div>
+                  <div v-if="expandedNodes.has(team.key)" class="tree-children">
+                    <div v-for="branch in team.children" :key="branch.key" class="tree-node">
+                      <div class="node-row" :class="{ selected: selectedNode?.id === branch.key }" @click="selectNode(branch)">
+                        <span class="expand placeholder"></span>
+                        <span class="node-label branch-label">{{ branch.label }}</span>
+                        <span class="node-badge">{{ nodeCount(branch) }}</span>
+                      </div>
+                    </div>
+                    <p v-if="!team.children.length" class="no-child">（无分公司）</p>
                   </div>
                 </div>
-                <p v-if="!team.children.length" class="no-child">（无分公司）</p>
+                <p v-if="!region.children.length" class="no-child">（无行政组）</p>
               </div>
             </div>
-            <p v-if="!region.children.length" class="no-child">（无行政组）</p>
           </div>
         </div>
       </div>
@@ -372,7 +384,8 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
         </div>
         <div class="header-actions">
           <template v-if="!searchKeyword && selectedNode && canManageOrganizations">
-            <button class="action-btn" @click="addItem('region')" v-if="selectedNode.type === 'region' ? false : false" style="display:none"></button>
+            <!-- 集团根：新增区域 -->
+            <button v-if="selectedNode.type === 'group'" class="action-btn primary" @click="addItem('region')">+ 区域</button>
             <!-- 区域：编辑区域 + 新增行政组 -->
             <button v-if="selectedNode.type === 'region'" class="action-btn" @click="editRegion(regions.find(r => r.id === selectedNode?.rawId))">编辑区域</button>
             <button v-if="selectedNode.type === 'region'" class="action-btn primary" @click="addItem('team')">+ 行政组</button>
@@ -575,6 +588,7 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
 .expand.placeholder { visibility: hidden; }
 .node-label { flex: 1; font-size: 0.9rem; }
 .region-label { font-weight: 600; }
+.group-label { font-weight: 700; font-size: 1rem; }
 .team-label { font-size: 0.88rem; color: var(--color-text-secondary); }
 .branch-label { font-size: 0.85rem; color: var(--color-text-secondary); }
 .node-badge { font-size: 0.72rem; color: var(--color-text-tertiary); background: var(--color-bg-page); border-radius: 10px; padding: 1px 7px; min-width: 20px; text-align: center; }

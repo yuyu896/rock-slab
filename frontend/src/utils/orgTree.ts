@@ -1,6 +1,6 @@
 import type { User, Branch } from '@/types'
 
-export type NodeType = 'region' | 'team' | 'branch'
+export type NodeType = 'group' | 'region' | 'team' | 'branch'
 
 export interface NodeRef {
   type: NodeType
@@ -20,6 +20,9 @@ export function filterEmployeesByNode(
   data: { users: User[]; branches: Branch[] },
 ): User[] {
   const { users, branches } = data
+  if (node.type === 'group') {
+    return users
+  }
   if (node.type === 'branch') {
     return users.filter(u => u.branch === node.rawId)
   }
