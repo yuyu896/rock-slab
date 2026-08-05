@@ -1,10 +1,11 @@
 from rest_framework import viewsets, status
+from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db.models import ProtectedError
 from apps.permissions.permissions import OperationPermission
-from .models import Region, Branch, Team
-from .serializers import RegionSerializer, BranchSerializer, TeamSerializer
+from .models import Region, Branch, Team, Company
+from .serializers import RegionSerializer, BranchSerializer, TeamSerializer, CompanySerializer
 from .filters import RegionFilterSet, BranchFilterSet
 
 
@@ -91,3 +92,20 @@ class TeamViewSet(viewsets.ModelViewSet):
         if team.leader_id and team.leader.team_id != team.id:
             team.leader.team = team
             team.leader.save(update_fields=['team', 'updated_at'])
+
+
+class CompanyView(APIView):
+    """集团（单例）：读所有登录用户，改名受 manage_organizations"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(CompanySerializer(Company.get_singleton()).data)
+
+    def patch(self, request):
+        if not request.user.can('manage_organizations'):
+            return Response({'detail': '无权操作'}, status=status.HTTP_403_FORBIDDEN)
+        company = Company.get_singleton()
+        serializer = CompanySerializer(company, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

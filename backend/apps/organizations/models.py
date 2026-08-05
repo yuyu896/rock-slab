@@ -98,3 +98,21 @@ class Team(UUIDModel, TimestampedModel):
 
     def __str__(self):
         return self.name
+
+
+class Company(UUIDModel, TimestampedModel):
+    """集团（系统单例，顶层组织名）"""
+    name = models.CharField('集团名称', max_length=100, default='启航集团')
+
+    class Meta:
+        db_table = 'organizations_company'
+        verbose_name = '集团'
+        verbose_name_plural = '集团'
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_singleton(cls):
+        obj = cls.objects.first()
+        return obj if obj else cls.objects.create(name='启航集团')

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.core.validators import RegexValidator
-from .models import Region, Branch, Team, BRANCH_CODE_REGEX
+from .models import Region, Branch, Team, Company, BRANCH_CODE_REGEX
 
 
 class RegionSerializer(serializers.ModelSerializer):
@@ -66,3 +66,10 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def get_member_count(self, obj):
         return obj.members.count()
+
+
+class CompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Company
+        fields = ['id', 'name', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']

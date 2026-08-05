@@ -7,6 +7,7 @@ import {
 import { getRegions, createRegion, updateRegion, deleteRegion } from '@/api/regions'
 import { getBranches, createBranch, updateBranch, deleteBranch } from '@/api/branches'
 import { getTeams, createTeam, updateTeam, deleteTeam } from '@/api/teams'
+import { getCompany, updateCompany } from '@/api/company'
 import { handleApiError } from '@/utils/request'
 import { usePermission } from '@/hooks/usePermission'
 import { ROLE_LABELS } from '@/constants'
@@ -16,6 +17,7 @@ import { filterEmployeesByNode, sortEmployeesByRole, type NodeType } from '@/uti
 const { canManageUsers, canManageOrganizations } = usePermission()
 
 const regions = ref<Region[]>([])
+const company = ref<{ id: string; name: string } | null>(null)
 const branches = ref<Branch[]>([])
 const teams = ref<Team[]>([])
 const users = ref<User[]>([])
@@ -55,7 +57,7 @@ const orgTree = computed<TreeNode[]>(() => {
     return { key: `region-${r.id}`, type: 'region', label: `${r.name}（${r.code}）`, rawId: r.id, children: teamNodes }
   })
   return [{
-    key: 'group-root', type: 'group', label: '启航集团', rawId: '', children: regionNodes,
+    key: 'group-root', type: 'group', label: company.value?.name || '启航集团', rawId: '', children: regionNodes,
   }]
 })
 
@@ -258,7 +260,8 @@ async function removeItem(item: Region | Team | Branch | User, type: EditType) {
 async function loadAll() {
   loading.value = true
   try {
-    const [r, b, t, u] = await Promise.all([getRegions(), getBranches(), getTeams(), getUsers()])
+    const [c, r, b, t, u] = await Promise.all([getCompany(), getRegions(), getBranches(), getTeams(), getUsers()])
+    company.value = c.data
     regions.value = r.data
     branches.value = b.data
     teams.value = t.data
@@ -270,6 +273,29 @@ async function loadAll() {
   }
 }
 onMounted(loadAll)
+
+// ===== 编辑集团名 =====
+const editingCompany = ref(false)
+const companyNameDraft = ref('')
+function startEditCompany() {
+  companyNameDraft.value = company.value?.name || '启航集团'
+  editingCompany.value = true
+}
+async function saveCompany() {
+  const name = companyNameDraft.value.trim()
+  if (!name) { ElMessage.warning('请输入集团名称'); return }
+  saving.value = true
+  try {
+    await updateCompany({ name })
+    ElMessage.success('集团名称已更新')
+    editingCompany.value = false
+    await loadAll()
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
+  } finally {
+    saving.value = false
+  }
+}
 
 function getBranchName(id?: string) { return id ? (branches.value.find(b => b.id === id)?.name || '-') : '-' }
 function getTeamName(id?: string) { return id ? (teams.value.find(t => t.id === id)?.name || '-') : '-' }
@@ -381,7 +407,8 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
         </div>
         <div class="header-actions">
           <template v-if="!searchKeyword && selectedNode && canManageOrganizations">
-            <!-- 集团根：新增区域 -->
+            <!-- 集团根：编辑集团 + 新增区域 -->
+            <button v-if="selectedNode.type === 'group'" class="action-btn" @click="startEditCompany">编辑集团</button>
             <button v-if="selectedNode.type === 'group'" class="action-btn primary" @click="addItem('region')">+ 区域</button>
             <!-- 区域：编辑区域 + 新增行政组 -->
             <button v-if="selectedNode.type === 'region'" class="action-btn" @click="editRegion(regions.find(r => r.id === selectedNode?.rawId))">编辑区域</button>
@@ -558,6 +585,26 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
         <div class="modal-footer">
           <button class="action-btn" :disabled="saving" @click="moveState = null">取消</button>
           <button class="action-btn primary" :disabled="saving" @click="confirmMove">{{ saving ? '移动中…' : '确认移动' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑集团弹窗 -->
+    <div v-if="editingCompany" class="modal-mask" @click.self="editingCompany = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>编辑集团</h3>
+          <button class="modal-close" @click="editingCompany = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label>集团名称 <span class="req">*</span></label>
+            <input v-model="companyNameDraft" class="form-input" placeholder="请输入集团名称" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="action-btn" :disabled="saving" @click="editingCompany = false">取消</button>
+          <button class="action-btn primary" :disabled="saving" @click="saveCompany">{{ saving ? '保存中…' : '保存' }}</button>
         </div>
       </div>
     </div>

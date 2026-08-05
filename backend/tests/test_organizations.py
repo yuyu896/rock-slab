@@ -321,3 +321,24 @@ class TestAssignBranchTeamFromEmployees:
         call_command('assign_branch_team_from_employees', stdout=StringIO())
         branch.refresh_from_db()
         assert branch.team_id is None
+
+
+@pytest.mark.django_db
+class TestCompany:
+    """集团（Company 单例）：读、管理员改名、非管理员禁止"""
+
+    def test_get_company_returns_name(self, authenticated_client):
+        resp = authenticated_client.get('/api/company/')
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['name'] == '启航集团'
+
+    def test_admin_update_company_name(self, authenticated_client):
+        resp = authenticated_client.patch('/api/company/', {'name': '新集团名'})
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['name'] == '新集团名'
+        resp2 = authenticated_client.get('/api/company/')
+        assert resp2.data['name'] == '新集团名'
+
+    def test_staff_cannot_update_company(self, staff_client):
+        resp = staff_client.patch('/api/company/', {'name': '违规改名'})
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
