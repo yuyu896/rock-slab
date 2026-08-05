@@ -1,4 +1,5 @@
 import type { User, Branch } from '@/types'
+import { ROLE_LEVELS } from '@/constants'
 
 export type NodeType = 'group' | 'region' | 'team' | 'branch'
 
@@ -35,4 +36,14 @@ export function filterEmployeesByNode(
     return users.filter(u => u.branch && branchIds.includes(u.branch))
   }
   return users.filter(u => u.region === node.rawId)
+}
+
+/** 按职级排序（高职级在前），同职级按姓名。 */
+export function sortEmployeesByRole(list: User[]): User[] {
+  return [...list].sort((a, b) => {
+    const la = ROLE_LEVELS[a.role] ?? 99
+    const lb = ROLE_LEVELS[b.role] ?? 99
+    if (la !== lb) return la - lb
+    return (a.name || '').localeCompare(b.name || '')
+  })
 }

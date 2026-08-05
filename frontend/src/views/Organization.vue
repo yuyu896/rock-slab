@@ -11,7 +11,7 @@ import { handleApiError } from '@/utils/request'
 import { usePermission } from '@/hooks/usePermission'
 import { ROLE_LABELS } from '@/constants'
 import type { User, Region, Branch, Team } from '@/types'
-import { filterEmployeesByNode, type NodeType } from '@/utils/orgTree'
+import { filterEmployeesByNode, sortEmployeesByRole, type NodeType } from '@/utils/orgTree'
 
 const { canManageUsers, canManageOrganizations } = usePermission()
 
@@ -52,7 +52,7 @@ const orgTree = computed<TreeNode[]>(() => {
         children: ungrouped.map(b => ({ key: `branch-${b.id}`, type: 'branch', label: b.name, rawId: b.id, children: [] })),
       })
     }
-    return { key: `region-${r.id}`, type: 'region', label: r.name, rawId: r.id, children: teamNodes }
+    return { key: `region-${r.id}`, type: 'region', label: `${r.name}（${r.code}）`, rawId: r.id, children: teamNodes }
   })
   return [{
     key: 'group-root', type: 'group', label: '启航集团', rawId: '', children: regionNodes,
@@ -61,13 +61,10 @@ const orgTree = computed<TreeNode[]>(() => {
 
 const employees = computed(() => {
   const kw = searchKeyword.value.trim().toLowerCase()
-  if (kw) {
-    return users.value.filter(u =>
-      u.name.toLowerCase().includes(kw) || (u.phone || '').includes(kw)
-    )
-  }
-  const node = selectedNode.value
-  return node ? filterEmployeesByNode(node, { users: users.value, branches: branches.value }) : []
+  const list = kw
+    ? users.value.filter(u => u.name.toLowerCase().includes(kw) || (u.phone || '').includes(kw))
+    : (selectedNode.value ? filterEmployeesByNode(selectedNode.value, { users: users.value, branches: branches.value }) : [])
+  return sortEmployeesByRole(list)
 })
 
 function nodeCount(node: TreeNode): number {

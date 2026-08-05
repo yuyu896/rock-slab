@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { filterEmployeesByNode } from '@/utils/orgTree'
+import { filterEmployeesByNode, sortEmployeesByRole } from '@/utils/orgTree'
 import type { User, Branch } from '@/types'
 
 function makeUser(p: Partial<User> & { id: string }): User {
@@ -57,5 +57,15 @@ describe('filterEmployeesByNode', () => {
     const all = filterEmployeesByNode({ type: 'group', rawId: '' }, data)
     expect(all.length).toBe(users.length)
     expect(ids(all).length).toBe(6)
+  })
+
+  it('sortEmployeesByRole：按职级排序，高职级在前，同职级按姓名', () => {
+    const mixed: User[] = [
+      makeUser({ id: 's1', role: 'staff', name: 'B' }),
+      makeUser({ id: 'a1', role: 'admin', name: 'C' }),
+      makeUser({ id: 'm1', role: 'manager', name: 'D' }),
+      makeUser({ id: 's2', role: 'staff', name: 'A' }),
+    ]
+    expect(sortEmployeesByRole(mixed).map(u => u.id)).toEqual(['a1', 'm1', 's2', 's1'])
   })
 })
