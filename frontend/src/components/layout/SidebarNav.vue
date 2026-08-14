@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getInventoryTasks } from '@/api/inventories'
 import { useUserStore } from '@/store/user'
@@ -12,7 +12,7 @@ interface NavItem {
   children?: NavItem[]
 }
 
-defineProps<{
+const props = defineProps<{
   isCollapsed: boolean
 }>()
 
@@ -21,7 +21,11 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const activeMenu = computed(() => route.path)
-const expandedMenu = ref<string | null>(null)
+const expandedMenus = ref(new Set<string>())
+
+watch(() => props.isCollapsed, (collapsed) => {
+  if (collapsed) expandedMenus.value = new Set()
+})
 const inventoryCount = ref(0)
 
 onMounted(async () => {
@@ -54,7 +58,8 @@ const navItems = computed<NavItem[]>(() => [
     label: '库存',
     path: '/inventory-group',
     children: [
-      { icon: '', label: '资产列表', path: '/assets/list' },
+      { icon: '', label: '资产汇总', path: '/assets/summary' },
+      { icon: '', label: '资产明细', path: '/assets/list' },
       { icon: '', label: '固定资产表', path: '/fixed-assets' },
     ]
   },
@@ -106,7 +111,13 @@ const isChildActive = (item: NavItem) => {
 }
 
 const toggleDropdown = (path: string) => {
-  expandedMenu.value = expandedMenu.value === path ? null : path
+  const next = new Set(expandedMenus.value)
+  if (next.has(path)) {
+    next.delete(path)
+  } else {
+    next.add(path)
+  }
+  expandedMenus.value = next
 }
 
 const getIcon = (name: string) => {
@@ -146,11 +157,11 @@ const getIcon = (name: string) => {
             <transition name="fade">
               <span v-if="!isCollapsed" class="nav-label">{{ item.label }}</span>
             </transition>
-            <svg v-if="!isCollapsed" class="nav-arrow" :class="{ rotated: expandedMenu === item.path }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg v-if="!isCollapsed" class="nav-arrow" :class="{ rotated: expandedMenus.has(item.path) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </a>
-          <div v-if="!isCollapsed" class="nav-submenu" :class="{ expanded: expandedMenu === item.path }">
+          <div v-if="!isCollapsed" class="nav-submenu" :class="{ expanded: expandedMenus.has(item.path) }">
             <a
               v-for="child in item.children"
               :key="child.path"

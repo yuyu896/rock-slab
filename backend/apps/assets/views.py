@@ -1,5 +1,5 @@
 import io
-from django.db.models import Count
+from django.db.models import Count, Min, Max
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -61,6 +61,27 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def batch_delete(self, request):
         """批量删除资产（受数据范围与 manage_assets 权限约束）。"""
         return _batch_delete(self, request)
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """按分公司汇总资产编号（数据范围与列表一致）。"""
+        rows = (
+            self.get_queryset()
+            .values('branch__name', 'branch__code')
+            .annotate(total=Count('id'), min_code=Min('资产编号'), max_code=Max('资产编号'))
+            .order_by('branch__code')
+        )
+        data = [
+            {
+                'branchName': row['branch__name'] or '',
+                'branchCode': row['branch__code'] or '',
+                'total': row['total'],
+                'minCode': row['min_code'] or '',
+                'maxCode': row['max_code'] or '',
+            }
+            for row in rows
+        ]
+        return Response(data)
 
     @action(detail=False, methods=['get'], url_path='template')
     def download_template(self, request):

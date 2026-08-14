@@ -199,7 +199,7 @@ const toggleSelect = (id: string) => {
   }
 }
 
-// 获取资产列表
+// 获取资产明细
 async function fetchAssets() {
   loading.value = true
   try {
@@ -266,7 +266,7 @@ const handleExport = async () => {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `资产列表_${new Date().toISOString().slice(0, 10)}.xlsx`
+    link.download = `资产明细_${new Date().toISOString().slice(0, 10)}.xlsx`
     link.click()
     URL.revokeObjectURL(url)
     ElMessage.success('导出成功')
@@ -314,7 +314,7 @@ onMounted(() => {
     <!-- 页面标题区 -->
     <div class="page-header">
       <div class="header-info">
-        <h1 class="page-title">资产列表</h1>
+        <h1 class="page-title">资产明细</h1>
         <p class="page-desc">共{{ pagination.total }}项资产</p>
       </div>
       <div class="header-actions">

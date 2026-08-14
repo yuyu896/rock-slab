@@ -162,6 +162,14 @@ export interface Asset {
   updatedAt: string
 }
 
+export interface AssetSummaryRow {
+  branchName: string
+  branchCode: string
+  total: number
+  minCode: string
+  maxCode: string
+}
+
 /** 用户 */
 export interface User {
   id: string
