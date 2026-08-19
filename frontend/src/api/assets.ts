@@ -88,8 +88,8 @@ export function importAssets(file: File) {
   })
 }
 
-/** Excel 导出 */
-export function exportAssets(params?: { branch?: string }) {
+/** Excel 导出（遵循页面筛选） */
+export function exportAssets(params?: { branch?: string; category?: string; status?: string; keyword?: string }) {
   return request.get<Blob>('/api/assets/export', { params, responseType: 'blob' })
 }
 

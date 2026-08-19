@@ -268,10 +268,15 @@ async function fetchBranches() {
   }
 }
 
-// 导出数据
+// 导出数据（遵循当前筛选：分公司/类目/状态/关键词）
 const handleExport = async () => {
   try {
-    const { data } = await exportAssets({ branch: filters.value.branch || undefined })
+    const { data } = await exportAssets({
+      branch: filters.value.branch || undefined,
+      category: filters.value.category || undefined,
+      status: filters.value.status || undefined,
+      keyword: filters.value.keyword || undefined,
+    })
     const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')

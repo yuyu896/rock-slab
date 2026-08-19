@@ -43,6 +43,7 @@ async function handleExport() {
     if (filters.value.branch) params.branch = filters.value.branch
     if (filters.value.status) params.status = filters.value.status
     if (filters.value.keyword) params.keyword = filters.value.keyword
+    if (filters.value.资产名称) params.资产名称 = filters.value.资产名称
     const { data } = await exportFixedAssets(params)
     const url = URL.createObjectURL(data)
     const a = document.createElement('a')

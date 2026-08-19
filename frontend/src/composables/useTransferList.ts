@@ -194,6 +194,7 @@ export function useTransferList(type: TransferType) {
       if (filters.value.fromBranch) params.fromBranch = filters.value.fromBranch
       if (filters.value.toBranch) params.toBranch = filters.value.toBranch
       if (filters.value.status) params.status = filters.value.status
+      if (filters.value.keyword) params.keyword = filters.value.keyword
       const { data } = await exportTransfers(params)
       const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const url = URL.createObjectURL(blob)
