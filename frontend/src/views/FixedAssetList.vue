@@ -10,6 +10,7 @@ import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
+import RecoveryDialog from './assets/RecoveryDialog.vue'
 
 const { canManageAssets } = usePermission()
 
@@ -135,6 +136,15 @@ async function handleUpdate() {
   } finally {
     saving.value = false
   }
+}
+
+// ── 行内回收（即时生效，联动资产汇总库存并删除该实例记录）──
+const showRecoveryDialog = ref(false)
+const recoveringAsset = ref<FixedAsset | null>(null)
+
+function openRecovery(asset: FixedAsset) {
+  recoveringAsset.value = asset
+  showRecoveryDialog.value = true
 }
 
 // ── 删除 ──
@@ -390,6 +400,12 @@ onMounted(() => { fetchAssets(); fetchBranches() })
                   <rect x="6" y="14" width="12" height="8"/>
                 </svg>
               </button>
+              <button v-if="canManageAssets" class="action-btn" title="回收" @click="openRecovery(item)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="1 4 1 10 7 10"/>
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                </svg>
+              </button>
               <button v-if="canManageAssets" class="action-btn" title="编辑" @click="openEdit(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -487,6 +503,16 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 
     <!-- 标签打印弹窗 -->
     <AssetPrintDialog :visible="showPrintDialog" :assets="printItems" @close="showPrintDialog = false" />
+
+    <!-- 行内回收弹窗 -->
+    <RecoveryDialog
+      v-if="showRecoveryDialog"
+      :visible="showRecoveryDialog"
+      mode="fixed"
+      :item="recoveringAsset"
+      @close="showRecoveryDialog = false"
+      @success="fetchAssets"
+    />
   </div>
 </template>
 

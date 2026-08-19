@@ -1,5 +1,4 @@
 import io
-from django.db.models import Count, Min, Max
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -8,9 +7,9 @@ from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin
 from apps.permissions.permissions import OperationPermission
-from .models import Asset, FixedAsset
-from .serializers import AssetSerializer, FixedAssetSerializer
-from .filters import AssetFilterSet, FixedAssetFilterSet
+from .models import Asset, AssetStock, FixedAsset
+from .serializers import AssetSerializer, AssetStockSerializer, FixedAssetSerializer
+from .filters import AssetFilterSet, AssetStockFilterSet, FixedAssetFilterSet
 
 
 def _batch_delete(viewset, request):
@@ -61,27 +60,6 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def batch_delete(self, request):
         """批量删除资产（受数据范围与 manage_assets 权限约束）。"""
         return _batch_delete(self, request)
-
-    @action(detail=False, methods=['get'])
-    def summary(self, request):
-        """按分公司汇总资产编号（数据范围与列表一致）。"""
-        rows = (
-            self.get_queryset()
-            .values('branch__name', 'branch__code')
-            .annotate(total=Count('id'), min_code=Min('资产编号'), max_code=Max('资产编号'))
-            .order_by('branch__code')
-        )
-        data = [
-            {
-                'branchName': row['branch__name'] or '',
-                'branchCode': row['branch__code'] or '',
-                'total': row['total'],
-                'minCode': row['min_code'] or '',
-                'maxCode': row['max_code'] or '',
-            }
-            for row in rows
-        ]
-        return Response(data)
 
     @action(detail=False, methods=['get'], url_path='template')
     def download_template(self, request):
@@ -330,6 +308,240 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         response['Content-Disposition'] = 'attachment; filename="assets.xlsx"'
+        return response
+
+
+class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
+    """资产汇总（库存台账）视图。
+
+    读取：所有登录用户可查看数据范围内的台账行。
+    新增/编辑/删除/批量删除/导入：需持有 manage_assets 业务操作权限。
+    回收流转生效时会扣减台账库存（见 apps/transfers）。
+    """
+    queryset = AssetStock.objects.select_related('branch').all()
+    serializer_class = AssetStockSerializer
+    filterset_class = AssetStockFilterSet
+    permission_classes = [IsAuthenticated, OperationPermission]
+    pagination_class = StandardPagination
+    scope_branch_field = 'branch'
+    required_operations = {
+        'create': 'manage_assets',
+        'update': 'manage_assets',
+        'partial_update': 'manage_assets',
+        'destroy': 'manage_assets',
+        'import_excel': 'manage_assets',
+        'batch_delete': 'manage_assets',
+    }
+
+    # 台账导入模板 8 列（序号与是否充足由系统生成）
+    STOCK_TEMPLATE_HEADERS = [
+        '分公司', '资产编号', '资产类目', '物品分类', '资产名称',
+        '数量', '规格', '警戒线',
+    ]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return self.get_scoped_queryset(qs)
+
+    @action(detail=False, methods=['post'], url_path='batch-delete')
+    def batch_delete(self, request):
+        """批量删除台账行（受数据范围与 manage_assets 权限约束）。"""
+        return _batch_delete(self, request)
+
+    @action(detail=False, methods=['get'], url_path='template')
+    def download_template(self, request):
+        """下载台账空白导入模板。"""
+        import openpyxl
+        from django.http import HttpResponse
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '资产汇总'
+        ws.append(self.STOCK_TEMPLATE_HEADERS)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="asset_summary_template.xlsx"'
+        return response
+
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
+            permission_classes=[IsAuthenticated, OperationPermission])
+    def import_excel(self, request):
+        """台账 Excel 批量导入（表头列名映射；(分公司, 资产编号) 去重；是否充足自动计算）。"""
+        from apps.assets.utils.import_helpers import merge_errors
+        from apps.organizations.utils import get_branch_name_set, branch_validation_error, get_branch_code_map
+
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from core.upload_validation import (
+            validate_excel_upload, validate_row_count, UploadValidationError,
+        )
+        try:
+            validate_excel_upload(file)
+        except UploadValidationError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(file, read_only=True)
+            ws = wb.active
+        except Exception as e:
+            return Response(
+                {'detail': f'文件解析失败: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_row_count(ws)
+        except UploadValidationError as e:
+            wb.close()
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        all_rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        if len(all_rows) > 201:
+            return Response(
+                {'detail': f'数据量过大（{len(all_rows) - 1} 行），建议分批导入（每次不超过 200 行）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not all_rows:
+            return Response({'imported': 0, 'errors': []})
+
+        # 按表头列名建立映射（列顺序无关，去列后抗位移）
+        header_row = [str(c or '').strip() for c in all_rows[0]]
+        col = {}
+        for idx, name in enumerate(header_row):
+            if name and name not in col:
+                col[name] = idx
+
+        def cell(row, name):
+            idx = col.get(name)
+            if idx is None or idx >= len(row):
+                return ''
+            val = row[idx]
+            return '' if val is None else val
+
+        imported = 0
+        raw_errors = []
+        valid_branches = get_branch_name_set()
+        branch_code_map = get_branch_code_map()
+        from apps.organizations.models import Branch as _Branch
+        branch_obj_map = {b.name: b for b in _Branch.objects.all()}
+        seen_keys = set()  # 表内去重：(分公司, 资产编号)
+
+        for i, row in enumerate(all_rows[1:], start=2):
+            asset_code = str(cell(row, '资产编号')).strip()
+            if not asset_code:
+                raw_errors.append((i, '资产编号为空，跳过该行'))
+                continue
+
+            分公司_name = str(cell(row, '分公司')).strip()
+            branch_err = branch_validation_error(分公司_name, '分公司', valid_branches)
+            if branch_err:
+                raw_errors.append((i, branch_err))
+                continue
+
+            # 表内 + 库内去重：(分公司, 资产编号)
+            stock_key = (分公司_name, asset_code)
+            if stock_key in seen_keys:
+                raw_errors.append((i, f'资产编号 {asset_code} 在文件内重复'))
+                continue
+            seen_keys.add(stock_key)
+
+            if AssetStock.objects.filter(分公司=分公司_name, 资产编号=asset_code).exists():
+                raw_errors.append((i, f'分公司「{分公司_name}」下资产编号 {asset_code} 已存在，请编辑该行'))
+                continue
+
+            row_errors = []
+            数量 = 0
+            qty_raw = cell(row, '数量')
+            if qty_raw:
+                try:
+                    数量 = int(qty_raw)
+                except (ValueError, TypeError):
+                    row_errors.append(f'数量字段值 "{qty_raw}" 不是有效整数')
+
+            警戒线 = None
+            warn_raw = cell(row, '警戒线')
+            if warn_raw not in ('', None):
+                try:
+                    警戒线 = int(warn_raw)
+                except (ValueError, TypeError):
+                    row_errors.append(f'警戒线字段值 "{warn_raw}" 不是有效整数')
+
+            if row_errors:
+                for e in row_errors:
+                    raw_errors.append((i, e))
+                continue
+
+            try:
+                AssetStock.objects.create(
+                    分公司=分公司_name,
+                    分公司编号=branch_code_map.get(分公司_name, ''),
+                    branch=branch_obj_map.get(分公司_name),
+                    资产编号=asset_code,
+                    资产类目=str(cell(row, '资产类目')),
+                    物品分类=str(cell(row, '物品分类')),
+                    资产名称=str(cell(row, '资产名称')),
+                    规格=str(cell(row, '规格')),
+                    数量=数量,
+                    警戒线=警戒线,
+                )
+                imported += 1
+            except Exception as e:
+                raw_errors.append((i, f'保存失败: {str(e)}'))
+
+        errors = merge_errors(raw_errors)
+        return Response({'imported': imported, 'errors': errors})
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_excel(self, request):
+        """台账导出（列同页面表头 10 列，序号为行号）。"""
+        import openpyxl
+        from django.http import HttpResponse
+
+        queryset = self.filter_queryset(self.get_queryset())
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '资产汇总'
+
+        headers = ['序号', '分公司', '资产编号', '资产类目', '物品分类', '资产名称', '数量', '规格', '警戒线', '是否充足']
+        ws.append(headers)
+
+        for idx, stock in enumerate(queryset, start=1):
+            ws.append([
+                idx,
+                stock.分公司,
+                stock.资产编号,
+                stock.资产类目,
+                stock.物品分类,
+                stock.资产名称,
+                stock.数量,
+                stock.规格,
+                stock.警戒线 if stock.警戒线 is not None else '',
+                '是' if stock.是否充足 else '否',
+            ])
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="asset_summary.xlsx"'
         return response
 
 

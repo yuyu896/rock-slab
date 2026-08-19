@@ -1,5 +1,64 @@
 from rest_framework import serializers
-from .models import Asset, FixedAsset
+from .models import Asset, AssetStock, FixedAsset
+
+
+class AssetStockSerializer(serializers.ModelSerializer):
+    """Serializer for AssetStock（分公司名解析 branch FK，是否充足只读由模型重算）。"""
+    branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
+
+    class Meta:
+        model = AssetStock
+        fields = [
+            'id',
+            '分公司', '分公司编号', 'branch', 'branch_name',
+            '资产编号', '资产类目', '物品分类', '资产名称', '规格',
+            '数量', '警戒线', '是否充足',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at', '分公司', '分公司编号', '是否充足']
+
+    def _resolve_branch(self, validated_data):
+        branch = validated_data.get('branch')
+        if branch is None:
+            company = self.initial_data.get('分公司')
+            if company:
+                from apps.organizations.models import Branch
+                branch = Branch.objects.filter(name=company).first()
+                if branch:
+                    validated_data['branch'] = branch
+        if branch is not None:
+            validated_data['分公司'] = branch.name
+            validated_data['分公司编号'] = branch.code
+        return validated_data
+
+    def validate(self, attrs):
+        company = None
+        if attrs.get('branch') is not None:
+            company = attrs['branch'].name
+        if not company:
+            company = attrs.get('分公司')
+        if not company and self.instance:
+            company = self.instance.分公司
+        if not company:
+            company = self.initial_data.get('分公司')
+        code = attrs.get('资产编号') or (self.instance.资产编号 if self.instance else None)
+        if company and code:
+            qs = AssetStock.objects.filter(分公司=company, 资产编号=code)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {'资产编号': [f'分公司「{company}」下资产编号 {code} 已存在，请编辑该行']}
+                )
+        return attrs
+
+    def create(self, validated_data):
+        validated_data = self._resolve_branch(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data = self._resolve_branch(validated_data)
+        return super().update(instance, validated_data)
 
 
 class AssetSerializer(serializers.ModelSerializer):

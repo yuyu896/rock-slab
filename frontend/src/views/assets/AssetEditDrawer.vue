@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import DepartmentSelect from '@/components/DepartmentSelect.vue'
 import type { Asset } from '@/types'
 
 const props = defineProps<{
@@ -97,7 +98,7 @@ function handleSubmit() {
           </div>
           <div class="form-item">
             <label class="form-label">所属部门</label>
-            <input v-model="form.所属部门" type="text" class="form-input" />
+            <DepartmentSelect v-model="form.所属部门" />
           </div>
           <div class="form-item">
             <label class="form-label">使用人</label>

@@ -18,6 +18,7 @@ class TransferSerializer(serializers.ModelSerializer):
             '审批时间', '创建人', 'action_type',
             '供应商', '单价', '总金额', '需求部门', '采购经办人', '用途',
             '回收分类', '单位', '出库日期', '存放位置', '资产类目', '物品分类',
+            '固定资产内部编号',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
             'created_at', 'updated_at',
         ]
@@ -54,6 +55,7 @@ class TransferActionSerializer(serializers.Serializer):
     存放位置 = serializers.CharField(required=False, default='', allow_blank=True)
     资产类目 = serializers.CharField(required=False, default='', allow_blank=True)
     物品分类 = serializers.CharField(required=False, default='', allow_blank=True)
+    固定资产内部编号 = serializers.CharField(required=False, default='', allow_blank=True)
     # FK fields
     from_branch = serializers.PrimaryKeyRelatedField(
         queryset=Branch.objects.none(), required=False, allow_null=True,

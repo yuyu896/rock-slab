@@ -115,11 +115,27 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             branch_id=to_branch.id if to_branch else None,
         )
 
-        transfer = Transfer.objects.create(
-            from_branch=from_branch,
-            to_branch=to_branch,
-            **data,
-        )
+        # 行内直接回收（明细/固定资产列表发起）：manage_assets 持有者创建即「已通过」并即时联动
+        immediate_recovery = bool(request.data.get('immediate')) and action_type == Transfer.ACTION_RECOVERY
+        if immediate_recovery and not request.user.can('manage_assets'):
+            return Response(
+                {'detail': '直接回收需要资产管理权限'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if immediate_recovery:
+            data['审批状态'] = '已通过'
+            data['审批人'] = request.user.name or request.user.phone
+            data['审批时间'] = timezone.now()
+
+        from django.db import transaction
+        with transaction.atomic():
+            transfer = Transfer.objects.create(
+                from_branch=from_branch,
+                to_branch=to_branch,
+                **data,
+            )
+            if immediate_recovery:
+                self._apply_recovery_stock(transfer)
         return Response(
             TransferSerializer(transfer).data,
             status=status.HTTP_201_CREATED,
@@ -240,6 +256,53 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     入库日期=date.today(),
                 )
 
+    def _apply_recovery_stock(self, transfer):
+        """回收联动：扣台账库存 → 扣资产明细数量 → 删固定资产实例。须在事务内调用。
+
+        台账按「分公司+资产编号」匹配（优先 branch FK），下限 0、无匹配跳过；
+        明细优先「分公司+资产编号+所属部门=调出部门」精确匹配，回退首条，归零保留记录；
+        固定资产按单据携带的内部编号删除实例（不携带则不动）。
+        """
+        from apps.assets.models import Asset, AssetStock, FixedAsset
+
+        qty = transfer.调拨数量 or 1
+        from_branch = transfer.from_branch
+        from_company = transfer.调出分公司 or ''
+
+        stock = None
+        if from_branch:
+            stock = AssetStock.objects.select_for_update().filter(
+                资产编号=transfer.资产编号, branch=from_branch,
+            ).first()
+        if not stock and from_company:
+            stock = AssetStock.objects.select_for_update().filter(
+                资产编号=transfer.资产编号, 分公司=from_company,
+            ).first()
+        if stock:
+            stock.数量 = max(0, (stock.数量 or 0) - qty)
+            stock.save(update_fields=['数量', '是否充足', 'updated_at'])
+
+        detail = None
+        if from_company and transfer.调出部门:
+            detail = Asset.objects.select_for_update().filter(
+                资产编号=transfer.资产编号, 分公司=from_company, 所属部门=transfer.调出部门,
+            ).first()
+        if detail is None and from_branch:
+            detail = Asset.objects.select_for_update().filter(
+                资产编号=transfer.资产编号, branch=from_branch,
+            ).first()
+        if detail is None and from_company:
+            detail = Asset.objects.select_for_update().filter(
+                资产编号=transfer.资产编号, 分公司=from_company,
+            ).first()
+        if detail:
+            detail.数量 = max(0, (detail.数量 or 0) - qty)
+            detail.save(update_fields=['数量', 'updated_at'])
+
+        inner_code = (transfer.固定资产内部编号 or '').strip()
+        if inner_code:
+            FixedAsset.objects.filter(内部编号=inner_code).delete()
+
     def _apply_warehouse_stock(self, transfer):
         """采购入库：按调拨数量增加资产库存（存在则累加、不存在则创建）。须在事务内调用。"""
         from django.db.models import F
@@ -326,8 +389,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         )
                     locked.审批状态 = '已通过'
                     self._sync_asset(locked)
+                elif locked.action_type == Transfer.ACTION_RECOVERY:
+                    # 回收：审批通过即联动（扣台账/明细、删固定资产实例）
+                    locked.审批状态 = '已通过'
+                    self._apply_recovery_stock(locked)
                 else:
-                    # 退回/调拨/回收等：直接同步
+                    # 退回/调拨等：直接同步
                     locked.审批状态 = '已通过'
                     self._sync_asset(locked)
             else:

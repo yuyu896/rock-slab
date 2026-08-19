@@ -1,5 +1,24 @@
 import django_filters
-from .models import Asset, FixedAsset
+from .models import Asset, AssetStock, FixedAsset
+
+
+class AssetStockFilterSet(django_filters.FilterSet):
+    branch = django_filters.CharFilter(field_name='分公司')
+    category = django_filters.CharFilter(field_name='资产类目')
+    keyword = django_filters.CharFilter(method='filter_keyword')
+
+    class Meta:
+        model = AssetStock
+        fields = []
+
+    def filter_keyword(self, queryset, name, value):
+        from django.db.models import Q
+        return queryset.filter(
+            Q(资产名称__icontains=value) |
+            Q(资产编号__icontains=value) |
+            Q(分公司__icontains=value) |
+            Q(规格__icontains=value)
+        )
 
 
 class AssetFilterSet(django_filters.FilterSet):

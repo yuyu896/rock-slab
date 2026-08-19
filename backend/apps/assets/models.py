@@ -2,6 +2,46 @@ from django.db import models
 from core.models import UUIDModel, TimestampedModel
 
 
+class AssetStock(UUIDModel, TimestampedModel):
+    """资产汇总（库存台账）— 一行代表某分公司下某资产编号的库存。"""
+
+    分公司 = models.CharField('分公司', max_length=100)
+    分公司编号 = models.CharField('分公司编号', max_length=50, blank=True, default='')
+    branch = models.ForeignKey(
+        'organizations.Branch',
+        on_delete=models.PROTECT,
+        related_name='asset_stocks',
+        null=True,
+        blank=True,
+        verbose_name='所属分公司',
+    )
+    资产编号 = models.CharField('资产编号', max_length=100, db_index=True)
+    资产类目 = models.CharField('资产类目', max_length=100, blank=True, default='')
+    物品分类 = models.CharField('物品分类', max_length=100, blank=True, default='')
+    资产名称 = models.CharField('资产名称', max_length=200, blank=True, default='')
+    规格 = models.CharField('规格', max_length=200, blank=True, default='')
+    数量 = models.IntegerField('数量', default=0)
+    警戒线 = models.IntegerField('警戒线', null=True, blank=True)
+    是否充足 = models.BooleanField('是否充足', default=True)
+
+    class Meta:
+        db_table = 'assets_assetstock'
+        ordering = ['分公司', '资产编号']
+        verbose_name = '资产汇总台账'
+        verbose_name_plural = '资产汇总台账'
+        constraints = [
+            models.UniqueConstraint(fields=['分公司', '资产编号'], name='unique_summary_branch_asset_code'),
+        ]
+
+    def __str__(self):
+        return f'{self.分公司} {self.资产编号} ({self.数量})'
+
+    def save(self, *args, **kwargs):
+        # 是否充足强制服务端计算，任何写路径不采信外部传值
+        self.是否充足 = (self.警戒线 is None) or ((self.数量 or 0) >= self.警戒线)
+        super().save(*args, **kwargs)
+
+
 class Asset(UUIDModel, TimestampedModel):
     """资产（品目级别）— 一条记录代表一类资产的库存汇总。"""
     STATUS_CHOICES = [

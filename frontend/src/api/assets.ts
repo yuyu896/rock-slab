@@ -1,6 +1,6 @@
 /* 磐盘 - 资产 API */
 import request from '@/utils/request'
-import type { Asset, AssetSummaryRow, FixedAsset, PaginatedResponse, PaginationParams } from '@/types'
+import type { Asset, AssetStock, FixedAsset, PaginatedResponse, PaginationParams } from '@/types'
 
 export function getAssets(params?: PaginationParams & {
   branch?: string
@@ -12,9 +12,50 @@ export function getAssets(params?: PaginationParams & {
   return request.get<PaginatedResponse<Asset>>('/api/assets/', { params })
 }
 
-/** 按分公司汇总资产编号（数据范围与列表一致） */
-export function getAssetSummary() {
-  return request.get<AssetSummaryRow[]>('/api/assets/summary')
+// ── 资产汇总（库存台账） ──
+
+export function getAssetStocks(params?: PaginationParams & {
+  branch?: string
+  category?: string
+  keyword?: string
+}) {
+  return request.get<PaginatedResponse<AssetStock>>('/api/assets/summary', { params })
+}
+
+export function createAssetStock(data: Partial<AssetStock>) {
+  return request.post<AssetStock>('/api/assets/summary', data)
+}
+
+export function updateAssetStock(id: string, data: Partial<AssetStock>) {
+  return request.patch<AssetStock>(`/api/assets/summary/${id}`, data)
+}
+
+export function deleteAssetStock(id: string) {
+  return request.delete(`/api/assets/summary/${id}`)
+}
+
+/** 批量删除台账行 */
+export function batchDeleteAssetStocks(ids: string[]) {
+  return request.post<{ deleted: number }>('/api/assets/summary/batch-delete', { ids })
+}
+
+/** Excel 批量导入台账 */
+export function importAssetStocks(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post<{ imported: number; errors: string[] }>('/api/assets/summary/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+/** Excel 导出台账 */
+export function exportAssetStocks(params?: Record<string, string>) {
+  return request.get<Blob>('/api/assets/summary/export', { params, responseType: 'blob' })
+}
+
+/** 下载台账导入模板 */
+export function downloadAssetStockTemplate() {
+  return request.get<Blob>('/api/assets/summary/template', { responseType: 'blob' })
 }
 
 export function getAsset(id: string) {

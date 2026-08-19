@@ -81,6 +81,7 @@ class Transfer(UUIDModel, TimestampedModel):
     存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
     资产类目 = models.CharField('资产类目', max_length=100, blank=True, default='')
     物品分类 = models.CharField('物品分类', max_length=100, blank=True, default='')
+    固定资产内部编号 = models.CharField('固定资产内部编号', max_length=100, blank=True, default='')
 
     class Meta:
         db_table = 'transfers_transfer'

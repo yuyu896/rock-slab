@@ -7,7 +7,7 @@ import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { DEPARTMENT_OPTIONS } from '@/constants'
+import DepartmentSelect from '@/components/DepartmentSelect.vue'
 import type { Asset, Category } from '@/types'
 
 const router = useRouter()
@@ -210,10 +210,7 @@ onMounted(() => {
           </div>
           <div class="form-item">
             <label class="form-label">所属部门</label>
-            <select v-model="newAsset.所属部门" class="form-select">
-              <option value="">请选择</option>
-              <option v-for="d in DEPARTMENT_OPTIONS" :key="d" :value="d">{{ d }}</option>
-            </select>
+            <DepartmentSelect v-model="newAsset.所属部门" />
           </div>
           <div class="form-item">
             <label class="form-label">使用人</label>

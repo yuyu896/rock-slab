@@ -162,12 +162,23 @@ export interface Asset {
   updatedAt: string
 }
 
-export interface AssetSummaryRow {
-  branchName: string
-  branchCode: string
-  total: number
-  minCode: string
-  maxCode: string
+/** 资产汇总（库存台账）行：一行 = 某分公司下某资产编号的库存 */
+export interface AssetStock {
+  id: string
+  分公司: string
+  分公司编号?: string
+  branch?: string
+  branchName?: string
+  资产编号: string
+  资产类目?: string
+  物品分类?: string
+  资产名称?: string
+  规格?: string
+  数量: number
+  警戒线?: number | null
+  是否充足?: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 /** 用户 */

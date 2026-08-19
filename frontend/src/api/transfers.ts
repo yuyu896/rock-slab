@@ -38,8 +38,8 @@ export function transferAsset(data: Partial<Transfer>) {
   return request.post<Transfer>('/api/transfers/transfer', data)
 }
 
-/** 资产回收 */
-export function recoverAsset(data: Partial<Transfer>) {
+/** 资产回收（immediate=true 直接回收：即时生效并联动台账；固定资产内部编号用于定位删除实例） */
+export function recoverAsset(data: Partial<Transfer> & { immediate?: boolean; 固定资产内部编号?: string }) {
   return request.post<Transfer>('/api/transfers/recovery', data)
 }
 

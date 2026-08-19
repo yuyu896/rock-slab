@@ -17,6 +17,7 @@ import AssetDetailDrawer from './assets/AssetDetailDrawer.vue'
 import AssetImportDialog from './assets/AssetImportDialog.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
 import AssetEditDrawer from './assets/AssetEditDrawer.vue'
+import RecoveryDialog from './assets/RecoveryDialog.vue'
 
 const router = useRouter()
 const { canManageAssets } = usePermission()
@@ -106,6 +107,15 @@ async function handleUpdateAsset(payload: Partial<Asset>) {
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }
+}
+
+// ===== 行内回收（即时生效，联动资产汇总库存）=====
+const showRecoveryDialog = ref(false)
+const recoveringAsset = ref<Asset | null>(null)
+
+function openRecovery(asset: Asset) {
+  recoveringAsset.value = asset
+  showRecoveryDialog.value = true
 }
 
 // ===== 删除资产 =====
@@ -530,6 +540,12 @@ onMounted(() => {
                     <rect x="6" y="14" width="12" height="8"/>
                   </svg>
                 </button>
+                <button v-if="canManageAssets" class="action-btn" title="回收" @click="openRecovery(asset)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="1 4 1 10 7 10"/>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                  </svg>
+                </button>
                 <button v-if="canManageAssets" class="action-btn" title="编辑" @click="openEdit(asset)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -586,6 +602,16 @@ onMounted(() => {
 
     <!-- 批量导入弹窗 -->
     <AssetImportDialog :visible="showImportModal" @close="showImportModal = false" @success="fetchAssets" />
+
+    <!-- 行内回收弹窗 -->
+    <RecoveryDialog
+      v-if="showRecoveryDialog"
+      :visible="showRecoveryDialog"
+      mode="asset"
+      :item="recoveringAsset"
+      @close="showRecoveryDialog = false"
+      @success="fetchAssets"
+    />
   </div>
 </template>
 
