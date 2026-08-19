@@ -1,12 +1,16 @@
 # 可访问性：焦点管理
 
+## Purpose
+前端无障碍：焦点管理规范。
+
+## Requirements
+
 所有交互元素必须支持键盘焦点导航，焦点状态必须清晰可见。
 
-## ADDED Requirements
 
 ### Requirement: 交互元素必须显示焦点样式
 
-所有可交互元素（按钮、链接、输入框、可选择项）必须显示清晰的焦点指示器。
+所有可交互元素（按钮、链接、输入框、可选择项）必须（SHALL）显示清晰的焦点指示器。
 
 #### Scenario: 键盘焦点可见
 - **WHEN** 用户使用 Tab 键导航到交互元素
@@ -26,7 +30,7 @@
 
 ### Requirement: 模态框必须实现焦点陷阱
 
-模态框打开时，焦点必须被限制在模态框内部，用户无法将焦点移到模态框外部。
+模态框打开时，焦点必须（SHALL）被限制在模态框内部，用户无法将焦点移到模态框外部。
 
 #### Scenario: 模态框焦点陷阱
 - **WHEN** 模态框打开
@@ -47,7 +51,7 @@
 
 ### Requirement: 焦点样式必须尊重减少动画偏好
 
-用户设置 `prefers-reduced-motion: reduce` 时，焦点过渡动画应当简化或禁用。
+用户设置 `prefers-reduced-motion: reduce` 时，焦点过渡动画应当（SHALL）简化或禁用。
 
 #### Scenario: 减少动画模式下的焦点样式
 - **WHEN** 用户系统设置 `prefers-reduced-motion: reduce`

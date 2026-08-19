@@ -1,3 +1,10 @@
+# org-node-actions Specification
+
+## Purpose
+组织架构节点操作（编辑/删除等）。
+
+## Requirements
+
 ### Requirement: Node detail panel has edit and delete buttons
 
 组织架构节点详情面板 SHALL 显示"编辑"和"删除"两个操作按钮，用于修改或删除当前选中的节点。

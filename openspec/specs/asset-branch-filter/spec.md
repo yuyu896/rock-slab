@@ -1,0 +1,31 @@
+# asset-branch-filter Specification
+
+## Purpose
+TBD - created by archiving change fix-asset-branch-filter. Update Purpose after archive.
+## Requirements
+### Requirement: 资产/固定资产按分公司筛选可靠命中
+资产列表与固定资产表按分公司筛选 SHALL 对**创建与导入**两种来源的资产都可靠命中——按分公司「名称」过滤（而非编号）。
+
+#### Scenario: 导入资产按分公司筛选命中
+- **WHEN** 某资产由导入产生、其「分公司编号」与分公司真实 code 不一致，按该分公司筛选
+- **THEN** 该资产仍被正确包含（按名称命中，不依赖编号）
+
+#### Scenario: 单条创建资产按分公司筛选命中
+- **WHEN** 某资产由新增表单创建，按其所属分公司筛选
+- **THEN** 该资产被正确包含
+
+#### Scenario: 选择全部
+- **WHEN** 分公司筛选为「全部」
+- **THEN** 不按分公司过滤，返回数据范围内所有资产
+
+### Requirement: 导入回填分公司编号
+资产导入时 SHALL 由分公司名称反查 Branch 回填「分公司编号」（不再读取导入文件中的该列），保证该字段正确一致。
+
+#### Scenario: 导入后分公司编号为真实 code
+- **WHEN** 通过导入创建资产并指定分公司名称
+- **THEN** 该资产的「分公司编号」为对应分公司的真实 code（而非文件中手填值）
+
+#### Scenario: 导入模板无分公司编号列
+- **WHEN** 下载资产导入模板
+- **THEN** 表头不含「分公司编号」列（系统派生）
+

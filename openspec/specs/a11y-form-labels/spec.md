@@ -1,12 +1,16 @@
 # 可访问性：表单标签关联
 
+## Purpose
+前端无障碍：表单标签关联规范。
+
+## Requirements
+
 所有表单输入控件必须有关联的标签元素，确保屏幕阅读器用户能够理解输入框的用途。
 
-## ADDED Requirements
 
 ### Requirement: 表单输入必须有关联标签
 
-所有表单输入控件（`<input>`, `<select>`, `<textarea>`）必须有通过 `for` 属性或隐式包装关联的 `<label>` 元素。
+所有表单输入控件（`<input>`, `<select>`, `<textarea>`）必须（SHALL）有通过 `for` 属性或隐式包装关联的 `<label>` 元素。
 
 #### Scenario: 文本输入框标签关联
 - **WHEN** 页面包含文本输入框
@@ -25,7 +29,7 @@
 
 ### Requirement: 标签文本必须清晰可见
 
-标签文本应当始终可见，不得使用 `display: none` 或 `visibility: hidden` 隐藏标签。
+标签文本应当（SHALL）始终可见，不得使用 `display: none` 或 `visibility: hidden` 隐藏标签。
 
 #### Scenario: 标签可见性
 - **WHEN** 表单渲染完成
@@ -39,7 +43,7 @@
 
 ### Requirement: 分组字段必须有标题
 
-一组相关的表单字段（如地址字段组）必须使用 `<fieldset>` 和 `<legend>` 进行分组。
+一组相关的表单字段（如地址字段组）必须（SHALL）使用 `<fieldset>` 和 `<legend>` 进行分组。
 
 #### Scenario: 字段分组
 - **WHEN** 表单包含多个相关字段（如省/市/区地址）

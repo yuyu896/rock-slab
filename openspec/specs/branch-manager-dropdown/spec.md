@@ -1,0 +1,23 @@
+# branch-manager-dropdown Specification
+
+## Purpose
+TBD - created by archiving change branch-manager-dropdown-by-members. Update Purpose after archive.
+## Requirements
+### Requirement: 分公司负责人下拉为分公司归属员工
+分公司编辑表单的「负责人」下拉 SHALL 仅列出归属到该分公司（`branch === 当前分公司 id`）的员工，且不限角色（含普通员工 staff）。
+
+#### Scenario: 下拉只含该分公司成员（含 staff）
+- **WHEN** 编辑某分公司、展开「负责人」下拉
+- **THEN** 选项为归属该分公司的全部员工（含普通员工），不含「行政组长以上」之外被排除的角色
+
+#### Scenario: 不含其他分公司人员
+- **WHEN** 编辑某分公司、展开「负责人」下拉
+- **THEN** 选项中不包含归属其他分公司的人员
+
+### Requirement: 负责人可选
+「负责人」SHALL 为可选字段；新增分公司无归属人员时允许留空。
+
+#### Scenario: 新增分公司可留空负责人
+- **WHEN** 新建分公司且尚未有归属人员
+- **THEN** 「负责人」可留空、分公司可成功创建（不被必填阻塞）
+

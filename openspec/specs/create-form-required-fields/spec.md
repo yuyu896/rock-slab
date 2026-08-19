@@ -1,0 +1,20 @@
+# create-form-required-fields Specification
+
+## Purpose
+TBD - created by archiving change create-form-required-fields. Update Purpose after archive.
+## Requirements
+### Requirement: 新增表单必填字段校验
+所有新增表单（资产/固定资产/采购入库/领用出库/调拨/回收）SHALL 校验以下字段非空：分公司、资产编号、资产名称；有电脑序列号字段的表单 SHALL 校验电脑序列号非空。
+
+#### Scenario: 分公司为空被拒
+- **WHEN** 用户在任一新增表单提交时分公司为空
+- **THEN** 后端返回 400 提示分公司不能为空
+
+#### Scenario: 资产编号为空被拒
+- **WHEN** 资产编号为空
+- **THEN** 后端返回 400
+
+#### Scenario: 电脑序列号为空被拒（固定资产）
+- **WHEN** 固定资产新增时电脑序列号为空
+- **THEN** 后端返回 400
+

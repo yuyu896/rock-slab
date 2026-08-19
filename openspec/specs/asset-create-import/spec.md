@@ -1,0 +1,49 @@
+# asset-create-import Specification
+
+## Purpose
+TBD - created by archiving change improve-asset-create-import. Update Purpose after archive.
+## Requirements
+### Requirement: 新增资产所属部门为下拉（固定列表）
+新增资产表单的「所属部门」SHALL 为下拉选择，选项来自固定列表常量，不再为自由文本。
+
+#### Scenario: 所属部门为下拉
+- **WHEN** 用户在新增资产表单填写「所属部门」
+- **THEN** 该字段为下拉，选项为固定列表中的部门
+
+### Requirement: 警戒线按资产编号联动资产分类
+资产的「警戒线」SHALL 由资产编号反查的资产分类（Category）`warning_line` 决定，导入与新增一致；导入模板不再含可手填的警戒线列。
+
+#### Scenario: 分类查询返回警戒线
+- **WHEN** 以已登记编号调用 `/api/categories/lookup`
+- **THEN** 返回中含该分类的 `警戒线`
+
+#### Scenario: 导入警戒线取自分类
+- **WHEN** 批量导入资产
+- **THEN** 每行「警戒线」取自该编号对应分类的 `warning_line`（而非导入文件中的值）
+
+#### Scenario: 新增表单失焦联动警戒线
+- **WHEN** 新增资产表单中填入资产编号并失焦、命中分类
+- **THEN** 「警戒线」被联动带出（与名称/类目/分类一并）
+
+### Requirement: 资产列表序号为自动行序号
+资产列表「序号」列 SHALL 显示当前筛选/分页内的连续行序号（随分公司筛选变化），不显示存储的序号值。
+
+#### Scenario: 序号随筛选变化
+- **WHEN** 用户按某分公司筛选资产列表
+- **THEN** 「序号」列显示该公司结果集内的连续行号（1..N），而非存储值
+
+#### Scenario: 序号跨页连续
+- **WHEN** 列表翻页
+- **THEN** 行序号按 `(页码-1)*pageSize + 行内序 + 1` 连续编号
+
+### Requirement: 批量导入模板无序号列
+资产批量导入模板 SHALL 不含「序号」列；导入时序号由系统自动分配，不取自导入文件。
+
+#### Scenario: 模板无序号列
+- **WHEN** 下载资产导入模板
+- **THEN** 表头不含「序号」列
+
+#### Scenario: 导入序号自动分配
+- **WHEN** 批量导入资产
+- **THEN** 存储序号由系统自动分配（不取导入文件值），保持默认排序
+

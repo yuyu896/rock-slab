@@ -1,0 +1,38 @@
+# asset-purchase-fixes Specification
+
+## Purpose
+TBD - created by archiving change fix-asset-edit-purchase-stock. Update Purpose after archive.
+## Requirements
+### Requirement: 资产编辑支持部分更新
+资产列表的编辑 SHALL 以部分更新（PATCH）提交；仅修改部分字段（如当前状态）SHALL 保存成功，不因未提交资产编号等必填字段而报错。
+
+#### Scenario: 仅修改状态保存成功
+- **WHEN** 用户在编辑抽屉只修改「当前状态」并保存
+- **THEN** 保存成功，资产状态更新，无报错
+
+### Requirement: 采购入库可保存为草稿
+采购入库 SHALL 支持保存为草稿：草稿的审批状态为「草稿」，不进入审批流；草稿可在采购列表中后续提交转为「待审批」。
+
+#### Scenario: 保存草稿
+- **WHEN** 用户在采购入库表单点「保存草稿」
+- **THEN** 创建审批状态为「草稿」的采购记录，不进入审批
+
+#### Scenario: 草稿不计入审批统计
+- **WHEN** 采购列表统计待审批/已通过数量
+- **THEN** 草稿不计入这些审批统计
+
+#### Scenario: 提交草稿
+- **WHEN** 用户对一条草稿点「提交」
+- **THEN** 该记录审批状态由「草稿」转为「待审批」，进入审批流
+
+### Requirement: 采购审批通过联动入库
+采购入库审批通过 SHALL 同步增加对应分公司/资产编号的资产库存（资产存在则累加数量、不存在则创建），并将该采购记录置为「已入库」。
+
+#### Scenario: 审批通过后库存增加
+- **WHEN** 一条采购入库被审批通过，且对应资产编号已存在
+- **THEN** 该资产数量增加（按调拨数量），状态置在库；采购记录置「已入库」
+
+#### Scenario: 资产不存在则创建
+- **WHEN** 采购审批通过且对应资产编号尚无资产记录
+- **THEN** 按采购信息创建资产（数量=调拨数量），采购记录置「已入库」
+

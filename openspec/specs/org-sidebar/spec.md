@@ -1,3 +1,10 @@
+# org-sidebar Specification
+
+## Purpose
+组织架构侧边栏工具栏。
+
+## Requirements
+
 ### Requirement: Sidebar toolbar has title and add button
 
 侧边栏工具栏 SHALL 在左侧显示当前组织名称"启航事业部"作为标题，右侧显示"新增人员"按钮。

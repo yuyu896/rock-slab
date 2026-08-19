@@ -1,0 +1,19 @@
+# permission-scope-and-fa-name-filter Specification
+
+## Purpose
+TBD - created by archiving change permission-scope-and-fa-name-filter. Update Purpose after archive.
+## Requirements
+### Requirement: 权限分配后数据范围同步
+开通分公司/区域管理权限后，该用户 SHALL 能查看到对应分公司/区域的数据（资产、流转等）。
+
+#### Scenario: 开通权限后可见数据
+- **WHEN** 管理员给员工开通某分公司的管理权限
+- **THEN** 该员工登录后能看到该分公司的资产/流转等数据
+
+### Requirement: 固定资产表资产名称筛选
+固定资产表 SHALL 支持按资产名称筛选。
+
+#### Scenario: 按资产名称筛选
+- **WHEN** 用户在资产名称筛选栏输入名称
+- **THEN** 列表过滤为资产名称匹配的记录
+

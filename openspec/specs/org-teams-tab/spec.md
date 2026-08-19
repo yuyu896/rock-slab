@@ -1,3 +1,10 @@
+# org-teams-tab Specification
+
+## Purpose
+组织架构团队管理页签。
+
+## Requirements
+
 ### Requirement: Teams management tab
 
 系统 SHALL 在组织架构模块中提供"行政组"标签页，与"区域管理"、"分公司管理"同级。标签页中 SHALL 展示所有行政组的卡片列表，每张卡片显示组名、所属区域、组长、组员数量、状态。

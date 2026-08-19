@@ -1,4 +1,9 @@
-## ADDED Requirements
+# login-subtitle Specification
+
+## Purpose
+登录页副标题展示。
+
+## Requirements
 
 ### Requirement: Login page subtitle text
 登录页面 SHALL 在"磐盘"品牌名称下方显示"行政资产盘点"作为副标题。
