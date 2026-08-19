@@ -3,37 +3,50 @@
 import django.db.models.deletion
 import uuid
 from django.db import migrations, models
-from django.db.models import Sum, Max, Min
 
 
 def seed_asset_stock_from_assets(apps, schema_editor):
-    """按现有资产明细聚合（分公司+资产编号）生成台账初始行。"""
+    """按现有资产明细聚合（分公司+资产编号）生成台账初始行。
+
+    纯 Python 内存聚合：不用 SQL 聚合取"组内首行"（id 为 UUID，
+    PostgreSQL 无 min(uuid) 聚合函数，SQLite 有——曾导致生产迁移失败）。
+    """
     Asset = apps.get_model("assets", "Asset")
     AssetStock = apps.get_model("assets", "AssetStock")
+    Branch = apps.get_model("organizations", "Branch")
 
-    grouped = Asset.objects.values("分公司", "资产编号").annotate(
-        总数量=Sum("数量"), 警戒线max=Max("警戒线"), 首行id=Min("id"),
-    )
-    first_ids = [g["首行id"] for g in grouped]
-    first_map = {a.id: a for a in Asset.objects.filter(id__in=first_ids)}
+    branch_id_by_name = {}
+    grouped = {}  # (分公司, 资产编号) -> {"first": 首行, "总数量": int, "警戒线max": int|None}
 
-    for g in grouped:
-        first = first_map.get(g["首行id"])
-        if first is None:
-            continue
+    # 按序号升序遍历，保证"首行"确定性（序号最小的明细行）
+    for asset in Asset.objects.order_by("序号", "created_at").iterator():
+        key = (asset.分公司, asset.资产编号)
+        g = grouped.get(key)
+        if g is None:
+            g = {"first": asset, "总数量": 0, "警戒线max": None}
+            grouped[key] = g
+        g["总数量"] += asset.数量 or 0
+        warn = asset.警戒线
+        if warn is not None and (g["警戒线max"] is None or warn > g["警戒线max"]):
+            g["警戒线max"] = warn
+
+    for (分公司, 资产编号), g in grouped.items():
+        first = g["first"]
         branch_id = first.branch_id
-        if not branch_id and g["分公司"]:
+        if not branch_id and 分公司:
             # 兜底：明细行 branch FK 缺失时按分公司名解析
-            Branch = apps.get_model("organizations", "Branch")
-            matched = Branch.objects.filter(name=g["分公司"]).first()
-            branch_id = matched.id if matched else None
+            if 分公司 not in branch_id_by_name:
+                branch_id_by_name[分公司] = Branch.objects.filter(
+                    name=分公司,
+                ).values_list("id", flat=True).first()
+            branch_id = branch_id_by_name.get(分公司)
         警戒线 = g["警戒线max"]
-        数量 = g["总数量"] or 0
+        数量 = g["总数量"]
         AssetStock.objects.create(
-            分公司=g["分公司"],
+            分公司=分公司,
             分公司编号=first.分公司编号 or "",
             branch_id=branch_id,
-            资产编号=g["资产编号"],
+            资产编号=资产编号,
             资产类目=first.资产类目 or "",
             物品分类=first.物品分类 or "",
             资产名称=first.资产名称 or "",
