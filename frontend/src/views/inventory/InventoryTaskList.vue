@@ -52,7 +52,7 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
 </script>
 
 <template>
-  <div>
+  <div class="task-list">
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-info">
@@ -206,19 +206,20 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
 </template>
 
 <style scoped>
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.task-list { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-shrink: 0; }
 .page-title { font-size: 24px; font-weight: 700; margin: 0; }
 .page-desc { font-size: 14px; color: var(--color-text-secondary); margin: 4px 0 0; }
 .btn-primary { display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: var(--color-primary); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
 .btn-primary svg { width: 18px; height: 18px; }
-.quick-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.quick-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; flex-shrink: 0; }
 .stat-item { background: var(--color-bg-elevated); border-radius: 12px; padding: 16px 20px; text-align: center; border: 1px solid var(--color-border); }
 .stat-num { display: block; font-size: 28px; font-weight: 700; }
 .stat-num.pending { color: var(--color-warning); }
 .stat-num.in-progress { color: var(--color-primary); }
 .stat-num.review { color: #8b5cf6; }
 .stat-label { font-size: 13px; color: var(--color-text-secondary); margin-top: 4px; display: block; }
-.filter-section { margin-bottom: 20px; }
+.filter-section { margin-bottom: 20px; flex-shrink: 0; }
 .filter-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .filter-item { position: relative; }
 .filter-item.search { flex: 1; min-width: 200px; }
@@ -226,8 +227,9 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
 .filter-input { width: 100%; padding: 10px 12px 10px 36px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-elevated); outline: none; }
 .filter-input:focus { border-color: var(--color-primary); }
 .filter-select { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-elevated); outline: none; min-width: 140px; }
-.task-table-wrapper { background: var(--color-bg-elevated); border-radius: 12px; border: 1px solid var(--color-border); overflow: hidden; }
+.task-table-wrapper { background: var(--color-bg-elevated); border-radius: 12px; border: 1px solid var(--color-border); overflow: auto; flex: 1; min-height: 200px; }
 .task-table { width: 100%; border-collapse: collapse; }
+.task-table thead th { position: sticky; top: 0; z-index: 1; }
 .task-table th { padding: 12px 16px; text-align: left; font-size: 13px; font-weight: 600; color: var(--color-text-secondary); background: var(--color-bg); border-bottom: 1px solid var(--color-border); }
 .task-table td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--color-border); }
 .table-empty { text-align: center; color: var(--color-text-secondary); padding: 40px 16px !important; }

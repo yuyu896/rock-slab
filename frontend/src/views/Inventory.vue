@@ -38,7 +38,7 @@ const loading = ref(false)
 const inventoryTasks = ref<any[]>([])
 
 // 分页
-const pagination = ref({ page: 1, pageSize: 20, total: 0 })
+const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 
 // 当前选中的任务
 const selectedTask = ref<any>(null)
@@ -376,7 +376,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="inventory-page">
+  <div class="inventory-page page-fill">
     <!-- 任务列表视图 -->
     <template v-if="currentView === 'list'">
       <InventoryTaskList
@@ -528,10 +528,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.inventory-page { max-width: 1400px; margin: 0 auto; }
+.inventory-page { max-width: 1400px; margin: 0 auto; overflow-y: auto; }
 
 /* 详情视图 */
-.detail-view { display: flex; flex-direction: column; gap: 24px; }
+.detail-view { display: flex; flex-direction: column; gap: 24px; flex-shrink: 0; }
 .detail-header { display: flex; justify-content: space-between; align-items: center; }
 .back-btn { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 16px; cursor: pointer; color: var(--color-text-secondary); font-size: 14px; }
 .back-btn svg { width: 16px; height: 16px; }

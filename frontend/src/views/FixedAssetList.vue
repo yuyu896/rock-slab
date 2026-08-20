@@ -21,7 +21,7 @@ const filters = ref({
   资产名称: ''
 })
 
-const pagination = ref({ page: 1, pageSize: 20, total: 0 })
+const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 const loading = ref(false)
 const assets = ref<FixedAsset[]>([])
 
@@ -263,7 +263,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 </script>
 
 <template>
-  <div class="fixed-asset-page">
+  <div class="fixed-asset-page page-fill">
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">固定资产表</h1>
@@ -519,7 +519,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 
 <style scoped>
 .fixed-asset-page { max-width: 100%; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); flex-shrink: 0; }
 .header-info { display: flex; align-items: baseline; gap: var(--space-3); }
 .page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }
 .page-desc { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: 0; }
@@ -531,7 +531,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .btn-primary { display: flex; align-items: center; gap: var(--space-2); height: 38px; padding: 0 var(--space-4); border-radius: 8px; font-size: var(--text-sm); font-weight: 500; cursor: pointer; background: var(--color-primary-500); border: 1px solid var(--color-primary-500); color: white; transition: all var(--transition-fast); }
 .btn-primary:hover { background: var(--color-primary-600); }
 .btn-primary svg { width: 16px; height: 16px; }
-.filter-section { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border); }
+.filter-section { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border); flex-shrink: 0; }
 .filter-row { display: flex; gap: var(--space-3); }
 .filter-item { position: relative; }
 .filter-item.search { flex: 1; position: relative; }
@@ -541,7 +541,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .filter-select { height: 38px; padding: 0 var(--space-4); padding-right: var(--space-8); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; min-width: 140px; }
 .filter-reset { height: 38px; padding: 0 var(--space-4); background: transparent; border: none; color: var(--color-text-secondary); font-size: var(--text-sm); cursor: pointer; }
 .filter-reset:hover { color: var(--color-primary-500); }
-.table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 340px); }
+.table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow-x: auto; overflow-y: auto; flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-elevated); }
 .data-table th { padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }

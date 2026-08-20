@@ -242,7 +242,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="purchase-page">
+  <div class="purchase-page page-fill">
     <!-- 列表视图 -->
     <template v-if="currentView === 'list'">
       <!-- 页面头部 -->
@@ -422,6 +422,7 @@ onMounted(() => {
 .purchase-page {
   max-width: 1400px;
   margin: 0 auto;
+  overflow-y: auto;
 }
 
 /* 页面头部 */
@@ -430,6 +431,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-6);
+  flex-shrink: 0;
 }
 
 .header-info {
@@ -494,6 +496,7 @@ onMounted(() => {
   margin-bottom: var(--space-5);
   padding: var(--space-4) 0;
   border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
 }
 
 .stat-item {
@@ -528,6 +531,7 @@ onMounted(() => {
 /* 筛选 */
 .filter-section {
   margin-bottom: var(--space-4);
+  flex-shrink: 0;
 }
 
 .filter-row {
@@ -574,12 +578,20 @@ onMounted(() => {
   background: var(--color-bg-card);
   border-radius: 12px;
   border: 1px solid var(--color-border);
-  overflow: hidden;
+  overflow: auto;
+  flex: 1;
+  min-height: 200px;
 }
 
 .data-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .data-table th {

@@ -47,7 +47,7 @@ function applyQuickFilter(type: string) {
 // 分页
 const pagination = ref({
   page: 1,
-  pageSize: 20,
+  pageSize: 50,
   total: 0,
 })
 
@@ -325,7 +325,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="asset-list-page">
+  <div class="asset-list-page page-fill">
     <!-- 页面标题区 -->
     <div class="page-header">
       <div class="header-info">
@@ -631,6 +631,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-6);
+  flex-shrink: 0;
 }
 
 .header-info {
@@ -705,6 +706,7 @@ onMounted(() => {
   padding: var(--space-4);
   margin-bottom: var(--space-4);
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .filter-row {
@@ -822,6 +824,7 @@ onMounted(() => {
   border: 1px solid var(--color-primary-200);
   border-radius: 8px;
   margin-bottom: var(--space-4);
+  flex-shrink: 0;
 }
 
 .batch-info {
@@ -889,7 +892,8 @@ onMounted(() => {
   border: 1px solid var(--color-border);
   overflow-x: auto;
   overflow-y: auto;
-  max-height: calc(100vh - 340px);
+  flex: 1;
+  min-height: 200px;
 }
 
 .data-table {

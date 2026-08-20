@@ -20,7 +20,7 @@ const filters = ref({
 })
 
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(50)
 const total = ref(0)
 
 const actionOptions = [
@@ -134,7 +134,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="audit-log-page">
+  <div class="audit-log-page page-fill">
     <!-- 统计卡片 -->
     <div class="stats-section">
       <div class="stats-card">
@@ -273,7 +273,7 @@ onMounted(() => {
 
 <style scoped>
 .audit-log-page {
-  padding: var(--space-6);
+  min-width: 0;
 }
 
 .stats-section {
@@ -281,6 +281,7 @@ onMounted(() => {
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-4);
   margin-bottom: var(--space-6);
+  flex-shrink: 0;
 }
 
 .stats-card {
@@ -354,6 +355,7 @@ onMounted(() => {
   border-radius: 12px;
   padding: var(--space-4);
   margin-bottom: var(--space-4);
+  flex-shrink: 0;
 }
 
 .filter-row {
@@ -402,14 +404,21 @@ onMounted(() => {
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  overflow: hidden;
+  overflow: auto;
   position: relative;
-  min-height: 400px;
+  flex: 1;
+  min-height: 200px;
 }
 
 .log-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.log-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .log-table th {

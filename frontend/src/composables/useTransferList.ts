@@ -33,7 +33,7 @@ export function useTransferList(type: TransferType) {
   })
 
   // 分页
-  const pagination = ref({ page: 1, pageSize: 20, total: 0 })
+  const pagination = ref({ page: 1, pageSize: 50, total: 0 })
   const loading = ref(false)
   const transfers = ref<Transfer[]>([])
   const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部分公司' }])

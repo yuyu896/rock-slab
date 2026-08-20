@@ -22,7 +22,7 @@ function openCreatePage() {
 </script>
 
 <template>
-  <div class="transfer-page">
+  <div class="transfer-page page-fill">
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">{{ typeLabel }}</h1>
@@ -165,7 +165,7 @@ function openCreatePage() {
 
 <style scoped>
 .transfer-page { max-width: 1400px; margin: 0 auto; min-width: 0; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); flex-shrink: 0; }
 .header-info { display: flex; flex-direction: column; gap: var(--space-1); }
 .page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }
 .page-desc { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: 0; }
@@ -174,7 +174,7 @@ function openCreatePage() {
 .btn-secondary { background: var(--color-bg-card); border: 1px solid var(--color-border); color: var(--color-text-primary); }
 .btn-primary { background: var(--color-primary-500); border: 1px solid var(--color-primary-500); color: white; }
 .btn-secondary svg, .btn-primary svg { width: 18px; height: 18px; }
-.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); }
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); flex-shrink: 0; }
 .stat-card { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); border: 1px solid var(--color-border); }
 .stat-card.pending { border-left: 4px solid oklch(0.60 0.14 85); }
 .stat-card.success { border-left: 4px solid var(--color-success); }
@@ -182,7 +182,7 @@ function openCreatePage() {
 .stat-content { display: flex; flex-direction: column; }
 .stat-value { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-primary); }
 .stat-label { font-size: var(--text-sm); color: var(--color-text-tertiary); margin-top: var(--space-1); }
-.filter-section { margin-bottom: var(--space-4); }
+.filter-section { margin-bottom: var(--space-4); flex-shrink: 0; }
 .filter-row { display: flex; gap: var(--space-3); }
 .filter-item.search { flex: 1; position: relative; }
 .filter-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-text-tertiary); }
@@ -191,8 +191,9 @@ function openCreatePage() {
 .filter-select { min-width: 140px; }
 .filter-reset { height: 38px; padding: 0 var(--space-4); background: transparent; border: none; color: var(--color-text-secondary); font-size: var(--text-sm); cursor: pointer; }
 .filter-reset:hover { color: var(--color-primary-500); }
-.table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: hidden; margin-bottom: var(--space-4); }
+.table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: auto; margin-bottom: var(--space-4); flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
+.data-table thead th { position: sticky; top: 0; z-index: 1; }
 .data-table th { background: var(--color-bg-elevated); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
 .data-table td { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--color-text-primary); border-bottom: 1px solid var(--color-border-light); vertical-align: middle; }
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }

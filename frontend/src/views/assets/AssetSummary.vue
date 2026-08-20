@@ -23,7 +23,7 @@ const filters = ref({
   keyword: '',
 })
 
-const pagination = ref({ page: 1, pageSize: 20, total: 0 })
+const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 const loading = ref(false)
 const stocks = ref<AssetStock[]>([])
 
@@ -190,7 +190,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="asset-summary-page">
+  <div class="asset-summary-page page-fill">
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">资产汇总</h1>
@@ -361,6 +361,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-6);
+  flex-shrink: 0;
 }
 
 .header-info {
@@ -434,6 +435,7 @@ onMounted(() => {
   padding: var(--space-4);
   margin-bottom: var(--space-4);
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .filter-row {
@@ -509,7 +511,8 @@ onMounted(() => {
   border: 1px solid var(--color-border);
   overflow-x: auto;
   overflow-y: auto;
-  max-height: calc(100vh - 340px);
+  flex: 1;
+  min-height: 200px;
 }
 
 .data-table {

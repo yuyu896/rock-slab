@@ -44,7 +44,7 @@ const BasePaginationStub = {
   name: 'BasePagination',
   props: ['total', 'currentPage', 'pageSize'],
   emits: ['change'],
-  template: '<button class="stub-go-page2" @click="$emit(\'change\', 2, 20)">page2</button>',
+  template: '<button class="stub-go-page2" @click="$emit(\'change\', 2, 50)">page2</button>',
 }
 
 function _stock(overrides: Partial<AssetStock>): AssetStock {
@@ -89,17 +89,20 @@ describe('AssetSummary 页面（库存台账）', () => {
       '资产名称', '数量', '规格', '警戒线', '是否充足', '操作',
     ])
 
-    // 第 1 页首行序号为 1
+    // 第 1 页首行序号为 1，默认每页 50 条
     expect(wrapper.find('tbody tr td').text()).toBe('1')
+    expect(getAssetStocks).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, pageSize: 50 }),
+    )
 
-    // 翻到第 2 页 → 序号从 21 开始
+    // 翻到第 2 页 → 序号从 51 开始
     await wrapper.find('.stub-go-page2').trigger('click')
     await flushPromises()
     expect(getAssetStocks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ page: 2, pageSize: 20 }),
+      expect.objectContaining({ page: 2, pageSize: 50 }),
     )
     const firstIndex = wrapper.find('tbody tr td').text()
-    expect(firstIndex).toBe('21')
+    expect(firstIndex).toBe('51')
   })
 
   it('库存不足行显示「否」并以警示样式标识', async () => {

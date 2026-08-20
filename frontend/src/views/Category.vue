@@ -26,7 +26,7 @@ const categories = ref<Category[]>([])
 const allCategories = ref<Category[]>([])
 
 // 分页
-const pagination = ref({ page: 1, pageSize: 20, total: 0 })
+const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 const totalPages = computed(() => Math.ceil(pagination.value.total / pagination.value.pageSize))
 
 // 计算显示的页码（超过7页时省略中间部分）
@@ -190,7 +190,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="category-page">
+  <div class="category-page page-fill">
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-info">
@@ -497,6 +497,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-6);
+  flex-shrink: 0;
 }
 
 .header-info {
@@ -634,6 +635,7 @@ onMounted(() => {
 /* 筛选区 */
 .filter-section {
   margin-bottom: var(--space-4);
+  flex-shrink: 0;
 }
 
 .filter-row {
@@ -715,12 +717,20 @@ onMounted(() => {
   background: var(--color-bg-card);
   border-radius: 12px;
   border: 1px solid var(--color-border);
-  overflow: hidden;
+  overflow: auto;
+  flex: 1;
+  min-height: 200px;
 }
 
 .data-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .data-table th {
@@ -839,6 +849,10 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space-4);
+  flex: 1;
+  min-height: 200px;
+  overflow-y: auto;
+  align-content: start;
 }
 
 .category-card {
@@ -976,6 +990,7 @@ onMounted(() => {
   align-items: center;
   padding: var(--space-4) 0;
   margin-top: var(--space-4);
+  flex-shrink: 0;
 }
 
 .pagination-info {

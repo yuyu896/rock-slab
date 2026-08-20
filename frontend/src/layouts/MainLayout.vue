@@ -291,7 +291,7 @@ async function handleLogout() {
   margin-left: var(--sidebar-width);
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
   transition: margin-left var(--transition-base);
 }
 
@@ -301,8 +301,11 @@ async function handleLogout() {
 
 .content {
   flex: 1;
+  min-height: 0;
   padding: var(--space-6);
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .fade-enter-active,

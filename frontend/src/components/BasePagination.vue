@@ -7,7 +7,7 @@ const props = withDefaults(defineProps<{
   pageSize?: number
   pageSizes?: number[]
 }>(), {
-  pageSize: 20,
+  pageSize: 50,
   pageSizes: () => [10, 20, 50, 100],
 })
 
@@ -50,5 +50,6 @@ function handleSizeChange(size: number) {
   display: flex;
   justify-content: flex-end;
   padding: 16px 0;
+  flex-shrink: 0;
 }
 </style>
