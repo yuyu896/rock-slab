@@ -1,60 +1,61 @@
 """Organization tests: branch code format validation, Region/Branch/Team CRUD."""
 import pytest
+from django.test import TransactionTestCase
 from rest_framework import status
 
 
 @pytest.mark.django_db
 class TestBranchCodeValidation:
-    def test_create_branch_valid_code(self, authenticated_client, region):
+    def test_create_branch_valid_code(self, authenticated_client, team):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '上海分公司', 'code': 'SH001', 'region': region.id, 'status': 'active',
+            'name': '上海分公司', 'code': 'SH001', 'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['code'] == 'SH001'
 
-    def test_create_branch_lowercase_auto_uppercase(self, authenticated_client, region):
+    def test_create_branch_lowercase_auto_uppercase(self, authenticated_client, team):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '北京分公司', 'code': 'bj001', 'region': region.id, 'status': 'active',
+            'name': '北京分公司', 'code': 'bj001', 'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['code'] == 'BJ001'
 
-    def test_create_branch_stripped_whitespace(self, authenticated_client, region):
+    def test_create_branch_stripped_whitespace(self, authenticated_client, team):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '广州分公司', 'code': ' GZ001 ', 'region': region.id, 'status': 'active',
+            'name': '广州分公司', 'code': ' GZ001 ', 'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['code'] == 'GZ001'
 
-    def test_create_branch_invalid_format_chinese(self, authenticated_client, region):
+    def test_create_branch_invalid_format_chinese(self, authenticated_client, team):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '测试分公司', 'code': '上海001', 'region': region.id, 'status': 'active',
+            'name': '测试分公司', 'code': '上海001', 'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_branch_invalid_format_short_number(self, authenticated_client, region):
+    def test_create_branch_invalid_format_short_number(self, authenticated_client, team):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '测试分公司', 'code': 'SH01', 'region': region.id, 'status': 'active',
+            'name': '测试分公司', 'code': 'SH01', 'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_branch_invalid_format_dash(self, authenticated_client, region):
+    def test_create_branch_invalid_format_dash(self, authenticated_client, team):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '测试分公司', 'code': 'SH-001', 'region': region.id, 'status': 'active',
+            'name': '测试分公司', 'code': 'SH-001', 'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_branch_4_letter_prefix(self, authenticated_client, region):
+    def test_create_branch_4_letter_prefix(self, authenticated_client, team):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '哈尔滨分公司', 'code': 'HRB001', 'region': region.id, 'status': 'active',
+            'name': '哈尔滨分公司', 'code': 'HRB001', 'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['code'] == 'HRB001'
 
-    def test_create_branch_duplicate_code_returns_400(self, authenticated_client, branch, region):
+    def test_create_branch_duplicate_code_returns_400(self, authenticated_client, branch):
         # branch 已存在（code=CS001），再用同 code 创建 → 400（不再 500）
         resp = authenticated_client.post('/api/branches/', {
-            'name': '重名分公司', 'code': branch.code, 'region': region.id, 'status': 'active',
+            'name': '重名分公司', 'code': branch.code, 'team': branch.team_id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert '已存在' in resp.data['code'][0]
@@ -138,10 +139,10 @@ class TestBranchCRUD:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['name'] == '新分公司名'
 
-    def test_delete_branch_no_assets(self, authenticated_client, region):
+    def test_delete_branch_no_assets(self, authenticated_client, team):
         # Create a fresh branch with no assets
         resp = authenticated_client.post('/api/branches/', {
-            'name': '待删除分公司', 'code': 'DL001', 'region': region.id, 'status': 'active',
+            'name': '待删除分公司', 'code': 'DL001', 'team': team.id, 'status': 'active',
         })
         branch_id = resp.data['id']
         del_resp = authenticated_client.delete(f'/api/branches/{branch_id}')
@@ -182,14 +183,11 @@ class TestTeamCRUD:
         assert resp.data['name'] == '测试行政组'
         assert resp.data['region'] == region.id
 
-    def test_update_team_change_leader(
+    def test_update_team_change_leader_no_member_writeback(
         self, authenticated_client, region, leader_user, staff_user,
     ):
         from apps.organizations.models import Team
         team = Team.objects.create(name='行政组A', region=region, leader=leader_user, status='active')
-        # Simulate what perform_create does: auto-assign leader to this team
-        leader_user.team = team
-        leader_user.save(update_fields=['team', 'updated_at'])
 
         resp = authenticated_client.patch(f'/api/teams/{team.id}', {
             'leader': staff_user.id,
@@ -197,21 +195,22 @@ class TestTeamCRUD:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['leader'] == staff_user.id
 
-        # New leader should be auto-assigned to this team
+        # 组长指派只写树节点字段，不回写员工的组织归属（分公司保持原值）
         staff_user.refresh_from_db()
-        assert staff_user.team_id == team.id
+        assert staff_user.branch_id is not None  # fixture 挂靠分公司，未被清空/改动
 
-    def test_delete_team_clears_members(self, authenticated_client, region, staff_user):
+    def test_delete_team_with_branches_rejected(self, authenticated_client, region, branch):
         from apps.organizations.models import Team
-        team = Team.objects.create(name='待删除组', region=region, status='active')
-        staff_user.team = team
-        staff_user.save(update_fields=['team', 'updated_at'])
+        team = branch.team
+        resp = authenticated_client.delete(f'/api/teams/{team.id}')
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '分公司' in resp.data['detail']
 
+    def test_delete_empty_team_ok(self, authenticated_client, region):
+        from apps.organizations.models import Team
+        team = Team.objects.create(name='待删除空组', region=region, status='active')
         resp = authenticated_client.delete(f'/api/teams/{team.id}')
         assert resp.status_code == status.HTTP_204_NO_CONTENT
-
-        staff_user.refresh_from_db()
-        assert staff_user.team_id is None
 
     def test_filter_teams_by_region(self, authenticated_client, region, second_region):
         from apps.organizations.models import Team
@@ -239,88 +238,90 @@ class TestTeamCRUD:
 
 @pytest.mark.django_db
 class TestBranchTeam:
-    """分公司隶属行政组（Branch.team）"""
+    """分公司隶属行政组（Branch.team 必填唯一父级）"""
 
     def test_create_branch_with_team(self, authenticated_client, region):
         from apps.organizations.models import Team
         team = Team.objects.create(name='行政组A', region=region, status='active')
         resp = authenticated_client.post('/api/branches/', {
-            'name': '测试分公司', 'code': 'TS001', 'region': region.id,
+            'name': '测试分公司', 'code': 'TS001',
             'team': team.id, 'status': 'active',
         })
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['team'] == team.id
+        assert resp.data['region'] == str(region.id)  # 派生只读字段 = team.region
 
-    def test_branch_team_region_mismatch_rejected(self, authenticated_client, region, second_region):
-        from apps.organizations.models import Team
-        # team 属 region，分公司指定 second_region → 不一致被拒
-        team = Team.objects.create(name='行政组A', region=region, status='active')
+    def test_create_branch_without_team_rejected(self, authenticated_client, region):
         resp = authenticated_client.post('/api/branches/', {
-            'name': '跨区分公司', 'code': 'TS002', 'region': second_region.id,
-            'team': team.id, 'status': 'active',
+            'name': '无组分公司', 'code': 'TS003', 'status': 'active',
         })
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_branch_without_team_ok(self, authenticated_client, region):
-        # team 可空（兼容现有数据）
-        resp = authenticated_client.post('/api/branches/', {
-            'name': '无组分公司', 'code': 'TS003', 'region': region.id, 'status': 'active',
-        })
-        assert resp.status_code == status.HTTP_201_CREATED
-        assert resp.data['team'] is None
-
-
-@pytest.mark.django_db
-class TestAssignBranchTeamFromEmployees:
-    """assign_branch_team_from_employees：按员工 team 众数回填分公司 team"""
-
-    def test_dry_run_does_not_write(self, region):
-        from io import StringIO
-        from django.core.management import call_command
-        from apps.organizations.models import Branch, Team
-        from apps.users.models import User
-        team = Team.objects.create(name='行政组A', region=region, status='active')
-        branch = Branch.objects.create(name='B1', code='DZ001', region=region, status='active')
-        User.objects.create_user(
-            phone='13000000001', name='员工1', password='x', role='staff',
-            status='active', branch=branch, team=team,
-        )
-        out = StringIO()
-        call_command('assign_branch_team_from_employees', '--dry-run', stdout=out)
+    def test_branch_region_is_derived_not_writable(self, authenticated_client, region, branch, team):
+        resp = authenticated_client.patch(f'/api/branches/{branch.id}', {'region': region.id})
+        assert resp.status_code == status.HTTP_200_OK
         branch.refresh_from_db()
-        assert branch.team_id is None
-        assert 'DRY-RUN' in out.getvalue()
+        assert branch.team_id == team.id  # region 写入被忽略，不产生实际变更
 
-    def test_execute_assigns_mode_team(self, region):
-        from io import StringIO
-        from django.core.management import call_command
-        from apps.organizations.models import Branch, Team
-        from apps.users.models import User
-        team_a = Team.objects.create(name='A组', region=region, status='active')
-        team_b = Team.objects.create(name='B组', region=region, status='active')
-        branch = Branch.objects.create(name='B1', code='DZ002', region=region, status='active')
+
+class TestBackfillMigration(TransactionTestCase):
+    """organizations.0007：存量分公司 team 回填（员工众数 → 区域兜底组）"""
+
+    def _migrate_back_and_seed(self, executor):
+        """回退到 0006 状态（Branch.region 尚存、team 可空、User 有 team）并造数据。"""
+        from django.contrib.auth.hashers import make_password
+
+        executor.migrate([
+            ('users', '0005_alter_user_role'),
+            ('organizations', '0006_company'),
+        ])
+        old_state = executor.loader.project_state([
+            ('users', '0005_alter_user_role'),
+            ('organizations', '0006_company'),
+        ])
+        OldBranch = old_state.apps.get_model('organizations', 'Branch')
+        OldTeam = old_state.apps.get_model('organizations', 'Team')
+        OldRegion = old_state.apps.get_model('organizations', 'Region')
+        OldUser = old_state.apps.get_model('users', 'User')
+
+        region = OldRegion.objects.create(name='回填区域', code='BF001', status='active')
+        team_a = OldTeam.objects.create(name='A组', region=region, status='active')
+        team_b = OldTeam.objects.create(name='B组', region=region, status='active')
+
+        # 分公司1：员工众数 → A组（3 A / 1 B）
+        b1 = OldBranch.objects.create(name='众数分公司', code='BF101', region=region, status='active')
         for i, t in enumerate([team_a, team_a, team_a, team_b]):
-            User.objects.create_user(
-                phone=f'1300000001{i}', name=f'员工{i}', password='x', role='staff',
-                status='active', branch=branch, team=t,
+            OldUser.objects.create(
+                phone=f'1310000000{i}', name=f'员工{i}', role='staff',
+                status='active', password=make_password('x'), branch=b1, team=t,
             )
-        call_command('assign_branch_team_from_employees', stdout=StringIO())
-        branch.refresh_from_db()
-        assert branch.team_id == team_a.id
+        # 分公司2：无员工 → 兜底组
+        OldBranch.objects.create(name='无信号分公司', code='BF102', region=region, status='active')
 
-    def test_skip_branch_without_team_employees(self, region):
-        from io import StringIO
-        from django.core.management import call_command
-        from apps.organizations.models import Branch
-        from apps.users.models import User
-        branch = Branch.objects.create(name='B2', code='DZ003', region=region, status='active')
-        User.objects.create_user(
-            phone='13000000020', name='无组员工', password='x', role='staff',
-            status='active', branch=branch,  # team 不传 → null
-        )
-        call_command('assign_branch_team_from_employees', stdout=StringIO())
-        branch.refresh_from_db()
-        assert branch.team_id is None
+        return region, team_a
+
+    def test_backfill_mode_and_fallback(self):
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        from apps.organizations.models import Branch, Team
+
+        executor = MigrationExecutor(connection)
+        region, team_a = self._migrate_back_and_seed(executor)
+        try:
+            # loader 会缓存 applied 状态，正向迁移用新 executor 才能识别真实状态
+            forward_executor = MigrationExecutor(connection)
+            forward_executor.migrate([('organizations', '0007_branch_team_single_parent')])
+
+            b1 = Branch.objects.get(code='BF101')
+            assert b1.team_id == team_a.id  # 员工众数回填
+
+            b2 = Branch.objects.get(code='BF102')
+            fallback = Team.objects.get(name=f'{region.name}未分组')
+            assert b2.team_id == fallback.id  # 区域兜底组
+            assert Branch.objects.filter(team__isnull=True).count() == 0  # 约束生效，无遗漏
+        finally:
+            restore_executor = MigrationExecutor(connection)
+            restore_executor.migrate(restore_executor.loader.graph.leaf_nodes())  # 恢复到最新迁移状态
 
 
 @pytest.mark.django_db

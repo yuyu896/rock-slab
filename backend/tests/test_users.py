@@ -36,7 +36,7 @@ class TestUserCRUD:
         assert isinstance(resp.data, list)
 
     def test_create_user_valid(self, authenticated_client, region):
-        payload = _user_payload(region=region.id)
+        payload = _user_payload()
         resp = authenticated_client.post('/api/users/', payload)
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['phone'] == payload['phone']
@@ -62,7 +62,7 @@ class TestUserCRUD:
         User = get_user_model()
         target = User.objects.create_user(
             phone='13800009999', name='待删除', password='123456',
-            role='staff', status='active', region=region, branch=branch,
+            role='staff', status='active', branch=branch,
         )
         resp = authenticated_client.delete(f'/api/users/{target.id}')
         assert resp.status_code == status.HTTP_204_NO_CONTENT
@@ -114,10 +114,8 @@ class TestRoleAssignment:
 
 @pytest.mark.django_db
 class TestScopeValidation:
-    def test_supervisor_edits_user_in_own_region(self, supervisor_user, staff_user, region):
-        # supervisor_user and staff_user are both in `region`
-        staff_user.region = region
-        staff_user.save(update_fields=['region', 'updated_at'])
+    def test_supervisor_edits_user_in_own_branch(self, supervisor_user, staff_user):
+        # supervisor_user 与 staff_user 同挂 branch（区域授权沿树展开到该分公司）
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/users/{staff_user.id}', {'name': '同区域内编辑'})
         assert resp.status_code == status.HTTP_200_OK
@@ -141,12 +139,12 @@ class TestScopeValidation:
 
 @pytest.mark.django_db
 class TestAutoAssignment:
-    def test_supervisor_creates_user_without_region_auto_sets(self, supervisor_user):
+    def test_supervisor_creates_user_without_org_fields(self, supervisor_user):
         client = _client_for(supervisor_user)
-        payload = _user_payload(role='staff')  # no region provided
+        payload = _user_payload(role='staff')  # 未提供任何组织归属
         resp = client.post('/api/users/', payload)
         assert resp.status_code == status.HTTP_201_CREATED
-        assert resp.data['region'] == supervisor_user.region_id
+        assert resp.data['branch'] is None  # 不再自动填区域/组织字段
 
 
 # ---------------------------------------------------------------------------

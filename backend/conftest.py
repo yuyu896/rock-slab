@@ -72,10 +72,16 @@ def region(db):
 
 
 @pytest.fixture
-def branch(db, region):
+def team(db, region):
+    from apps.organizations.models import Team
+    return Team.objects.create(name='测试行政组', region=region, status='active')
+
+
+@pytest.fixture
+def branch(db, team):
     from apps.organizations.models import Branch
     return Branch.objects.create(
-        name='测试分公司', code='CS001', region=region, status='active',
+        name='测试分公司', code='CS001', team=team, status='active',
     )
 
 
@@ -86,10 +92,16 @@ def second_region(db):
 
 
 @pytest.fixture
-def second_branch(db, second_region):
+def second_team(db, second_region):
+    from apps.organizations.models import Team
+    return Team.objects.create(name='第二行政组', region=second_region, status='active')
+
+
+@pytest.fixture
+def second_branch(db, second_team):
     from apps.organizations.models import Branch
     return Branch.objects.create(
-        name='第二分公司', code='RG2001', region=second_region, status='active',
+        name='第二分公司', code='RG2001', team=second_team, status='active',
     )
 
 
@@ -154,7 +166,7 @@ def manager_user(db, region, second_region):
 def supervisor_user(db, region, branch):
     user = User.objects.create_user(
         phone='13900000002', name='测试主管', password='test123456',
-        role='supervisor', status='active', region=region, branch=branch,
+        role='supervisor', status='active', branch=branch,
     )
     return _grant_legacy_access(user, 'supervisor', region=region, branch=branch)
 
@@ -183,7 +195,7 @@ def staff_user(db, branch):
 def supervisor_b(db, second_region, second_branch):
     user = User.objects.create_user(
         phone='13900000005', name='区域B主管', password='test123456',
-        role='supervisor', status='active', region=second_region, branch=second_branch,
+        role='supervisor', status='active', branch=second_branch,
     )
     return _grant_legacy_access(
         user, 'supervisor', region=second_region, branch=second_branch,

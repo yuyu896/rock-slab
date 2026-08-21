@@ -18,7 +18,7 @@ class RegionFilterSet(django_filters.FilterSet):
 
 
 class BranchFilterSet(django_filters.FilterSet):
-    region = django_filters.CharFilter(field_name='region_id')
+    region = django_filters.CharFilter(field_name='team__region_id')
     status = django_filters.CharFilter(field_name='status')
     keyword = django_filters.CharFilter(method='filter_keyword')
 

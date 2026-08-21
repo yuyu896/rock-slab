@@ -308,17 +308,17 @@ class TestOrganizationRBAC:
         resp = client.post('/api/regions/', {'name': '新区域', 'code': 'NEW3'})
         assert resp.status_code == 201
 
-    def test_create_branch_staff_forbidden(self, staff_user, region):
+    def test_create_branch_staff_forbidden(self, staff_user, team):
         client = _client_for(staff_user)
         resp = client.post('/api/branches/', {
-            'name': '新分公司', 'code': 'NW001', 'region': region.id,
+            'name': '新分公司', 'code': 'NW001', 'team': team.id,
         })
         assert resp.status_code == 403
 
-    def test_create_branch_admin_allowed(self, admin_user, region):
+    def test_create_branch_admin_allowed(self, admin_user, team):
         client = _client_for(admin_user)
         resp = client.post('/api/branches/', {
-            'name': '新分公司', 'code': 'NW002', 'region': region.id,
+            'name': '新分公司', 'code': 'NW002', 'team': team.id,
         })
         assert resp.status_code == 201
 

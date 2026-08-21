@@ -25,7 +25,7 @@ class TestScopeResolution:
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
             phone='13600000001', name='无授权主管', password='test123456',
-            role='supervisor', region=region, branch=branch,
+            role='supervisor', branch=branch,
         )
         scope = resolve_user_scope(user)
         assert scope.all is False

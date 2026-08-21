@@ -37,10 +37,12 @@ class CanApprove(BasePermission):
 class DataScopeMixin:
     """按管理授权过滤查询集（声明式字段映射）。
 
-    各 ViewSet 在类上声明模型指向 Branch/Team 的字段：
+    各 ViewSet 在类上声明模型指向 Branch 的字段：
         scope_branch_field = 'branch'                          # FK→Branch
         scope_transfer_fields = ('from_branch', 'to_branch')   # 双向分公司
-        scope_team_field = '所属行政组'                          # FK→Team（如有）
+
+    授权范围由 resolve_user_scope 沿组织树展开为分公司集合
+    （region → 行政组 → 分公司；team → 组内分公司）。
 
     admin 返回全部；其余用户按其 ManagementScope 授权过滤；
     无授权的非 admin 返回空集（不再静默放行全部，避免越权）。
@@ -48,7 +50,6 @@ class DataScopeMixin:
 
     scope_branch_field = None
     scope_transfer_fields = None
-    scope_team_field = None
 
     def get_scoped_queryset(self, queryset):
         from apps.permissions.scope import resolve_user_scope
@@ -64,8 +65,6 @@ class DataScopeMixin:
             if self.scope_transfer_fields:
                 for f in self.scope_transfer_fields:
                     q |= models.Q(**{f'{f}__in': scope.branches})
-        if scope.teams and self.scope_team_field:
-            q |= models.Q(**{f'{self.scope_team_field}__in': scope.teams})
 
         if not q:
             return queryset.none()

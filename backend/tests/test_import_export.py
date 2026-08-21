@@ -57,10 +57,11 @@ def admin_client(admin_user):
 
 @pytest.fixture
 def test_branch(db):
-    from apps.organizations.models import Region, Branch
+    from apps.organizations.models import Region, Team, Branch
     region = Region.objects.create(name='测试区域', code='TEST', status='active')
+    team = Team.objects.create(name='测试行政组', region=region, status='active')
     branch = Branch.objects.create(
-        name='测试分公司', code='TB001', region=region,
+        name='测试分公司', code='TB001', team=team,
         address='测试地址', phone='010-12345678',
     )
     return branch
@@ -405,8 +406,8 @@ class TestTransferImport:
         from apps.transfers.models import Transfer
         from apps.organizations.models import Branch
         # transfer 类型引用 上海/杭州分公司，确保其存在于组织架构（导入现校验分公司存在性）
-        Branch.objects.create(name='上海分公司', code='SH001', region=test_branch.region)
-        Branch.objects.create(name='杭州分公司', code='HZ001', region=test_branch.region)
+        Branch.objects.create(name='上海分公司', code='SH001', team=test_branch.team)
+        Branch.objects.create(name='杭州分公司', code='HZ001', team=test_branch.team)
         tpl = TRANSFER_TYPE_TEMPLATES[ttype]
         buf = _make_xlsx(tpl['template_headers'], [tpl['sample_row']])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params=f'type={ttype}')

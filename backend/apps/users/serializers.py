@@ -24,7 +24,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'phone', 'name', 'role', 'status',
-            'branch', 'region', 'leader', 'team', 'created_by',
+            'branch', 'created_by',
             'avatar', 'system_avatar', 'password',
             'created_at', 'updated_at', 'branch_name', 'region_name',
         ]
@@ -66,4 +66,7 @@ class UserSerializer(serializers.ModelSerializer):
         return obj.branch.name if obj.branch else None
 
     def get_region_name(self, obj):
-        return obj.region.name if obj.region else None
+        # 区域归属沿树派生：branch → team → region
+        if obj.branch and obj.branch.team:
+            return obj.branch.team.region.name if obj.branch.team.region else None
+        return None

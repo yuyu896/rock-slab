@@ -86,13 +86,13 @@ export interface Region {
   updatedAt: string
 }
 
-/** 分公司 */
+/** 分公司（region 为派生只读字段 = team.region） */
 export interface Branch {
   id: string
   name: string
   code: string
   region: string
-  team?: string
+  team: string
   address: string
   manager?: string
   phone?: string
@@ -187,11 +187,8 @@ export interface User {
   phone: string
   name: string
   branch?: string
-  region?: string
   branchName?: string
   regionName?: string
-  leader?: string
-  team?: string
   role: UserRoleType
   status: EntityStatusType
   avatar?: string

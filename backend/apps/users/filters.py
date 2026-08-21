@@ -5,8 +5,8 @@ from .models import User
 class UserFilterSet(django_filters.FilterSet):
     role = django_filters.CharFilter(field_name='role')
     branch = django_filters.CharFilter(method='filter_branch')
-    region = django_filters.CharFilter(field_name='region_id')
-    team = django_filters.CharFilter(field_name='team_id')
+    region = django_filters.CharFilter(field_name='branch__team__region_id')
+    team = django_filters.CharFilter(field_name='branch__team_id')
     keyword = django_filters.CharFilter(method='filter_keyword')
     status = django_filters.CharFilter(field_name='status')
 

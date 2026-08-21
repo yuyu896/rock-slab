@@ -11,7 +11,7 @@ class RegionAdmin(admin.ModelAdmin):
 
 @admin.register(Branch)
 class BranchAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'region', 'manager', 'status', 'created_at']
-    list_filter = ['status', 'region']
+    list_display = ['name', 'code', 'team', 'manager', 'status', 'created_at']
+    list_filter = ['status', 'team__region']
     search_fields = ['name', 'code']
-    raw_id_fields = ['region', 'manager']
+    raw_id_fields = ['team', 'manager']

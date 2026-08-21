@@ -40,14 +40,9 @@ class Branch(UUIDModel, TimestampedModel):
             message='编号格式为2-4位大写字母(城市缩写)+3位数字，如 SH001',
         )],
     )
-    region = models.ForeignKey(
-        Region, on_delete=models.CASCADE,
-        related_name='branches', verbose_name='所属区域',
-    )
     team = models.ForeignKey(
-        'organizations.Team', on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='branches',
-        verbose_name='所属行政组',
+        'organizations.Team', on_delete=models.PROTECT,
+        related_name='branches', verbose_name='所属行政组',
     )
     address = models.CharField('地址', max_length=255, blank=True, default='')
     manager = models.ForeignKey(

@@ -27,9 +27,9 @@ MANAGEABLE_ROLES = {
 def _get_user_queryset(user):
     """Return the queryset of users that the requesting user can see/manage.
 
-    范围由管理授权决定：admin 全部；其余为授权组织节点（大区/分公司）内 + 自己。
+    范围由管理授权决定：admin 全部；其余为授权组织节点（沿树展开为分公司）内 + 自己。
     """
-    qs = User.objects.select_related('branch', 'region', 'leader', 'created_by')
+    qs = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'created_by')
 
     if user.role == 'admin':
         return qs  # Admin sees everyone
@@ -40,15 +40,13 @@ def _get_user_queryset(user):
         return qs.filter(id=user.id)  # 无授权仅见自己
 
     q = Q(id=user.id)  # 总是包含自己
-    if scope.regions:
-        q |= Q(region__in=scope.regions)
     if scope.branches:
         q |= Q(branch__in=scope.branches)
     return qs.filter(q).distinct()
 
 
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.select_related('branch', 'region', 'leader', 'created_by').all()
+    queryset = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'created_by').all()
     serializer_class = UserSerializer
     filterset_class = UserFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
@@ -74,10 +72,6 @@ class UserViewSet(viewsets.ModelViewSet):
         target_role = data.get('role', 'staff')
 
         self._validate_role_assignment(creator, target_role)
-
-        # Supervisor: auto-set region to their own region
-        if creator.role == 'supervisor' and not data.get('region'):
-            data['region'] = creator.region
 
         # Leader: auto-set branch to their own branch
         if creator.role == 'leader':
@@ -131,9 +125,8 @@ class UserViewSet(viewsets.ModelViewSet):
             return
         from apps.permissions.scope import resolve_user_scope
         scope = resolve_user_scope(operator)
-        in_region = bool(target_user.region_id and target_user.region_id in scope.regions)
         in_branch = bool(target_user.branch_id and target_user.branch_id in scope.branches)
-        if not (in_region or in_branch):
+        if not in_branch:
             raise serializers.ValidationError(
                 {'detail': '您只能管理授权范围内的用户'}
             )

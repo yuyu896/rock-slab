@@ -47,19 +47,6 @@ class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
         'organizations.Branch', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='users',
     )
-    region = models.ForeignKey(
-        'organizations.Region', on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='users',
-    )
-    leader = models.ForeignKey(
-        'self', on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='subordinates',
-    )
-    team = models.ForeignKey(
-        'organizations.Team', on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='members',
-        verbose_name='所属行政组',
-    )
     created_by = models.ForeignKey(
         'self', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='created_users',

@@ -9,11 +9,11 @@ class TestUserBranchName:
         from apps.users.serializers import UserSerializer
         user = User.objects.create_user(
             phone='13900088888', name='有分公司', password='test123456',
-            role='staff', status='active', branch=branch, region=branch.region,
+            role='staff', status='active', branch=branch,
         )
         data = UserSerializer(user).data
         assert data['branch_name'] == branch.name
-        assert data['region_name'] == branch.region.name
+        assert data['region_name'] == branch.team.region.name  # 区域沿树派生
 
     def test_serializer_branch_name_none_when_unset(self, db):
         from apps.users.models import User

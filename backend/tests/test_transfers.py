@@ -310,7 +310,7 @@ class TestApproveAssetSync:
         from apps.assets.models import Asset
         asset = self._create_asset(qty=10)
         target_branch = Branch.objects.create(
-            name='目标分公司', code='MB001', region=branch.region, status='active',
+            name='目标分公司', code='MB001', team=branch.team, status='active',
         )
         payload = {
             '调拨日期': '2026-02-03',

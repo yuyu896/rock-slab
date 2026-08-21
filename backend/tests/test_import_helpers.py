@@ -126,9 +126,10 @@ class TestMergeErrors:
 class TestAssetImportFriendlyErrors:
     def test_duplicate_asset_code_friendly(self, authenticated_client):
         from apps.assets.models import Asset
-        from apps.organizations.models import Region, Branch
+        from apps.organizations.models import Region, Team, Branch
         region = Region.objects.create(name='测试区域', code='TEST', status='active')
-        Branch.objects.create(name='测试', code='CS001', region=region)
+        team = Team.objects.create(name='测试行政组', region=region, status='active')
+        Branch.objects.create(name='测试', code='CS001', team=team)
         Asset.objects.create(
             序号=1, 分公司='测试', 分公司编号='CS001', 资产编号='DUP-001',
             资产类目='固定', 物品分类='办公', 资产名称='已存在', 数量=1,
@@ -145,9 +146,10 @@ class TestAssetImportFriendlyErrors:
         assert any('已存在' in e for e in data['errors'])
 
     def test_invalid_decimal_friendly(self, authenticated_client):
-        from apps.organizations.models import Region, Branch
+        from apps.organizations.models import Region, Team, Branch
         region = Region.objects.create(name='测试区域', code='TEST', status='active')
-        Branch.objects.create(name='测试', code='CS001', region=region)
+        team = Team.objects.create(name='测试行政组', region=region, status='active')
+        Branch.objects.create(name='测试', code='CS001', team=team)
         resp = authenticated_client.post('/api/assets/import', {
             'file': self._make_xlsx([
                 [1, '测试', 'DEC-001', 'CS001', '固定', '', '', '办公', '测试', '',

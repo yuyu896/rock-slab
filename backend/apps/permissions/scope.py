@@ -18,7 +18,8 @@ class Scope:
 def resolve_user_scope(user) -> Scope:
     """解析用户的管理数据范围。
 
-    admin 返回全部；否则取其组织节点授权并集，并将 region 展开为旗下分公司。
+    admin 返回全部；否则取其组织节点授权并集，沿组织树展开为分公司集合
+    （region → 旗下行政组 → 分公司；team → 组内分公司）。
     结果缓存在用户实例上（_mgmt_scope_cache），单次请求内不重复计算。
     """
     if user is None or not getattr(user, 'is_authenticated', False):
@@ -48,12 +49,17 @@ def resolve_user_scope(user) -> Scope:
         elif s.team_id:
             teams.add(s.team_id)
 
-    # region 授权展开为旗下全部分公司
-    if regions:
+    # 树遍历展开：region → 旗下行政组 → 分公司；team → 组内分公司
+    if regions or teams:
         from apps.organizations.models import Branch
-        branches.update(
-            Branch.objects.filter(region_id__in=regions).values_list('id', flat=True)
-        )
+        if regions:
+            branches.update(
+                Branch.objects.filter(team__region_id__in=regions).values_list('id', flat=True)
+            )
+        if teams:
+            branches.update(
+                Branch.objects.filter(team_id__in=teams).values_list('id', flat=True)
+            )
 
     scope = Scope(all=False, regions=regions, branches=branches, teams=teams)
     user._mgmt_scope_cache = scope

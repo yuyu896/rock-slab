@@ -47,11 +47,11 @@ class TestAssetDeletePermissions:
 
 @pytest.mark.django_db
 class TestAssetBranchSync:
-    def test_branch_change_syncs_denormalized_fields(self, supervisor_user, make_asset):
+    def test_branch_change_syncs_denormalized_fields(self, supervisor_user, branch, make_asset):
         from apps.organizations.models import Branch
         asset = make_asset()
         branch_a2 = Branch.objects.create(
-            name='分公司A2', code='TSA02', region=supervisor_user.region, status='active',
+            name='分公司A2', code='TSA02', team=branch.team, status='active',
         )
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/assets/{asset.id}', {'branch': branch_a2.id})

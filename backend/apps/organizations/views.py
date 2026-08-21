@@ -36,7 +36,7 @@ class RegionViewSet(viewsets.ModelViewSet):
 
 
 class BranchViewSet(viewsets.ModelViewSet):
-    queryset = Branch.objects.select_related('region', 'manager').all()
+    queryset = Branch.objects.select_related('team', 'team__region', 'manager').all()
     serializer_class = BranchSerializer
     filterset_class = BranchFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
@@ -74,24 +74,21 @@ class TeamViewSet(viewsets.ModelViewSet):
     }
 
     def perform_create(self, serializer):
-        team = serializer.save()
-        self._assign_leader_team(team)
+        serializer.save()
 
     def perform_update(self, serializer):
-        team = serializer.save()
-        self._assign_leader_team(team)
+        serializer.save()
 
-    def perform_destroy(self, instance):
-        # 将所有成员的 team 置空
-        instance.members.update(team=None)
-        instance.delete()
-
-    @staticmethod
-    def _assign_leader_team(team):
-        """若设置了 leader，自动将该 user 的 team 指向此 Team"""
-        if team.leader_id and team.leader.team_id != team.id:
-            team.leader.team = team
-            team.leader.save(update_fields=['team', 'updated_at'])
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            instance.delete()
+        except ProtectedError:
+            return Response(
+                {'detail': '该行政组下存在分公司，无法删除。请先转移旗下分公司。'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CompanyView(APIView):
