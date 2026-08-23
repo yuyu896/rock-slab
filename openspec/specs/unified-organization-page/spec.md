@@ -5,17 +5,17 @@ TBD - created by archiving change unified-organization-page. Update Purpose afte
 ## Requirements
 ### Requirement: 分公司隶属行政组（数据模型）
 
-`Branch` MUST 增加 `team` 外键（所属行政组，允许为空），分公司隶属行政组，建立 **区域 → 行政组 → 分公司** 层级。`Branch.team.region` MUST 与 `Branch.region` 一致（serializer 校验，防止跨区域错挂）。
+`Branch` 的 `team` 外键（所属行政组）MUST 为必填且是分公司唯一父级，建立 **区域 → 行政组 → 分公司** 层级；`Branch` MUST NOT 持有独立的 `region` 列，区域归属由 `branch.team.region` 派生并以只读字段暴露。原「team 与 region 一致性校验」随 `region` 列删除而废止（不可能出现跨区域错挂）。
 
 #### Scenario: 分公司带行政组创建
 
 - **WHEN** 创建分公司时指定 team
 - **THEN** 分公司 team 保存为该行政组，层级关系正确
 
-#### Scenario: team 与 region 一致性校验
+#### Scenario: 未指定行政组被拒绝
 
-- **WHEN** 创建/编辑分公司时 team 所属区域 != 分公司所属区域
-- **THEN** 返回 400 拒绝，提示区域不一致
+- **WHEN** 创建分公司时未指定 team
+- **THEN** 返回 400 校验错误，分公司不创建
 
 ### Requirement: 组织架构单页面（删除多 tab）
 
@@ -28,29 +28,21 @@ TBD - created by archiving change unified-organization-page. Update Purpose afte
 
 ### Requirement: 左侧组织树（区域→行政组→分公司）
 
-左侧 MUST 按 **区域 → 行政组 → 分公司** 三层展现组织树；区域下 `team=null` 的分公司 MUST 聚合为「未分组」节点（置于该区域的行政组之后）。**员工 MUST NOT 作为树节点出现**（员工在右侧列表呈现）。点击组织节点 MUST 选中，右侧员工列表 MUST 按以下归属规则显示该节点范围内的员工：
+左侧 MUST 按 **区域 → 行政组 → 分公司** 三层展现组织树；每个分公司必有行政组父级，MUST NOT 出现「未分组」虚拟节点。**员工 MUST NOT 作为树节点出现**（员工在右侧列表呈现）。点击组织节点 MUST 选中，右侧员工列表 MUST 按以下沿树派生的规则显示该节点范围内的员工（节点员工 = 子树分公司挂靠员工 ∪ 子树内全部负责人任命）：
 
-- 分公司节点：`u.branch = 该分公司`
-- 行政组节点：`u.branch ∈ 该组下分公司` **∪** `u.team = 该组 且 u.branch=null`
-- 未分组节点：`u.branch ∈ 该区域 team=null 的分公司`
-- 区域节点：`u.region = 该区域`
+- 分公司节点：`u.branch = 该分公司` ∪ `u = branch.manager`
+- 行政组节点：`u.branch ∈ 该组下分公司` ∪ `u ∈ 组内分公司 manager` ∪ `u = team.leader`
+- 区域节点：`u.branch ∈ 该区域旗下分公司（经行政组）` ∪ `u ∈ 旗下分公司 manager` ∪ `u ∈ 该区域各组 leader` ∪ `u = region.manager`
 
-「未分组」节点选中时 MUST 显示其下员工，不得因节点是虚拟节点（`rawId` 空）而返回空列表。
+#### Scenario: 行政组节点显示组内分公司员工与组长
 
-#### Scenario: 点击未分组节点显示员工
+- **WHEN** 选中某行政组节点
+- **THEN** 右侧显示该组全部分公司下的员工，以及 `team.leader`（即使其无分公司挂靠）
 
-- **WHEN** 点击某区域的「未分组」节点（聚合该区域 `team=null` 的分公司）
-- **THEN** 右侧显示这些未分组分公司下的所有员工，列表非空（若确无员工则显示空状态）
-
-#### Scenario: 无分公司但有行政组的员工在组节点可见
-
-- **WHEN** 员工 `branch=null` 且 `team=某行政组`，选中该行政组节点
-- **THEN** 右侧员工列表包含该员工（按最具体归属呈现）
-
-#### Scenario: 区域节点显示该区域全员
+#### Scenario: 区域节点显示该区域全员与负责人
 
 - **WHEN** 选中某区域节点
-- **THEN** 右侧显示 `u.region = 该区域` 的所有员工（含无分公司、无行政组但有所属区域的员工）
+- **THEN** 右侧显示该区域旗下（经行政组）分公司员工，以及区域负责人与各组组长（即使其无分公司挂靠）
 
 ### Requirement: 员工列表
 
@@ -77,27 +69,17 @@ TBD - created by archiving change unified-organization-page. Update Purpose afte
 
 ### Requirement: 员工操作（创建 / 移动 / 删除）
 
-员工列表上方 MUST 提供「创建 / 移动 / 删除员工」，受 `manage_users` 权限控制。创建默认挂当前节点；**移动员工 MUST 通过 区域 → 行政组 → 分公司 三级级联弹窗选择目标，分公司必选**；行政组下拉列所选区域的真实行政组 + 「未分组」选项；选真实行政组时分公司下拉只列该组下分公司，选「未分组」时列该区域 `team=null` 的分公司；最终 `team`/`region` 跟随所选分公司同步（`team=目标分公司.team`，`region=目标分公司.region`）。
+员工列表上方 MUST 提供「创建 / 移动 / 删除员工」，受 `manage_users` 权限控制。创建默认挂当前节点。**移动员工 MUST 通过 区域 → 行政组 → 分公司 三级级联弹窗选择目标，分公司必选**；行政组下拉列所选区域的真实行政组（无「未分组」选项）；选行政组时分公司下拉只列该组下分公司；**提交 MUST 仅写 branch**（区域/行政组由分公司沿树派生，不再同步写入任何员工字段）。
 
 #### Scenario: 移动弹窗三级级联
 
 - **WHEN** 点击「移动」打开移动弹窗
-- **THEN** 弹窗依次提供「区域」「行政组（真实行政组 + 未分组选项）」「分公司」三个下拉；分公司为必选；切换区域清空行政组与分公司，切换行政组清空分公司；选真实行政组时分公司下拉列该组分公司，选「未分组」时列该区域 `team=null` 的分公司
+- **THEN** 弹窗依次提供「区域」「行政组」「分公司」三个下拉（无「未分组」选项）；分公司为必选；切换区域清空行政组与分公司，切换行政组清空分公司
 
-#### Scenario: 移动员工同步 team 与 region
+#### Scenario: 移动员工只改分公司
 
 - **WHEN** 确认移动，选中目标分公司
-- **THEN** 员工的 `branch` 改为目标分公司，`team` 同步为目标分公司的行政组，`region` 同步为目标分公司的区域
-
-#### Scenario: 未分组员工可移出
-
-- **WHEN** 选中「未分组」节点，对其中员工点击「移动」，选择某真实行政组下的分公司并确认
-- **THEN** 员工从「未分组」移出，归属到所选分公司及其行政组、区域
-
-#### Scenario: 移动到未分组分公司
-
-- **WHEN** 移动弹窗选「未分组」行政组，选某 `team=null` 的分公司并确认
-- **THEN** 员工移到该分公司，`team` 同步为空（分公司无行政组）
+- **THEN** 员工的 `branch` 改为目标分公司，无其他组织字段被写入
 
 ### Requirement: 员工编辑（右侧切换表单）
 
@@ -122,41 +104,27 @@ TBD - created by archiving change unified-organization-page. Update Purpose afte
 - **WHEN** 编辑分公司，`code` 与自身当前 code 相同
 - **THEN** 通过校验，正常保存
 
-### Requirement: 分公司 team 数据回填
-
-系统 MUST 提供管理命令，根据员工的 `team` 推断并回填分公司的 `team`，且支持 `--dry-run` 预览（不写库）。回填规则：取该分公司员工 `team` 的众数；无员工或员工均无 `team` 的分公司保持 `null`。
-
-#### Scenario: dry-run 预览回填
-
-- **WHEN** 运行 `assign_branch_team_from_employees --dry-run`
-- **THEN** 输出每个分公司将被分配的 team（员工 team 众数），不修改数据库
-
-#### Scenario: 执行回填
-
-- **WHEN** 运行命令（不带 `--dry-run`）
-- **THEN** 有众数 team 的分公司被赋值；无员工 / 员工均无 team 的分公司保持 `null`
-
 ### Requirement: 顶层集团根（启航集团）
 
-组织树 MUST 有一个顶层虚拟根节点「启航集团」（单一集团，前端虚拟节点，无后端模型），所有区域挂其下。集团根选中时，右侧员工列表 MUST 显示**所有员工**（含 `branch`/`team`/`region` 全空的员工），不得隐藏。
+组织树 MUST 有一个顶层虚拟根节点「启航集团」（单一集团，前端虚拟节点，集团名持久化于后端 Company 单例），所有区域挂其下。集团根选中时，右侧员工列表 MUST 显示**所有员工**（含无分公司归属的员工），不得隐藏。
 
 #### Scenario: 集团根显示全员
 
 - **WHEN** 点击「启航集团」根节点
-- **THEN** 右侧显示全部员工，含没有任何组织归属的员工
+- **THEN** 右侧显示全部员工，含没有任何分公司归属的员工
 
-#### Scenario: 全无归属员工在集团根可见
+#### Scenario: 无归属员工在集团根可见
 
-- **WHEN** 员工 `branch`/`team`/`region` 均为空
+- **WHEN** 员工 `branch` 为空且不担任任何节点负责人
 - **THEN** 该员工在「启航集团」根节点的员工列表中可见（不再仅靠搜索）
 
 ### Requirement: 各层级员工不隐藏
 
-每个组织节点 MUST 显示其管辖范围内的所有员工，不得因员工缺少更细归属而隐藏。区域节点 MUST 显示 `u.region = 该区域` 的所有员工（含区长等无分公司 / 行政组归属的负责人）。
+每个组织节点 MUST 显示其管辖范围内的所有员工，不得因员工缺少更细归属而隐藏。区域节点 MUST 显示沿树落入该区域的员工，以及区域负责人（`region.manager`）与该区域各行政组组长（`team.leader`），即使他们无分公司挂靠。
 
 #### Scenario: 区长在区域节点可见
 
-- **WHEN** 区长（区域负责人）`branch`/`team` 为空但 `region = 某区域`
+- **WHEN** 区长（区域负责人）`branch` 为空但为该区域 `manager`
 - **THEN** 选中该区域节点时，区长在员工列表中可见
 
 ### Requirement: 员工列表按职级排序
