@@ -26,6 +26,15 @@ class Command(BaseCommand):
         else:
             initial_time = None
 
+        # 未初始化容忍：无期初单且台账全空 = 期初迁移未执行（P1 首次部署的中间态），
+        # 通过并提示；一旦存在期初单或任何台账行，即进入严格对账。
+        if initial_time is None and not AssetStock.objects.exists():
+            self.stdout.write(self.style.WARNING(
+                '台账未初始化（无期初单、无台账行）——请执行 preview_ledger_migration → '
+                'migrate_initial_ledger 完成存量入账；初始化后本命令将严格对账'
+            ))
+            return
+
         # 期望值累加器：{(branch_id, item_id): {'在库数量': n, ...}}
         expected = {}
 
