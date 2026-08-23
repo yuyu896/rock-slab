@@ -89,11 +89,15 @@ const navItems = computed<NavItem[]>(() => [
     label: '组织架构',
     path: '/organization'
   },
-  // 仅超级管理员可见：管理权限分配
+  // 仅超级管理员可见：权限分配与权限矩阵
   ...(userStore.isAdmin ? [{
     icon: 'category',
     label: '权限分配',
     path: '/admin/permissions'
+  }, {
+    icon: 'category',
+    label: '权限矩阵',
+    path: '/admin/permission-matrix'
   }] : [])
 ])
 

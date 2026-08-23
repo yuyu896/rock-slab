@@ -25,7 +25,6 @@ class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
         ('admin', 'admin'),
         ('director', 'director'),
         ('manager', 'manager'),
-        ('supervisor', 'supervisor'),
         ('leader', 'leader'),
         ('staff', 'staff'),
     ]

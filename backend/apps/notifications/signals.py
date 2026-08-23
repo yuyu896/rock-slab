@@ -10,12 +10,14 @@ from apps.users.models import User
 from .models import Notification, ApprovalCC
 
 
-def _users_with_branch_access(branch, roles):
-    """返回对指定分公司有数据范围授权的指定角色用户（admin 全量）。
+def _users_with_operation_access(branch, code, include_admin=True, exclude_admin=False):
+    """返回持指定业务操作授权且数据范围覆盖该分公司的活跃用户。
 
-    branch 可为 Branch 实例、id 或名称字符串；为空时退化为按角色的全量候选
+    与运行时鉴权同口径：持 OperationGrant 授权（admin 内置全部，可选纳入/排除）。
+    branch 可为 Branch 实例、id 或名称字符串；为空时退化为全量候选
     （避免因分公司信息缺失而漏发审批通知）。
     """
+    from django.db.models import Q
     from apps.organizations.models import Branch
     from apps.permissions.scope import resolve_user_scope
 
@@ -24,7 +26,12 @@ def _users_with_branch_access(branch, roles):
     elif isinstance(branch, int):
         branch = Branch.objects.filter(id=branch).first()
 
-    candidates = User.objects.filter(role__in=roles, status='active')
+    q = Q(operation_grants__code=code)
+    if include_admin:
+        q |= Q(role='admin')
+    candidates = User.objects.filter(q, status='active').distinct()
+    if exclude_admin:
+        candidates = candidates.exclude(role='admin')
     if branch is None:
         return list(candidates)
     result = []
@@ -36,10 +43,8 @@ def _users_with_branch_access(branch, roles):
 
 
 def get_approvers_for_branch(branch_name):
-    """获取对某分公司有数据范围授权的审批人（supervisor 及以上）。"""
-    return _users_with_branch_access(
-        branch_name, ['admin', 'director', 'manager', 'supervisor'],
-    )
+    """获取对某分公司有数据范围授权的审批人（持 approve_transfer 或 admin）。"""
+    return _users_with_operation_access(branch_name, 'approve_transfer')
 
 
 @receiver(post_save, sender=Transfer)
@@ -108,8 +113,9 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                 )
 
         # 2. 抄送给对该调拨分公司有授权的行政经理
-        managers = _users_with_branch_access(
-            instance.调出分公司, ['manager', 'director'],
+        # 抄送资格 = 持「查看抄送记录」授权（admin 免打扰）
+        managers = _users_with_operation_access(
+            instance.调出分公司, 'view_all_notifications', include_admin=False, exclude_admin=True,
         )
 
         action_display = dict(Transfer.ACTION_CHOICES).get(
@@ -198,8 +204,8 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
 
     # 提交审核时通知审批人
     if instance.status == 'pending_review':
-        approvers = _users_with_branch_access(
-            instance.branch, ['admin', 'director', 'manager', 'supervisor'],
+        approvers = _users_with_operation_access(
+            instance.branch, 'approve_inventory',
         )
 
         for approver in approvers:
@@ -218,8 +224,8 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
 
     # 审批通过后抄送给对该盘点分公司有授权的行政经理
     if instance.status == 'completed':
-        managers = _users_with_branch_access(
-            instance.branch, ['manager', 'director'],
+        managers = _users_with_operation_access(
+            instance.branch, 'view_all_notifications', include_admin=False, exclude_admin=True,
         )
 
         for manager in managers:

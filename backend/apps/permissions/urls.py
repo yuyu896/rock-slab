@@ -3,8 +3,10 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ManagementScopeViewSet,
     OperationGrantViewSet,
+    effective_permissions,
     operation_catalog,
     my_permissions,
+    position_templates,
 )
 
 router = DefaultRouter(trailing_slash=False)
@@ -13,5 +15,7 @@ router.register(r'operation-grants', OperationGrantViewSet, basename='operation-
 
 urlpatterns = router.urls + [
     path('operations', operation_catalog),
+    path('position-templates', position_templates),
+    path('effective', effective_permissions),
     path('me', my_permissions),
 ]

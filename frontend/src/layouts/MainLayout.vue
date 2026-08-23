@@ -16,12 +16,12 @@ const showUserPanel = ref(false)
 const userPanelRef = ref<InstanceType<typeof UserPanel> | null>(null)
 
 const roleLabels: Record<string, string> = {
-  admin: '超级管理员',
-  director: '行政总监',
-  manager: '行政经理',
-  supervisor: '主管',
-  leader: '组长',
-  staff: '员工'
+  admin: '系统管理员',
+  director: '大区负责人',
+  manager: '分公司负责人',
+  leader: '行政组长',
+  staff: '分公司行政',
+  supervisor: '行政主管（已退役）',
 }
 
 const userInfo = computed(() => ({

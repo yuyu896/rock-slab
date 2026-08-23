@@ -16,11 +16,11 @@ const userPhone = computed(() => userStore.profile?.phone || '')
 const userRole = computed(() => userStore.profile?.role || '')
 
 const roleLabels: Record<string, string> = {
-  admin: '超级管理员',
-  manager: '行政经理',
-  supervisor: '行政主管',
+  admin: '系统管理员',
+  manager: '分公司负责人',
+  supervisor: '行政主管（已退役）',
   leader: '行政组长',
-  staff: '行政专员',
+  staff: '分公司行政',
 }
 
 const menuItems = [

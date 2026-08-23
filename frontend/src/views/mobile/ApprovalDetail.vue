@@ -16,7 +16,7 @@ const loading = ref(true)
 const rejectReason = ref('')
 const showRejectInput = ref(false)
 
-const canApprove = computed(() => userStore.hasMinRole('supervisor'))
+const canApprove = computed(() => userStore.can('approve_transfer'))
 
 const actionLabels: Record<string, string> = {
   assign: '领用',

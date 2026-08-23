@@ -36,6 +36,36 @@ export interface MyPermissionSummary {
   role: string
   managementScopes: ManagementScope[]
   operations: string[]
+  appointments: AppointmentItem[]
+  scopeSummary: { all: boolean; branchCount: number | null }
+}
+
+/** 树负责人任命（任命即授权） */
+export interface AppointmentItem {
+  type: 'region' | 'team' | 'branch'
+  id: string
+  name: string
+}
+
+/** 岗位模板（岗位=权限预填模板，仅预填不参与运行时鉴权） */
+export interface PositionTemplate {
+  role: string
+  label: string
+  scopeType: 'all' | 'region' | 'team' | 'branch'
+  operations: string[]
+  allOperations: boolean
+}
+
+/** 全员生效权限行（effective） */
+export interface EffectivePermissionRow {
+  user: string
+  name: string
+  phone: string
+  role: string
+  appointments: AppointmentItem[]
+  extraScopes: { all: boolean; region: string | null; team: string | null; branch: string | null }[]
+  operations: string[] | null
+  scopeSummary: { all: boolean; branchCount: number | null }
 }
 
 /* ===== 组织节点授权 ===== */
@@ -63,6 +93,12 @@ export function deleteOperationGrant(id: string) {
 /* ===== 目录与当前用户 ===== */
 export function getOperationCatalog() {
   return request.get<OperationItem[]>('/api/permissions/operations')
+}
+export function getPositionTemplates() {
+  return request.get<PositionTemplate[]>('/api/permissions/position-templates')
+}
+export function getEffectivePermissions() {
+  return request.get<EffectivePermissionRow[]>('/api/permissions/effective')
 }
 export function getMyPermissions() {
   return request.get<MyPermissionSummary>('/api/permissions/me')

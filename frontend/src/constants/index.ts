@@ -16,12 +16,13 @@ export const DEPARTMENT_PRESETS = ['仓库', '行政部', '人事部', '财务�
 // ============ 角色 ============
 
 export const ROLE_LABELS: Record<UserRoleType, string> = {
-  admin: '超级管理员',
-  director: '行政总监',
-  manager: '行政经理',
-  supervisor: '行政主管',
+  admin: '系统管理员',
+  director: '大区负责人',
+  manager: '分公司负责人',
   leader: '行政组长',
-  staff: '行政专员',
+  staff: '分公司行政',
+  // 已退役岗位：仅用于存量数据展示，不可再分配
+  supervisor: '行政主管（已退役）',
 }
 
 export const ROLE_LEVELS: Record<UserRoleType, number> = {

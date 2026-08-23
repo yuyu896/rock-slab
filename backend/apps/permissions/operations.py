@@ -15,6 +15,11 @@ OPERATIONS = {
     'view_audit': '查看审计日志',
     'view_all_notifications': '查看抄送记录',
     'view_reports': '查看统计报表',
+    # 资产模型 V2 契约先行（执行点 P1/P2 接入）
+    'manage_dictionary': '管理品目字典',
+    'manage_instances': '管理固定资产实例',
+    'adjust_ledger': '台账调整单',
+    'dispose_assets': '资产处置',
 }
 
 OPERATION_CHOICES = [(code, label) for code, label in OPERATIONS.items()]

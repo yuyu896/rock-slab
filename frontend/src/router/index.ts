@@ -40,6 +40,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'inventory/create', component: () => import('@/views/inventory/InventoryTaskCreate.vue'), meta: { title: '创建盘点任务' } },
       { path: 'organization', component: () => import('@/views/Organization.vue'), meta: { title: '组织架构' } },
       { path: 'admin/permissions', component: () => import('@/views/admin/PermissionAssign.vue'), meta: { title: '权限分配', requiresAdmin: true } },
+      { path: 'admin/permission-matrix', component: () => import('@/views/admin/PermissionMatrix.vue'), meta: { title: '权限矩阵', requiresAdmin: true } },
       { path: 'reports', component: () => import('@/views/Reports.vue'), meta: { title: '报表统计' } },
       { path: 'audit', component: () => import('@/views/AuditLog.vue'), meta: { title: '审计日志' } },
     ],

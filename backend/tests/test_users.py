@@ -75,12 +75,11 @@ class TestUserCRUD:
 
 @pytest.mark.django_db
 class TestRoleAssignment:
-    def test_supervisor_creates_leader(self, supervisor_user, region):
+    def test_retired_supervisor_cannot_assign_position(self, supervisor_user):
+        # supervisor 已退役：不在岗位分配权线内（迁移换岗 manager 后恢复）
         client = _client_for(supervisor_user)
-        payload = _user_payload(role='leader', region=region.id)
-        resp = client.post('/api/users/', payload)
-        assert resp.status_code == status.HTTP_201_CREATED
-        assert resp.data['role'] == 'leader'
+        resp = client.post('/api/users/', _user_payload(role='leader'))
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_supervisor_cannot_create_supervisor(self, supervisor_user, region):
         client = _client_for(supervisor_user)
@@ -139,8 +138,8 @@ class TestScopeValidation:
 
 @pytest.mark.django_db
 class TestAutoAssignment:
-    def test_supervisor_creates_user_without_org_fields(self, supervisor_user):
-        client = _client_for(supervisor_user)
+    def test_manager_creates_user_without_org_fields(self, manager_user):
+        client = _client_for(manager_user)
         payload = _user_payload(role='staff')  # 未提供任何组织归属
         resp = client.post('/api/users/', payload)
         assert resp.status_code == status.HTTP_201_CREATED

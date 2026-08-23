@@ -1,37 +1,10 @@
 from django.db import models
 from rest_framework.permissions import BasePermission
 
-ROLE_LEVELS = {
-    'admin': 1,
-    'director': 2,
-    'manager': 3,
-    'supervisor': 4,
-    'leader': 5,
-    'staff': 6,
-}
-
-
-class IsRoleMin(BasePermission):
-    """Restrict access by minimum role level. Set `min_role` on the view."""
-    min_role = 'staff'
-
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        min_level = ROLE_LEVELS.get(getattr(view, 'min_role', self.min_role), 99)
-        user_level = ROLE_LEVELS.get(request.user.role, 99)
-        return user_level <= min_level
-
 
 class IsAdmin(BasePermission):
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == 'admin'
-
-
-class CanApprove(BasePermission):
-    """Supervisor and above (level <= 3) can approve."""
-    def has_permission(self, request, view):
-        return request.user.is_authenticated and ROLE_LEVELS.get(request.user.role, 99) <= 3
 
 
 class DataScopeMixin:

@@ -14,12 +14,11 @@ class SetSystemAvatarSerializer(serializers.Serializer):
     system_avatar = serializers.CharField(required=True)
 
 
-# Roles that each level can manage (lower level number = higher authority)
+# 岗位分配权线：各级岗位可分配的岗位（supervisor 已退役）
 MANAGEABLE_ROLES = {
-    'admin': ['admin', 'director', 'manager', 'supervisor', 'leader', 'staff'],
-    'director': ['manager', 'supervisor', 'leader', 'staff'],
-    'manager': ['supervisor', 'leader', 'staff'],
-    'supervisor': ['leader', 'staff'],
+    'admin': ['admin', 'director', 'manager', 'leader', 'staff'],
+    'director': ['manager', 'leader', 'staff'],
+    'manager': ['leader', 'staff'],
     'leader': ['staff'],
 }
 

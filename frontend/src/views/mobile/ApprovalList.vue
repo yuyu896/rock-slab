@@ -14,7 +14,7 @@ const doneApprovals = ref<Transfer[]>([])
 const loading = ref(false)
 const activeTab = ref<'pending' | 'done'>('pending')
 
-const canApprove = computed(() => userStore.hasMinRole('supervisor'))
+const canApprove = computed(() => userStore.can('approve_transfer'))
 
 const actionLabels: Record<string, string> = {
   assign: '领用',

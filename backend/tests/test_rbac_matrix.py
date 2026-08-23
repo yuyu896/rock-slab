@@ -69,10 +69,19 @@ class TestUserManagementRBAC:
         })
         assert resp.status_code == 403
 
-    def test_create_user_supervisor_can_create_leader(self, supervisor_user):
+    def test_create_user_retired_supervisor_cannot_assign_any_position(self, supervisor_user):
+        # supervisor 已退役：不在岗位分配权线内，不能创建任何带岗位的用户
         client = _client_for(supervisor_user)
         resp = client.post('/api/users/', {
             'phone': '13800000013', 'name': '新组长2', 'password': 'test123456',
+            'role': 'leader',
+        })
+        assert resp.status_code == 400
+
+    def test_create_user_manager_can_create_leader(self, manager_user):
+        client = _client_for(manager_user)
+        resp = client.post('/api/users/', {
+            'phone': '13800000015', 'name': '新组长3', 'password': 'test123456',
             'role': 'leader',
         })
         assert resp.status_code == 201

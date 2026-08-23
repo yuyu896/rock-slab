@@ -352,7 +352,7 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
           <div class="form-row"><label>手机号（登录账号） <span class="req">*</span></label><input v-model="editingEmployee.phone" class="form-input" maxlength="11" placeholder="11 位手机号" /></div>
           <div class="form-row"><label>职务</label>
             <select v-model="editingEmployee.role" class="form-input">
-              <option value="admin">超级管理员</option><option value="director">行政总监</option><option value="manager">行政经理</option><option value="supervisor">行政主管</option><option value="leader">行政组长</option><option value="staff">行政专员</option>
+              <option value="admin">系统管理员</option><option value="director">大区负责人</option><option value="manager">分公司负责人</option><option value="leader">行政组长</option><option value="staff">分公司行政</option>
             </select>
           </div>
           <div class="form-row"><label>所属分公司</label>
