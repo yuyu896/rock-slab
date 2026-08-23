@@ -35,36 +35,36 @@
 - [x] 5.2 盘点：移除 _adjust_inventory 对 Asset 数量的写操作，审核仅记录差异（含提示文案"P1 记录模式，修数走调整单"）；InventoryItem FK 与清单生成暂不动
 - [x] 5.3 报表切台账：overview/by_branch/by_status/by_category 改从 AssetStock 聚合（状态维度=三列），购入金额从采购单聚合；口径注释
 - [x] 5.4 后端测试：Asset 写接口 405/410、领用审批后 Asset 零变化、盘点审核不改数量、报表随台账联动（对应 asset-freeze-readonly 场景）
-- [ ] 5.5 前端资产列表页只读化：移除新建/编辑/删除/批量删除/导入入口，页头加"历史视图（P2 退役）"标识
+- [x] 5.5 前端资产列表页只读化：移除新建/编辑/删除/批量删除/导入入口，页头加"历史视图（P2 退役）"标识
 
 ## 6. 台账导入改增量
 
 - [x] 6.1 后端：import_excel 重写为两段式——预览（比对现值出差异清单）+ 确认（每差异生成调整单，事由=导入调整）；模板改 分公司/资产编号/在库数量；未登记编号整行拒绝带相近提示
-- [ ] 6.2 前端 SummaryImportDialog 改差异预览确认流；下线 SummaryFillDialog（从台账填入资产明细/固定资产）
+- [x] 6.2 前端 SummaryImportDialog 改差异预览确认流；下线 SummaryFillDialog（从台账填入资产明细/固定资产）
 - [x] 6.3 后端测试：差异生成调整单、现值一致无差异跳过、未登记编号拒绝（对应 asset-summary MODIFIED 导入场景）
 
 ## 7. 部门字典
 
-- [ ] 7.1 Department 模型（branch FK PROTECT + 名称，unique together）挂 organizations；serializer/view/URL + 按分公司 options 端点
-- [ ] 7.2 前端：流转创建页（调出/调入/需求部门）与固定资产创建页部门输入接字典下拉（按所选分公司过滤，允许自由输入）；部门字典管理入口（组织页内或独立小页）
-- [ ] 7.3 后端测试：唯一约束、跨分公司同名允许、options 过滤、权限（对应 department-dictionary 场景）
+- [x] 7.1 Department 模型（branch FK PROTECT + 名称，unique together）挂 organizations；serializer/view/URL + 按分公司 options 端点
+- [x] 7.2 前端：流转创建页（调出/调入/需求部门）与固定资产创建页部门输入接字典下拉（按所选分公司过滤，允许自由输入）；部门字典管理入口（组织页内或独立小页）
+- [x] 7.3 后端测试：唯一约束、跨分公司同名允许、options 过滤、权限（对应 department-dictionary 场景）
 
 ## 8. 存量迁移（期初调整单）
 
-- [ ] 8.1 preview_ledger_migration 命令：未登记编号清单（带相近建议）、状态分桶统计、与旧 AssetStock 差异行、部门归一清单
-- [ ] 8.2 migrate_initial_ledger 命令：纯 Python 按(branch,编号)聚合分桶（在库/使用中+维修中→在用/报废出局）→ 每行期初 LedgerAdjustment → service 入账；存在未登记编号时拒绝执行；部门归一生成字典行
-- [ ] 8.3 后端测试：分桶规则、期初单生成后 check 零差异、未登记编号阻断、与旧台账差异以 Asset 聚合为准（对应 initial-ledger-migration 场景）
+- [x] 8.1 preview_ledger_migration 命令：未登记编号清单（带相近建议）、状态分桶统计、与旧 AssetStock 差异行、部门归一清单
+- [x] 8.2 migrate_initial_ledger 命令：纯 Python 按(branch,编号)聚合分桶（在库/使用中+维修中→在用/报废出局）→ 每行期初 LedgerAdjustment → service 入账；存在未登记编号时拒绝执行；部门归一生成字典行
+- [x] 8.3 后端测试：分桶规则、期初单生成后 check 零差异、未登记编号阻断、与旧台账差异以 Asset 聚合为准（对应 initial-ledger-migration 场景）
 
 ## 9. 机器执法与宪法
 
-- [ ] 9.1 check_ledger_consistency 命令：逐行逐列比对（流水=期初单+其后已通过 Transfer+非期初调整单），差异表输出，exit 1
-- [ ] 9.2 架构测试：扫描 backend/apps 源码断言台账数量写模式仅在 services/ledger.py、migrations、tests 白名单
-- [ ] 9.3 deploy.sh 在 migrate 后追加 check_ledger_consistency，非零中止；DEPLOYMENT.md 补 P1 上线步骤（备份→部署→预览→迁移→对账→放行）
-- [ ] 9.4 CLAUDE.md 增铁律节（两条铁律原文 + 提案审查两问）
-- [ ] 9.5 后端测试：构造漂移场景断言对账检出；架构测试抓越权写的红/绿用例
+- [x] 9.1 check_ledger_consistency 命令：逐行逐列比对（流水=期初单+其后已通过 Transfer+非期初调整单），差异表输出，exit 1
+- [x] 9.2 架构测试：扫描 backend/apps 源码断言台账数量写模式仅在 services/ledger.py、migrations、tests 白名单
+- [x] 9.3 deploy.sh 在 migrate 后追加 check_ledger_consistency，非零中止；DEPLOYMENT.md 补 P1 上线步骤（备份→部署→预览→迁移→对账→放行）
+- [x] 9.4 CLAUDE.md 增铁律节（两条铁律原文 + 提案审查两问）
+- [x] 9.5 后端测试：构造漂移场景断言对账检出；架构测试抓越权写的红/绿用例
 
 ## 10. 前端台账页与收尾
 
-- [ ] 10.1 台账页改造：13 列（含管理方式/四列数量）、写按钮移除（保留导入导出）、不足红色标识、分页序号跨页累加保持
-- [ ] 10.2 回收创建页：去向二选一 radio（入回收库/直接处置），直接处置时显示处置方式+金额
-- [ ] 10.3 全量回归：后端 pytest 全绿；前端 npm run test 与 build 通过；对账命令全库零差异演练（开发库）
+- [x] 10.1 台账页改造：13 列（含管理方式/四列数量）、写按钮移除（保留导入导出）、不足红色标识、分页序号跨页累加保持
+- [x] 10.2 回收创建页：去向二选一 radio（入回收库/直接处置），直接处置时显示处置方式+金额
+- [x] 10.3 全量回归：后端 pytest 全绿；前端 npm run test 与 build 通过；对账命令全库零差异演练（开发库）
