@@ -14,6 +14,11 @@ def clear_legacy_rows(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
+    # PG 限制：同一事务内 DELETE 台账行后再 ALTER/删除该表列会报
+    # "pending trigger events"（SQLite 走表重建无此限制）。拆事务执行；
+    # 清空逻辑幂等（旧行本就要废弃重建），失败重跑安全。
+    atomic = False
+
     dependencies = [
         ('assets', '0012_assetstock'),
         ('categories', '0004_remove_category_asset_count_and_more'),

@@ -71,6 +71,11 @@ def noop_reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
+    # PG 限制：同一事务内对 Team 表 INSERT（兜底组）后再 ALTER 其 FK 会报
+    # "pending trigger events"（SQLite 走表重建无此限制）。拆事务执行；
+    # 回填逻辑幂等，失败重跑安全。
+    atomic = False
+
     dependencies = [
         ('organizations', '0006_company'),
         ('users', '0005_alter_user_role'),
