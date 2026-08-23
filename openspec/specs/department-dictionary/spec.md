@@ -1,0 +1,40 @@
+# department-dictionary Specification
+
+## Purpose
+TBD - created by archiving change asset-v2-p1-contract. Update Purpose after archive.
+## Requirements
+### Requirement: 部门字典模型
+系统 SHALL 提供部门字典 `Department`：字段为所属分公司（branch 外键，PROTECT）与部门名称；`(branch, 部门名称)` 组合 MUST 唯一。部门是归属标签而非组织树节点，MUST NOT 参与组织树层级与数据范围推导。
+
+#### Scenario: 同分公司重复部门被拒
+- **WHEN** 分公司 A 已有「行政部」，再为分公司 A 创建「行政部」
+- **THEN** 创建被拒绝并提示已存在
+
+#### Scenario: 不同分公司同名部门允许
+- **WHEN** 分公司 A 与分公司 B 各自创建「行政部」
+- **THEN** 两条字典行均保存成功
+
+### Requirement: 部门字典管理与选项接口
+系统 SHALL 提供部门字典的新增、编辑、删除、列表接口（写操作受数据范围约束、要求相应管理权限），并 SHALL 提供按分公司返回部门选项的下拉端点供表单使用。
+
+#### Scenario: 选项端点按分公司过滤
+- **WHEN** 用户在分公司 A 的表单中请求部门选项
+- **THEN** 仅返回分公司 A 的部门列表
+
+### Requirement: 存量部门文本归一迁移
+系统 SHALL 提供存量归一迁移：扫描 Asset.所属部门、FixedAsset.所属部门、Transfer 的调出/调入/需求部门五处文本，按分公司分组去重生成归一预览清单（含分公司缺失、空白部门的异常行），人工确认后生成字典行。既有业务字段的文本值 P1 保持不变（FK 化在 P2 随领用单绑部门进行）。
+
+#### Scenario: 预览清单暴露异常行
+- **WHEN** 存量数据中某 Asset 部门为「市场部」但 branch 为空
+- **THEN** 预览清单将该行列入异常区，提示人工判定分公司归属
+
+#### Scenario: 确认后生成字典行
+- **WHEN** 管理员确认预览清单，执行归一
+- **THEN** 各分公司生成对应部门字典行，去重后的清单计数与生成数一致
+
+### Requirement: 表单部门输入接字典
+固定资产创建页与流转单创建页（调出部门、调入部门、需求部门）的部门输入 SHALL 以下拉呈现，选项来自部门字典（按所选分公司过滤）；P1 允许输入字典外新值（可输入可选），强约束在 P2 FK 化时执行。
+
+#### Scenario: 下拉展示字典选项
+- **WHEN** 用户在采购单创建页聚焦「需求部门」输入框且已选分公司 A
+- **THEN** 下拉列出分公司 A 的部门字典项
