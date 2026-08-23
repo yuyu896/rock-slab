@@ -3,7 +3,7 @@ from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.assets.models import Asset
+from apps.assets.models import AssetStock
 from apps.transfers.models import Transfer
 from apps.permissions.scope import resolve_user_scope
 
@@ -101,156 +101,134 @@ def branches(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def overview(request):
-    """报表概览: totalAssets, totalValue, activeRate, growthRate."""
+    """报表概览（P1 台账口径）：总量=台账三列之和，购入金额=已生效采购单合计。"""
     selected = _parse_selected_branches(request.query_params)
-    filters = _get_date_range_filter(request.query_params)
-    queryset = Asset.objects.all()
-    queryset = _scope_queryset(
-        request.user, queryset, branch_field='branch', selected_branches=selected,
+    ledger = AssetStock.objects.all()
+    ledger = _scope_queryset(
+        request.user, ledger, branch_field='branch', selected_branches=selected,
     )
+    totals = ledger.aggregate(
+        stock=Sum('在库数量'), in_use=Sum('在用数量'), recycle=Sum('回收库数量'),
+    )
+    stock_qty = totals['stock'] or 0
+    in_use_qty = totals['in_use'] or 0
+    recycle_qty = totals['recycle'] or 0
+    total_qty = stock_qty + in_use_qty + recycle_qty
 
-    if filters:
-        queryset = queryset.filter(**filters)
+    # 购入金额与增长：来自采购单（金额属单据层，铁律 #8）
+    purchases = Transfer.objects.filter(
+        action_type=Transfer.ACTION_PURCHASE, 审批状态__in=['已入库', '已通过'],
+    )
+    purchases = _scope_queryset(
+        request.user, purchases,
+        transfer_fields=('from_branch', 'to_branch'), selected_branches=selected,
+    )
+    total_value = purchases.aggregate(total=Sum('总金额'))['total'] or 0
 
-    total_assets = queryset.count()
-    total_value = queryset.aggregate(
-        total=Sum('购入金额')
-    )['total'] or 0
-
-    # Active rate = assets in use or in stock vs total
-    active_count = queryset.filter(
-        当前状态__in=['在库', '使用中']
-    ).count()
-    active_rate = (active_count / total_assets * 100) if total_assets > 0 else 0
-
-    # Growth rate: compare current month vs previous month
     now = timezone.now()
-    current_month = queryset.filter(
-        入库日期__year=now.year, 入库日期__month=now.month,
-    ).count()
-    prev_month_date = now.replace(day=1)
-    if prev_month_date.month == 1:
-        prev_year = prev_month_date.year - 1
-        prev_month = 12
+    current_month_qty = purchases.filter(
+        调拨日期__year=now.year, 调拨日期__month=now.month,
+    ).aggregate(q=Sum('调拨数量'))['q'] or 0
+    if now.month == 1:
+        prev_year, prev_month = now.year - 1, 12
     else:
-        prev_year = prev_month_date.year
-        prev_month = prev_month_date.month - 1
+        prev_year, prev_month = now.year, now.month - 1
+    prev_month_qty = purchases.filter(
+        调拨日期__year=prev_year, 调拨日期__month=prev_month,
+    ).aggregate(q=Sum('调拨数量'))['q'] or 0
 
-    prev_month_count = queryset.filter(
-        入库日期__year=prev_year, 入库日期__month=prev_month,
-    ).count()
-
-    if prev_month_count > 0:
-        growth_rate = ((current_month - prev_month_count) / prev_month_count) * 100
+    if prev_month_qty > 0:
+        growth_rate = ((current_month_qty - prev_month_qty) / prev_month_qty) * 100
     else:
-        growth_rate = 100.0 if current_month > 0 else 0.0
+        growth_rate = 100.0 if current_month_qty > 0 else 0.0
 
-    data = {
-        'totalAssets': total_assets,
+    active_qty = stock_qty + in_use_qty
+    active_rate = (active_qty / total_qty * 100) if total_qty > 0 else 0
+
+    return Response({
+        'totalAssets': total_qty,
         'totalValue': total_value,
         'activeRate': round(active_rate, 2),
         'growthRate': round(growth_rate, 2),
-    }
-    return Response(data)
+    })
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def by_branch(request):
-    """按分公司统计."""
+    """按分公司统计（台账总量口径：在库+在用+回收库）。"""
     selected = _parse_selected_branches(request.query_params)
-    filters = _get_date_range_filter(request.query_params)
-    queryset = Asset.objects.all()
-    queryset = _scope_queryset(
-        request.user, queryset, branch_field='branch', selected_branches=selected,
+    ledger = AssetStock.objects.all()
+    ledger = _scope_queryset(
+        request.user, ledger, branch_field='branch', selected_branches=selected,
     )
-    if filters:
-        queryset = queryset.filter(**filters)
-
-    total = queryset.count()
-    branch_stats = (
-        queryset
-        .values('分公司')
-        .annotate(count=Count('id'))
-        .order_by('-count')
+    stats = (
+        ledger.values('branch__name')
+        .annotate(qty=Sum('在库数量') + Sum('在用数量') + Sum('回收库数量'))
+        .order_by('-qty')
     )
-
-    data = []
-    for stat in branch_stats:
-        count = stat['count']
-        percentage = (count / total * 100) if total > 0 else 0
-        data.append({
-            'name': stat['分公司'],
-            'value': count,
-            'percentage': round(percentage, 2),
-        })
-    return Response(data)
+    total = sum(s['qty'] for s in stats)
+    return Response([
+        {
+            'name': s['branch__name'],
+            'value': s['qty'],
+            'percentage': round((s['qty'] / total * 100), 2) if total > 0 else 0,
+        }
+        for s in stats
+    ])
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def by_status(request):
-    """按状态统计."""
+    """按状态统计（台账三列口径：在库/在用/回收库）。"""
     selected = _parse_selected_branches(request.query_params)
-    filters = _get_date_range_filter(request.query_params)
-    queryset = Asset.objects.all()
-    queryset = _scope_queryset(
-        request.user, queryset, branch_field='branch', selected_branches=selected,
+    ledger = AssetStock.objects.all()
+    ledger = _scope_queryset(
+        request.user, ledger, branch_field='branch', selected_branches=selected,
     )
-    if filters:
-        queryset = queryset.filter(**filters)
-
-    total = queryset.count()
-    status_stats = (
-        queryset
-        .values('当前状态')
-        .annotate(count=Count('id'))
-        .order_by('-count')
+    totals = ledger.aggregate(
+        stock=Sum('在库数量'), in_use=Sum('在用数量'), recycle=Sum('回收库数量'),
     )
-
-    data = []
-    for stat in status_stats:
-        count = stat['count']
-        percentage = (count / total * 100) if total > 0 else 0
-        data.append({
-            'status': stat['当前状态'],
-            'count': count,
-            'percentage': round(percentage, 2),
-        })
-    return Response(data)
+    rows = [
+        ('在库', totals['stock'] or 0),
+        ('在用', totals['in_use'] or 0),
+        ('回收库', totals['recycle'] or 0),
+    ]
+    total = sum(q for _, q in rows)
+    return Response([
+        {
+            'status': label,
+            'count': qty,
+            'percentage': round((qty / total * 100), 2) if total > 0 else 0,
+        }
+        for label, qty in rows
+    ])
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def by_category(request):
-    """按资产类目统计."""
+    """按资产类目统计（台账总量口径，联品目字典）。"""
     selected = _parse_selected_branches(request.query_params)
-    filters = _get_date_range_filter(request.query_params)
-    queryset = Asset.objects.all()
-    queryset = _scope_queryset(
-        request.user, queryset, branch_field='branch', selected_branches=selected,
+    ledger = AssetStock.objects.select_related('item').all()
+    ledger = _scope_queryset(
+        request.user, ledger, branch_field='branch', selected_branches=selected,
     )
-    if filters:
-        queryset = queryset.filter(**filters)
-
-    total = queryset.count()
-    category_stats = (
-        queryset
-        .values('资产类目')
-        .annotate(count=Count('id'))
-        .order_by('-count')
+    stats = (
+        ledger.values('item__asset_category')
+        .annotate(qty=Sum('在库数量') + Sum('在用数量') + Sum('回收库数量'))
+        .order_by('-qty')
     )
-
-    data = []
-    for stat in category_stats:
-        count = stat['count']
-        percentage = (count / total * 100) if total > 0 else 0
-        data.append({
-            'category': stat['资产类目'],
-            'count': count,
-            'percentage': round(percentage, 2),
-        })
-    return Response(data)
+    total = sum(s['qty'] for s in stats)
+    return Response([
+        {
+            'category': s['item__asset_category'],
+            'count': s['qty'],
+            'percentage': round((s['qty'] / total * 100), 2) if total > 0 else 0,
+        }
+        for s in stats
+    ])
 
 
 @api_view(['GET'])

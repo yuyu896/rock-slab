@@ -32,6 +32,18 @@ class Transfer(UUIDModel, TimestampedModel):
         ('其他', '其他'),
     ]
 
+    RECYCLE_BIN = 'recycle_bin'
+    DISPOSE = 'dispose'
+    RECOVERY_DESTINATION_CHOICES = [
+        (RECYCLE_BIN, '入回收库'),
+        (DISPOSE, '直接处置'),
+    ]
+    DISPOSAL_METHOD_CHOICES = [
+        ('出售', '出售'),
+        ('报废', '报废'),
+        ('捐赠', '捐赠'),
+    ]
+
     调拨日期 = models.DateField('调拨日期', db_index=True)
     调出分公司 = models.CharField('调出分公司', max_length=100, blank=True, default='')
     调出部门 = models.CharField('调出部门', max_length=100, blank=True, default='')
@@ -76,6 +88,12 @@ class Transfer(UUIDModel, TimestampedModel):
         default=ACTION_TRANSFER, db_index=True,
     )
     回收分类 = models.CharField('回收分类', max_length=50, blank=True, default='', choices=RECOVERY_CATEGORY_CHOICES)
+    回收去向 = models.CharField(
+        '回收去向', max_length=20,
+        choices=RECOVERY_DESTINATION_CHOICES, default=RECYCLE_BIN,
+    )
+    处置方式 = models.CharField('处置方式', max_length=20, blank=True, default='', choices=DISPOSAL_METHOD_CHOICES)
+    处置金额 = models.DecimalField('处置金额', max_digits=14, decimal_places=2, null=True, blank=True)
     单位 = models.CharField('单位', max_length=20, blank=True, default='')
     出库日期 = models.DateField('出库日期', null=True, blank=True)
     存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')

@@ -248,7 +248,7 @@ class TestAuditLogFilters:
 class TestAuditLogDecorator:
     """Verify @audit_log decorator creates AuditLog on decorated actions."""
 
-    def test_purchase_creates_audit_log(self, admin_user):
+    def test_purchase_creates_audit_log(self, admin_user, branch):
         """Create a purchase transfer and verify an AuditLog is created.
 
         We call the purchase API directly; the TransferViewSet.purchase

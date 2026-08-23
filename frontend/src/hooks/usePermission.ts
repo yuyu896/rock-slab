@@ -31,8 +31,8 @@ export function usePermission() {
   /** 可提交单据：所有登录用户（写操作受各 manage_* 授权控制） */
   const canCreateDocument = computed(() => !!userStore.profile)
 
-  /** 可管理类目：持有 manage_categories 授权 */
-  const canManageCategories = computed(() => userStore.can('manage_categories'))
+  /** 可管理品目字典：持有 manage_dictionary 授权 */
+  const canManageCategories = computed(() => userStore.can('manage_dictionary'))
 
   /** 可编辑/删除/导入资产：持有 manage_assets 授权 */
   const canManageAssets = computed(() => userStore.can('manage_assets'))

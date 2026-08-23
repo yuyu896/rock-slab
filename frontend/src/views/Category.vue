@@ -61,24 +61,14 @@ const itemCategories = computed(() => {
 // 筛选后的数据（分页后后端已筛选，直接使用）
 const filteredCategories = computed(() => categories.value)
 
-// 统计信息 - 基于全量数据
+// 统计信息 - 基于全量数据（P1：库存事实在台账，字典页只统计品目维度）
 const stats = computed(() => {
   const mainCatCount = mainCategories.value.length
   const subCatCount = new Set(allCategories.value.map(c => `${c.资产类目}-${c.物品分类}`)).size
   const totalItems = allCategories.value.length
-  const lowStock = allCategories.value.filter(c => (c.在库数量 ?? 0) < (c.警戒线 ?? 0)).length
-  return { mainCatCount, subCatCount, totalItems, lowStock }
+  const instanceItems = allCategories.value.filter(c => c.管理方式 === 'instance').length
+  return { mainCatCount, subCatCount, totalItems, instanceItems }
 })
-
-// 获取库存状态
-const getStockStatus = (item: Category) => {
-  const stock = item.在库数量 ?? 0
-  const warning = item.警戒线 ?? 1
-  const ratio = stock / warning
-  if (ratio < 1) return 'danger'
-  if (ratio < 1.5) return 'warning'
-  return 'normal'
-}
 
 // 获取分类列表（分页）
 async function fetchCategories() {
@@ -195,7 +185,7 @@ onMounted(() => {
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">品目</h1>
-        <p class="page-desc">管理资产分类体系，设置警戒线和编号规则</p>
+        <p class="page-desc">品目字典——编号户籍与管理方式。分编号判定：领用会挑规格吗？警戒线需分开吗？价格需分开核算吗？任一「是」即拆分编号</p>
       </div>
       <div class="header-actions">
         <button class="btn-secondary" @click="exportCategories({ 资产类目: filterCategory || undefined, keyword: filterKeyword || undefined })">
@@ -271,8 +261,8 @@ onMounted(() => {
           </svg>
         </div>
         <div class="stat-content">
-          <span class="stat-value">{{ stats.lowStock }}</span>
-          <span class="stat-label">库存不足</span>
+          <span class="stat-value">{{ stats.instanceItems }}</span>
+          <span class="stat-label">实例管理品目</span>
         </div>
       </div>
     </div>
@@ -347,11 +337,12 @@ onMounted(() => {
             <th>物品分类</th>
             <th>资产名称</th>
             <th>资产编号</th>
+            <th>规格</th>
+            <th>管理方式</th>
+            <th>是否租用</th>
+            <th>默认供应商</th>
             <th>计量单位</th>
-            <th>资产总数量</th>
-            <th>在库总数量</th>
             <th>警戒线</th>
-            <th>库存状态</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -368,19 +359,12 @@ onMounted(() => {
             <td>
               <span class="asset-code">{{ item.资产编号 }}</span>
             </td>
+            <td>{{ item.规格 || '—' }}</td>
+            <td>{{ item.管理方式 === 'instance' ? '实例管理' : '数量管理' }}</td>
+            <td>{{ item.是否租用 ? '是' : '否' }}</td>
+            <td>{{ item.默认供应商 || '—' }}</td>
             <td>{{ item.计量单位 }}</td>
-            <td>{{ item.资产总数量 }}</td>
-            <td>{{ item.在库总数量 }}</td>
-            <td>{{ item.在库数量 }}</td>
             <td>{{ item.警戒线 }}</td>
-            <td>
-              <span
-                class="stock-badge"
-                :class="getStockStatus(item)"
-              >
-                {{ getStockStatus(item) === 'normal' ? '充足' : getStockStatus(item) === 'warning' ? '偏低' : '不足' }}
-              </span>
-            </td>
             <td>
               <div class="action-buttons">
                 <button v-if="canManageCategories" class="action-btn" title="编辑" @click="editCategory(item)">
@@ -408,14 +392,10 @@ onMounted(() => {
         v-for="item in filteredCategories"
         :key="item.id"
         class="category-card"
-        :class="getStockStatus(item)"
       >
         <div class="card-header">
           <span class="card-code">{{ item.资产编号 }}</span>
-          <span
-            class="stock-indicator"
-            :class="getStockStatus(item)"
-          />
+          <span class="stock-indicator" />
         </div>
         <h4 class="card-title">{{ item.资产名称 }}</h4>
         <div class="card-category">
@@ -425,13 +405,13 @@ onMounted(() => {
         </div>
         <div class="card-stats">
           <div class="stat-item">
-            <span class="stat-num">{{ item.在库总数量 }}</span>
-            <span class="stat-label">在库</span>
+            <span class="stat-num">{{ item.管理方式 === 'instance' ? '实例' : '数量' }}</span>
+            <span class="stat-label">管理方式</span>
           </div>
           <div class="stat-divider" />
           <div class="stat-item">
-            <span class="stat-num">{{ item.资产总数量 }}</span>
-            <span class="stat-label">总数</span>
+            <span class="stat-num">{{ item.规格 || '—' }}</span>
+            <span class="stat-label">规格</span>
           </div>
           <div class="stat-divider" />
           <div class="stat-item warning">

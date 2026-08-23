@@ -122,98 +122,13 @@ class TestAssetTemplate:
 
 
 class TestAssetImport:
-    def test_import_valid_data(self, admin_client, test_branch):
-        rows = [
-            [test_branch.name, 'IMP-A001', test_branch.code, '类目A',
-             'SN001', '供应商A', '分类A', '资产A', '', '2026-01-15', '否',
-             10, '规格A', 100.5, 1005, '', '部门A', '张三', '在库', '是', '备注A'],
-            [test_branch.name, 'IMP-A002', test_branch.code, '类目B',
-             '', '', '分类B', '资产B', '', '', '否', 3, '', '', '', '', '部门B', '', '在库', '是', ''],
-        ]
-        buf = _make_xlsx(ASSET_HEADERS, rows)
+    """资产明细导入已随 Asset 冻结下线（410），改走台账增量导入。"""
+
+    def test_import_returns_410(self, admin_client):
+        buf = _make_xlsx(ASSET_HEADERS, [])
         resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 2
-        assert resp.data['errors'] == []
-        from apps.assets.models import Asset
-        a1 = Asset.objects.get(资产编号='IMP-A001')
-        assert a1.资产名称 == '资产A'
-        assert a1.数量 == 10
-        assert a1.供应商 == '供应商A'
-        assert float(a1.单价) == 100.5
+        assert resp.status_code == status.HTTP_410_GONE
 
-    def test_import_derives_branch_code_ignoring_file_value(self, admin_client, test_branch):
-        # 即便文件含「分公司编号」列且值错误，导入也按分公司名称回填真实 code
-        from apps.assets.models import Asset
-        headers = ['分公司', '资产编号', '分公司编号', '资产名称', '数量', '所属部门']
-        buf = _make_xlsx(headers, [[test_branch.name, 'IMP-D01', 'WRONG-CODE', '资产D', 1, '测试部门']])
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 1
-        a = Asset.objects.get(资产编号='IMP-D01')
-        assert a.分公司编号 == test_branch.code  # 回填真实 code，忽略文件的 WRONG-CODE
-
-    def test_import_rejects_duplicate_within_file(self, admin_client, test_branch):
-        # 同表内「相同分公司 + 相同资产编号」→ 第二行提醒资产编号重复
-        row = [test_branch.name, 'DUP-A01', test_branch.code, '类目A',
-               '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '测试部门', '', '在库', '是', '']
-        buf = _make_xlsx(ASSET_HEADERS, [row, row])
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 1
-        assert any('资产编号 DUP-A01 重复' in e for e in resp.data['errors'])
-
-    def test_import_warning_line_from_category_and_auto_seq(self, admin_client, test_branch):
-        from apps.assets.models import Asset
-        from apps.categories.models import Category
-        from django.db.models import Max
-        # 按资产编号登记一条分类，含警戒线
-        Category.objects.create(
-            asset_category='电子', item_category='电脑', asset_name='笔电',
-            asset_code='IMP-WL01', unit='台', warning_line=7,
-        )
-        before_max = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
-        rows = [[test_branch.name, 'IMP-WL01', test_branch.code, '电子',
-                 '', '', '电脑', '笔电', '', '', '否', 1, '', '', '', '', '测试部门', '', '在库', '是', '']]
-        buf = _make_xlsx(ASSET_HEADERS, rows)
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 1
-        a = Asset.objects.get(资产编号='IMP-WL01')
-        assert a.警戒线 == 7              # 取自分类 warning_line（非模板）
-        assert a.序号 == before_max + 1   # 自动分配（模板无序号列）
-
-    def test_import_empty_file(self, admin_client):
-        buf = _make_xlsx(ASSET_HEADERS)
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 0
-
-    def test_import_non_excel(self, admin_client):
-        buf = io.BytesIO(b'this is not an excel file')
-        resp = admin_client.post('/api/assets/import', {'file': buf}, format='multipart')
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-
-
-    def test_import_rejects_unknown_branch(self, admin_client, test_branch):
-        # 分公司不在组织架构内 → 该行被拒并提示
-        rows = [['不存在的分公司', 'IMP-UB01', test_branch.code, '类目A',
-                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']]
-        buf = _make_xlsx(ASSET_HEADERS, rows)
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 0
-        assert any('不存在的分公司' in e for e in resp.data['errors'])
-
-    def test_import_rejects_empty_branch(self, admin_client, test_branch):
-        # 分公司为空 → 该行被拒并提示
-        rows = [['', 'IMP-EB01', test_branch.code, '类目A',
-                 '', '', '分类A', '资产A', '', '', '否', 1, '', '', '', '', '', '', '在库', '是', '']]
-        buf = _make_xlsx(ASSET_HEADERS, rows)
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 0
-        assert any('分公司为空' in e for e in resp.data['errors'])
 
 
 class TestAssetExport:
@@ -359,8 +274,8 @@ TRANSFER_TYPE_TEMPLATES = {
         'check_fields': {'供应商': '供应商A', '需求部门': '研发部', '采购经办人': '李四'},
     },
     'assign': {
-        'template_headers': ['分公司', '日期', '领用物品', '领用数量', '用途', '领用部门', '备注'],
-        'sample_row': ['测试分公司', '2026-03-01', '领用物品B', 5, '办公用', '行政部', ''],
+        'template_headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '用途', '领用部门', '备注'],
+        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', '领用物品B', 5, '办公用', '行政部', ''],
         'check_fields': {'调拨数量': 5, '用途': '办公用'},
     },
     'transfer': {
@@ -523,31 +438,13 @@ class TestInventoryImportExport:
 # ===========================================================================
 
 class TestImportEdgeCases:
-    def test_special_characters_in_data(self, admin_client, test_branch):
-        """Data with newlines, quotes, commas should survive import."""
-        name_with_specials = '资产"含引号"\n换行,逗号'
-        rows = [
-            [test_branch.name, 'SPE-001', test_branch.code, '类目',
-             '', '', '分类', name_with_specials, '', '', '否', 1, '', '', '', '', '测试部门', '', '在库', '是', ''],
-        ]
-        buf = _make_xlsx(ASSET_HEADERS, rows)
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        from apps.assets.models import Asset
-        a = Asset.objects.get(资产编号='SPE-001')
-        assert '含引号' in a.资产名称
-        assert '换行' in a.资产名称
+    """资产导入下线后，边界校验仅剩 410 语义；台账/固定资产导入边界见各自测试。"""
 
-    def test_missing_required_columns(self, admin_client):
-        """Upload file without required columns should not crash."""
-        buf = _make_xlsx(['不相关的列1', '不相关的列2'])
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code in (200, 400)
-
-    def test_import_wrong_extension_rejected(self, admin_client):
-        """非 .xlsx 扩展名应在解析前被拒绝（防误传/恶意文件）。"""
-        buf = io.BytesIO(b'fake content')
-        buf.name = 'not_excel.csv'
+    def test_asset_import_wrong_extension_returns_410(self, admin_client):
+        from io import BytesIO
+        buf = BytesIO(b'not excel')
+        buf.name = 'test.txt'
         resp = admin_client.post('/api/assets/import', {'file': buf}, format='multipart')
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'xlsx' in str(resp.data['detail'])
+        assert resp.status_code == status.HTTP_410_GONE
+
+

@@ -1,49 +1,81 @@
 <script setup lang="ts">
-import { useId } from 'vue'
-import { DEPARTMENT_PRESETS } from '@/constants'
+import { ref, watch } from 'vue'
+import { getDepartmentOptions, type Department } from '@/api/departments'
 
-defineProps<{
+/**
+ * 部门输入（P1）：下拉选项来自部门字典（按分公司过滤），允许自由输入字典外新值。
+ * P2 随领用单绑部门 FK 化时收紧为强约束。
+ */
+const props = defineProps<{
   modelValue?: string
+  branch?: string
+  branchId?: string
   placeholder?: string
 }>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
-const emit = defineEmits<{
-  (e: 'update:modelValue', value: string): void
-}>()
+const options = ref<Department[]>([])
+const listId = `dept-list-${Math.random().toString(36).slice(2, 8)}`
 
-const listId = useId()
+watch(
+  () => [props.branch, props.branchId],
+  async () => {
+    if (!props.branch && !props.branchId) {
+      options.value = []
+      return
+    }
+    try {
+      const { data } = await getDepartmentOptions({
+        branch: props.branch || undefined,
+        branch_id: props.branchId || undefined,
+      })
+      options.value = data
+    } catch {
+      options.value = []
+    }
+  },
+  { immediate: true },
+)
+
+function onInput(e: Event) {
+  emit('update:modelValue', (e.target as HTMLInputElement).value)
+}
 </script>
 
 <template>
-  <input
-    :value="modelValue ?? ''"
-    :list="listId"
-    type="text"
-    class="dept-input"
-    :placeholder="placeholder || '选择或输入部门'"
-    @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-  />
-  <datalist :id="listId">
-    <option v-for="d in DEPARTMENT_PRESETS" :key="d" :value="d" />
-  </datalist>
+  <div class="dept-select">
+    <input
+      :value="modelValue ?? ''"
+      :list="listId"
+      type="text"
+      class="dept-input"
+      :placeholder="placeholder || '选择或输入部门'"
+      @input="onInput"
+    />
+    <datalist :id="listId">
+      <option v-for="d in options" :key="d.id" :value="d.name" />
+    </datalist>
+  </div>
 </template>
 
 <style scoped>
-.dept-input {
+.dept-select {
   width: 100%;
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  font-size: 14px;
-  background: var(--color-bg-page);
-  outline: none;
-  box-sizing: border-box;
-  color: var(--color-text-primary);
 }
 
-.dept-input:focus {
+.dept-select .form-input,
+.dept-select input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  font-size: var(--text-sm);
+  background: var(--color-bg-elevated);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.dept-select input:focus {
   border-color: var(--color-primary-400);
-  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 </style>

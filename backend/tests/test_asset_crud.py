@@ -1,126 +1,55 @@
-"""
-Tests for asset CRUD permissions (add-asset-crud-permissions).
+"""资产明细（Asset）冻结只读契约测试（P1，asset-freeze-readonly 能力）。
+
+原 CRUD/校验/编号自增等行为随冻结下线；历史数据保留可读，写操作一律 405。
 """
 import pytest
 from conftest import _client_for
 
 
 @pytest.mark.django_db
-class TestAssetUpdatePermissions:
-    def test_supervisor_update_own_region(self, supervisor_user, make_asset):
-        asset = make_asset()
-        client = _client_for(supervisor_user)
-        resp = client.patch(f'/api/assets/{asset.id}', {'资产名称': '已修改'})
+class TestAssetFrozenContract:
+    def test_list_readable_with_history(self, authenticated_client, make_asset):
+        make_asset()
+        resp = authenticated_client.get('/api/assets/')
         assert resp.status_code == 200
-        asset.refresh_from_db()
-        assert asset.资产名称 == '已修改'
+        assert resp.data['count'] >= 1
 
-    def test_supervisor_update_other_region_404(self, supervisor_user, make_asset_b):
-        asset_b = make_asset_b()
-        client = _client_for(supervisor_user)
-        resp = client.patch(f'/api/assets/{asset_b.id}', {'资产名称': '尝试修改'})
-        assert resp.status_code == 404
-
-    def test_leader_update_forbidden(self, leader_user, make_asset):
+    def test_update_frozen_for_all_roles(
+        self, supervisor_user, leader_user, staff_user, make_asset,
+    ):
         asset = make_asset()
-        client = _client_for(leader_user)
-        resp = client.patch(f'/api/assets/{asset.id}', {'资产名称': '尝试修改'})
-        assert resp.status_code == 403
+        for user in (supervisor_user, leader_user, staff_user):
+            client = _client_for(user)
+            resp = client.patch(f'/api/assets/{asset.id}', {'资产名称': '改'})
+            assert resp.status_code == 405
 
-
-@pytest.mark.django_db
-class TestAssetDeletePermissions:
-    def test_supervisor_delete_own_region(self, supervisor_user, make_asset):
-        from apps.assets.models import Asset
+    def test_delete_frozen(self, supervisor_user, make_asset):
         asset = make_asset()
         client = _client_for(supervisor_user)
         resp = client.delete(f'/api/assets/{asset.id}')
-        assert resp.status_code == 204
-        assert not Asset.objects.filter(id=asset.id).exists()
+        assert resp.status_code == 405
 
-    def test_staff_delete_forbidden(self, staff_user, make_asset):
+    def test_create_frozen(self, supervisor_user, branch, category):
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/', {
+            '分公司': branch.name, '资产编号': category.asset_code,
+            '资产类目': '固定', '物品分类': '办公', '资产名称': '新', '数量': 1,
+        }, format='json')
+        assert resp.status_code == 405
+
+    def test_batch_delete_frozen(self, authenticated_client, make_asset):
         asset = make_asset()
-        client = _client_for(staff_user)
-        resp = client.delete(f'/api/assets/{asset.id}')
-        assert resp.status_code == 403
-
-
-@pytest.mark.django_db
-class TestAssetBranchSync:
-    def test_branch_change_syncs_denormalized_fields(self, supervisor_user, branch, make_asset):
-        from apps.organizations.models import Branch
-        asset = make_asset()
-        branch_a2 = Branch.objects.create(
-            name='分公司A2', code='TSA02', team=branch.team, status='active',
+        resp = authenticated_client.post(
+            '/api/assets/batch-delete', {'ids': [str(asset.id)]}, format='json',
         )
-        client = _client_for(supervisor_user)
-        resp = client.patch(f'/api/assets/{asset.id}', {'branch': branch_a2.id})
+        assert resp.status_code == 405
+
+    def test_detail_readable(self, authenticated_client, make_asset):
+        asset = make_asset()
+        resp = authenticated_client.get(f'/api/assets/{asset.id}')
         assert resp.status_code == 200
-        asset.refresh_from_db()
-        assert asset.分公司 == '分公司A2'
-        assert asset.分公司编号 == 'TSA02'
 
-
-@pytest.mark.django_db
-class TestAssetCreateValidation:
-    """资产（品目）创建：序号自增 + 按分公司名称回填 + 资产编号须在分类登记。"""
-
-    def _payload(self, category, **overrides):
-        data = {
-            '资产编号': category.asset_code,
-            '资产类目': category.asset_category,
-            '物品分类': category.item_category,
-            '资产名称': '新建资产',
-            '数量': 2,
-        }
-        data.update(overrides)
-        return data
-
-    def test_create_auto_increments_序号(self, supervisor_user, make_asset, category):
-        make_asset()  # 既有资产，序号=1
-        client = _client_for(supervisor_user)
-        resp = client.post('/api/assets/', self._payload(category))
-        assert resp.status_code == 201
-        assert resp.data['序号'] == 2  # 最大序号 + 1
-
-    def test_create_序号_first_record(self, supervisor_user, category):
-        """空表创建时序号取 1。"""
-        from apps.assets.models import Asset
-        Asset.objects.all().delete()
-        client = _client_for(supervisor_user)
-        resp = client.post('/api/assets/', self._payload(category))
-        assert resp.status_code == 201
-        assert resp.data['序号'] == 1
-
-    def test_create_explicit_序号_preserved(self, supervisor_user, category):
-        client = _client_for(supervisor_user)
-        resp = client.post('/api/assets/', self._payload(category, 序号=88))
-        assert resp.status_code == 201
-        assert resp.data['序号'] == 88
-
-    def test_create_resolves_branch_by_name(self, supervisor_user, branch, category):
-        client = _client_for(supervisor_user)
-        resp = client.post('/api/assets/', self._payload(category, 分公司=branch.name))
-        assert resp.status_code == 201
-        from apps.assets.models import Asset
-        asset = Asset.objects.get(资产编号=category.asset_code)
-        assert asset.branch_id == branch.id
-        assert asset.分公司编号 == branch.code
-        assert asset.分公司 == branch.name
-
-    def test_create_unknown_branch_name_still_created(self, supervisor_user, branch, category):
-        """分公司名称解析不到时不阻断创建（branch 置空）。"""
-        client = _client_for(supervisor_user)
-        resp = client.post('/api/assets/', self._payload(category, 分公司='不存在的分公司'))
-        assert resp.status_code == 201
-        from apps.assets.models import Asset
-        asset = Asset.objects.get(资产编号=category.asset_code)
-        assert asset.branch_id is None
-
-    def test_create_unregistered_asset_code_rejected(self, supervisor_user, category):
-        """资产编号未在资产分类登记时拒绝创建，返回 400。"""
-        client = _client_for(supervisor_user)
-        resp = client.post('/api/assets/', self._payload(category, 资产编号='UNREGISTERED-999'))
-        assert resp.status_code == 400
-        assert '资产编号' in resp.data
-        assert '资产分类' in str(resp.data['资产编号'])
+    def test_export_still_works(self, authenticated_client, make_asset):
+        make_asset()
+        resp = authenticated_client.get('/api/assets/export')
+        assert resp.status_code == 200

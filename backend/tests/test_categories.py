@@ -241,3 +241,95 @@ class TestCategoryLookup:
         client = _client_for(staff_user)
         resp = client.get(f'{CATEGORY_URL}lookup', {'asset_code': category.asset_code})
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# P1 品目字典契约（item-dictionary 能力）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestItemDictionary:
+    def _payload(self, code, **extra):
+        payload = {
+            'asset_category': '电子设备',
+            'item_category': '笔记本',
+            'asset_name': f'品目 {code}',
+            'asset_code': code,
+            'unit': '台',
+        }
+        payload.update(extra)
+        return payload
+
+    def test_create_defaults_to_quantity_management(self, admin_user):
+        client = _client_for(admin_user)
+        resp = client.post(CATEGORY_URL, self._payload('DICT-Q-001'))
+        assert resp.status_code == 201
+        assert resp.json()['管理方式'] == 'quantity'
+
+    def test_create_instance_management(self, admin_user):
+        client = _client_for(admin_user)
+        resp = client.post(
+            CATEGORY_URL,
+            self._payload('DICT-I-001', management_type='instance', specification='16G/512G',
+                          is_rental=True, default_supplier='联想'),
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data['管理方式'] == 'instance'
+        assert data['规格'] == '16G/512G'
+        assert data['是否租用'] is True
+        assert data['默认供应商'] == '联想'
+
+    def test_invalid_management_type_rejected(self, admin_user):
+        client = _client_for(admin_user)
+        resp = client.post(CATEGORY_URL, self._payload('DICT-X-001', management_type='mixed'))
+        assert resp.status_code == 400
+
+    def test_destroy_blocked_by_asset_reference(self, admin_user):
+        from apps.assets.models import Asset
+        client = _client_for(admin_user)
+        resp = client.post(CATEGORY_URL, self._payload('DICT-R-001'))
+        code_id = resp.json()['id']
+        Asset.objects.create(
+            序号=1, 分公司='测试分公司', 分公司编号='CS001',
+            资产编号='DICT-R-001', 资产类目='电子设备', 物品分类='笔记本',
+            资产名称='品目 DICT-R-001', 数量=1, 当前状态='在库',
+        )
+        resp = client.delete(f'{CATEGORY_URL}{code_id}')
+        assert resp.status_code == 400
+        assert '资产明细' in resp.json()['detail']
+
+    def test_destroy_allowed_without_reference(self, admin_user):
+        client = _client_for(admin_user)
+        resp = client.post(CATEGORY_URL, self._payload('DICT-F-001'))
+        code_id = resp.json()['id']
+        resp = client.delete(f'{CATEGORY_URL}{code_id}')
+        assert resp.status_code == 204
+
+    def test_lookup_returns_dictionary_fields(self, admin_user):
+        client = _client_for(admin_user)
+        client.post(
+            CATEGORY_URL,
+            self._payload('DICT-L-001', management_type='instance', specification='定义规格'),
+        )
+        resp = client.get(f'{CATEGORY_URL}lookup', {'asset_code': 'DICT-L-001'})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data['管理方式'] == 'instance'
+        assert data['规格'] == '定义规格'
+        assert '默认供应商' in data
+
+    def test_transfer_with_unregistered_code_rejected_with_suggestion(self, admin_user, authenticated_client):
+        # 先登记相近编号，验证 difflib 提示
+        client = _client_for(admin_user)
+        client.post(CATEGORY_URL, self._payload('AST-TEST-001'))
+        resp = authenticated_client.post('/api/transfers/purchase', {
+            '调拨日期': '2026-08-23',
+            '资产编号': 'AST-TEST-002X',
+            '资产名称': '未登记品目',
+            '调拨数量': 1,
+            '调出分公司': '测试分公司',
+        }, format='json')
+        assert resp.status_code == 400
+        detail = resp.json()['detail']
+        assert '未在品目字典登记' in detail

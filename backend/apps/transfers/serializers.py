@@ -17,7 +17,8 @@ class TransferSerializer(serializers.ModelSerializer):
             '调出负责人', '调入负责人', '备注', '审批状态', '审批人',
             '审批时间', '创建人', 'action_type',
             '供应商', '单价', '总金额', '需求部门', '采购经办人', '用途',
-            '回收分类', '单位', '出库日期', '存放位置', '资产类目', '物品分类',
+            '回收分类', '回收去向', '处置方式', '处置金额',
+            '单位', '出库日期', '存放位置', '资产类目', '物品分类',
             '固定资产内部编号',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
             'created_at', 'updated_at',
@@ -50,6 +51,9 @@ class TransferActionSerializer(serializers.Serializer):
     用途 = serializers.CharField(required=False, default='', allow_blank=True)
     # Recovery fields
     回收分类 = serializers.CharField(required=False, default='', allow_blank=True)
+    回收去向 = serializers.ChoiceField(choices=['recycle_bin', 'dispose'], required=False, default='recycle_bin')
+    处置方式 = serializers.ChoiceField(choices=['', '出售', '报废', '捐赠'], required=False, default='', allow_blank=True)
+    处置金额 = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
     单位 = serializers.CharField(required=False, default='', allow_blank=True)
     出库日期 = serializers.DateField(required=False, allow_null=True)
     存放位置 = serializers.CharField(required=False, default='', allow_blank=True)

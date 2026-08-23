@@ -70,8 +70,19 @@ pytest                                  # 运行测试
 pytest --tb=short                       # 简短回溯
 
 # 部署 (在服务器上)
-bash deploy.sh            # git pull → docker build → migrate → collectstatic → npm build → nginx reload
+bash deploy.sh            # git pull → docker build → migrate → 对账 → collectstatic → npm build → nginx reload
 ```
+
+## 铁律（全项目强制，出自 docs/design/asset-model-v2.md）
+
+1. **每样信息只存一处**：品目身份在字典（Category）、数量在台账（AssetStock）、贵重物品档案在实例（FixedAsset，P2 接入）、变动经过在单据（Transfer/LedgerAdjustment），其余皆为派生。
+2. **台账数量的每一次变动必须经流转单（含调整单）**，禁止任何视图/导入/脚本直接改数量。唯一写入口是 `backend/apps/assets/services/ledger.py`（架构测试执法）。
+
+**提案审查两问**（任何改动合入前自问）：
+- 这个改动是否让某类信息存了两份？
+- 这次数量变动走单据了吗？
+
+对账命令：`python manage.py check_ledger_consistency`（进 pytest 与 deploy.sh，非零退出即失败）。
 
 ## 关键架构约定
 

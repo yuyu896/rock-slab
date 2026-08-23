@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAssets, updateAsset, deleteAsset, batchDeleteAssets, exportAssets } from '@/api/assets'
+import { getAssets, exportAssets } from '@/api/assets'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { getTransfers } from '@/api/transfers'
@@ -14,9 +14,7 @@ import type { Asset, Category, Transfer } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AssetDetailDrawer from './assets/AssetDetailDrawer.vue'
-import AssetImportDialog from './assets/AssetImportDialog.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
-import AssetEditDrawer from './assets/AssetEditDrawer.vue'
 import RecoveryDialog from './assets/RecoveryDialog.vue'
 
 const router = useRouter()
@@ -87,28 +85,6 @@ async function viewDetail(asset: Asset) {
   }
 }
 
-// ===== 编辑资产 =====
-const showEditDrawer = ref(false)
-const editingAsset = ref<Asset | null>(null)
-
-function openEdit(asset: Asset) {
-  editingAsset.value = { ...asset }
-  showEditDrawer.value = true
-}
-
-async function handleUpdateAsset(payload: Partial<Asset>) {
-  if (!editingAsset.value) return
-  try {
-    await updateAsset(editingAsset.value.id, payload)
-    ElMessage.success('资产更新成功')
-    showEditDrawer.value = false
-    editingAsset.value = null
-    await fetchAssets()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  }
-}
-
 // ===== 行内回收（即时生效，联动资产汇总库存）=====
 const showRecoveryDialog = ref(false)
 const recoveringAsset = ref<Asset | null>(null)
@@ -116,59 +92,6 @@ const recoveringAsset = ref<Asset | null>(null)
 function openRecovery(asset: Asset) {
   recoveringAsset.value = asset
   showRecoveryDialog.value = true
-}
-
-// ===== 删除资产 =====
-async function handleDelete(asset: Asset) {
-  try {
-    await ElMessageBox.confirm(
-      '确定删除该资产？此操作不可恢复',
-      '删除确认',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
-    )
-    await deleteAsset(asset.id)
-    ElMessage.success('资产已删除')
-    await fetchAssets()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(handleApiError(error))
-    }
-  }
-}
-
-// ===== 批量删除 =====
-async function handleBatchDelete() {
-  if (selectedAssets.value.length === 0) {
-    ElMessage.warning('请先选择要删除的资产')
-    return
-  }
-  try {
-    await ElMessageBox.confirm(
-      `确定删除选中的 ${selectedAssets.value.length} 项资产？此操作不可恢复`,
-      '批量删除确认',
-      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
-    )
-    await batchDeleteAssets(selectedAssets.value)
-    ElMessage.success('批量删除成功')
-    selectedAssets.value = []
-    await fetchAssets()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(handleApiError(error))
-    }
-  }
-}
-
-// ===== 新增资产（跳转独立页面）=====
-function openCreatePage() {
-  router.push('/assets/list/create')
-}
-
-// ===== 批量导入 =====
-const showImportModal = ref(false)
-
-function openImportModal() {
-  showImportModal.value = true
 }
 
 // ===== 条码打印 =====
@@ -330,7 +253,7 @@ onMounted(() => {
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">资产明细</h1>
-        <p class="page-desc">共{{ pagination.total }}项资产</p>
+        <p class="page-desc">共{{ pagination.total }}项资产 · 历史视图（P1 冻结只读，P2 退役；现库存见资产汇总台账）</p>
       </div>
       <div class="header-actions">
         <button class="btn-secondary" @click="handleExport">
@@ -340,21 +263,6 @@ onMounted(() => {
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           导出
-        </button>
-        <button class="btn-secondary" @click="openImportModal">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          批量导入
-        </button>
-        <button class="btn-primary" @click="openCreatePage">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          新增资产
         </button>
       </div>
     </div>
@@ -448,14 +356,6 @@ onMounted(() => {
             <line x1="1" y1="10" x2="23" y2="10"/>
           </svg>
           批量调拨
-        </button>
-        <button v-if="canManageAssets" class="batch-btn danger" @click="handleBatchDelete">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
-            <path d="M10 11v6M14 11v6"/>
-          </svg>
-          批量删除
         </button>
       </div>
     </div>
@@ -551,18 +451,6 @@ onMounted(() => {
                     <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
                   </svg>
                 </button>
-                <button v-if="canManageAssets" class="action-btn" title="编辑" @click="openEdit(asset)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </button>
-                <button v-if="canManageAssets" class="action-btn danger" title="删除" @click="handleDelete(asset)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
-                </button>
               </div>
             </td>
           </tr>
@@ -589,14 +477,6 @@ onMounted(() => {
     />
 
     <!-- 编辑资产抽屉 -->
-    <AssetEditDrawer
-      v-if="showEditDrawer && editingAsset"
-      :visible="showEditDrawer"
-      :asset="editingAsset"
-      :branch-options="branchOptions"
-      @close="showEditDrawer = false"
-      @update="handleUpdateAsset"
-    />
 
     <!-- 标签打印弹窗 -->
     <AssetPrintDialog
@@ -604,9 +484,6 @@ onMounted(() => {
       :assets="printAssets"
       @close="showPrintModal = false"
     />
-
-    <!-- 批量导入弹窗 -->
-    <AssetImportDialog :visible="showImportModal" @close="showImportModal = false" @success="fetchAssets" />
 
     <!-- 行内回收弹窗 -->
     <RecoveryDialog

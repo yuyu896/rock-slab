@@ -39,12 +39,39 @@
           <input v-model="form.计量单位" type="text" class="form-input" placeholder="如：台、个、张" />
         </div>
         <div class="form-item">
+          <label class="form-label">管理方式 <span class="required">*</span></label>
+          <select v-model="form.管理方式" class="form-input">
+            <option value="quantity">数量管理</option>
+            <option value="instance">实例管理</option>
+          </select>
+        </div>
+        <div class="form-item">
+          <label class="form-label">规格（定义性）</label>
+          <input v-model="form.规格" type="text" class="form-input" placeholder="如：16G/512G；记录性规格留空记采购明细" />
+        </div>
+        <div class="form-item">
+          <label class="form-label">是否租用</label>
+          <select v-model="form.是否租用" class="form-input">
+            <option :value="false">否</option>
+            <option :value="true">是</option>
+          </select>
+        </div>
+        <div class="form-item">
+          <label class="form-label">默认供应商（仅预填）</label>
+          <input v-model="form.默认供应商" type="text" class="form-input" placeholder="创建采购单时预填，非事实" />
+        </div>
+        <div class="form-item">
           <label class="form-label">警戒线</label>
-          <input v-model.number="form.警戒线" type="number" class="form-input" placeholder="库存警戒数量" />
+          <input v-model.number="form.警戒线" type="number" class="form-input" placeholder="默认库存警戒数量" />
         </div>
         <div class="form-item full">
           <label class="form-label">备注</label>
           <textarea v-model="form.备注" class="form-textarea" placeholder="备注信息" rows="3" />
+        </div>
+        <div class="form-item full">
+          <div class="split-hint">
+            <strong>分编号判定测试</strong>：领用的人会挑这个规格吗？警戒线需要分开设吗？价格差异大到需要分开核算吗？——任一「是」即应拆分为独立编号。
+          </div>
         </div>
       </div>
     </section>
@@ -77,6 +104,10 @@ const form = reactive({
   物品分类: '',
   资产名称: '',
   资产编号: '',
+  规格: '',
+  管理方式: 'quantity' as 'quantity' | 'instance',
+  是否租用: false,
+  默认供应商: '',
   计量单位: '',
   警戒线: 10 as number | null,
   备注: '',
@@ -90,6 +121,10 @@ async function loadCategory() {
     form.物品分类 = data.物品分类 ?? ''
     form.资产名称 = data.资产名称 ?? ''
     form.资产编号 = data.资产编号 ?? ''
+    form.规格 = data.规格 ?? ''
+    form.管理方式 = data.管理方式 ?? 'quantity'
+    form.是否租用 = data.是否租用 ?? false
+    form.默认供应商 = data.默认供应商 ?? ''
     form.计量单位 = data.计量单位 ?? ''
     form.警戒线 = data.警戒线 ?? null
     form.备注 = data.备注 ?? ''
@@ -110,6 +145,10 @@ async function save() {
       item_category: form.物品分类,
       asset_name: form.资产名称,
       asset_code: form.资产编号,
+      specification: form.规格,
+      management_type: form.管理方式,
+      is_rental: form.是否租用,
+      default_supplier: form.默认供应商,
       unit: form.计量单位,
       warning_line: form.警戒线,
       remarks: form.备注,
@@ -150,4 +189,5 @@ onMounted(loadCategory)
 .btn-secondary { padding: var(--space-2) var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-elevated); cursor: pointer; font-size: var(--text-sm); color: var(--color-text-primary); }
 .btn-primary { padding: var(--space-2) var(--space-5); border: none; border-radius: var(--radius-md); background: var(--color-primary-500); color: #fff; cursor: pointer; font-size: var(--text-sm); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.split-hint { padding: var(--space-3) var(--space-4); border: 1px dashed var(--color-border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text-secondary); line-height: 1.6; }
 </style>

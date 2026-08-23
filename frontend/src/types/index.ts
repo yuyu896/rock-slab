@@ -101,20 +101,20 @@ export interface Branch {
   updatedAt: string
 }
 
-/** 资产类目 */
+/** 品目字典（P1：计数字段下线，数量事实唯一存放于台账） */
 export interface Category {
   id?: string
   资产类目: string
   物品分类: string
   资产名称: string
   资产编号: string
+  规格?: string
+  管理方式?: 'quantity' | 'instance'
+  是否租用?: boolean
+  默认供应商?: string
   计量单位: string
   警戒线?: number | null
   备注?: string
-  资产数量?: number
-  在库数量?: number
-  资产总数量?: number
-  在库总数量?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -125,6 +125,10 @@ export interface CategoryRequest {
   item_category: string
   asset_name: string
   asset_code: string
+  specification?: string
+  management_type?: 'quantity' | 'instance'
+  is_rental?: boolean
+  default_supplier?: string
   unit: string
   warning_line?: number | null
   remarks?: string
@@ -162,23 +166,39 @@ export interface Asset {
   updatedAt: string
 }
 
-/** 资产汇总（库存台账）行：一行 = 某分公司下某资产编号的库存 */
+/** 台账行（P1：一行 = 分公司 × 品目，数量四列，品目信息联字典） */
 export interface AssetStock {
   id: string
-  分公司: string
-  分公司编号?: string
-  branch?: string
+  branch: string
   branchName?: string
+  item: string
   资产编号: string
-  资产类目?: string
-  物品分类?: string
   资产名称?: string
   规格?: string
-  数量: number
+  资产类目?: string
+  物品分类?: string
+  计量单位?: string
+  管理方式?: 'quantity' | 'instance'
+  在库数量: number
+  在用数量: number
+  回收库数量: number
+  总量?: number
   警戒线?: number | null
+  生效警戒线?: number | null
   是否充足?: boolean
   createdAt?: string
   updatedAt?: string
+}
+
+/** 台账增量导入差异行 */
+export interface LedgerImportDiff {
+  行号: number
+  分公司: string
+  资产编号: string
+  资产名称?: string
+  现值: number
+  导入值: number
+  变动量: number
 }
 
 /** 用户 */
@@ -244,6 +264,9 @@ export interface Transfer {
   使用人?: string
   所属部门?: string
   回收分类?: string
+  回收去向?: 'recycle_bin' | 'dispose'
+  处置方式?: '出售' | '报废' | '捐赠' | ''
+  处置金额?: number
   单位?: string
   出库日期?: string
   存放位置?: string

@@ -192,8 +192,8 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         def _adjust(t):
-            # 在任务行锁内调整库存，确保并发审批只有一个生效
-            self._adjust_inventory(t)
+            # P1：盘点为记录模式——差异仅留存于盘点结果，不再直接改 Asset 数量
+            # （Asset 已冻结；差异修数走台账调整单，P3 接「差异自动生成调整单」）
             t.completed_at = timezone.now()
 
         task, err = self._transition(
@@ -502,20 +502,3 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             unchecked_items.update(actual_qty=0, result='missing')
         # 'keep' rule: leave unchecked items as-is (no change needed)
 
-    def _adjust_inventory(self, task):
-        """Adjust asset quantities based on inventory check results.
-
-        在事务内对每个资产行 select_for_update 加锁后再更新，防止与
-        采购入库/调拨等并发操作产生丢失更新。
-        """
-        from django.db import transaction
-        from apps.assets.models import Asset
-
-        items = task.items.select_related('asset').exclude(result='unchecked')
-        with transaction.atomic():
-            for item in items:
-                if item.actual_qty is not None and item.actual_qty != item.expected_qty:
-                    diff = item.actual_qty - item.expected_qty
-                    asset = Asset.objects.select_for_update().get(pk=item.asset_id)
-                    asset.数量 = max(0, asset.数量 + diff)
-                    asset.save(update_fields=['数量', 'updated_at'])

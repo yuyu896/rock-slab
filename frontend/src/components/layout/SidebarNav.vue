@@ -87,7 +87,11 @@ const navItems = computed<NavItem[]>(() => [
   {
     icon: 'organization',
     label: '组织架构',
-    path: '/organization'
+    path: '/organization',
+    children: [
+      { icon: '', label: '组织架构', path: '/organization' },
+      { icon: '', label: '部门字典', path: '/departments' },
+    ]
   },
   // 仅超级管理员可见：权限分配与权限矩阵
   ...(userStore.isAdmin ? [{

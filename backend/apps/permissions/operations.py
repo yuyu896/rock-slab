@@ -8,7 +8,6 @@
 OPERATIONS = {
     'manage_users': '管理用户',
     'manage_organizations': '管理组织架构',
-    'manage_categories': '管理资产分类',
     'manage_assets': '管理资产（增删改/导入）',
     'approve_transfer': '审批资产流转',
     'approve_inventory': '审批盘点任务',

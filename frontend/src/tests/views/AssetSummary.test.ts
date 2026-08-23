@@ -8,19 +8,17 @@ vi.mock('element-plus', () => ({
 }))
 
 vi.mock('@/hooks/usePermission', () => ({
-  usePermission: () => ({ canManageAssets: computed(() => true) }),
+  usePermission: () => ({
+    canManageAssets: computed(() => true),
+    can: () => true,
+  }),
 }))
 
 vi.mock('@/api/assets', () => ({
   getAssetStocks: vi.fn(),
-  createAssetStock: vi.fn(),
-  updateAssetStock: vi.fn(),
-  deleteAssetStock: vi.fn(),
   importAssetStocks: vi.fn(),
   exportAssetStocks: vi.fn(),
   downloadAssetStockTemplate: vi.fn(),
-  createAsset: vi.fn(),
-  createFixedAsset: vi.fn(),
 }))
 
 vi.mock('@/api/branches', () => ({
@@ -34,10 +32,8 @@ vi.mock('@/api/categories', () => ({
 }))
 
 import AssetSummary from '@/views/assets/AssetSummary.vue'
-import SummaryFillDialog from '@/views/assets/SummaryFillDialog.vue'
 import SummaryImportDialog from '@/views/assets/SummaryImportDialog.vue'
 import { getAssetStocks, importAssetStocks } from '@/api/assets'
-import { createAsset, createFixedAsset } from '@/api/assets'
 import type { AssetStock } from '@/types'
 
 const BasePaginationStub = {
@@ -50,14 +46,21 @@ const BasePaginationStub = {
 function _stock(overrides: Partial<AssetStock>): AssetStock {
   return {
     id: 's1',
-    分公司: '分公司A',
+    branch: 'b1',
+    branchName: '分公司A',
+    item: 'i1',
     资产编号: 'A-1',
     资产类目: '固定资产',
     物品分类: '办公设备',
     资产名称: '办公椅',
     规格: '标准',
-    数量: 10,
+    管理方式: 'quantity',
+    在库数量: 7,
+    在用数量: 2,
+    回收库数量: 1,
+    总量: 10,
     警戒线: 5,
+    生效警戒线: 5,
     是否充足: true,
     ...overrides,
   } as AssetStock
@@ -71,12 +74,12 @@ function mountSummary() {
   })
 }
 
-describe('AssetSummary 页面（库存台账）', () => {
+describe('AssetSummary 页面（P1 台账契约）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('表头 10 列按约定顺序展示，序号为分页连续序号', async () => {
+  it('表头 13 列（品目信息 + 管理方式 + 四列数量），序号为分页连续序号', async () => {
     vi.mocked(getAssetStocks).mockResolvedValue({
       data: { count: 30, next: null, previous: null, results: [_stock({ id: 's1' }), _stock({ id: 's2' })] },
     } as any)
@@ -85,8 +88,8 @@ describe('AssetSummary 页面（库存台账）', () => {
 
     const headers = wrapper.findAll('thead th').map(th => th.text())
     expect(headers).toEqual([
-      '序号', '分公司', '资产编号', '资产类目', '物品分类',
-      '资产名称', '数量', '规格', '警戒线', '是否充足', '操作',
+      '序号', '分公司', '资产编号', '资产名称', '规格', '资产类目', '管理方式',
+      '在库', '在用', '回收库', '总量', '警戒线', '是否充足',
     ])
 
     // 第 1 页首行序号为 1，默认每页 50 条
@@ -101,15 +104,38 @@ describe('AssetSummary 页面（库存台账）', () => {
     expect(getAssetStocks).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 2, pageSize: 50 }),
     )
-    const firstIndex = wrapper.find('tbody tr td').text()
-    expect(firstIndex).toBe('51')
+    expect(wrapper.find('tbody tr td').text()).toBe('51')
+  })
+
+  it('四列数量直显（在库/在用/回收库/总量）', async () => {
+    vi.mocked(getAssetStocks).mockResolvedValue({
+      data: { count: 1, next: null, previous: null, results: [_stock({})] },
+    } as any)
+    const wrapper = await mountSummary()
+    await flushPromises()
+
+    const cells = wrapper.find('tbody tr').findAll('td')
+    expect(cells[7].text()).toBe('7')
+    expect(cells[8].text()).toBe('2')
+    expect(cells[9].text()).toBe('1')
+    expect(cells[10].text()).toBe('10')
+  })
+
+  it('页面无行级写操作（铁律 2）', async () => {
+    vi.mocked(getAssetStocks).mockResolvedValue({
+      data: { count: 1, next: null, previous: null, results: [_stock({})] },
+    } as any)
+    const wrapper = await mountSummary()
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('新增')
+    expect(wrapper.find('tbody .action-btn').exists()).toBe(false)
   })
 
   it('库存不足行显示「否」并以警示样式标识', async () => {
     vi.mocked(getAssetStocks).mockResolvedValue({
       data: {
         count: 2, next: null, previous: null,
-        results: [_stock({ id: 's1', 是否充足: true }), _stock({ id: 's2', 数量: 2, 警戒线: 5, 是否充足: false })],
+        results: [_stock({ id: 's1', 是否充足: true }), _stock({ id: 's2', 是否充足: false })],
       },
     } as any)
     const wrapper = await mountSummary()
@@ -123,79 +149,56 @@ describe('AssetSummary 页面（库存台账）', () => {
   })
 })
 
-describe('SummaryFillDialog 填入弹窗', () => {
+describe('SummaryImportDialog 增量导入弹窗（两段式）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  function mountFill(stock: AssetStock) {
-    return mount(SummaryFillDialog, {
-      props: { visible: true, stock },
-    })
-  }
-
-  it('预填台账行字段，提交填入资产明细（携带警戒线与分公司）', async () => {
-    const wrapper = mountFill(_stock({}))
-    // 预填信息可见
-    expect(wrapper.text()).toContain('分公司A')
-    expect(wrapper.text()).toContain('A-1')
-    expect(wrapper.text()).toContain('办公椅')
-
-    await wrapper.find('input[list]').setValue('仓库')
-    await wrapper.find('.btn-confirm').trigger('click')
-
-    expect(createAsset).toHaveBeenCalledWith(expect.objectContaining({
-      分公司: '分公司A',
-      资产编号: 'A-1',
-      警戒线: 5,
-      所属部门: '仓库',
-      数量: 1,
-    }))
-    expect(createFixedAsset).not.toHaveBeenCalled()
-  })
-
-  it('切换到固定资产：序列号必填，提交调 createFixedAsset', async () => {
-    const wrapper = mountFill(_stock({}))
-
-    await wrapper.findAll('.target-btn')[1].trigger('click')
-    // 序列号为空提交 → 拦截
-    await wrapper.find('.btn-confirm').trigger('click')
-    expect(createFixedAsset).not.toHaveBeenCalled()
-
-    const serial = wrapper.find('input[placeholder="请输入序列号"]')
-    await serial.setValue('SN-001')
-    await wrapper.find('.btn-confirm').trigger('click')
-
-    expect(createFixedAsset).toHaveBeenCalledWith(expect.objectContaining({
-      分公司: '分公司A',
-      资产编号: 'A-1',
-      序列号: 'SN-001',
-      数量: 1,
-    }))
-  })
-})
-
-describe('SummaryImportDialog 导入弹窗', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('导入失败行错误逐条展示，成功部分触发 success', async () => {
-    vi.mocked(importAssetStocks).mockResolvedValue({
-      data: { imported: 1, errors: ['第2行：分公司「分公司A」下资产编号 DUP-1 已存在，请编辑该行'] },
-    } as any)
-
-    const wrapper = mount(SummaryImportDialog, { props: { visible: true } })
+  function pickFile(wrapper: ReturnType<typeof mount>) {
     const input = wrapper.find('input[type="file"]')
     const file = new File(['bytes'], 'summary.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })
     Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
-    await input.trigger('change')
+    return input.trigger('change')
+  }
 
-    expect(importAssetStocks).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('成功导入 1 条')
-    expect(wrapper.text()).toContain('DUP-1')
+  it('预览展示差异清单；未确认前不产生 success', async () => {
+    vi.mocked(importAssetStocks).mockResolvedValue({
+      data: {
+        diffs: [
+          { 行号: 2, 分公司: '分公司A', 资产编号: 'A-1', 资产名称: '办公椅', 现值: 7, 导入值: 12, 变动量: 5 },
+        ],
+        errors: ['第3行: 资产编号 DUP-9 未在品目字典登记'],
+      },
+    } as any)
+
+    const wrapper = mount(SummaryImportDialog, { props: { visible: true } })
+    await pickFile(wrapper)
+    await wrapper.find('.btn-secondary').trigger('click')
+    await flushPromises()
+
+    expect(importAssetStocks).toHaveBeenCalledWith(expect.any(File))
+    expect(wrapper.text()).toContain('A-1')
+    expect(wrapper.text()).toContain('DUP-9')
+    expect(wrapper.emitted('success')).toBeFalsy()
+  })
+
+  it('确认入账以 confirm=true 再次提交并触发 success', async () => {
+    vi.mocked(importAssetStocks)
+      .mockResolvedValueOnce({
+        data: { diffs: [{ 行号: 2, 分公司: '分公司A', 资产编号: 'A-1', 现值: 7, 导入值: 12, 变动量: 5 }], errors: [] },
+      } as any)
+      .mockResolvedValueOnce({ data: { applied: 1, errors: [] } } as any)
+
+    const wrapper = mount(SummaryImportDialog, { props: { visible: true } })
+    await pickFile(wrapper)
+    await wrapper.find('.btn-secondary').trigger('click')
+    await flushPromises()
+    await wrapper.find('.btn-confirm').trigger('click')
+    await flushPromises()
+
+    expect(importAssetStocks).toHaveBeenLastCalledWith(expect.any(File), true)
     expect(wrapper.emitted('success')).toBeTruthy()
   })
 })

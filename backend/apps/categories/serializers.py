@@ -14,13 +14,14 @@ class CategorySerializer(serializers.ModelSerializer):
     物品分类 = serializers.CharField(source='item_category', read_only=True)
     资产名称 = serializers.CharField(source='asset_name', read_only=True)
     资产编号 = serializers.CharField(source='asset_code', read_only=True)
+    规格 = serializers.CharField(source='specification', read_only=True)
+    管理方式 = serializers.ChoiceField(source='management_type', choices=Category.MANAGEMENT_CHOICES, read_only=True)
+    图片 = serializers.ImageField(source='image', read_only=True)
+    是否租用 = serializers.BooleanField(source='is_rental', read_only=True)
+    默认供应商 = serializers.CharField(source='default_supplier', read_only=True)
     计量单位 = serializers.CharField(source='unit', read_only=True)
     警戒线 = serializers.IntegerField(source='warning_line', read_only=True, allow_null=True)
     备注 = serializers.CharField(source='remarks', read_only=True)
-    资产数量 = serializers.IntegerField(source='asset_count', read_only=True, default=0)
-    在库数量 = serializers.IntegerField(source='in_stock_count', read_only=True, default=0)
-    资产总数量 = serializers.IntegerField(source='asset_total_quantity', read_only=True, default=0)
-    在库总数量 = serializers.IntegerField(source='in_stock_quantity', read_only=True, default=0)
     属性模板 = serializers.JSONField(source='attribute_template', read_only=True)
 
     class Meta:
@@ -29,21 +30,26 @@ class CategorySerializer(serializers.ModelSerializer):
             'id',
             # 写入字段（英文名）
             'asset_category', 'item_category', 'asset_name', 'asset_code', 'unit',
+            'specification', 'management_type', 'image', 'is_rental', 'default_supplier',
             'warning_line', 'remarks', 'attribute_template',
             # 输出字段（中文名）
             '资产类目', '物品分类', '资产名称', '资产编号',
-            '计量单位', '警戒线', '备注', '资产数量', '在库数量',
-            '资产总数量', '在库总数量', '属性模板',
+            '规格', '管理方式', '图片', '是否租用', '默认供应商',
+            '计量单位', '警戒线', '备注', '属性模板',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at', 'asset_count', 'in_stock_count',
-                            'asset_total_quantity', 'in_stock_quantity']
+        read_only_fields = ['created_at', 'updated_at']
         extra_kwargs = {
             'asset_category': {'write_only': True},
             'item_category': {'write_only': True},
             'asset_name': {'write_only': True},
             'asset_code': {'write_only': True},
             'unit': {'write_only': True},
+            'specification': {'write_only': True, 'required': False, 'allow_blank': True},
+            'management_type': {'write_only': True, 'required': False},
+            'image': {'write_only': True, 'required': False, 'allow_null': True},
+            'is_rental': {'write_only': True, 'required': False},
+            'default_supplier': {'write_only': True, 'required': False, 'allow_blank': True},
             'warning_line': {'write_only': True, 'required': False, 'allow_null': True},
             'remarks': {'write_only': True, 'required': False},
             'attribute_template': {'write_only': True, 'required': False},
@@ -58,6 +64,10 @@ class CategorySerializer(serializers.ModelSerializer):
         if queryset.exists():
             raise serializers.ValidationError('资产编号已存在，请使用其他编号')
         return value
+
+    def validate_management_type(self, value):
+        """管理方式缺省为数量管理"""
+        return value or Category.MANAGEMENT_QUANTITY
 
     def validate_attribute_template(self, value):
         """验证属性模板格式"""

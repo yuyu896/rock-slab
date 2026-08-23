@@ -20,7 +20,7 @@ POSITION_TEMPLATES = {
         'operations': [
             'manage_users',
             'manage_organizations',
-            'manage_categories',
+            'manage_dictionary',
             'manage_assets',
             'approve_transfer',
             'approve_inventory',
@@ -33,7 +33,7 @@ POSITION_TEMPLATES = {
         'scope_type': 'branch',
         'operations': [
             'manage_users',
-            'manage_categories',
+            'manage_dictionary',
             'manage_assets',
             'approve_transfer',
             'approve_inventory',

@@ -7,6 +7,7 @@ import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
+import DepartmentSelect from '@/components/DepartmentSelect.vue'
 
 const router = useRouter()
 const creating = ref(false)
@@ -83,8 +84,8 @@ async function submit() {
           <option v-for="b in branchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
         </select>
       </div>
-      <div class="form-item"><label class="form-label">调出部门</label><input v-model="form.调出部门" type="text" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">调入部门</label><input v-model="form.调入部门" type="text" class="form-input" /></div>
+      <div class="form-item"><label class="form-label">调出部门</label><DepartmentSelect v-model="form.调出部门" :branch-id="form.fromBranch" /></div>
+      <div class="form-item"><label class="form-label">调入部门</label><DepartmentSelect v-model="form.调入部门" :branch-id="form.toBranch" /></div>
       <div class="form-item"><label class="form-label">调出负责人</label><input v-model="form.调出负责人" type="text" class="form-input" /></div>
       <div class="form-item"><label class="form-label">调入负责人</label><input v-model="form.调入负责人" type="text" class="form-input" /></div>
       <div class="form-item full"><label class="form-label">调拨原因</label><input v-model="form.调拨原因" type="text" class="form-input" /></div>

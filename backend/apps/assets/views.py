@@ -7,8 +7,14 @@ from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin
 from apps.permissions.permissions import OperationPermission
-from .models import Asset, AssetStock, FixedAsset
-from .serializers import AssetSerializer, AssetStockSerializer, FixedAssetSerializer
+from rest_framework.exceptions import ValidationError
+from .models import Asset, AssetStock, FixedAsset, LedgerAdjustment
+from .serializers import (
+    AssetSerializer,
+    AssetStockSerializer,
+    FixedAssetSerializer,
+    LedgerAdjustmentSerializer,
+)
 from .filters import AssetFilterSet, AssetStockFilterSet, FixedAssetFilterSet
 
 
@@ -25,11 +31,10 @@ def _batch_delete(viewset, request):
 
 
 class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
-    """资产管理视图。
+    """资产明细视图 —— P1 冻结只读（历史视图，P2 物理退役）。
 
-    读取：所有登录用户可查看数据范围内的资产（范围由管理授权决定）。
-    编辑/删除/导入：需持有 manage_assets 业务操作权限。
-    资产信息也通过【资产流转】模块的单据流转自动更新。
+    库存事实唯一存放于台账（AssetStock），Asset 不再被任何流转/盘点/导入写入；
+    写接口全部下线：增删改 405，导入 410（改走台账增量导入）。
     """
     queryset = Asset.objects.select_related('branch').all()
     serializer_class = AssetSerializer
@@ -37,29 +42,32 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
-    # 资产创建对所有登录用户开放（min_role staff 语义）；编辑/删除/导入需 manage_assets
-    required_operations = {
-        'update': 'manage_assets',
-        'partial_update': 'manage_assets',
-        'destroy': 'manage_assets',
-        'import_excel': 'manage_assets',
-        'batch_delete': 'manage_assets',
-    }
 
     def get_queryset(self):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
 
-    def perform_update(self, serializer):
-        serializer.save()
+    def _frozen(self, request):
+        return Response(
+            {'detail': '资产明细已冻结为历史视图（P2 退役），数量变动请经流转单/调整单'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
-    def perform_destroy(self, instance):
-        instance.delete()
+    def create(self, request, *args, **kwargs):
+        return self._frozen(request)
+
+    def update(self, request, *args, **kwargs):
+        return self._frozen(request)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self._frozen(request)
+
+    def destroy(self, request, *args, **kwargs):
+        return self._frozen(request)
 
     @action(detail=False, methods=['post'], url_path='batch-delete')
     def batch_delete(self, request):
-        """批量删除资产（受数据范围与 manage_assets 权限约束）。"""
-        return _batch_delete(self, request)
+        return self._frozen(request)
 
     @action(detail=False, methods=['get'], url_path='template')
     def download_template(self, request):
@@ -90,179 +98,13 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="assets_template.xlsx"'
         return response
 
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
-            permission_classes=[IsAuthenticated, OperationPermission])
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
     def import_excel(self, request):
-        """Excel batch import via openpyxl（按表头列名映射；序号自动分配、警戒线取自分类）。"""
-        from apps.assets.utils.import_helpers import (
-            excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
+        """资产明细导入已下线（冻结只读）：改走台账增量导入（生成调整单）。"""
+        return Response(
+            {'detail': '资产明细导入已下线（表已冻结），请使用台账增量导入（经调整单入账）'},
+            status=status.HTTP_410_GONE,
         )
-        from apps.organizations.utils import get_branch_name_set, branch_validation_error, get_branch_code_map
-        from apps.categories.models import Category
-        from django.db import IntegrityError
-        from django.db.models import Max
-
-        file = request.FILES.get('file')
-        if not file:
-            return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
-
-        from core.upload_validation import (
-            validate_excel_upload, validate_row_count, UploadValidationError,
-        )
-        try:
-            validate_excel_upload(file)
-        except UploadValidationError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(file, read_only=True)
-            ws = wb.active
-        except Exception as e:
-            return Response(
-                {'detail': f'文件解析失败: {str(e)}'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            validate_row_count(ws)
-        except UploadValidationError as e:
-            wb.close()
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        all_rows = list(ws.iter_rows(values_only=True))
-        wb.close()
-
-        if len(all_rows) > 201:
-            return Response(
-                {'detail': f'数据量过大（{len(all_rows) - 1} 行），建议分批导入（每次不超过 200 行）'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not all_rows:
-            return Response({'imported': 0, 'errors': []})
-
-        # 按表头列名建立映射（列顺序无关，去列后抗位移）
-        header_row = [str(c or '').strip() for c in all_rows[0]]
-        col = {}
-        for idx, name in enumerate(header_row):
-            if name and name not in col:
-                col[name] = idx
-
-        def cell(row, name):
-            idx = col.get(name)
-            if idx is None or idx >= len(row):
-                return ''
-            val = row[idx]
-            return '' if val is None else val
-
-        imported = 0
-        raw_errors = []
-        valid_branches = get_branch_name_set()
-        branch_code_map = get_branch_code_map()
-        # 预加载分公司名→Branch 对象映射（设 branch FK，供数据范围过滤）
-        from apps.organizations.models import Branch as _Branch
-        branch_obj_map = {b.name: b for b in _Branch.objects.all()}
-        seen_asset_keys = set()  # 表内去重：(分公司, 资产编号)
-        next_seq = Asset.objects.aggregate(m=Max('序号'))['m'] or 0
-
-        for i, row in enumerate(all_rows[1:], start=2):
-            row_errors = []
-
-            asset_code = str(cell(row, '资产编号')).strip()
-            if not asset_code:
-                raw_errors.append((i, '资产编号为空，跳过该行'))
-                continue
-
-            分公司_name = str(cell(row, '分公司')).strip()
-            branch_err = branch_validation_error(分公司_name, '分公司', valid_branches)
-            if branch_err:
-                raw_errors.append((i, branch_err))
-                continue
-
-            # 所属部门必填
-            所属部门 = str(cell(row, '所属部门')).strip()
-            if not 所属部门:
-                raw_errors.append((i, '所属部门为空，请填写'))
-                continue
-            规格_val = str(cell(row, '规格')).strip()
-
-            # 表内去重：同分公司 + 同资产编号 + 同所属部门 + 同规格（四元组全同才算重复）
-            asset_key = (分公司_name, asset_code, 所属部门, 规格_val)
-            if asset_key in seen_asset_keys:
-                raw_errors.append((i, f'资产编号 {asset_code} 重复'))
-                continue
-            seen_asset_keys.add(asset_key)
-
-            if Asset.objects.filter(分公司=分公司_name, 资产编号=asset_code, 所属部门=所属部门, 规格=规格_val).exists():
-                raw_errors.append((i, f'资产编号 {asset_code} 在该分公司/部门/规格下已存在'))
-                continue
-
-            # 警戒线取自按资产编号反查的资产分类（不再读模板列）
-            category = Category.objects.filter(asset_code=asset_code).first()
-            警戒线 = category.warning_line if category else None
-
-            # Pre-process fields
-            入库日期 = excel_date_to_python(cell(row, '入库日期') or None)
-            出库日期 = excel_date_to_python(cell(row, '出库日期') or None)
-            是否租用 = parse_bool_cn(cell(row, '是否租用'))
-            是否充足 = parse_bool_cn(cell(row, '是否充足') or '是')
-
-            单价, err = parse_decimal_safe(cell(row, '单价'), '单价')
-            if err:
-                row_errors.append(err)
-            购入金额, err = parse_decimal_safe(cell(row, '购入金额'), '购入金额')
-            if err:
-                row_errors.append(err)
-
-            数量 = 1
-            qty_raw = cell(row, '数量')
-            if qty_raw:
-                try:
-                    数量 = int(qty_raw)
-                except (ValueError, TypeError):
-                    row_errors.append(f'数量字段值 "{qty_raw}" 不是有效整数')
-
-            if row_errors:
-                for e in row_errors:
-                    raw_errors.append((i, e))
-                continue
-
-            try:
-                next_seq += 1
-                Asset.objects.create(
-                    序号=next_seq,
-                    分公司=分公司_name,
-                    branch=branch_obj_map.get(分公司_name),
-                    资产编号=asset_code,
-                    分公司编号=branch_code_map.get(分公司_name, ''),
-                    资产类目=str(cell(row, '资产类目')),
-                    电脑序列号=str(cell(row, '电脑序列号')),
-                    供应商=str(cell(row, '供应商')),
-                    物品分类=str(cell(row, '物品分类')),
-                    资产名称=str(cell(row, '资产名称')),
-                    入库日期=入库日期,
-                    是否租用=是否租用,
-                    数量=数量,
-                    规格=str(cell(row, '规格')),
-                    单价=单价,
-                    购入金额=购入金额,
-                    出库日期=出库日期,
-                    所属部门=str(cell(row, '所属部门')),
-                    使用人=str(cell(row, '使用人')),
-                    当前状态=str(cell(row, '当前状态') or '在库'),
-                    警戒线=警戒线,
-                    是否充足=是否充足,
-                    备注=str(cell(row, '备注')),
-                )
-                imported += 1
-            except IntegrityError:
-                raw_errors.append((i, f'资产编号 {asset_code} 已存在'))
-            except Exception as e:
-                raw_errors.append((i, f'保存失败: {str(e)}'))
-
-        errors = merge_errors(raw_errors)
-        return Response({'imported': imported, 'errors': errors})
 
     @action(detail=False, methods=['get'], url_path='export')
     def export_excel(self, request):
@@ -312,45 +154,57 @@ class AssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
 
 class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
-    """资产汇总（库存台账）视图。
+    """资产汇总台账 —— 库存唯一事实源（只读 + 增量导入）。
 
-    读取：所有登录用户可查看数据范围内的台账行。
-    新增/编辑/删除/批量删除/导入：需持有 manage_assets 业务操作权限。
-    回收流转生效时会扣减台账库存（见 apps/transfers）。
+    行级写接口（新增/编辑/删除/批量删除）已下线：数量变动唯一通道是流转单与
+    调整单（铁律 2）。导入为两段式增量：默认出差异预览，confirm=1 时按差异
+    逐行生成调整单（事由=导入调整）入账。
     """
-    queryset = AssetStock.objects.select_related('branch').all()
+
+    queryset = AssetStock.objects.select_related('branch', 'item').all()
     serializer_class = AssetStockSerializer
     filterset_class = AssetStockFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
-    required_operations = {
-        'create': 'manage_assets',
-        'update': 'manage_assets',
-        'partial_update': 'manage_assets',
-        'destroy': 'manage_assets',
-        'import_excel': 'manage_assets',
-        'batch_delete': 'manage_assets',
-    }
+    # 导入权限在 import_excel 内校验（manage_assets 或 adjust_ledger 任一）
 
-    # 台账导入模板 8 列（序号与是否充足由系统生成）
-    STOCK_TEMPLATE_HEADERS = [
-        '分公司', '资产编号', '资产类目', '物品分类', '资产名称',
-        '数量', '规格', '警戒线',
-    ]
+    # 台账增量导入模板 3 列：分公司 / 资产编号 / 在库数量
+    STOCK_TEMPLATE_HEADERS = ['分公司', '资产编号', '在库数量']
 
     def get_queryset(self):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
 
+    # ---- 行级写接口下线（铁律 2：数量变动须经单据） ----
+
+    def _write_disabled(self, request):
+        return Response(
+            {'detail': '台账为库存唯一事实源，数量变动须经流转单或调整单'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def create(self, request, *args, **kwargs):
+        return self._write_disabled(request)
+
+    def update(self, request, *args, **kwargs):
+        return self._write_disabled(request)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self._write_disabled(request)
+
+    def destroy(self, request, *args, **kwargs):
+        return self._write_disabled(request)
+
     @action(detail=False, methods=['post'], url_path='batch-delete')
     def batch_delete(self, request):
-        """批量删除台账行（受数据范围与 manage_assets 权限约束）。"""
-        return _batch_delete(self, request)
+        return self._write_disabled(request)
+
+    # ---- 模板 / 导入 / 导出 ----
 
     @action(detail=False, methods=['get'], url_path='template')
     def download_template(self, request):
-        """下载台账空白导入模板。"""
+        """下载台账增量导入模板（分公司 / 资产编号 / 在库数量）。"""
         import openpyxl
         from django.http import HttpResponse
 
@@ -370,54 +224,24 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="asset_summary_template.xlsx"'
         return response
 
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
-            permission_classes=[IsAuthenticated, OperationPermission])
-    def import_excel(self, request):
-        """台账 Excel 批量导入（表头列名映射；(分公司, 资产编号) 去重；是否充足自动计算）。"""
-        from apps.assets.utils.import_helpers import merge_errors
-        from apps.organizations.utils import get_branch_name_set, branch_validation_error, get_branch_code_map
-
-        file = request.FILES.get('file')
-        if not file:
-            return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
-
-        from core.upload_validation import (
-            validate_excel_upload, validate_row_count, UploadValidationError,
-        )
-        try:
-            validate_excel_upload(file)
-        except UploadValidationError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    def _parse_import_rows(self, file):
+        """解析增量导入文件 → (diffs, errors)。diffs 元素含 branch/item ORM 对象。"""
+        from apps.categories.models import Category
+        from apps.categories.views import suggest_similar_codes
+        from apps.organizations.models import Branch
 
         try:
             import openpyxl
             wb = openpyxl.load_workbook(file, read_only=True)
             ws = wb.active
         except Exception as e:
-            return Response(
-                {'detail': f'文件解析失败: {str(e)}'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            validate_row_count(ws)
-        except UploadValidationError as e:
-            wb.close()
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValueError(f'文件解析失败: {str(e)}')
 
         all_rows = list(ws.iter_rows(values_only=True))
         wb.close()
-
-        if len(all_rows) > 201:
-            return Response(
-                {'detail': f'数据量过大（{len(all_rows) - 1} 行），建议分批导入（每次不超过 200 行）'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         if not all_rows:
-            return Response({'imported': 0, 'errors': []})
+            return [], []
 
-        # 按表头列名建立映射（列顺序无关，去列后抗位移）
         header_row = [str(c or '').strip() for c in all_rows[0]]
         col = {}
         for idx, name in enumerate(header_row):
@@ -431,82 +255,118 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
             val = row[idx]
             return '' if val is None else val
 
-        imported = 0
-        raw_errors = []
-        valid_branches = get_branch_name_set()
-        branch_code_map = get_branch_code_map()
-        from apps.organizations.models import Branch as _Branch
-        branch_obj_map = {b.name: b for b in _Branch.objects.all()}
-        seen_keys = set()  # 表内去重：(分公司, 资产编号)
+        diffs = []
+        errors = []
+        seen_keys = set()
+        branch_map = {b.name: b for b in Branch.objects.all()}
+        item_map = {c.asset_code: c for c in Category.objects.all()}
 
         for i, row in enumerate(all_rows[1:], start=2):
             asset_code = str(cell(row, '资产编号')).strip()
+            branch_name = str(cell(row, '分公司')).strip()
+            if not asset_code and not branch_name:
+                continue
             if not asset_code:
-                raw_errors.append((i, '资产编号为空，跳过该行'))
+                errors.append(f'第 {i} 行: 资产编号为空')
                 continue
-
-            分公司_name = str(cell(row, '分公司')).strip()
-            branch_err = branch_validation_error(分公司_name, '分公司', valid_branches)
-            if branch_err:
-                raw_errors.append((i, branch_err))
+            item = item_map.get(asset_code)
+            if item is None:
+                similar = suggest_similar_codes(asset_code)
+                hint = f'，是否想找：{"、".join(similar)}' if similar else ''
+                errors.append(f'第 {i} 行: 资产编号 {asset_code} 未在品目字典登记{hint}')
                 continue
-
-            # 表内 + 库内去重：(分公司, 资产编号)
-            stock_key = (分公司_name, asset_code)
-            if stock_key in seen_keys:
-                raw_errors.append((i, f'资产编号 {asset_code} 在文件内重复'))
+            branch = branch_map.get(branch_name)
+            if branch is None:
+                errors.append(f'第 {i} 行: 分公司「{branch_name}」不存在')
                 continue
-            seen_keys.add(stock_key)
-
-            if AssetStock.objects.filter(分公司=分公司_name, 资产编号=asset_code).exists():
-                raw_errors.append((i, f'分公司「{分公司_name}」下资产编号 {asset_code} 已存在，请编辑该行'))
+            key = (branch_name, asset_code)
+            if key in seen_keys:
+                errors.append(f'第 {i} 行: 资产编号 {asset_code} 在文件内重复')
                 continue
+            seen_keys.add(key)
 
-            row_errors = []
-            数量 = 0
-            qty_raw = cell(row, '数量')
-            if qty_raw:
-                try:
-                    数量 = int(qty_raw)
-                except (ValueError, TypeError):
-                    row_errors.append(f'数量字段值 "{qty_raw}" 不是有效整数')
-
-            警戒线 = None
-            warn_raw = cell(row, '警戒线')
-            if warn_raw not in ('', None):
-                try:
-                    警戒线 = int(warn_raw)
-                except (ValueError, TypeError):
-                    row_errors.append(f'警戒线字段值 "{warn_raw}" 不是有效整数')
-
-            if row_errors:
-                for e in row_errors:
-                    raw_errors.append((i, e))
-                continue
-
+            qty_raw = cell(row, '在库数量')
             try:
-                AssetStock.objects.create(
-                    分公司=分公司_name,
-                    分公司编号=branch_code_map.get(分公司_name, ''),
-                    branch=branch_obj_map.get(分公司_name),
-                    资产编号=asset_code,
-                    资产类目=str(cell(row, '资产类目')),
-                    物品分类=str(cell(row, '物品分类')),
-                    资产名称=str(cell(row, '资产名称')),
-                    规格=str(cell(row, '规格')),
-                    数量=数量,
-                    警戒线=警戒线,
-                )
-                imported += 1
-            except Exception as e:
-                raw_errors.append((i, f'保存失败: {str(e)}'))
+                target_qty = int(qty_raw)
+            except (ValueError, TypeError):
+                errors.append(f'第 {i} 行: 在库数量 "{qty_raw}" 不是有效整数')
+                continue
 
-        errors = merge_errors(raw_errors)
-        return Response({'imported': imported, 'errors': errors})
+            current = AssetStock.objects.filter(branch=branch, item=item).first()
+            current_qty = current.在库数量 if current else 0
+            delta = target_qty - current_qty
+            if delta != 0:
+                diffs.append({
+                    'row': i,
+                    'branch': branch,
+                    'branch_name': branch_name,
+                    'item': item,
+                    '资产编号': asset_code,
+                    '资产名称': item.asset_name,
+                    '现值': current_qty,
+                    '导入值': target_qty,
+                    '变动量': delta,
+                })
+        return diffs, errors
+
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
+    def import_excel(self, request):
+        """台账增量导入：默认返回差异预览；confirm=1 时逐差异生成调整单。"""
+        from core.upload_validation import validate_excel_upload, UploadValidationError
+
+        if not (request.user.can('adjust_ledger') or request.user.can('manage_assets')):
+            return Response(
+                {'detail': '台账导入需要台账调整或资产管理权限'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_excel_upload(file)
+        except UploadValidationError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            diffs, errors = self._parse_import_rows(file)
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if str(request.data.get('confirm')) in ('1', 'true', 'True'):
+            from .services import ledger
+            applied = 0
+            for d in diffs:
+                ledger.apply_adjustment(
+                    branch=d['branch'],
+                    item=d['item'],
+                    column=ledger.COLUMN_STOCK,
+                    delta=d['变动量'],
+                    reason=f'导入调整（在库 {d["现值"]} → {d["导入值"]}）',
+                    operator=request.user,
+                )
+                applied += 1
+            return Response({'applied': applied, 'errors': errors})
+
+        return Response({
+            'diffs': [
+                {
+                    '行号': d['row'],
+                    '分公司': d['branch_name'],
+                    '资产编号': d['资产编号'],
+                    '资产名称': d['资产名称'],
+                    '现值': d['现值'],
+                    '导入值': d['导入值'],
+                    '变动量': d['变动量'],
+                }
+                for d in diffs
+            ],
+            'errors': errors,
+        })
 
     @action(detail=False, methods=['get'], url_path='export')
     def export_excel(self, request):
-        """台账导出（列同页面表头 10 列，序号为行号）。"""
+        """台账导出（列同页面表头，序号为行号）。"""
         import openpyxl
         from django.http import HttpResponse
 
@@ -516,20 +376,27 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws = wb.active
         ws.title = '资产汇总'
 
-        headers = ['序号', '分公司', '资产编号', '资产类目', '物品分类', '资产名称', '数量', '规格', '警戒线', '是否充足']
+        headers = [
+            '序号', '分公司', '资产编号', '资产名称', '规格', '资产类目', '物品分类',
+            '管理方式', '在库数量', '在用数量', '回收库数量', '总量', '警戒线', '是否充足',
+        ]
         ws.append(headers)
 
         for idx, stock in enumerate(queryset, start=1):
             ws.append([
                 idx,
-                stock.分公司,
-                stock.资产编号,
-                stock.资产类目,
-                stock.物品分类,
-                stock.资产名称,
-                stock.数量,
-                stock.规格,
-                stock.警戒线 if stock.警戒线 is not None else '',
+                stock.branch.name,
+                stock.item.asset_code,
+                stock.item.asset_name,
+                stock.item.specification,
+                stock.item.asset_category,
+                stock.item.item_category,
+                stock.item.get_management_type_display(),
+                stock.在库数量,
+                stock.在用数量,
+                stock.回收库数量,
+                stock.总量,
+                stock.生效警戒线 if stock.生效警戒线 is not None else '',
                 '是' if stock.是否充足 else '否',
             ])
 
@@ -543,6 +410,65 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
         )
         response['Content-Disposition'] = 'attachment; filename="asset_summary.xlsx"'
         return response
+
+
+class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
+    """台账调整单：创建即生效（走 ledger service 唯一写入口），列表按范围可读。"""
+
+    queryset = LedgerAdjustment.objects.select_related('branch', 'item', '经办人').all()
+    serializer_class = LedgerAdjustmentSerializer
+    permission_classes = [IsAuthenticated, OperationPermission]
+    pagination_class = StandardPagination
+    scope_branch_field = 'branch'
+    required_operations = {
+        'create': 'adjust_ledger',
+    }
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return self.get_scoped_queryset(qs)
+
+    def create(self, request, *args, **kwargs):
+        from .services import ledger
+        from apps.categories.models import Category
+        from apps.organizations.models import Branch
+
+        branch_id = request.data.get('branch')
+        asset_code = (request.data.get('资产编号') or '').strip()
+        column = request.data.get('目标列')
+        reason = (request.data.get('事由') or '').strip()
+        try:
+            delta = int(request.data.get('变动量'))
+        except (ValueError, TypeError):
+            return Response({'detail': '变动量必须是整数'}, status=status.HTTP_400_BAD_REQUEST)
+
+        branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
+        if branch is None:
+            branch_name = (request.data.get('分公司') or '').strip()
+            branch = Branch.objects.filter(name=branch_name).first() if branch_name else None
+        if branch is None:
+            return Response({'detail': '分公司无效'}, status=status.HTTP_400_BAD_REQUEST)
+        item = Category.objects.filter(asset_code=asset_code).first() if asset_code else None
+        if item is None:
+            return Response(
+                {'detail': f'资产编号 {asset_code} 未在品目字典登记'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not reason:
+            return Response({'detail': '事由不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            adjustment = ledger.apply_adjustment(
+                branch=branch,
+                item=item,
+                column=column,
+                delta=delta,
+                reason=reason,
+                operator=request.user,
+            )
+        except ValidationError as e:
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(adjustment).data, status=status.HTTP_201_CREATED)
 
 
 class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):

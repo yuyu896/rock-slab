@@ -1,21 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import {
-  getAssetStocks, createAssetStock, updateAssetStock, deleteAssetStock,
-  importAssetStocks, exportAssetStocks,
-} from '@/api/assets'
+import { getAssetStocks, exportAssetStocks } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
 import type { AssetStock } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
-import SummaryEditDrawer from './SummaryEditDrawer.vue'
 import SummaryImportDialog from './SummaryImportDialog.vue'
-import SummaryFillDialog from './SummaryFillDialog.vue'
 
-const { canManageAssets } = usePermission()
+const { can } = usePermission()
+const canImport = can('adjust_ledger') || can('manage_assets')
 
 const filters = ref({
   branch: '',
@@ -53,9 +49,10 @@ async function fetchBranches() {
   try {
     const { data } = await getBranches()
     branchOptions.value = [
-      { value: '', label: '全部分公司' },
+      { value: '', label: '全部分司' },
       ...data.map((b: any) => ({ value: b.name, label: b.name })),
     ]
+    branchOptions.value[0] = { value: '', label: '全部分公司' }
   } catch (error) {
     console.error('Failed to fetch branches:', error)
   }
@@ -84,66 +81,8 @@ async function fetchCategories() {
   }
 }
 
-// ── 新增/编辑 ──
-const showEditDrawer = ref(false)
-const editingStock = ref<AssetStock | null>(null)
-
-function openCreate() {
-  editingStock.value = null
-  showEditDrawer.value = true
-}
-
-function openEdit(stock: AssetStock) {
-  editingStock.value = { ...stock }
-  showEditDrawer.value = true
-}
-
-async function handleEditSubmit(payload: Partial<AssetStock>, id?: string) {
-  try {
-    if (id) {
-      await updateAssetStock(id, payload)
-      ElMessage.success('台账已更新')
-    } else {
-      await createAssetStock(payload)
-      ElMessage.success('台账已新增')
-    }
-    showEditDrawer.value = false
-    editingStock.value = null
-    await fetchStocks()
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  }
-}
-
-// ── 删除 ──
-async function handleDelete(stock: AssetStock) {
-  try {
-    await ElMessageBox.confirm(
-      `确定删除「${stock.分公司} / ${stock.资产编号}」这条台账？`,
-      '删除确认',
-      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
-    )
-    await deleteAssetStock(stock.id)
-    ElMessage.success('删除成功')
-    await fetchStocks()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(handleApiError(error))
-    }
-  }
-}
-
-// ── 批量导入 ──
+// ── 批量导入（两段式增量：预览 → 确认生成调整单） ──
 const showImportModal = ref(false)
-
-// ── 填入 ──
-const showFillDialog = ref(false)
-const fillingStock = ref<AssetStock | null>(null)
-
-function openFill(stock: AssetStock) {
-  fillingStock.value = stock
-  showFillDialog.value = true
-}
 
 // ── 导出 ──
 async function handleExport() {
@@ -193,8 +132,8 @@ onMounted(() => {
   <div class="asset-summary-page page-fill">
     <div class="page-header">
       <div class="header-info">
-        <h1 class="page-title">资产汇总</h1>
-        <p class="page-desc">共{{ pagination.total }}条库存记录</p>
+        <h1 class="page-title">资产汇总台账</h1>
+        <p class="page-desc">库存唯一事实源（共{{ pagination.total }}行）——数量变动经流转单/调整单</p>
       </div>
       <div class="header-actions">
         <button class="btn-secondary" @click="handleExport">
@@ -205,20 +144,13 @@ onMounted(() => {
           </svg>
           导出
         </button>
-        <button v-if="canManageAssets" class="btn-secondary" @click="showImportModal = true">
+        <button v-if="canImport" class="btn-secondary" @click="showImportModal = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
-          批量导入
-        </button>
-        <button v-if="canManageAssets" class="btn-primary" @click="openCreate">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          新增
+          增量导入
         </button>
       </div>
     </div>
@@ -234,7 +166,7 @@ onMounted(() => {
           <input
             v-model="filters.keyword"
             type="text"
-            placeholder="搜索资产编号、资产名称、分公司、规格..."
+            placeholder="搜索资产编号、名称、规格、分公司..."
             class="filter-input"
             aria-label="搜索台账"
           />
@@ -253,7 +185,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 数据表格 -->
+    <!-- 数据表格（13 列，无行级写操作——铁律 2） -->
     <div class="table-container">
       <table class="data-table">
         <thead>
@@ -261,60 +193,42 @@ onMounted(() => {
             <th class="col-index">序号</th>
             <th>分公司</th>
             <th>资产编号</th>
-            <th>资产类目</th>
-            <th>物品分类</th>
             <th>资产名称</th>
-            <th>数量</th>
             <th>规格</th>
+            <th>资产类目</th>
+            <th>管理方式</th>
+            <th>在库</th>
+            <th>在用</th>
+            <th>回收库</th>
+            <th>总量</th>
             <th>警戒线</th>
             <th>是否充足</th>
-            <th class="col-actions">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && stocks.length === 0">
-            <td colspan="11" class="empty-cell">加载中...</td>
+            <td colspan="13" class="empty-cell">加载中...</td>
           </tr>
           <tr v-else-if="stocks.length === 0">
-            <td colspan="11" class="empty-cell">暂无数据</td>
+            <td colspan="13" class="empty-cell">暂无数据</td>
           </tr>
           <tr v-for="(stock, index) in stocks" :key="stock.id">
             <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
-            <td class="branch-name">{{ stock.分公司 }}</td>
+            <td class="branch-name">{{ stock.branchName }}</td>
             <td><span class="asset-code">{{ stock.资产编号 }}</span></td>
-            <td>{{ stock.资产类目 || '-' }}</td>
-            <td>{{ stock.物品分类 || '-' }}</td>
             <td class="asset-name">{{ stock.资产名称 || '-' }}</td>
-            <td class="col-qty">{{ stock.数量 }}</td>
             <td>{{ stock.规格 || '-' }}</td>
-            <td>{{ stock.警戒线 ?? '-' }}</td>
+            <td>{{ stock.资产类目 || '-' }}</td>
+            <td>{{ stock.管理方式 === 'instance' ? '实例管理' : '数量管理' }}</td>
+            <td class="col-qty">{{ stock.在库数量 }}</td>
+            <td class="col-qty">{{ stock.在用数量 }}</td>
+            <td class="col-qty">{{ stock.回收库数量 }}</td>
+            <td class="col-qty">{{ stock.总量 ?? (stock.在库数量 + stock.在用数量 + stock.回收库数量) }}</td>
+            <td>{{ stock.生效警戒线 ?? stock.警戒线 ?? '-' }}</td>
             <td>
               <span class="sufficient-badge" :class="stock.是否充足 ? 'ok' : 'low'">
                 {{ stock.是否充足 ? '是' : '否' }}
               </span>
-            </td>
-            <td class="col-actions">
-              <div class="action-buttons">
-                <button class="action-btn" title="填入资产明细/固定资产" @click="openFill(stock)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                </button>
-                <button v-if="canManageAssets" class="action-btn" title="编辑" @click="openEdit(stock)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </button>
-                <button v-if="canManageAssets" class="action-btn danger" title="删除" @click="handleDelete(stock)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
-                </button>
-              </div>
             </td>
           </tr>
         </tbody>
@@ -328,25 +242,10 @@ onMounted(() => {
       @change="handlePaginationChange"
     />
 
-    <SummaryEditDrawer
-      v-if="showEditDrawer"
-      :visible="showEditDrawer"
-      :stock="editingStock"
-      :branch-options="branchOptions"
-      @close="showEditDrawer = false"
-      @submit="handleEditSubmit"
-    />
-
     <SummaryImportDialog
       :visible="showImportModal"
       @close="showImportModal = false"
       @success="fetchStocks"
-    />
-
-    <SummaryFillDialog
-      :visible="showFillDialog"
-      :stock="fillingStock"
-      @close="showFillDialog = false"
     />
   </div>
 </template>
@@ -399,7 +298,7 @@ onMounted(() => {
   font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 
 .btn-secondary {
@@ -410,7 +309,6 @@ onMounted(() => {
 
 .btn-secondary:hover {
   border-color: var(--color-primary-300);
-  background: var(--color-bg-elevated);
 }
 
 .btn-primary {
@@ -429,12 +327,9 @@ onMounted(() => {
   height: 16px;
 }
 
+/* 筛选区 */
 .filter-section {
-  background: var(--color-bg-card);
-  border-radius: 12px;
-  padding: var(--space-4);
   margin-bottom: var(--space-4);
-  border: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
@@ -443,12 +338,9 @@ onMounted(() => {
   gap: var(--space-3);
 }
 
-.filter-item {
-  position: relative;
-}
-
 .filter-item.search {
   flex: 1;
+  position: relative;
 }
 
 .filter-icon {
@@ -456,8 +348,8 @@ onMounted(() => {
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   color: var(--color-text-tertiary);
 }
 
@@ -467,50 +359,36 @@ onMounted(() => {
   padding: 0 var(--space-4) 0 38px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: var(--color-bg-page);
+  background: var(--color-bg-card);
   font-size: var(--text-sm);
-  color: var(--color-text-primary);
-}
-
-.filter-input:focus {
-  outline: none;
-  border-color: var(--color-primary-400);
-  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .filter-select {
   height: 38px;
-  padding: 0 var(--space-4);
-  padding-right: var(--space-8);
+  padding: 0 var(--space-3);
+  min-width: 140px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: var(--color-bg-page);
+  background: var(--color-bg-card);
   font-size: var(--text-sm);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  min-width: 140px;
 }
 
 .filter-reset {
   height: 38px;
   padding: 0 var(--space-4);
-  background: transparent;
-  border: none;
-  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-card);
   font-size: var(--text-sm);
   cursor: pointer;
 }
 
-.filter-reset:hover {
-  color: var(--color-primary-500);
-}
-
+/* 表格 */
 .table-container {
   background: var(--color-bg-card);
   border-radius: 12px;
   border: 1px solid var(--color-border);
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: auto;
   flex: 1;
   min-height: 200px;
 }
@@ -524,11 +402,11 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--color-bg-elevated);
 }
 
 .data-table th {
-  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-elevated);
+  padding: var(--space-3) var(--space-3);
   text-align: left;
   font-size: var(--text-sm);
   font-weight: 500;
@@ -538,41 +416,30 @@ onMounted(() => {
 }
 
 .data-table td {
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-3);
   font-size: var(--text-sm);
   color: var(--color-text-primary);
   border-bottom: 1px solid var(--color-border-light);
-  vertical-align: middle;
-}
-
-.data-table tbody tr {
-  transition: background var(--transition-fast);
+  white-space: nowrap;
 }
 
 .data-table tbody tr:hover {
   background: var(--color-bg-elevated);
 }
 
-.empty-cell {
+.col-index {
+  width: 56px;
   text-align: center;
   color: var(--color-text-tertiary);
-  padding: var(--space-8) 0 !important;
-}
-
-.col-index {
-  width: 60px;
 }
 
 .col-qty {
-  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .branch-name {
-  font-weight: 500;
-}
-
-.asset-name {
-  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 .asset-code {
@@ -584,74 +451,39 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.asset-name {
+  font-weight: 500;
+}
+
 .sufficient-badge {
   display: inline-block;
   padding: 2px 10px;
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .sufficient-badge.ok {
-  background: var(--color-status-in-stock-bg);
-  color: var(--color-status-in-stock-text);
+  background: var(--color-primary-100);
+  color: var(--color-success);
 }
 
 .sufficient-badge.low {
-  background: var(--color-danger);
-  color: white;
-}
-
-.action-buttons {
-  display: flex;
-  gap: var(--space-1);
-}
-
-.action-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  padding: 4px;
-  border-radius: 6px;
-  transition: all var(--transition-fast);
-}
-
-.action-btn:hover {
-  color: var(--color-primary-500);
-  background: var(--color-primary-50);
-}
-
-.action-btn.danger:hover {
+  background: oklch(0.92 0.1 25);
   color: var(--color-danger);
-  background: var(--color-bg-elevated);
 }
 
-.action-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
-@media (max-width: 1200px) {
-  .data-table {
-    display: block;
-    overflow-x: auto;
-  }
+.empty-cell {
+  text-align: center;
+  padding: var(--space-8) 0;
+  color: var(--color-text-tertiary);
 }
 
 @media (max-width: 768px) {
   .page-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--space-4);
-  }
-
-  .filter-row {
-    flex-wrap: wrap;
-  }
-
-  .filter-item.search {
-    flex: 1 1 100%;
+    gap: var(--space-3);
   }
 }
 </style>

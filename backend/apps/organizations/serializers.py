@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.core.validators import RegexValidator
-from .models import Region, Branch, Team, Company, BRANCH_CODE_REGEX
+from .models import Region, Branch, Team, Company, BRANCH_CODE_REGEX, Department
 
 
 class RegionSerializer(serializers.ModelSerializer):
@@ -67,3 +67,24 @@ class CompanySerializer(serializers.ModelSerializer):
         model = Company
         fields = ['id', 'name', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
+
+
+class DepartmentSerializer(serializers.ModelSerializer):
+    """部门字典输出：分公司名联表。"""
+
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+
+    class Meta:
+        model = Department
+        fields = ['id', 'branch', 'branch_name', 'name', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate(self, attrs):
+        branch = attrs.get('branch') or (self.instance.branch if self.instance else None)
+        name = attrs.get('name') or (self.instance.name if self.instance else None)
+        qs = Department.objects.filter(branch=branch, name=name)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError({'name': [f'{branch.name} 下已存在部门「{name}」']})
+        return attrs

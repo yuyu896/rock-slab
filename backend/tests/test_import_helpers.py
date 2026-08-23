@@ -124,59 +124,15 @@ class TestMergeErrors:
 
 @pytest.mark.django_db
 class TestAssetImportFriendlyErrors:
-    def test_duplicate_asset_code_friendly(self, authenticated_client):
-        from apps.assets.models import Asset
-        from apps.organizations.models import Region, Team, Branch
-        region = Region.objects.create(name='测试区域', code='TEST', status='active')
-        team = Team.objects.create(name='测试行政组', region=region, status='active')
-        Branch.objects.create(name='测试', code='CS001', team=team)
-        Asset.objects.create(
-            序号=1, 分公司='测试', 分公司编号='CS001', 资产编号='DUP-001',
-            资产类目='固定', 物品分类='办公', 资产名称='已存在', 数量=1,
-            所属部门='部门', 规格='/',
+    """资产导入已下线（410）；友好错误逻辑保留给台账增量导入（见 test_asset_summary）。"""
+
+    def test_import_returns_410(self, authenticated_client):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        resp = authenticated_client.post(
+            '/api/assets/import',
+            {'file': SimpleUploadedFile('t.xlsx', b'x')},
+            format='multipart',
         )
-        resp = authenticated_client.post('/api/assets/import', {
-            'file': self._make_xlsx([
-                [1, '测试', 'DUP-001', 'CS001', '固定', '', '', '办公', '重复', '',
-                 46057, '否', 1, '/', 65, 65, 46057, '部门', '张三', '在库', 5, '否', ''],
-            ]),
-        }, format='multipart')
-        data = resp.data
-        assert data['imported'] == 0
-        assert any('已存在' in e for e in data['errors'])
+        assert resp.status_code == 410
 
-    def test_invalid_decimal_friendly(self, authenticated_client):
-        from apps.organizations.models import Region, Team, Branch
-        region = Region.objects.create(name='测试区域', code='TEST', status='active')
-        team = Team.objects.create(name='测试行政组', region=region, status='active')
-        Branch.objects.create(name='测试', code='CS001', team=team)
-        resp = authenticated_client.post('/api/assets/import', {
-            'file': self._make_xlsx([
-                [1, '测试', 'DEC-001', 'CS001', '固定', '', '', '办公', '测试', '',
-                 46057, '否', 1, '/', 'abc', 100, 46057, '部门', '张三', '在库', 5, '否', ''],
-            ]),
-        }, format='multipart')
-        data = resp.data
-        assert data['imported'] == 0
-        assert any('单价' in e and '不是有效数字' in e for e in data['errors'])
 
-    def _make_xlsx(self, rows):
-        """Create an in-memory xlsx file with given data rows."""
-        import openpyxl
-        import io
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append([
-            '序号', '分公司', '资产编号', '分公司编号', '资产类目',
-            '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
-            '入库日期', '是否租用', '数量', '规格', '单价',
-            '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
-            '警戒线', '是否充足', '备注',
-        ])
-        for row in rows:
-            ws.append(row)
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        buf.name = 'test.xlsx'
-        return buf

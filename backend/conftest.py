@@ -12,6 +12,35 @@ django.setup()
 
 User = get_user_model()
 
+# 测试中经流转五个 action 端点使用的资产编号——P1 起编号户籍在品目字典，统一预登记。
+# 未列入的编号（如校验类测试用的临时编号）仍会触发「未登记」拒绝。
+TEST_ITEM_CODES = [
+    'APR-001', 'APR-002', 'APR-003',
+    'AST-APPROVE-001', 'AST-TEST-001', 'AST-TEST-002', 'AST-SYNC-001',
+    'AUDIT-TEST-001', 'AUDIT-TEST-002',
+    'BF-C1', 'DRF-001', 'DRF-002',
+    'NOTIF-SCOPE-001', 'PUR-staff', 'PUR-sup',
+    'SCOPE-IN-001', 'SCOPE-OUT-001', 'X-001',
+] + [f'RC-{i}' for i in range(1, 9)] + [f'IM-{i}' for i in range(1, 7)] \
+  + ['TRF-001', 'REC-001', 'PUR-001', 'DUP-001', 'SPE-001', 'EDT-005'] \
+  + [f'SC-{i:03d}' for i in range(1, 7)] + [f'EDT-{i:03d}' for i in range(1, 5)]
+
+
+@pytest.fixture(autouse=True)
+def seed_test_dictionary(db):
+    """为全部测试预登记常见测试品目，避免每处测试手工建字典。"""
+    from apps.categories.models import Category
+    for code in TEST_ITEM_CODES:
+        Category.objects.get_or_create(
+            asset_code=code,
+            defaults={
+                'asset_category': '测试类目',
+                'item_category': '测试分类',
+                'asset_name': f'测试品目 {code}',
+                'unit': '个',
+            },
+        )
+
 
 # ---------------------------------------------------------------------------
 # API client helpers
@@ -116,12 +145,12 @@ def second_branch(db, second_team):
 #   - leader / staff  → 授权其 branch
 LEGACY_OPERATIONS = {
     'manager': [
-        'manage_users', 'manage_categories', 'manage_assets',
+        'manage_users', 'manage_dictionary', 'manage_assets',
         'approve_transfer', 'approve_inventory',
         'view_all_notifications', 'view_reports',
     ],
     'supervisor': [
-        'manage_users', 'manage_categories', 'manage_assets',
+        'manage_users', 'manage_dictionary', 'manage_assets',
         'approve_transfer', 'approve_inventory',
     ],
 }

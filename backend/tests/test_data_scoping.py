@@ -149,31 +149,42 @@ class TestInventoryScoping:
 
 @pytest.mark.django_db
 class TestReportScoping:
-    def test_overview_scoped_by_region(self, supervisor_user, make_asset, make_asset_b):
-        make_asset(数量=3)
-        make_asset_b(数量=5)
+    """P1 台账口径的报表范围（与 test_reports.TestReportDataScoping 互补）。"""
+
+    def _seed(self, branch, code, qty):
+        from apps.categories.models import Category
+        from apps.assets.services import ledger
+        item, _ = Category.objects.get_or_create(
+            asset_code=code,
+            defaults={'asset_category': 't', 'item_category': 't', 'asset_name': code, 'unit': '个'},
+        )
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, qty, '造数')
+
+    def test_overview_scoped_by_region(self, supervisor_user, branch, second_branch):
+        self._seed(branch, 'SC-REP-001', 3)
+        self._seed(second_branch, 'SC-REP-002', 5)
         client = _client_for(supervisor_user)
         resp = client.get('/api/reports/overview/')
         assert resp.status_code == 200
-        assert resp.data['totalAssets'] == 1
+        assert resp.data['totalAssets'] == 3
 
-    def test_overview_scoped_by_branch(self, staff_user, make_asset, make_asset_b):
-        make_asset()
-        make_asset_b()
+    def test_overview_scoped_by_branch(self, staff_user, branch, second_branch):
+        self._seed(branch, 'SC-REP-003', 3)
+        self._seed(second_branch, 'SC-REP-004', 5)
         client = _client_for(staff_user)
         resp = client.get('/api/reports/overview/')
         assert resp.status_code == 200
-        assert resp.data['totalAssets'] == 1
+        assert resp.data['totalAssets'] == 3
 
-    def test_by_branch_scoped(self, supervisor_user, make_asset, make_asset_b):
-        make_asset()
-        make_asset_b()
+    def test_by_branch_scoped(self, supervisor_user, branch, second_branch):
+        self._seed(branch, 'SC-REP-005', 2)
+        self._seed(second_branch, 'SC-REP-006', 7)
         client = _client_for(supervisor_user)
         resp = client.get('/api/reports/by-branch/')
         assert resp.status_code == 200
         branch_names = [item['name'] for item in resp.data]
-        assert '测试分公司' in branch_names
-        assert '第二分公司' not in branch_names
+        assert branch.name in branch_names
+        assert second_branch.name not in branch_names
 
 
 # ---------------------------------------------------------------------------

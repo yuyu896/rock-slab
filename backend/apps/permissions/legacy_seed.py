@@ -11,7 +11,7 @@ logger = logging.getLogger('permissions_migration')
 # 旧 supervisor（level<=3）隐含的操作
 SUPERVISOR_OPERATIONS = [
     'manage_users',
-    'manage_categories',
+    'manage_dictionary',
     'manage_assets',
     'approve_transfer',
     'approve_inventory',

@@ -22,28 +22,16 @@ export function getAssetStocks(params?: PaginationParams & {
   return request.get<PaginatedResponse<AssetStock>>('/api/assets/summary', { params })
 }
 
-export function createAssetStock(data: Partial<AssetStock>) {
-  return request.post<AssetStock>('/api/assets/summary', data)
-}
-
-export function updateAssetStock(id: string, data: Partial<AssetStock>) {
-  return request.patch<AssetStock>(`/api/assets/summary/${id}`, data)
-}
-
-export function deleteAssetStock(id: string) {
-  return request.delete(`/api/assets/summary/${id}`)
-}
-
-/** 批量删除台账行 */
-export function batchDeleteAssetStocks(ids: string[]) {
-  return request.post<{ deleted: number }>('/api/assets/summary/batch-delete', { ids })
-}
-
-/** Excel 批量导入台账 */
-export function importAssetStocks(file: File) {
+/** 台账增量导入（P1）：默认差异预览；confirm=true 逐差异生成调整单 */
+export function importAssetStocks(file: File, confirm = false) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<{ imported: number; errors: string[] }>('/api/assets/summary/import', formData, {
+  if (confirm) formData.append('confirm', '1')
+  return request.post<{
+    diffs?: import('@/types').LedgerImportDiff[]
+    applied?: number
+    errors: string[]
+  }>('/api/assets/summary/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }

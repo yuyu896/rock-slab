@@ -41,6 +41,13 @@ docker compose run --rm backend python manage.py migrate --noinput
 echo "[5/9] 校验种子授权结果..."
 docker compose run --rm backend python manage.py check_seed_grants
 
+# 5.5 台账对账（铁律 2 机器执法：台账 == 单据流水；非零退出中止部署）
+echo "[5.5/9] 台账对账检查..."
+if ! docker compose run --rm backend python manage.py check_ledger_consistency; then
+  echo "❌ 台账对账发现差异，部署中止（详见上方差异清单）"
+  exit 1
+fi
+
 # 6. Collect static files
 echo "[6/9] 收集静态文件..."
 docker compose run --rm backend python manage.py collectstatic --noinput

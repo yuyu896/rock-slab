@@ -23,6 +23,7 @@ urlpatterns = [
     path('api/regions/', include('apps.organizations.urls_regions')),
     path('api/branches/', include('apps.organizations.urls_branches')),
     path('api/teams/', include('apps.organizations.urls_teams')),
+    path('api/departments/', include('apps.organizations.urls_departments')),
     path('api/company/', include('apps.organizations.urls_company')),
     path('api/categories/', include('apps.categories.urls')),
     path('api/assets/', include('apps.assets.urls')),

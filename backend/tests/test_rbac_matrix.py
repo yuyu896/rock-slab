@@ -109,6 +109,8 @@ class TestUserManagementRBAC:
 
 @pytest.mark.django_db
 class TestAssetRBAC:
+    """Asset 冻结只读（P1）：所有角色写接口一律 405，读取按范围。"""
+
     def test_list_assets_all_roles(
         self, admin_user, manager_user, supervisor_user,
         leader_user, staff_user, make_asset,
@@ -122,53 +124,27 @@ class TestAssetRBAC:
             resp = client.get('/api/assets/')
             assert resp.status_code == 200, f'{_name} should list assets'
 
-    def test_create_asset_staff_forbidden(self, staff_user):
-        # Asset create min_role='staff', so staff has permission but data is incomplete → 400
-        client = _client_for(staff_user)
-        resp = client.post('/api/assets/', {'资产名称': '测试', '资产编号': 'X-001'})
-        assert resp.status_code == 400
+    def test_create_returns_405_for_all_roles(self, staff_user, leader_user, supervisor_user):
+        for user in (staff_user, leader_user, supervisor_user):
+            client = _client_for(user)
+            resp = client.post('/api/assets/', {'资产名称': '测试', '资产编号': 'X-001'})
+            assert resp.status_code == 405, f'{user.role} create should be frozen'
 
-    def test_create_asset_leader_allowed(self, leader_user, branch, category):
-        # Asset create min_role='staff', so leader can create (with valid data)
-        # 资产编号需先在资产分类登记（AssetSerializer.validate），复用 category 已登记的编号
-        client = _client_for(leader_user)
-        resp = client.post('/api/assets/', {
-            '序号': 99, '分公司': branch.name, '分公司编号': branch.code,
-            '资产编号': category.asset_code, '资产类目': '固定', '物品分类': '办公',
-            '资产名称': '测试', '数量': 1,
-        })
-        assert resp.status_code == 201
-
-    def test_update_asset_supervisor_allowed(self, supervisor_user, make_asset):
+    def test_update_returns_405(self, supervisor_user, make_asset):
         asset = make_asset()
         client = _client_for(supervisor_user)
-        resp = client.patch(f'/api/assets/{asset.id}', {'资产名称': '已修改'})
-        assert resp.status_code == 200
+        resp = client.patch(f'/api/assets/{asset.id}', {'资产名称': '改'})
+        assert resp.status_code == 405
 
-    def test_update_asset_staff_forbidden(self, staff_user, make_asset):
+    def test_delete_returns_405(self, supervisor_user, staff_user, make_asset):
         asset = make_asset()
-        client = _client_for(staff_user)
-        resp = client.patch(f'/api/assets/{asset.id}', {'资产名称': '尝试'})
-        assert resp.status_code == 403
-
-    def test_delete_asset_supervisor_allowed(self, supervisor_user, make_asset):
-        asset = make_asset()
-        client = _client_for(supervisor_user)
-        resp = client.delete(f'/api/assets/{asset.id}')
-        assert resp.status_code == 204
-
-    def test_delete_asset_staff_forbidden(self, staff_user, make_asset):
-        asset = make_asset()
-        client = _client_for(staff_user)
-        resp = client.delete(f'/api/assets/{asset.id}')
-        assert resp.status_code == 403
+        for user in (supervisor_user, staff_user):
+            client = _client_for(user)
+            resp = client.delete(f'/api/assets/{asset.id}')
+            assert resp.status_code == 405
 
 
-# ---------------------------------------------------------------------------
-# Transfer / approval — staff can create, supervisor+ can approve
-# ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
 class TestTransferRBAC:
     def test_purchase_staff_allowed(self, staff_user, branch):
         client = _client_for(staff_user)

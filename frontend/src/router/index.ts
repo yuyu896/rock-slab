@@ -16,6 +16,7 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: '工作台' } },
       { path: 'categories', component: () => import('@/views/Category.vue'), meta: { title: '资产类目' } },
+      { path: 'departments', component: () => import('@/views/DepartmentManage.vue'), meta: { title: '部门字典' } },
       { path: 'categories/create', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '新增分类' } },
       { path: 'categories/:id/edit', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '编辑分类' } },
       { path: 'assets/summary', component: () => import('@/views/assets/AssetSummary.vue'), meta: { title: '资产汇总' } },

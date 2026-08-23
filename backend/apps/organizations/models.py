@@ -111,3 +111,29 @@ class Company(UUIDModel, TimestampedModel):
     def get_singleton(cls):
         obj = cls.objects.first()
         return obj if obj else cls.objects.create(name='启航集团')
+
+
+class Department(UUIDModel, TimestampedModel):
+    """部门字典 —— 归属标签（分公司 × 部门名），不是组织树节点。
+
+    不参与组织树层级与数据范围推导；用于资产/单据表单的部门下拉归一（P1 允许
+    字典外自由输入，P2 随领用单绑部门 FK 化时收紧）。
+    """
+
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE,
+        related_name='departments', verbose_name='所属分公司',
+    )
+    name = models.CharField('部门名称', max_length=100)
+
+    class Meta:
+        db_table = 'organizations_department'
+        ordering = ['branch__name', 'name']
+        verbose_name = '部门'
+        verbose_name_plural = '部门字典'
+        constraints = [
+            models.UniqueConstraint(fields=['branch', 'name'], name='uniq_department_branch_name'),
+        ]
+
+    def __str__(self):
+        return f'{self.branch.name}·{self.name}'

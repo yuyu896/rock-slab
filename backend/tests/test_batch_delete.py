@@ -14,47 +14,17 @@ def _make_asset(branch, code, name='测试资产'):
 
 @pytest.mark.django_db
 class TestAssetBatchDelete:
-    def test_admin_batch_delete(self, admin_user, branch):
-        from apps.assets.models import Asset
-        a1 = _make_asset(branch, 'BD-A01')
-        a2 = _make_asset(branch, 'BD-A02')
-        a3 = _make_asset(branch, 'BD-A03')
+    """P1 冻结：资产批量删除 405（固定资产批量删除不受影响）。"""
+
+    def test_batch_delete_returns_405(self, admin_user, make_asset):
+        from conftest import _client_for
+        asset = make_asset()
         client = _client_for(admin_user)
-        resp = client.post('/api/assets/batch-delete',
-                           {'ids': [str(a1.id), str(a2.id)]}, format='json')
-        assert resp.status_code == 200
-        assert resp.data['deleted'] == 2
-        assert not Asset.objects.filter(id__in=[a1.id, a2.id]).exists()
-        assert Asset.objects.filter(id=a3.id).exists()
-
-    def test_staff_forbidden(self, staff_user, branch):
-        from apps.assets.models import Asset
-        a1 = _make_asset(branch, 'BD-S01')
-        client = _client_for(staff_user)
-        resp = client.post('/api/assets/batch-delete', {'ids': [str(a1.id)]}, format='json')
-        assert resp.status_code == 403
-        assert Asset.objects.filter(id=a1.id).exists()  # 未被删除
-
-    def test_empty_ids_bad_request(self, admin_user):
-        client = _client_for(admin_user)
-        resp = client.post('/api/assets/batch-delete', {'ids': []}, format='json')
-        assert resp.status_code == 400
-
-    def test_respects_data_scope(self, supervisor_user, branch, second_branch):
-        # supervisor 范围为 region（含 branch，不含 second_branch）
-        from apps.assets.models import Asset
-        in_scope = _make_asset(branch, 'BD-SC-IN')
-        out_of_scope = _make_asset(second_branch, 'BD-SC-OUT')
-        client = _client_for(supervisor_user)
-        resp = client.post('/api/assets/batch-delete',
-                           {'ids': [str(in_scope.id), str(out_of_scope.id)]}, format='json')
-        assert resp.status_code == 200
-        assert resp.data['deleted'] == 1  # 仅范围内的被删
-        assert not Asset.objects.filter(id=in_scope.id).exists()
-        assert Asset.objects.filter(id=out_of_scope.id).exists()
+        resp = client.post('/api/assets/batch-delete', {'ids': [str(asset.id)]}, format='json')
+        assert resp.status_code == 405
 
 
-@pytest.mark.django_db
+
 class TestFixedAssetBatchDelete:
     def test_admin_batch_delete(self, admin_user, branch):
         from apps.assets.models import FixedAsset

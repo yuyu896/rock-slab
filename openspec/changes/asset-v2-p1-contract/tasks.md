@@ -1,47 +1,47 @@
 ## 1. 品目字典（Category 升级）
 
-- [ ] 1.1 Category 模型加字段：管理方式(quantity|instance,默认quantity)、规格(可空)、图片、是否租用(默认否)、默认供应商；迁移
-- [ ] 1.2 下线 4 个反范式计数字段（asset_count/in_stock_count/asset_total_quantity/in_stock_quantity）与 categories/signals.py 计数信号；迁移；清理引用处
-- [ ] 1.3 字典 serializer/view 适配新字段（lookup 端点带出管理方式/规格/默认供应商）；删除保护（被台账/单据引用时 PROTECT 报错提示）
-- [ ] 1.4 字典管理接口权限挂 `manage_dictionary` 操作码；单据创建时编号在字典存在性校验 + 相近编号提示（difflib）
-- [ ] 1.5 前端字典管理页：新字段列（管理方式/规格/租用/默认供应商）+ 分编号判定测试三问提示文案
-- [ ] 1.6 后端测试：品目字段契约、唯一约束、删除保护、未登记编号拒绝（对应 item-dictionary spec 场景）
+- [x] 1.1 Category 模型加字段：管理方式(quantity|instance,默认quantity)、规格(可空)、图片、是否租用(默认否)、默认供应商；迁移
+- [x] 1.2 下线 4 个反范式计数字段（asset_count/in_stock_count/asset_total_quantity/in_stock_quantity）与 categories/signals.py 计数信号；迁移；清理引用处
+- [x] 1.3 字典 serializer/view 适配新字段（lookup 端点带出管理方式/规格/默认供应商）；删除保护（被台账/单据引用时 PROTECT 报错提示）
+- [x] 1.4 字典管理接口权限挂 `manage_dictionary` 操作码；单据创建时编号在字典存在性校验 + 相近编号提示（difflib）
+- [x] 1.5 前端字典管理页：新字段列（管理方式/规格/租用/默认供应商）+ 分编号判定测试三问提示文案
+- [x] 1.6 后端测试：品目字段契约、唯一约束、删除保护、未登记编号拒绝（对应 item-dictionary spec 场景）
 
 ## 2. 台账结构重构（AssetStock）
 
-- [ ] 2.1 AssetStock 重构：branch FK + item FK(→Category, PROTECT)、唯一约束(branch,item)、在库/在用/回收库三存储列、行级警戒线；删冗余文本列；结构迁移（数据迁移另见第 8 组）
-- [ ] 2.2 serializer 联字典输出（编号/名称/规格/类目/物品分类/管理方式）+ 总量计算输出 + 充足判定（行级警戒线空则取字典默认，口径=在库）
-- [ ] 2.3 台账列表接口筛选适配（分公司/类目/物品分类/关键词搜编号名称规格），数据隔离语义回归验证
-- [ ] 2.4 台账直接新增/编辑/删除/批量删除接口下线（405），模板下载与导出保留
-- [ ] 2.5 后端测试：行粒度唯一、四列语义、充足判定两口径、写接口 405（对应 ledger-single-source 与 asset-summary MODIFIED 场景）
+- [x] 2.1 AssetStock 重构：branch FK + item FK(→Category, PROTECT)、唯一约束(branch,item)、在库/在用/回收库三存储列、行级警戒线；删冗余文本列；结构迁移（数据迁移另见第 8 组）
+- [x] 2.2 serializer 联字典输出（编号/名称/规格/类目/物品分类/管理方式）+ 总量计算输出 + 充足判定（行级警戒线空则取字典默认，口径=在库）
+- [x] 2.3 台账列表接口筛选适配（分公司/类目/物品分类/关键词搜编号名称规格），数据隔离语义回归验证
+- [x] 2.4 台账直接新增/编辑/删除/批量删除接口下线（405），模板下载与导出保留
+- [x] 2.5 后端测试：行粒度唯一、四列语义、充足判定两口径、写接口 405（对应 ledger-single-source 与 asset-summary MODIFIED 场景）
 
 ## 3. 唯一写入口（ledger service）与调整单
 
-- [ ] 3.1 新建 assets/services/ledger.py：apply_document（按单据类型分发矩阵）、apply_adjustment、get_or_create_row（select_for_update 行锁 + 充足性校验 + 派生列维护），全部事务化
-- [ ] 3.2 LedgerAdjustment 模型（branch/item/目标列/变动量/事由/经办人/is_initial）；创建即生效、权限 `adjust_ledger`、负数拒绝；serializer/view/URL
-- [ ] 3.3 后端测试：service 矩阵各路径、行锁并发（两单竞争不超卖）、调整单权限与负数拒绝（对应 document-ledger-sync spec 场景）
+- [x] 3.1 新建 assets/services/ledger.py：apply_document（按单据类型分发矩阵）、apply_adjustment、get_or_create_row（select_for_update 行锁 + 充足性校验 + 派生列维护），全部事务化
+- [x] 3.2 LedgerAdjustment 模型（branch/item/目标列/变动量/事由/经办人/is_initial）；创建即生效、权限 `adjust_ledger`、负数拒绝；serializer/view/URL
+- [x] 3.3 后端测试：service 矩阵各路径、行锁并发（两单竞争不超卖）、调整单权限与负数拒绝（对应 document-ledger-sync spec 场景）
 
 ## 4. 五单对称联动（transfers 改造）
 
-- [ ] 4.1 Transfer 模型加字段：回收去向(recycle_bin|dispose,默认recycle_bin)、处置方式(出售/报废/捐赠)、处置金额；迁移
-- [ ] 4.2 五个 @action 与 approve 改造：删除 _sync_asset/_apply_warehouse_stock/_sync_assign/_sync_return/_sync_transfer 对 Asset 的全部写入；改调 ledger service（采购建行/领用校验充足/归还/调拨双边/回收二去向）
-- [ ] 4.3 单据创建校验：领用/归还/调拨/回收必填字典内资产编号；分公司维度显式解析，移除字符串模糊匹配三级 fallback
-- [ ] 4.4 流转批量导入适配：assign 模板补资产编号列；校验前置（编号在字典、分公司合法）
-- [ ] 4.5 后端测试：五单矩阵端到端（审批→台账各列变动）、在库不足拒绝、immediate 回收二去向、批量导入（对应 document-ledger-sync 场景；更新 test_transfers/test_recovery_stock_link 中"非回收不写台账"的旧断言为对称联动断言）
+- [x] 4.1 Transfer 模型加字段：回收去向(recycle_bin|dispose,默认recycle_bin)、处置方式(出售/报废/捐赠)、处置金额；迁移
+- [x] 4.2 五个 @action 与 approve 改造：删除 _sync_asset/_apply_warehouse_stock/_sync_assign/_sync_return/_sync_transfer 对 Asset 的全部写入；改调 ledger service（采购建行/领用校验充足/归还/调拨双边/回收二去向）
+- [x] 4.3 单据创建校验：领用/归还/调拨/回收必填字典内资产编号；分公司维度显式解析，移除字符串模糊匹配三级 fallback
+- [x] 4.4 流转批量导入适配：assign 模板补资产编号列；校验前置（编号在字典、分公司合法）
+- [x] 4.5 后端测试：五单矩阵端到端（审批→台账各列变动）、在库不足拒绝、immediate 回收二去向、批量导入（对应 document-ledger-sync 场景；更新 test_transfers/test_recovery_stock_link 中"非回收不写台账"的旧断言为对称联动断言）
 
 ## 5. Asset 冻结与下游切换
 
-- [ ] 5.1 Asset ViewSet 写方法下线（405）、导入 action 下线（410 提示走台账导入）；GET/导出保留
-- [ ] 5.2 盘点：移除 _adjust_inventory 对 Asset 数量的写操作，审核仅记录差异（含提示文案"P1 记录模式，修数走调整单"）；InventoryItem FK 与清单生成暂不动
-- [ ] 5.3 报表切台账：overview/by_branch/by_status/by_category 改从 AssetStock 聚合（状态维度=三列），购入金额从采购单聚合；口径注释
-- [ ] 5.4 后端测试：Asset 写接口 405/410、领用审批后 Asset 零变化、盘点审核不改数量、报表随台账联动（对应 asset-freeze-readonly 场景）
+- [x] 5.1 Asset ViewSet 写方法下线（405）、导入 action 下线（410 提示走台账导入）；GET/导出保留
+- [x] 5.2 盘点：移除 _adjust_inventory 对 Asset 数量的写操作，审核仅记录差异（含提示文案"P1 记录模式，修数走调整单"）；InventoryItem FK 与清单生成暂不动
+- [x] 5.3 报表切台账：overview/by_branch/by_status/by_category 改从 AssetStock 聚合（状态维度=三列），购入金额从采购单聚合；口径注释
+- [x] 5.4 后端测试：Asset 写接口 405/410、领用审批后 Asset 零变化、盘点审核不改数量、报表随台账联动（对应 asset-freeze-readonly 场景）
 - [ ] 5.5 前端资产列表页只读化：移除新建/编辑/删除/批量删除/导入入口，页头加"历史视图（P2 退役）"标识
 
 ## 6. 台账导入改增量
 
-- [ ] 6.1 后端：import_excel 重写为两段式——预览（比对现值出差异清单）+ 确认（每差异生成调整单，事由=导入调整）；模板改 分公司/资产编号/在库数量；未登记编号整行拒绝带相近提示
+- [x] 6.1 后端：import_excel 重写为两段式——预览（比对现值出差异清单）+ 确认（每差异生成调整单，事由=导入调整）；模板改 分公司/资产编号/在库数量；未登记编号整行拒绝带相近提示
 - [ ] 6.2 前端 SummaryImportDialog 改差异预览确认流；下线 SummaryFillDialog（从台账填入资产明细/固定资产）
-- [ ] 6.3 后端测试：差异生成调整单、现值一致无差异跳过、未登记编号拒绝（对应 asset-summary MODIFIED 导入场景）
+- [x] 6.3 后端测试：差异生成调整单、现值一致无差异跳过、未登记编号拒绝（对应 asset-summary MODIFIED 导入场景）
 
 ## 7. 部门字典
 

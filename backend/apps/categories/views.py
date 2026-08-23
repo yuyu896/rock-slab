@@ -1,3 +1,4 @@
+import difflib
 import io
 from django.db import IntegrityError
 from django.http import HttpResponse
@@ -13,24 +14,30 @@ from .serializers import CategorySerializer
 from .filters import CategoryFilterSet
 
 
+def suggest_similar_codes(code, limit=3):
+    """按编号在字典中找相近编号，供「未登记编号」错误提示。"""
+    codes = list(Category.objects.values_list('asset_code', flat=True))
+    return difflib.get_close_matches(code, codes, n=limit, cutoff=0.5)
+
+
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     filterset_class = CategoryFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    # 创建/更新/删除/导入需 manage_categories；读取无声明即放行
+    # 创建/更新/删除/导入需 manage_dictionary（品目字典）；读取无声明即放行
     required_operations = {
-        'create': 'manage_categories',
-        'update': 'manage_categories',
-        'partial_update': 'manage_categories',
-        'destroy': 'manage_categories',
-        'import_excel': 'manage_categories',
+        'create': 'manage_dictionary',
+        'update': 'manage_dictionary',
+        'partial_update': 'manage_dictionary',
+        'destroy': 'manage_dictionary',
+        'import_excel': 'manage_dictionary',
     }
 
     @action(detail=False, methods=['get'], url_path='lookup')
     def lookup(self, request):
-        """按资产编号精确查询单条分类，供新增表单失焦反查名称/类目/分类。"""
+        """按资产编号精确查询单条品目，供表单失焦反查名称/类目/管理方式等。"""
         code = (request.query_params.get('asset_code') or '').strip()
         if not code:
             return Response(
@@ -39,17 +46,44 @@ class CategoryViewSet(viewsets.ModelViewSet):
             )
         category = Category.objects.filter(asset_code=code).first()
         if category is None:
-            return Response(
-                {'detail': '该资产编号未在资产分类登记'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            similar = suggest_similar_codes(code)
+            detail = '该资产编号未在品目字典登记'
+            if similar:
+                detail += f'，是否想找：{"、".join(similar)}'
+            return Response({'detail': detail}, status=status.HTTP_404_NOT_FOUND)
         return Response({
             '资产名称': category.asset_name,
             '资产类目': category.asset_category,
             '物品分类': category.item_category,
+            '规格': category.specification,
+            '管理方式': category.management_type,
+            '是否租用': category.is_rental,
+            '默认供应商': category.default_supplier,
             '计量单位': category.unit,
             '警戒线': category.warning_line,
         })
+
+    def destroy(self, request, *args, **kwargs):
+        """删除保护：被台账/资产/固定资产/流转单引用的品目禁止删除。"""
+        instance = self.get_object()
+        from apps.assets.models import Asset, AssetStock, FixedAsset
+        from apps.transfers.models import Transfer
+
+        references = []
+        if AssetStock.objects.filter(item=instance).exists():
+            references.append('台账')
+        if Asset.objects.filter(资产编号=instance.asset_code).exists():
+            references.append('资产明细')
+        if FixedAsset.objects.filter(资产编号=instance.asset_code).exists():
+            references.append('固定资产')
+        if Transfer.objects.filter(资产编号=instance.asset_code).exists():
+            references.append('流转单')
+        if references:
+            return Response(
+                {'detail': f'该品目已被{"、".join(references)}引用，不能删除'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
         """创建分类，处理重复编号错误"""
@@ -91,10 +125,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
         ws = wb.active
         ws.title = '分类数据'
 
-        headers = ['资产类目', '物品分类', '资产名称', '资产编号', '计量单位', '资产数量', '在库数量', '警戒线', '备注']
+        headers = ['资产类目', '物品分类', '资产名称', '资产编号', '规格', '管理方式', '是否租用', '默认供应商', '计量单位', '警戒线', '备注']
         ws.append(headers)
 
-        column_widths = [15, 15, 20, 15, 12, 10, 10, 10, 25]
+        column_widths = [15, 15, 20, 15, 15, 10, 10, 18, 12, 10, 25]
         for i, width in enumerate(column_widths, 1):
             ws.column_dimensions[chr(64 + i)].width = width
 
@@ -104,9 +138,11 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 obj.item_category,
                 obj.asset_name,
                 obj.asset_code,
+                obj.specification,
+                obj.get_management_type_display(),
+                '是' if obj.is_rental else '否',
+                obj.default_supplier,
                 obj.unit,
-                obj.asset_count,
-                obj.in_stock_count,
                 obj.warning_line or '',
                 obj.remarks or '',
             ])

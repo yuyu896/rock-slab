@@ -84,11 +84,10 @@ class TestWritePermissionBaseline:
         for action in ('import_excel', 'approve', 'warehouse'):
             assert action in required, f'transfers.{action} 必须在 required_operations 中声明'
 
-    def test_assets_edit_actions_declared(self):
+    def test_assets_write_endpoints_frozen(self):
+        """P1 起 Asset 写接口整体下线（405），无需再声明编辑操作码。"""
         from apps.assets.views import AssetViewSet
-        required = AssetViewSet.required_operations
-        for action in ('update', 'partial_update', 'destroy', 'import_excel', 'batch_delete'):
-            assert action in required, f'assets.{action} 必须在 required_operations 中声明'
+        assert not getattr(AssetViewSet, 'required_operations', None)
 
 
 @pytest.mark.django_db

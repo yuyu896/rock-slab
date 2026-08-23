@@ -7,6 +7,7 @@ import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
+import DepartmentSelect from '@/components/DepartmentSelect.vue'
 
 const router = useRouter()
 const creating = ref(false)
@@ -79,7 +80,7 @@ async function submit() {
       <div class="form-item"><label class="form-label">规格</label><input v-model="form.规格型号" type="text" class="form-input" placeholder="规格型号" /></div>
       <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.调拨数量" type="number" class="form-input" min="1" /></div>
       <div class="form-item"><label class="form-label">供应商</label><input v-model="form.供应商" type="text" class="form-input" placeholder="选填" /></div>
-      <div class="form-item"><label class="form-label">需求部门</label><input v-model="form.需求部门" type="text" class="form-input" placeholder="选填" /></div>
+      <div class="form-item"><label class="form-label">需求部门</label><DepartmentSelect v-model="form.需求部门" :branch-id="form.toBranch" placeholder="选填" /></div>
       <div class="form-item"><label class="form-label">采购经办人</label><input v-model="form.采购经办人" type="text" class="form-input" placeholder="选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>

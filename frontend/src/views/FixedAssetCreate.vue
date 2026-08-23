@@ -6,6 +6,7 @@ import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import TransferCreateLayout from './transfers/components/TransferCreateLayout.vue'
+import DepartmentSelect from '@/components/DepartmentSelect.vue'
 
 const router = useRouter()
 const creating = ref(false)
@@ -111,7 +112,7 @@ onMounted(() => {
       <div class="form-item"><label class="form-label">单价</label><input v-model.number="createForm.单价" type="number" class="form-input" min="0" step="0.01" /></div>
       <div class="form-item"><label class="form-label">购入金额</label><input v-model.number="createForm.购入金额" type="number" class="form-input" min="0" step="0.01" /></div>
       <div class="form-item"><label class="form-label">出库日期</label><input v-model="createForm.出库日期" type="date" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">所属部门</label><input v-model="createForm.所属部门" type="text" class="form-input" placeholder="选填" /></div>
+      <div class="form-item"><label class="form-label">所属部门</label><DepartmentSelect v-model="createForm.所属部门" :branch="createForm.分公司" placeholder="选填" /></div>
       <div class="form-item"><label class="form-label">使用人</label><input v-model="createForm.使用人" type="text" class="form-input" placeholder="选填" /></div>
       <div class="form-item">
         <label class="form-label">状态</label>

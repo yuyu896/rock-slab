@@ -124,3 +124,17 @@ cd /root/rock-slab/frontend && npm install && npm run build
 - [ ] 每月：`docker system prune` 清理无用镜像（注意别删在用的）
 - [ ] 管理员密码改为强密码（当前 123456）
 - [ ] 关注服务器安全组/防火墙，5432/6379/3306 等数据库端口不应对公网开放
+
+## 8. P1 台账契约上线步骤（资产模型 V2，一次性）
+
+存量迁移不可逆，顺序严格如下：
+
+1. **全量备份**：`docker exec root-db-1 pg_dump -U <user> <db> > backup_$(date +%F).sql`（备份文件留存）
+2. `bash deploy.sh`——结构迁移（字典字段/台账 V2/部门字典/Transfer 新字段）自动执行；deploy 内置对账检查在期初迁移前应零差异（空台账 + 空流水）
+3. `docker compose run --rm backend python manage.py preview_ledger_migration`——人工审清单：未登记编号（须补字典）、分桶统计、无分公司行、部门归一清单
+4. 补录品目字典 / 修正脏数据后重复预览，直至无阻断项
+5. `docker compose run --rm backend python manage.py migrate_initial_ledger --confirm-backup`——Asset 聚合分桶 → 期初调整单 → 台账入账 + 部门归一（命令自带迁移后对账）
+6. `docker compose run --rm backend python manage.py check_ledger_consistency`——最终确认零差异后放行
+7. 回滚预案：恢复第 1 步备份 + 回滚代码（数据迁移向前不可逆，无 down 迁移）
+
+日常：每次 deploy.sh 都会执行对账检查（台账 == 单据流水），非零退出中止部署。

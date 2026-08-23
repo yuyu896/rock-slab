@@ -76,6 +76,22 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if not data.get('创建人'):
             data['创建人'] = request.user.name or request.user.phone
 
+        # 编号户籍在品目字典：五类单据的资产编号必填且须为字典登记品目
+        asset_code = (data.get('资产编号') or '').strip()
+        if not asset_code:
+            return Response(
+                {'detail': '资产编号必填（须为品目字典登记品目）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from apps.categories.models import Category
+        from apps.categories.views import suggest_similar_codes
+        if not Category.objects.filter(asset_code=asset_code).exists():
+            similar = suggest_similar_codes(asset_code)
+            detail = f'资产编号 {asset_code} 未在品目字典登记，请先由管理员登记品目'
+            if similar:
+                detail += f'；是否想找：{"、".join(similar)}'
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+
         # 草稿：保存为「草稿」状态，不进入审批流
         if request.data.get('draft'):
             data['审批状态'] = '草稿'
@@ -89,12 +105,18 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             try:
                 from_branch = Branch.objects.get(name=data['调出分公司'])
             except Branch.DoesNotExist:
-                pass
+                return Response(
+                    {'detail': f'调出分公司「{data["调出分公司"]}」不存在'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         if not to_branch and data.get('调入分公司'):
             try:
                 to_branch = Branch.objects.get(name=data['调入分公司'])
             except Branch.DoesNotExist:
-                pass
+                return Response(
+                    {'detail': f'调入分公司「{data["调入分公司"]}」不存在'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         # 回填分公司名称：表单只传外键 id，名称字段可能为空；保证筛选/展示与导入来源一致
         if from_branch and not data.get('调出分公司'):
@@ -135,7 +157,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 **data,
             )
             if immediate_recovery:
-                self._apply_recovery_stock(transfer)
+                self._apply_ledger(transfer)
         return Response(
             TransferSerializer(transfer).data,
             status=status.HTTP_201_CREATED,
@@ -171,174 +193,19 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """资产回收"""
         return self._create_action(request, Transfer.ACTION_RECOVERY)
 
-    def _sync_asset(self, transfer):
-        """Sync Asset state after transfer approval (按分公司匹配资产)."""
-        from django.db import transaction as tx
-        from apps.assets.models import Asset
+    def _apply_ledger(self, transfer):
+        """台账联动（唯一写入口 services/ledger.py）+ 回收按内部编号删固定资产实例。
 
-        sync_map = {
-            Transfer.ACTION_ASSIGN: self._sync_assign,
-            Transfer.ACTION_RETURN: self._sync_return,
-            Transfer.ACTION_TRANSFER: self._sync_transfer,
-        }
-        handler = sync_map.get(transfer.action_type)
-        if not handler:
-            return
-
-        with tx.atomic():
-            # 优先按 branch FK 匹配调出分公司，回退按分公司名称匹配
-            from_branch = transfer.from_branch
-            from_company = transfer.调出分公司 or ''
-            asset = None
-            if from_branch:
-                asset = Asset.objects.select_for_update().filter(
-                    资产编号=transfer.资产编号, branch=from_branch
-                ).first()
-            if not asset and from_company:
-                asset = Asset.objects.select_for_update().filter(
-                    资产编号=transfer.资产编号, 分公司=from_company
-                ).first()
-            if not asset:
-                asset = Asset.objects.select_for_update().filter(
-                    资产编号=transfer.资产编号
-                ).first()
-            if asset:
-                handler(asset, transfer)
-
-    def _sync_assign(self, asset, transfer):
-        """领用出库：扣减库存数量，状态改使用中。"""
-        asset.数量 = max(0, (asset.数量 or 0) - transfer.调拨数量)
-        asset.当前状态 = '使用中'
-        asset.save(update_fields=['数量', '当前状态', 'updated_at'])
-
-    def _sync_return(self, asset, transfer):
-        """退回：恢复库存，状态改在库。"""
-        asset.数量 = (asset.数量 or 0) + transfer.调拨数量
-        asset.当前状态 = '在库'
-        asset.save(update_fields=['数量', '当前状态', 'updated_at'])
-
-    def _sync_transfer(self, asset, transfer):
-        """调拨：调出扣减、调入增加（存在则累加、不存在则新建）。"""
-        from django.db.models import F
-        from apps.assets.models import Asset
-        from datetime import date
-
-        qty = transfer.调拨数量 or 1
-
-        # 调出扣减
-        asset.数量 = max(0, (asset.数量 or 0) - qty)
-        asset.save(update_fields=['数量', 'updated_at'])
-
-        # 调入增加
-        if transfer.to_branch:
-            target_company = transfer.调入分公司 or ''
-            target_code = transfer.to_branch.code if transfer.to_branch else ''
-            existing = Asset.objects.filter(
-                资产编号=transfer.资产编号, branch=transfer.to_branch
-            ).first()
-            if existing:
-                existing.数量 = (existing.数量 or 0) + qty
-                existing.save(update_fields=['数量', 'updated_at'])
-            else:
-                max_seq = Asset.objects.order_by('-序号').values_list('序号', flat=True).first() or 0
-                Asset.objects.create(
-                    序号=max_seq + 1,
-                    分公司=target_company,
-                    分公司编号=target_code,
-                    branch=transfer.to_branch,
-                    资产编号=transfer.资产编号,
-                    资产名称=transfer.资产名称 or asset.资产名称,
-                    资产类目=asset.资产类目,
-                    物品分类=asset.物品分类,
-                    规格=transfer.规格型号 or asset.规格,
-                    数量=qty,
-                    当前状态='在库',
-                    入库日期=date.today(),
-                )
-
-    def _apply_recovery_stock(self, transfer):
-        """回收联动：扣台账库存 → 扣资产明细数量 → 删固定资产实例。须在事务内调用。
-
-        台账按「分公司+资产编号」匹配（优先 branch FK），下限 0、无匹配跳过；
-        明细优先「分公司+资产编号+所属部门=调出部门」精确匹配，回退首条，归零保留记录；
-        固定资产按单据携带的内部编号删除实例（不携带则不动）。
+        FixedAsset 物理删除为 P1 过渡现状（P2 实例层接入后改为状态退役，设计书 5.3）。
         """
-        from apps.assets.models import Asset, AssetStock, FixedAsset
+        from apps.assets.services import ledger
 
-        qty = transfer.调拨数量 or 1
-        from_branch = transfer.from_branch
-        from_company = transfer.调出分公司 or ''
-
-        stock = None
-        if from_branch:
-            stock = AssetStock.objects.select_for_update().filter(
-                资产编号=transfer.资产编号, branch=from_branch,
-            ).first()
-        if not stock and from_company:
-            stock = AssetStock.objects.select_for_update().filter(
-                资产编号=transfer.资产编号, 分公司=from_company,
-            ).first()
-        if stock:
-            stock.数量 = max(0, (stock.数量 or 0) - qty)
-            stock.save(update_fields=['数量', '是否充足', 'updated_at'])
-
-        detail = None
-        if from_company and transfer.调出部门:
-            detail = Asset.objects.select_for_update().filter(
-                资产编号=transfer.资产编号, 分公司=from_company, 所属部门=transfer.调出部门,
-            ).first()
-        if detail is None and from_branch:
-            detail = Asset.objects.select_for_update().filter(
-                资产编号=transfer.资产编号, branch=from_branch,
-            ).first()
-        if detail is None and from_company:
-            detail = Asset.objects.select_for_update().filter(
-                资产编号=transfer.资产编号, 分公司=from_company,
-            ).first()
-        if detail:
-            detail.数量 = max(0, (detail.数量 or 0) - qty)
-            detail.save(update_fields=['数量', 'updated_at'])
-
-        inner_code = (transfer.固定资产内部编号 or '').strip()
-        if inner_code:
-            FixedAsset.objects.filter(内部编号=inner_code).delete()
-
-    def _apply_warehouse_stock(self, transfer):
-        """采购入库：按调拨数量增加资产库存（存在则累加、不存在则创建）。须在事务内调用。"""
-        from django.db.models import F
-        from apps.assets.models import Asset
-        from datetime import date
-
-        # 入库分公司：优先调入（前端表单 toBranch），回退调出（导入/旧测试）
-        branch = transfer.to_branch or transfer.from_branch
-        branch_code = branch.code if branch else ''
-        company = transfer.调入分公司 or transfer.调出分公司 or ''
-
-        existing = Asset.objects.select_for_update().filter(资产编号=transfer.资产编号).first()
-        if existing:
-            Asset.objects.filter(pk=existing.pk).update(
-                数量=F('数量') + transfer.调拨数量,
-                当前状态='在库',
-            )
-        else:
-            max_seq = Asset.objects.order_by('-序号').values_list('序号', flat=True).first() or 0
-            Asset.objects.create(
-                序号=max_seq + 1,
-                分公司=company,
-                分公司编号=branch_code,
-                branch=branch,
-                资产编号=transfer.资产编号,
-                资产名称=transfer.资产名称,
-                规格=transfer.规格型号,
-                供应商=transfer.供应商 or '',
-                入库日期=date.today(),
-                数量=transfer.调拨数量,
-                单价=transfer.单价,
-                购入金额=transfer.总金额,
-                所属部门=transfer.需求部门 or '',
-                当前状态='在库',
-                备注=transfer.备注 or '',
-            )
+        ledger.apply_document(transfer)
+        if transfer.action_type == Transfer.ACTION_RECOVERY:
+            inner_code = (transfer.固定资产内部编号 or '').strip()
+            if inner_code:
+                from apps.assets.models import FixedAsset
+                FixedAsset.objects.filter(内部编号=inner_code).delete()
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='Transfer', description_template='审批流转单')
@@ -360,7 +227,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         reason = serializer.validated_data.get('reason', '')
 
         with transaction.atomic():
-            # 加锁重取，防止并发重复审批导致资产状态被多次同步
+            # 加锁重取，防止并发重复审批导致台账被多次联动
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
             if locked.审批状态 != '待审批':
                 return Response(
@@ -368,35 +235,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if approved:
-                if locked.action_type == Transfer.ACTION_PURCHASE:
-                    # 采购：审批通过即入库，联动增加资产库存
-                    self._apply_warehouse_stock(locked)
-                    locked.审批状态 = '已入库'
-                elif locked.action_type == Transfer.ACTION_ASSIGN:
-                    # 领用出库：校验库存是否足够（行锁，消除与 _sync_asset 的 TOCTOU）
-                    from apps.assets.models import Asset
-                    from_branch = locked.from_branch
-                    asset = (
-                        Asset.objects.select_for_update().filter(资产编号=locked.资产编号, branch=from_branch).first()
-                    ) if from_branch else (
-                        Asset.objects.select_for_update().filter(资产编号=locked.资产编号).first()
-                    )
-                    if not asset or (asset.数量 or 0) < (locked.调拨数量 or 1):
-                        locked.审批状态 = '待审批'
-                        return Response(
-                            {'detail': f'资产 {locked.资产编号} 库存不足（当前 {(asset.数量 or 0) if asset else 0}，需 {locked.调拨数量 or 1}），领用失败'},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    locked.审批状态 = '已通过'
-                    self._sync_asset(locked)
-                elif locked.action_type == Transfer.ACTION_RECOVERY:
-                    # 回收：审批通过即联动（扣台账/明细、删固定资产实例）
-                    locked.审批状态 = '已通过'
-                    self._apply_recovery_stock(locked)
-                else:
-                    # 退回/调拨等：直接同步
-                    locked.审批状态 = '已通过'
-                    self._sync_asset(locked)
+                # 五单对称联动：充足性校验与数量变动均在唯一写入口内完成，
+                # 不足时抛 ValidationError（LEDGER_INSUFFICIENT）→ 400 并整体回滚
+                locked.审批状态 = (
+                    '已入库' if locked.action_type == Transfer.ACTION_PURCHASE else '已通过'
+                )
+                self._apply_ledger(locked)
             else:
                 locked.审批状态 = '已驳回'
 
@@ -462,7 +306,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             'filename': 'purchase_template.xlsx',
         },
         'assign': {
-            'headers': ['分公司', '日期', '领用物品', '领用数量', '用途', '领用部门', '备注'],
+            'headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '用途', '领用部门', '备注'],
             'sheet': '领用出库',
             'filename': 'assign_template.xlsx',
         },
@@ -671,6 +515,27 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     errors.append(f'第 {i} 行: {_branch_err}')
                     continue
 
+                # 编号户籍校验：导入行必须携带字典内资产编号
+                if template_type == 'purchase':
+                    _code_idx = 2
+                elif template_type == 'assign':
+                    _code_idx = 2
+                elif template_type == 'recovery':
+                    _code_idx = 1
+                else:
+                    _code_idx = 5
+                _code = _cell(_code_idx)
+                from apps.categories.models import Category
+                from apps.categories.views import suggest_similar_codes
+                if not _code:
+                    errors.append(f'第 {i} 行: 资产编号为空')
+                    continue
+                if not Category.objects.filter(asset_code=_code).exists():
+                    _similar = suggest_similar_codes(_code)
+                    _hint = f'，是否想找：{"、".join(_similar)}' if _similar else ''
+                    errors.append(f'第 {i} 行: 资产编号 {_code} 未在品目字典登记{_hint}')
+                    continue
+
                 if template_type == 'purchase':
                     Transfer.objects.create(
                         调拨日期=_parse_date(row[0]),
@@ -695,11 +560,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         调拨日期=_parse_date(row[1]),
                         action_type=Transfer.ACTION_ASSIGN,
                         调出分公司=str(row[0] or ''),
-                        资产名称=str(row[2] or ''),
-                        调拨数量=int(row[3]) if row[3] else 1,
-                        用途=str(row[4] or ''),
-                        调出部门=str(row[5] or ''),
-                        备注=str(row[6] or ''),
+                        资产编号=str(row[2] or ''),
+                        资产名称=str(row[3] or ''),
+                        调拨数量=int(row[4]) if row[4] else 1,
+                        用途=str(row[5] or ''),
+                        调出部门=str(row[6] or ''),
+                        备注=str(row[7] or ''),
                         审批状态='待审批',
                         创建人=creator,
                     )

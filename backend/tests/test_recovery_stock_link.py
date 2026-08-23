@@ -1,237 +1,223 @@
-"""
-Tests for recovery → asset summary ledger linkage:
-approve-time sync, immediate (row-level) recovery, and non-recovery isolation.
+"""回收单台账联动契约：去向二选一（入回收库 / 直接处置）+ immediate 即时生效。
+
+对应 document-ledger-sync 能力的回收部分；领用/归还/调拨矩阵见 test_ledger_contract.py。
 """
 import pytest
+from conftest import _client_for
 from rest_framework import status
 
-from apps.assets.models import Asset, AssetStock, FixedAsset
-from conftest import _client_for
+from apps.assets.models import AssetStock, FixedAsset
+from apps.assets.services import ledger
 
 
-def _make_stock(branch, code, qty=10, warning=None, **overrides):
-    defaults = dict(
-        分公司=branch.name, 分公司编号=branch.code, branch=branch,
-        资产编号=code, 资产类目='固定资产', 物品分类='办公设备',
-        资产名称=f'物品{code}', 规格='标准', 数量=qty, 警戒线=warning,
+def _ensure_item(code):
+    from apps.categories.models import Category
+    item, _ = Category.objects.get_or_create(
+        asset_code=code,
+        defaults={
+            'asset_category': '测试类目', 'item_category': '测试分类',
+            'asset_name': f'品目 {code}', 'unit': '个',
+        },
     )
-    defaults.update(overrides)
-    return AssetStock.objects.create(**defaults)
+    return item
 
 
-def _make_detail(branch, code, qty=5, dept='', seq=1):
-    return Asset.objects.create(
-        序号=seq, 分公司=branch.name, 分公司编号=branch.code, branch=branch,
-        资产编号=code, 资产类目='固定资产', 物品分类='办公设备',
-        资产名称=f'明细{code}', 数量=qty, 所属部门=dept, 当前状态='在库',
-    )
+def _seed_ledger(branch, code, in_use=10, stock=0):
+    """经调整单（唯一写入口）造台账底数。"""
+    item = _ensure_item(code)
+    if stock:
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, stock, '测试造数')
+    if in_use:
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_IN_USE, in_use, '测试造数')
+    return AssetStock.objects.get(branch=branch, item=item)
 
 
-def _recovery_payload(branch, code, qty=3, dept='', inner_code='', **overrides):
-    data = {
-        '调拨日期': '2026-08-19',
+def _recovery_payload(branch, code, qty=3, inner_code='', **overrides):
+    payload = {
+        '调拨日期': '2026-08-23',
         '资产编号': code,
-        '资产名称': f'物品{code}',
+        '资产名称': f'品目 {code}',
         '调拨数量': qty,
         '调出分公司': branch.name,
-        '调出部门': dept,
-        '回收分类': '报废回收',
-        'action_type': 'recovery',
     }
     if inner_code:
-        data['固定资产内部编号'] = inner_code
-    data.update(overrides)
-    return data
+        payload['固定资产内部编号'] = inner_code
+    payload.update(overrides)
+    return payload
 
 
 def _approve(client, pk):
-    return client.post(f'/api/transfers/{pk}/approve', {'approved': True})
+    return client.post(f'/api/transfers/{pk}/approve', {'approved': True}, format='json')
+
+
+def _row(branch, code):
+    return AssetStock.objects.get(branch=branch, item__asset_code=code)
 
 
 @pytest.mark.django_db
-class TestRecoveryApproveLinkage:
-    def test_approve_decrements_ledger_and_recomputes(self, authenticated_client, branch):
-        stock = _make_stock(branch, 'RC-1', qty=10, warning=8)
-        detail = _make_detail(branch, 'RC-1', qty=6, dept='行政部')
-
-        resp = authenticated_client.post('/api/transfers/recovery', _recovery_payload(branch, 'RC-1', qty=3, dept='行政部'))
-        assert resp.status_code == 201
-        assert resp.data['审批状态'] == '待审批'
-        stock.refresh_from_db()
-        assert stock.数量 == 10  # 待审批未联动
-
-        resp = _approve(authenticated_client, resp.data['id'])
-        assert resp.status_code == 200
-        stock.refresh_from_db()
-        assert stock.数量 == 7
-        assert stock.是否充足 is False
-        detail.refresh_from_db()
-        assert detail.数量 == 3
-
-    def test_no_ledger_row_is_tolerated(self, authenticated_client, branch):
-        detail = _make_detail(branch, 'RC-2', qty=4)
-        resp = authenticated_client.post('/api/transfers/recovery', _recovery_payload(branch, 'RC-2', qty=1))
+class TestRecoveryToRecycleBin:
+    def test_approve_moves_in_use_to_recycle(self, authenticated_client, branch):
+        _seed_ledger(branch, 'RC-1', in_use=10)
+        resp = authenticated_client.post(
+            '/api/transfers/recovery', _recovery_payload(branch, 'RC-1', qty=3), format='json',
+        )
         assert resp.status_code == 201
         resp = _approve(authenticated_client, resp.data['id'])
         assert resp.status_code == 200
-        detail.refresh_from_db()
-        assert detail.数量 == 3
+        row = _row(branch, 'RC-1')
+        assert row.在用数量 == 7
+        assert row.回收库数量 == 3
+        assert row.总量 == 10
 
-    def test_decrement_floors_at_zero(self, authenticated_client, branch):
-        stock = _make_stock(branch, 'RC-3', qty=2, warning=1)
-        detail = _make_detail(branch, 'RC-3', qty=1, seq=2)
-        resp = authenticated_client.post('/api/transfers/recovery', _recovery_payload(branch, 'RC-3', qty=5))
+    def test_insufficient_in_use_rejected(self, authenticated_client, branch):
+        _seed_ledger(branch, 'RC-2', in_use=2, stock=50)
+        resp = authenticated_client.post(
+            '/api/transfers/recovery', _recovery_payload(branch, 'RC-2', qty=5), format='json',
+        )
         assert resp.status_code == 201
-        _approve(authenticated_client, resp.data['id'])
-        stock.refresh_from_db()
-        assert stock.数量 == 0
-        assert stock.是否充足 is False
-        detail.refresh_from_db()
-        assert detail.数量 == 0
+        resp = _approve(authenticated_client, resp.data['id'])
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '不足' in str(resp.data['detail'])
+        row = _row(branch, 'RC-2')
+        assert row.在用数量 == 2 and row.回收库数量 == 0  # 整体回滚
 
-    def test_detail_kept_when_zeroed(self, authenticated_client, branch):
-        detail = _make_detail(branch, 'RC-4', qty=1, seq=3)
-        resp = authenticated_client.post('/api/transfers/recovery', _recovery_payload(branch, 'RC-4', qty=9))
+
+@pytest.mark.django_db
+class TestRecoveryDirectDispose:
+    def test_dispose_drops_total_without_recycle(self, authenticated_client, branch):
+        _seed_ledger(branch, 'RC-3', in_use=6, stock=4)
+        resp = authenticated_client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'RC-3', qty=2, 回收去向='dispose', 处置方式='出售', 处置金额=500),
+            format='json',
+        )
         assert resp.status_code == 201
-        _approve(authenticated_client, resp.data['id'])
-        assert Asset.objects.filter(id=detail.id).exists()
-        detail.refresh_from_db()
-        assert detail.数量 == 0
+        tid = resp.data['id']
+        assert resp.data['回收去向'] == 'dispose'
+        resp = _approve(authenticated_client, tid)
+        assert resp.status_code == 200
+        row = _row(branch, 'RC-3')
+        assert row.在用数量 == 4
+        assert row.回收库数量 == 0  # 直接处置不入回收库
+        assert row.总量 == 8  # 4 在库 + 4 在用，总量随处置下跌
 
-    def test_detail_matched_by_department_first(self, authenticated_client, branch):
-        _make_stock(branch, 'RC-5', qty=20)
-        admin_dept = _make_detail(branch, 'RC-5', qty=4, dept='行政部', seq=4)
-        warehouse = _make_detail(branch, 'RC-5', qty=6, dept='仓库', seq=5)
-        resp = authenticated_client.post('/api/transfers/recovery', _recovery_payload(branch, 'RC-5', qty=2, dept='行政部'))
+    def test_dispose_requires_no_amount_but_records_when_sold(self, authenticated_client, branch):
+        _seed_ledger(branch, 'RC-4', in_use=3)
+        resp = authenticated_client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'RC-4', qty=1, 回收去向='dispose', 处置方式='报废'),
+            format='json',
+        )
         assert resp.status_code == 201
-        _approve(authenticated_client, resp.data['id'])
-        admin_dept.refresh_from_db()
-        warehouse.refresh_from_db()
-        assert admin_dept.数量 == 2
-        assert warehouse.数量 == 6
+        assert resp.data['处置方式'] == '报废'
 
+
+@pytest.mark.django_db
+class TestRecoveryFixedAsset:
     def test_fa_deleted_by_inner_code_on_approve(self, authenticated_client, branch):
-        _make_stock(branch, 'RC-6', qty=3)
-        fa = FixedAsset.objects.create(
-            内部编号='RC-6-1', 资产编号='RC-6', 资产名称='物品RC-6',
+        _seed_ledger(branch, 'RC-5', in_use=2)
+        FixedAsset.objects.create(
+            内部编号='RC-5-1', 资产编号='RC-5', 资产名称='实例RC-5',
             分公司=branch.name, 分公司编号=branch.code, branch=branch,
         )
-        resp = authenticated_client.post('/api/transfers/recovery', _recovery_payload(branch, 'RC-6', qty=1, inner_code='RC-6-1'))
+        resp = authenticated_client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'RC-5', qty=1, inner_code='RC-5-1'),
+            format='json',
+        )
         assert resp.status_code == 201
-        _approve(authenticated_client, resp.data['id'])
-        assert not FixedAsset.objects.filter(id=fa.id).exists()
-        stock = AssetStock.objects.get(资产编号='RC-6')
-        assert stock.数量 == 2
+        assert _approve(authenticated_client, resp.data['id']).status_code == 200
+        assert not FixedAsset.objects.filter(内部编号='RC-5-1').exists()
 
     def test_fa_untouched_without_inner_code(self, authenticated_client, branch):
-        fa = FixedAsset.objects.create(
-            内部编号='RC-7-1', 资产编号='RC-7', 资产名称='物品RC-7',
+        _seed_ledger(branch, 'RC-6', in_use=2)
+        FixedAsset.objects.create(
+            内部编号='RC-6-1', 资产编号='RC-6', 资产名称='实例RC-6',
             分公司=branch.name, 分公司编号=branch.code, branch=branch,
         )
-        resp = authenticated_client.post('/api/transfers/recovery', _recovery_payload(branch, 'RC-7', qty=1))
+        resp = authenticated_client.post(
+            '/api/transfers/recovery', _recovery_payload(branch, 'RC-6', qty=1), format='json',
+        )
         assert resp.status_code == 201
-        _approve(authenticated_client, resp.data['id'])
-        assert FixedAsset.objects.filter(id=fa.id).exists()
-
-    def test_assign_and_return_do_not_touch_ledger(self, authenticated_client, branch):
-        stock = _make_stock(branch, 'RC-8', qty=10)
-        detail = _make_detail(branch, 'RC-8', qty=10, seq=6)
-
-        resp = authenticated_client.post('/api/transfers/assign', {
-            '调拨日期': '2026-08-19', '资产编号': 'RC-8', '资产名称': '物品RC-8',
-            '调拨数量': 2, '调出分公司': branch.name, '调入分公司': branch.name,
-            'action_type': 'assign',
-        })
-        assert resp.status_code == 201
-        _approve(authenticated_client, resp.data['id'])
-        stock.refresh_from_db()
-        assert stock.数量 == 10  # 领用不动台账
-        detail.refresh_from_db()
-        assert detail.数量 == 8
-
-        resp = authenticated_client.post('/api/transfers/return', {
-            '调拨日期': '2026-08-19', '资产编号': 'RC-8', '资产名称': '物品RC-8',
-            '调拨数量': 2, '调出分公司': branch.name, '调入分公司': branch.name,
-            'action_type': 'return',
-        })
-        assert resp.status_code == 201
-        _approve(authenticated_client, resp.data['id'])
-        stock.refresh_from_db()
-        assert stock.数量 == 10  # 归还不动台账
-        detail.refresh_from_db()
-        assert detail.数量 == 10
+        assert _approve(authenticated_client, resp.data['id']).status_code == 200
+        assert FixedAsset.objects.filter(内部编号='RC-6-1').exists()
 
 
 @pytest.mark.django_db
 class TestImmediateRecovery:
-    def test_immediate_creates_approved_transfer_and_applies(self, supervisor_user, branch):
-        stock = _make_stock(branch, 'IM-1', qty=10, warning=6)
-        detail = _make_detail(branch, 'IM-1', qty=5, dept='行政部', seq=7)
-
+    def test_immediate_applies_recycle_bin(self, supervisor_user, branch):
+        _seed_ledger(branch, 'IM-1', in_use=5)
         client = _client_for(supervisor_user)
-        payload = _recovery_payload(branch, 'IM-1', qty=4, dept='行政部')
-        payload['immediate'] = True
-        resp = client.post('/api/transfers/recovery', payload)
+        resp = client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'IM-1', qty=2, immediate=True),
+            format='json',
+        )
         assert resp.status_code == 201
         assert resp.data['审批状态'] == '已通过'
-        assert resp.data['审批人'] == supervisor_user.name
+        row = _row(branch, 'IM-1')
+        assert row.在用数量 == 3 and row.回收库数量 == 2
 
-        stock.refresh_from_db()
-        assert stock.数量 == 6
-        assert stock.是否充足 is True
-        detail.refresh_from_db()
-        assert detail.数量 == 1
+    def test_immediate_dispose(self, supervisor_user, branch):
+        _seed_ledger(branch, 'IM-2', in_use=5)
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'IM-2', qty=2, immediate=True, 回收去向='dispose'),
+            format='json',
+        )
+        assert resp.status_code == 201
+        row = _row(branch, 'IM-2')
+        assert row.在用数量 == 3 and row.回收库数量 == 0
 
     def test_immediate_fa_recovery_deletes_record(self, supervisor_user, branch):
-        _make_stock(branch, 'IM-2', qty=2)
-        fa = FixedAsset.objects.create(
-            内部编号='IM-2-1', 资产编号='IM-2', 资产名称='物品IM-2',
+        _seed_ledger(branch, 'IM-3', in_use=1)
+        FixedAsset.objects.create(
+            内部编号='IM-3-1', 资产编号='IM-3', 资产名称='实例IM-3',
             分公司=branch.name, 分公司编号=branch.code, branch=branch,
         )
         client = _client_for(supervisor_user)
-        payload = _recovery_payload(branch, 'IM-2', qty=1, inner_code='IM-2-1')
-        payload['immediate'] = True
-        resp = client.post('/api/transfers/recovery', payload)
+        resp = client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'IM-3', qty=1, inner_code='IM-3-1', immediate=True),
+            format='json',
+        )
         assert resp.status_code == 201
-        assert not FixedAsset.objects.filter(id=fa.id).exists()
-        stock = AssetStock.objects.get(资产编号='IM-2')
-        assert stock.数量 == 1
+        assert not FixedAsset.objects.filter(内部编号='IM-3-1').exists()
 
     def test_immediate_without_manage_assets_rejected(self, staff_user, branch):
-        _make_stock(branch, 'IM-3')
+        _seed_ledger(branch, 'IM-4', in_use=5)
         client = _client_for(staff_user)
-        payload = _recovery_payload(branch, 'IM-3', qty=1)
-        payload['immediate'] = True
-        resp = client.post('/api/transfers/recovery', payload)
-        assert resp.status_code == 400
+        resp = client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'IM-4', qty=1, immediate=True),
+            format='json',
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert '权限' in str(resp.data['detail'])
 
     def test_immediate_blocked_by_inventory_lock(self, supervisor_user, branch, db):
         from apps.inventories.models import InventoryTask
-        InventoryTask.objects.create(name='年度盘点', branch=branch, status='in_progress')
-        _make_stock(branch, 'IM-4')
+        _seed_ledger(branch, 'IM-5', in_use=5)
+        InventoryTask.objects.create(
+            name='锁库盘点', branch=branch, status='in_progress',
+        )
         client = _client_for(supervisor_user)
-        payload = _recovery_payload(branch, 'IM-4', qty=1)
-        payload['immediate'] = True
-        resp = client.post('/api/transfers/recovery', payload)
-        assert resp.status_code == 400
-        assert '盘点' in str(resp.data)
-
-    def test_immediate_writes_audit_log(self, supervisor_user, branch):
-        from apps.audit.models import AuditLog
-        _make_stock(branch, 'IM-5')
-        client = _client_for(supervisor_user)
-        payload = _recovery_payload(branch, 'IM-5', qty=1)
-        payload['immediate'] = True
-        resp = client.post('/api/transfers/recovery', payload)
-        assert resp.status_code == 201
-        assert AuditLog.objects.filter(
-            description__contains='资产回收', user=supervisor_user,
-        ).exists()
+        resp = client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(branch, 'IM-5', qty=1, immediate=True),
+            format='json',
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '盘点' in str(resp.data['detail'])
 
     def test_plain_recovery_without_immediate_stays_pending(self, staff_user, branch):
-        _make_stock(branch, 'IM-6')
+        _seed_ledger(branch, 'IM-6', in_use=5)
         client = _client_for(staff_user)
-        resp = client.post('/api/transfers/recovery', _recovery_payload(branch, 'IM-6', qty=1))
+        resp = client.post(
+            '/api/transfers/recovery', _recovery_payload(branch, 'IM-6', qty=1), format='json',
+        )
         assert resp.status_code == 201
         assert resp.data['审批状态'] == '待审批'
+        row = _row(branch, 'IM-6')
+        assert row.在用数量 == 5  # 未审批不动账
