@@ -86,7 +86,7 @@ async function handleConfirm() {
 </script>
 
 <template>
-  <div class="modal-overlay" role="dialog" aria-modal="true" @click.self="emit('close')">
+  <div v-if="visible" class="modal-overlay" role="dialog" aria-modal="true" @click.self="emit('close')">
     <div class="modal-content">
       <div class="modal-header">
         <h3 class="modal-title">台账增量导入</h3>

@@ -154,6 +154,11 @@ describe('SummaryImportDialog 增量导入弹窗（两段式）', () => {
     vi.clearAllMocks()
   })
 
+  it('visible=false 时不渲染（刷新页面不弹窗回归）', () => {
+    const wrapper = mount(SummaryImportDialog, { props: { visible: false } })
+    expect(wrapper.find('.modal-overlay').exists()).toBe(false)
+  })
+
   function pickFile(wrapper: ReturnType<typeof mount>) {
     const input = wrapper.find('input[type="file"]')
     const file = new File(['bytes'], 'summary.xlsx', {
