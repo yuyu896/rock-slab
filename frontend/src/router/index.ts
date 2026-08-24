@@ -17,8 +17,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: '工作台' } },
       { path: 'categories', component: () => import('@/views/Category.vue'), meta: { title: '资产类目' } },
       { path: 'departments', component: () => import('@/views/DepartmentManage.vue'), meta: { title: '部门字典' } },
-      { path: 'categories/create', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '新增分类' } },
-      { path: 'categories/:id/edit', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '编辑分类' } },
+      { path: 'categories/create', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '新增分类', operation: 'manage_dictionary' } },
+      { path: 'categories/:id/edit', component: () => import('@/views/categories/CategoryCreate.vue'), meta: { title: '编辑分类', operation: 'manage_dictionary' } },
       { path: 'assets/summary', component: () => import('@/views/assets/AssetSummary.vue'), meta: { title: '资产汇总' } },
       { path: 'assets/list', component: () => import('@/views/AssetList.vue'), meta: { title: '资产明细' } },
       { path: 'assets/list/create', component: () => import('@/views/assets/AssetCreatePage.vue'), meta: { title: '新增资产' } },
@@ -102,6 +102,13 @@ router.beforeEach((to, _from, next) => {
   // 仅超级管理员可访问的路由
   if (to.meta.requiresAdmin) {
     if (!useUserStore().isAdmin) {
+      next({ path: '/dashboard' })
+      return
+    }
+  }
+  // 需业务操作码的路由（按钮隐藏外的 URL 直达兜底；后端 API 仍持 required_operations 二重校验）
+  if (to.meta.operation) {
+    if (!useUserStore().can(to.meta.operation as string)) {
       next({ path: '/dashboard' })
       return
     }
