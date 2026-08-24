@@ -256,6 +256,17 @@ def category(db):
     )
 
 
+@pytest.fixture
+def item_id():
+    """编号 → 品目 uuid（P2 明细行 payload 用：items[].item）。"""
+    from apps.categories.models import Category
+
+    def _item_id(code):
+        return str(Category.objects.get(asset_code=code).id)
+
+    return _item_id
+
+
 # ---------------------------------------------------------------------------
 # Asset factory helpers
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 禁止任何视图/导入/脚本直接改台账数量列；本模块是全项目唯一的台账写白名单
 （架构测试 tests/test_ledger_architecture.py 执法）。
 
-单据 × 数量对照（设计书 5.2）：
+单据 × 数量对照（设计书 5.2，粒度 = 明细行）：
     采购入库    在库+N（无行则建行）
     领用        在库−N，在用+N（校验在库充足）
     归还        在用−N，在库+N
@@ -13,6 +13,7 @@
     调整单      任一列 ±N（不可为负）
 """
 from django.db import transaction
+from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
 from apps.assets.models import AssetStock, LedgerAdjustment
@@ -21,15 +22,6 @@ COLUMN_STOCK = '在库数量'
 COLUMN_IN_USE = '在用数量'
 COLUMN_RECYCLE = '回收库数量'
 COLUMNS = (COLUMN_STOCK, COLUMN_IN_USE, COLUMN_RECYCLE)
-
-
-def resolve_item(asset_code):
-    """编号 → 品目字典行（未登记即拒绝，调用方已在创建时校验，此处兜底）。"""
-    from apps.categories.models import Category
-    item = Category.objects.filter(asset_code=asset_code).first()
-    if item is None:
-        raise ValidationError({'detail': f'资产编号 {asset_code} 未在品目字典登记'})
-    return item
 
 
 def _locked_row(branch, item, create=True):
@@ -77,67 +69,117 @@ def apply_adjustment(branch, item, column, delta, reason, operator=None, is_init
         )
 
 
-def apply_document(transfer):
-    """流转单生效入口：按单据类型执行台账联动矩阵。
-
-    须在调用方事务内或独立调用均可（内部自带事务，嵌套安全）。
-    充足性不足抛 ValidationError（含 LEDGER_INSUFFICIENT 码），调用方回滚单据生效。
-    """
-    item = resolve_item(transfer.资产编号)
-    qty = int(transfer.调拨数量 or 0)
+def _line_plan(transfer, line):
+    """一条明细行 → [(分公司, 品目, 目标列, 变动量)]，联动矩阵与设计书一字不变。"""
+    item = line.item
+    qty = int(line.数量 or 0)
     if qty <= 0:
-        raise ValidationError({'detail': '单据数量必须为正'})
+        raise ValidationError({'detail': '数量必须为正'})
+    action = transfer.action_type
+    from_branch = transfer.from_branch
+    to_branch = transfer.to_branch
+
+    if action == 'purchase':
+        branch = to_branch or from_branch
+        return [(branch, item, COLUMN_STOCK, qty)]
+    if action == 'assign':
+        return [
+            (from_branch, item, COLUMN_STOCK, -qty),
+            (from_branch, item, COLUMN_IN_USE, qty),
+        ]
+    if action == 'return':
+        branch = to_branch or from_branch
+        return [
+            (branch, item, COLUMN_IN_USE, -qty),
+            (branch, item, COLUMN_STOCK, qty),
+        ]
+    if action == 'transfer':
+        return [
+            (from_branch, item, COLUMN_STOCK, -qty),
+            (to_branch, item, COLUMN_STOCK, qty),
+        ]
+    if action == 'recovery':
+        plan = [(from_branch, item, COLUMN_IN_USE, -qty)]
+        if transfer.回收去向 == 'dispose':
+            pass  # 直接处置：三存储列均不增加，总量随在用扣减下跌
+        else:
+            plan.append((from_branch, item, COLUMN_RECYCLE, qty))
+        return plan
+    raise ValidationError({'detail': f'未知单据类型 {action}'})
+
+
+def _with_line_context(line, error):
+    """错误信息补明细行定位（行号 × 品目编号）。"""
+    detail = getattr(error, 'detail', None)
+    msg = detail.get('detail') if isinstance(detail, dict) else str(detail or error)
+    code = detail.get('code') if isinstance(detail, dict) else None
+    return ValidationError({
+        'detail': f'明细行 {line.行号}（{line.item.asset_code}）：{msg}',
+        'code': code or 'LEDGER_ERROR',
+    })
+
+
+def apply_document(transfer):
+    """流转单生效入口：明细行逐行执行联动矩阵。
+
+    两阶段防死锁：先收集单据全部 (分公司, 品目) 依赖并按序一次性锁齐，
+    再逐行变动——两张多行单据交叉审批不会形成环形等待。
+    任一行充足性不足抛 ValidationError（LEDGER_INSUFFICIENT，带行号定位），
+    调用方事务整体回滚，不存在部分生效。
+    """
+    lines = list(transfer.lines.select_related('item').order_by('行号'))
+    if not lines:
+        raise ValidationError({'detail': '单据缺少明细行'})
 
     action = transfer.action_type
     from_branch = transfer.from_branch
     to_branch = transfer.to_branch
     if action in ('purchase', 'return') and to_branch is None and from_branch is None:
         raise ValidationError({'detail': '单据缺少有效分公司维度'})
+    if action == 'assign' and from_branch is None:
+        raise ValidationError({'detail': '领用单缺少调出分公司'})
+    if action == 'recovery' and from_branch is None:
+        raise ValidationError({'detail': '回收单缺少调出分公司'})
+    if action == 'transfer':
+        if from_branch is None or to_branch is None:
+            raise ValidationError({'detail': '调拨单缺少调出/调入分公司'})
+        if from_branch.pk == to_branch.pk:
+            raise ValidationError({'detail': '调出与调入分公司不能相同'})
+
+    plans = [(line, _line_plan(transfer, line)) for line in lines]
+
+    keys = sorted({
+        (branch.pk, item.pk)
+        for _, plan in plans
+        for branch, item, _, _ in plan
+    })
+    lock_q = Q()
+    for branch_pk, item_pk in keys:
+        lock_q |= Q(branch_id=branch_pk, item_id=item_pk)
 
     with transaction.atomic():
-        if action == 'purchase':
-            branch = to_branch or from_branch
-            row = _locked_row(branch, item)
-            _apply_delta(row, COLUMN_STOCK, qty)
-            row.save()
-        elif action == 'assign':
-            if from_branch is None:
-                raise ValidationError({'detail': '领用单缺少调出分公司'})
-            row = _locked_row(from_branch, item)
-            _apply_delta(row, COLUMN_STOCK, -qty)
-            _apply_delta(row, COLUMN_IN_USE, qty)
-            row.save()
-        elif action == 'return':
-            branch = to_branch or from_branch
-            row = _locked_row(branch, item)
-            _apply_delta(row, COLUMN_IN_USE, -qty)
-            _apply_delta(row, COLUMN_STOCK, qty)
-            row.save()
-        elif action == 'transfer':
-            if from_branch is None or to_branch is None:
-                raise ValidationError({'detail': '调拨单缺少调出/调入分公司'})
-            if from_branch.pk == to_branch.pk:
-                raise ValidationError({'detail': '调出与调入分公司不能相同'})
-            src = _locked_row(from_branch, item, create=False)
-            if src is None:
-                raise ValidationError({
-                    'detail': f'「{from_branch.name} × {item.asset_code}」无台账行，在库为 0，无法调拨 {qty}',
-                    'code': 'LEDGER_INSUFFICIENT',
-                })
-            _apply_delta(src, COLUMN_STOCK, -qty)
-            src.save()
-            dst = _locked_row(to_branch, item)
-            _apply_delta(dst, COLUMN_STOCK, qty)
-            dst.save()
-        elif action == 'recovery':
-            if from_branch is None:
-                raise ValidationError({'detail': '回收单缺少调出分公司'})
-            row = _locked_row(from_branch, item)
-            _apply_delta(row, COLUMN_IN_USE, -qty)
-            if getattr(transfer, '回收去向', 'recycle_bin') == 'dispose':
-                pass  # 直接处置：三存储列均不增加，总量随在用扣减下跌
-            else:
-                _apply_delta(row, COLUMN_RECYCLE, qty)
-            row.save()
-        else:
-            raise ValidationError({'detail': f'未知单据类型 {action}'})
+        locked = {}
+        if keys:
+            rows = (
+                AssetStock.objects.select_for_update()
+                .filter(lock_q)
+                .order_by('branch_id', 'item_id')
+            )
+            locked = {(r.branch_id, r.item_id): r for r in rows}
+
+        touched = set()
+        for line, plan in plans:
+            try:
+                for branch, item, column, delta in plan:
+                    key = (branch.pk, item.pk)
+                    row = locked.get(key)
+                    if row is None:
+                        row = AssetStock(branch=branch, item=item)
+                        locked[key] = row
+                    _apply_delta(row, column, delta)
+                    touched.add(key)
+            except ValidationError as error:
+                raise _with_line_context(line, error)
+
+        for key in sorted(touched):
+            locked[key].save()

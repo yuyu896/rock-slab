@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { transferDocSummary } from '@/types'
 import { getTransfer, approveTransfer, rejectTransfer } from '@/api/transfers'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -114,8 +115,8 @@ onMounted(() => {
           </span>
         </div>
         <div class="asset-info">
-          <h2 class="asset-name">{{ transfer.资产名称 }}</h2>
-          <p class="asset-code">{{ transfer.资产编号 }}</p>
+          <h2 class="asset-name">{{ transferDocSummary(transfer).name }}</h2>
+          <p class="asset-code">{{ transferDocSummary(transfer).code }}</p>
         </div>
       </div>
 
@@ -128,8 +129,8 @@ onMounted(() => {
             <span class="value">{{ formatDate(transfer.调拨日期) }}</span>
           </div>
           <div class="info-item">
-            <span class="label">调拨数量</span>
-            <span class="value">{{ transfer.调拨数量 }}</span>
+            <span class="label">数量</span>
+            <span class="value">{{ transfer.总数量 ?? transferDocSummary(transfer).qty }}</span>
           </div>
           <div class="info-item">
             <span class="label">调出分公司</span>

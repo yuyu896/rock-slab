@@ -1,71 +1,84 @@
-/* 磐盘 - 调拨/流转 API */
+/* 磐盘 - 调拨/流转 API（单头 + items 明细行） */
 import request from '@/utils/request'
-import type { Transfer, PaginatedResponse, PaginationParams } from '@/types'
+import type { TransferDocument, TransferLineInput, PaginatedResponse, PaginationParams } from '@/types'
+
+/** 单据创建入参：单头字段 + items 明细行 */
+export type TransferPayload = Partial<TransferDocument> & {
+  items: TransferLineInput[]
+  fromBranch?: string
+  toBranch?: string
+}
 
 export function getTransfers(params?: PaginationParams & {
   status?: string
   fromBranch?: string
   toBranch?: string
   type?: string
+  docNumber?: string
   assetCode?: string
   keyword?: string
   createdAt__gte?: string
 }) {
-  return request.get<PaginatedResponse<Transfer>>('/api/transfers/', { params })
+  return request.get<PaginatedResponse<TransferDocument>>('/api/transfers/', { params })
 }
 
 export function getTransfer(id: string) {
-  return request.get<Transfer>(`/api/transfers/${id}`)
+  return request.get<TransferDocument>(`/api/transfers/${id}`)
 }
 
-/** 修改流转（仅已驳回可改） */
-export function updateTransfer(id: string, data: Partial<Transfer>) {
-  return request.patch<Transfer>(`/api/transfers/${id}`, data)
+/** 修改流转（仅已驳回可改；items 传了=整体替换，不传=保留原明细行） */
+export function updateTransfer(id: string, data: Partial<TransferPayload>) {
+  return request.patch<TransferDocument>(`/api/transfers/${id}`, data)
 }
 
 /** 采购入库（draft=true 保存为草稿） */
-export function purchaseAsset(data: Partial<Transfer> & { draft?: boolean }) {
-  return request.post<Transfer>('/api/transfers/purchase', data)
+export function purchaseAsset(data: TransferPayload & { draft?: boolean }) {
+  return request.post<TransferDocument>('/api/transfers/purchase', data)
 }
 
 /** 资产领用 */
-export function assignAsset(data: Partial<Transfer>) {
-  return request.post<Transfer>('/api/transfers/assign', data)
+export function assignAsset(data: TransferPayload) {
+  return request.post<TransferDocument>('/api/transfers/assign', data)
+}
+
+/** 资产归还 */
+export function returnAsset(data: TransferPayload) {
+  return request.post<TransferDocument>('/api/transfers/return', data)
 }
 
 /** 资产调拨 */
-export function transferAsset(data: Partial<Transfer>) {
-  return request.post<Transfer>('/api/transfers/transfer', data)
+export function transferAsset(data: TransferPayload) {
+  return request.post<TransferDocument>('/api/transfers/transfer', data)
 }
 
-/** 资产回收（immediate=true 直接回收：即时生效并联动台账；固定资产内部编号用于定位删除实例） */
-export function recoverAsset(data: Partial<Transfer> & { immediate?: boolean; 固定资产内部编号?: string }) {
-  return request.post<Transfer>('/api/transfers/recovery', data)
+/** 资产回收（immediate=true 直接回收：即时生效并联动台账） */
+export function recoverAsset(data: TransferPayload & { immediate?: boolean }) {
+  return request.post<TransferDocument>('/api/transfers/recovery', data)
 }
 
 /** 审批通过 */
 export function approveTransfer(id: string, data: { approved: boolean; reason?: string }) {
-  return request.post<Transfer>(`/api/transfers/${id}/approve`, data)
+  return request.post<TransferDocument>(`/api/transfers/${id}/approve`, data)
 }
 
 /** 审批驳回 */
 export function rejectTransfer(id: string, data: { reason?: string }) {
-  return request.post<Transfer>(`/api/transfers/${id}/approve`, { approved: false, ...data })
+  return request.post<TransferDocument>(`/api/transfers/${id}/approve`, { approved: false, ...data })
 }
 
 /** 提交采购草稿（草稿→待审批） */
 export function submitTransfer(id: string) {
-  return request.post<Transfer>(`/api/transfers/${id}/submit`)
+  return request.post<TransferDocument>(`/api/transfers/${id}/submit`)
 }
 
 /** 重新提交流转（已驳回→待审批） */
 export function resubmitTransfer(id: string) {
-  return request.post<Transfer>(`/api/transfers/${id}/resubmit`)
+  return request.post<TransferDocument>(`/api/transfers/${id}/resubmit`)
 }
 
 /** 获取待审批列表 */
 export function getPendingTransfers(params?: PaginationParams) {
-  return request.get<PaginatedResponse<Transfer>>('/api/transfers/', {
+  return request.get<PaginatedResponse<TransferDocument>>('/api/transfers/', {
     params: { ...params, status: '待审批' }
   })
 }

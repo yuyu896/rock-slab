@@ -135,15 +135,15 @@ class TestCheckLedgerConsistency:
 
     def test_post_initial_documents_reconcile(self, branch):
         """期初单吸收历史后，其后的单据参与重算。"""
-        from apps.transfers.models import Transfer
-        from django.utils import timezone
-        _item('CK-003')
+        from apps.transfers.models import Transfer, TransferLine
+        item = _item('CK-003')
         # 历史（期初前）单据：不参与重算
-        Transfer.objects.create(
-            调拨日期='2026-01-01', 资产编号='CK-003', 资产名称='x', 调拨数量=99,
+        transfer = Transfer.objects.create(
+            调拨日期='2026-01-01',
             调出分公司=branch.name, from_branch=branch,
             action_type='purchase', 审批状态='已入库',
         )
+        TransferLine.objects.create(transfer=transfer, item=item, 行号=1, 数量=99)
         _make_asset(branch, 'CK-003', 6)
         call_command('migrate_initial_ledger', '--confirm-backup')
         row = AssetStock.objects.get(branch=branch, item__asset_code='CK-003')
@@ -218,26 +218,29 @@ class TestLedgerArchitecture:
 class TestUninitializedTolerance:
     def test_empty_ledger_without_initial_passes_with_warning(self, branch):
         """未初始化（无期初单+台账空+有历史单据）：通过并提示，供 deploy.sh 中间态放行。"""
-        from apps.transfers.models import Transfer
+        from apps.transfers.models import Transfer, TransferLine
         from datetime import date
-        Transfer.objects.create(
-            调拨日期=date(2026, 1, 1), 资产编号='CK-003', 资产名称='x', 调拨数量=5,
+        item = _item('CK-003')
+        transfer = Transfer.objects.create(
+            调拨日期=date(2026, 1, 1),
             调出分公司=branch.name, from_branch=branch,
             action_type='purchase', 审批状态='已入库',
         )
+        TransferLine.objects.create(transfer=transfer, item=item, 行号=1, 数量=5)
         code, text = _check()
         assert code == 0
         assert '未初始化' in text
 
     def test_any_ledger_row_enforces_strict(self, branch):
         """只要台账有行（哪怕无期初单），即严格对账。"""
-        from apps.transfers.models import Transfer
+        from apps.transfers.models import Transfer, TransferLine
         item = _item('CK-009')
         ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 3, '造数')
-        Transfer.objects.create(
-            调拨日期='2026-01-01', 资产编号='CK-009', 资产名称='x', 调拨数量=5,
+        transfer = Transfer.objects.create(
+            调拨日期='2026-01-01',
             调出分公司=branch.name, from_branch=branch,
             action_type='purchase', 审批状态='已入库',
         )
+        TransferLine.objects.create(transfer=transfer, item=item, 行号=1, 数量=5)
         code, _ = _check()
         assert code == 1  # 调整单 3 + 采购 5 = 8 ≠ 台账 3

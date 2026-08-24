@@ -254,18 +254,17 @@ class TestAuditLogDecorator:
         We call the purchase API directly; the TransferViewSet.purchase
         action should be decorated with @audit_log which writes a log entry.
         """
+        from apps.categories.models import Category
         client = _client_for(admin_user)
 
         # Check how many audit logs exist before
         count_before = AuditLog.objects.count()
 
+        item = Category.objects.get(asset_code='AUDIT-TEST-001')
         resp = client.post('/api/transfers/purchase', {
             '调拨日期': '2026-04-01',
-            '资产编号': 'AUDIT-TEST-001',
-            '资产名称': '审计测试资产',
-            '调拨数量': 1,
-            '调出分公司': '测试分公司',
-            'action_type': 'purchase',
+            '调出分公司': branch.name,
+            'items': [{'item': str(item.id), '数量': 1}],
         }, format='json')
         assert resp.status_code == status.HTTP_201_CREATED
 
@@ -273,27 +272,30 @@ class TestAuditLogDecorator:
         count_after = AuditLog.objects.count()
         assert count_after > count_before
 
-    def test_audit_log_has_correct_user_and_action(self, admin_user):
-        """Verify the AuditLog created by the decorator has correct fields."""
+    def test_audit_log_has_correct_user_and_action(self, admin_user, branch):
+        """Verify the AuditLog created by the decorator has correct fields.
+
+        The purchase action is decorated with @audit_log(action='purchase',
+        resource_type='Transfer'), so the log records action='purchase'.
+        """
+        from apps.categories.models import Category
         client = _client_for(admin_user)
 
+        item = Category.objects.get(asset_code='AUDIT-TEST-002')
         client.post('/api/transfers/purchase', {
             '调拨日期': '2026-04-02',
-            '资产编号': 'AUDIT-TEST-002',
-            '资产名称': '审计测试资产2',
-            '调拨数量': 1,
-            '调出分公司': '测试分公司',
-            'action_type': 'purchase',
+            '调出分公司': branch.name,
+            'items': [{'item': str(item.id), '数量': 1}],
         }, format='json')
 
         log = AuditLog.objects.filter(
             user=admin_user,
-            action='create',
+            action='purchase',
             resource_type='Transfer',
         ).first()
-        if log is not None:
-            assert log.user_name == admin_user.name
-            assert log.is_success is True
+        assert log is not None
+        assert log.user_name == admin_user.name
+        assert log.is_success is True
 
     def test_my_logs_returns_own_logs_only(self, authenticated_client, admin_user, staff_user):
         """The my_logs action should only return the requesting user's logs."""

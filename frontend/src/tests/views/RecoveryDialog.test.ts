@@ -42,6 +42,9 @@ vi.mock('@/api/branches', () => ({
 
 vi.mock('@/api/categories', () => ({
   getCategories: vi.fn().mockResolvedValue({ data: { count: 0, results: [] } }),
+  lookupCategoryByCode: vi.fn().mockResolvedValue({
+    data: { id: 'cat-1', 资产名称: '办公椅', 资产类目: '固定资产', 物品分类: '办公设备', 计量单位: '把', 警戒线: null },
+  }),
 }))
 
 vi.mock('@/hooks/usePermission', () => ({
@@ -89,12 +92,10 @@ describe('RecoveryDialog 行内回收', () => {
 
     expect(recoverAsset).toHaveBeenCalledWith(expect.objectContaining({
       immediate: true,
-      资产编号: 'A-1',
-      调拨数量: 3,
       调出分公司: '分公司A',
       调出部门: '行政部',
       回收分类: '报废回收',
-      固定资产内部编号: '',
+      items: [expect.objectContaining({ item: 'cat-1', 数量: 3 })],
     }))
     expect(wrapper.emitted('success')).toBeTruthy()
   })
@@ -119,8 +120,7 @@ describe('RecoveryDialog 行内回收', () => {
 
     expect(recoverAsset).toHaveBeenCalledWith(expect.objectContaining({
       immediate: true,
-      调拨数量: 1,
-      固定资产内部编号: 'A-1-3',
+      items: [expect.objectContaining({ item: 'cat-1', 数量: 1, 固定资产内部编号: 'A-1-3' })],
     }))
   })
 })

@@ -43,11 +43,21 @@ class TestAssetExportFilters:
 @pytest.mark.django_db
 class TestTransferExportFilters:
     def test_export_respects_type_and_keyword(self, authenticated_client, branch):
+        from apps.categories.models import Category
+        from apps.transfers.models import TransferLine
+
         def make(code, name, action):
-            return Transfer.objects.create(
-                调拨日期='2026-08-19', 调出分公司=branch.name, from_branch=branch,
-                资产编号=code, 资产名称=name, 调拨数量=1, action_type=action,
+            # P2：品目身份在字典、数量在明细行；keyword 经明细行联品目名称命中
+            item = Category.objects.create(
+                asset_category='测试类目', item_category='测试分类',
+                asset_name=name, asset_code=code, unit='把',
             )
+            t = Transfer.objects.create(
+                调拨日期='2026-08-19', 调出分公司=branch.name, from_branch=branch,
+                action_type=action,
+            )
+            TransferLine.objects.create(transfer=t, item=item, 行号=1, 数量=1)
+            return t
 
         make('TE-1', '会议椅', Transfer.ACTION_RECOVERY)
         make('TE-2', '会议桌', Transfer.ACTION_RECOVERY)
@@ -58,5 +68,5 @@ class TestTransferExportFilters:
         })
         assert resp.status_code == 200
         rows = _xlsx_rows(resp.content)
-        codes = [r[2] for r in rows[1:]]  # 回收模板：分公司、资产编号（第 3 列）
+        codes = [r[2] for r in rows[1:]]  # 回收模板：序号、分公司、资产编号（第 3 列）
         assert codes == ['TE-1']

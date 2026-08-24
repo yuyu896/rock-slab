@@ -54,57 +54,50 @@ class TestAssetScoping:
 
 @pytest.mark.django_db
 class TestTransferScoping:
-    def _create_transfer(self, user, to_branch_name, code):
+    def _create_transfer(self, user, to_branch_name, code, item_id):
         client = _client_for(user)
         resp = client.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
-            '资产编号': code,
-            '资产名称': '测试',
             '调出分公司': '',
             '调入分公司': to_branch_name,
-            '调拨数量': 1,
-            'action_type': 'purchase',
-        })
+            'items': [{'item': item_id(code), '数量': 1}],
+        }, format='json')
         assert resp.status_code == 201
 
-    def test_admin_sees_all_transfers(self, admin_user, branch, second_branch):
-        self._create_transfer(admin_user, branch.name, 'SC-001')
-        self._create_transfer(admin_user, second_branch.name, 'SC-002')
+    def test_admin_sees_all_transfers(self, admin_user, branch, second_branch, item_id):
+        self._create_transfer(admin_user, branch.name, 'SC-001', item_id)
+        self._create_transfer(admin_user, second_branch.name, 'SC-002', item_id)
         client = _client_for(admin_user)
         resp = client.get('/api/transfers/')
         assert resp.data['count'] == 2
 
-    def test_supervisor_sees_own_region_transfers(self, supervisor_user, admin_user, branch, second_branch):
+    def test_supervisor_sees_own_region_transfers(
+        self, supervisor_user, admin_user, branch, second_branch, item_id,
+    ):
         # Use 'transfer' type with both from/to branches so DataScopeMixin can filter
         client_admin = _client_for(admin_user)
         # Transfer from branch to second_branch
         client_admin.post('/api/transfers/transfer', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'SC-003',
-            '资产名称': '测试',
             '调出分公司': branch.name,
             '调入分公司': second_branch.name,
-            '调拨数量': 1,
-            'action_type': 'transfer',
-        })
+            'items': [{'item': item_id('SC-003'), '数量': 1}],
+        }, format='json')
         # Transfer from second_branch to branch
         client_admin.post('/api/transfers/transfer', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'SC-004',
-            '资产名称': '测试',
             '调出分公司': second_branch.name,
             '调入分公司': branch.name,
-            '调拨数量': 1,
-            'action_type': 'transfer',
-        })
+            'items': [{'item': item_id('SC-004'), '数量': 1}],
+        }, format='json')
         client = _client_for(supervisor_user)
         resp = client.get('/api/transfers/')
         # 主管可见涉及本区域分公司的调拨（无论调出还是调入），两笔均涉及测试分公司
         assert resp.data['count'] == 2
 
-    def test_staff_sees_own_branch_transfers(self, staff_user, admin_user, branch, second_branch):
-        self._create_transfer(admin_user, branch.name, 'SC-005')
-        self._create_transfer(admin_user, second_branch.name, 'SC-006')
+    def test_staff_sees_own_branch_transfers(self, staff_user, admin_user, branch, second_branch, item_id):
+        self._create_transfer(admin_user, branch.name, 'SC-005', item_id)
+        self._create_transfer(admin_user, second_branch.name, 'SC-006', item_id)
         client = _client_for(staff_user)
         resp = client.get('/api/transfers/')
         assert resp.data['count'] == 1

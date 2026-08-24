@@ -3,7 +3,7 @@ from core.models import UUIDModel, TimestampedModel
 
 
 class Transfer(UUIDModel, TimestampedModel):
-    """调拨/流转记录 - uses Chinese Python field names directly."""
+    """流转单单头：谁/何时/为何/审批；品目×数量在明细行 TransferLine。"""
     APPROVAL_CHOICES = [
         ('草稿', '草稿'),
         ('待审批', '待审批'),
@@ -44,6 +44,7 @@ class Transfer(UUIDModel, TimestampedModel):
         ('捐赠', '捐赠'),
     ]
 
+    单据编号 = models.CharField('单据编号', max_length=32, unique=True, null=True, blank=True, db_index=True)
     调拨日期 = models.DateField('调拨日期', db_index=True)
     调出分公司 = models.CharField('调出分公司', max_length=100, blank=True, default='')
     调出部门 = models.CharField('调出部门', max_length=100, blank=True, default='')
@@ -65,16 +66,10 @@ class Transfer(UUIDModel, TimestampedModel):
         verbose_name='调入分公司(FK)',
     )
     调入部门 = models.CharField('调入部门', max_length=100, blank=True, default='')
-    资产编号 = models.CharField('资产编号', max_length=100, db_index=True)
-    资产名称 = models.CharField('资产名称', max_length=200)
-    规格型号 = models.CharField('规格型号', max_length=200, blank=True, default='')
-    调拨数量 = models.IntegerField('调拨数量', default=1)
     调拨原因 = models.TextField('调拨原因', blank=True, default='')
     调出负责人 = models.CharField('调出负责人', max_length=100, blank=True, default='')
     调入负责人 = models.CharField('调入负责人', max_length=100, blank=True, default='')
     供应商 = models.CharField('供应商', max_length=200, blank=True, default='')
-    单价 = models.DecimalField('单价', max_digits=12, decimal_places=2, null=True, blank=True)
-    总金额 = models.DecimalField('总金额', max_digits=14, decimal_places=2, null=True, blank=True)
     需求部门 = models.CharField('需求部门', max_length=100, blank=True, default='')
     采购经办人 = models.CharField('采购经办人', max_length=100, blank=True, default='')
     用途 = models.CharField('用途', max_length=200, blank=True, default='')
@@ -94,12 +89,7 @@ class Transfer(UUIDModel, TimestampedModel):
     )
     处置方式 = models.CharField('处置方式', max_length=20, blank=True, default='', choices=DISPOSAL_METHOD_CHOICES)
     处置金额 = models.DecimalField('处置金额', max_digits=14, decimal_places=2, null=True, blank=True)
-    单位 = models.CharField('单位', max_length=20, blank=True, default='')
     出库日期 = models.DateField('出库日期', null=True, blank=True)
-    存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
-    资产类目 = models.CharField('资产类目', max_length=100, blank=True, default='')
-    物品分类 = models.CharField('物品分类', max_length=100, blank=True, default='')
-    固定资产内部编号 = models.CharField('固定资产内部编号', max_length=100, blank=True, default='')
 
     class Meta:
         db_table = 'transfers_transfer'
@@ -108,4 +98,58 @@ class Transfer(UUIDModel, TimestampedModel):
         verbose_name_plural = '调拨记录'
 
     def __str__(self):
-        return f'{self.资产名称} - {self.调拨日期}'
+        return f'{self.单据编号 or self.pk} - {self.调拨日期}'
+
+
+class TransferLine(UUIDModel, TimestampedModel):
+    """流转单明细行：品目 × 数量 × 类型专属记录性字段（采购单价/金额、领用使用人/部门、回收存放位置/内部编号）。"""
+
+    transfer = models.ForeignKey(
+        Transfer, on_delete=models.CASCADE, related_name='lines', verbose_name='单头',
+    )
+    item = models.ForeignKey(
+        'categories.Category', on_delete=models.PROTECT, related_name='transfer_lines', verbose_name='品目',
+    )
+    行号 = models.IntegerField('行号')
+    数量 = models.PositiveIntegerField('数量')
+    本批规格 = models.CharField('本批规格（记录性）', max_length=200, blank=True, default='')
+    单价 = models.DecimalField('单价', max_digits=12, decimal_places=2, null=True, blank=True)
+    金额 = models.DecimalField('金额', max_digits=14, decimal_places=2, null=True, blank=True)
+    使用人 = models.CharField('使用人（记录性）', max_length=100, blank=True, default='')
+    department = models.ForeignKey(
+        'organizations.Department', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='transfer_lines', verbose_name='领用部门',
+    )
+    存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
+    固定资产内部编号 = models.CharField('固定资产内部编号', max_length=100, blank=True, default='')
+
+    class Meta:
+        db_table = 'transfers_transferline'
+        ordering = ['行号']
+        verbose_name = '流转单明细行'
+        verbose_name_plural = '流转单明细行'
+        constraints = [
+            models.UniqueConstraint(fields=['transfer', '行号'], name='uniq_transfer_line_no'),
+        ]
+
+    def __str__(self):
+        return f'{self.transfer_id} #{self.行号} {self.item_id} × {self.数量}'
+
+
+class DocumentSequence(UUIDModel, TimestampedModel):
+    """单据编号计数行：(类型, 日期) 一行，锁行自增杜绝并发重号。"""
+
+    action_type = models.CharField('单据类型', max_length=20, db_index=True)
+    date = models.DateField('日期')
+    last_no = models.IntegerField('已发号数', default=0)
+
+    class Meta:
+        db_table = 'transfers_documentsequence'
+        verbose_name = '单据编号序列'
+        verbose_name_plural = '单据编号序列'
+        constraints = [
+            models.UniqueConstraint(fields=['action_type', 'date'], name='uniq_doc_seq_type_date'),
+        ]
+
+    def __str__(self):
+        return f'{self.action_type} {self.date} #{self.last_no}'

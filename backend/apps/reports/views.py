@@ -123,19 +123,19 @@ def overview(request):
         request.user, purchases,
         transfer_fields=('from_branch', 'to_branch'), selected_branches=selected,
     )
-    total_value = purchases.aggregate(total=Sum('总金额'))['total'] or 0
+    total_value = purchases.aggregate(total=Sum('lines__金额'))['total'] or 0
 
     now = timezone.now()
     current_month_qty = purchases.filter(
         调拨日期__year=now.year, 调拨日期__month=now.month,
-    ).aggregate(q=Sum('调拨数量'))['q'] or 0
+    ).aggregate(q=Sum('lines__数量'))['q'] or 0
     if now.month == 1:
         prev_year, prev_month = now.year - 1, 12
     else:
         prev_year, prev_month = now.year, now.month - 1
     prev_month_qty = purchases.filter(
         调拨日期__year=prev_year, 调拨日期__month=prev_month,
-    ).aggregate(q=Sum('调拨数量'))['q'] or 0
+    ).aggregate(q=Sum('lines__数量'))['q'] or 0
 
     if prev_month_qty > 0:
         growth_rate = ((current_month_qty - prev_month_qty) / prev_month_qty) * 100
@@ -263,19 +263,21 @@ def transfers(request):
     if action_filter:
         queryset = queryset.filter(action_type=action_filter)
 
-    queryset = queryset.order_by('-调拨日期')
+    queryset = queryset.order_by('-调拨日期').prefetch_related('lines__item')
 
     data = []
     for t in queryset:
-        data.append({
-            'id': str(t.id),
-            'date': str(t.调拨日期),
-            'assetCode': t.资产编号,
-            'assetName': t.资产名称,
-            'fromBranch': t.调出分公司,
-            'toBranch': t.调入分公司,
-            'quantity': t.调拨数量,
-            'status': t.审批状态,
-            'actionType': t.action_type,
-        })
+        for line in t.lines.all():
+            data.append({
+                'id': str(t.id),
+                'date': str(t.调拨日期),
+                'docNumber': t.单据编号,
+                'assetCode': line.item.asset_code,
+                'assetName': line.item.asset_name,
+                'fromBranch': t.调出分公司,
+                'toBranch': t.调入分公司,
+                'quantity': line.数量,
+                'status': t.审批状态,
+                'actionType': t.action_type,
+            })
     return Response(data)

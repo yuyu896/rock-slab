@@ -1,38 +1,92 @@
 from rest_framework import serializers
-from .models import Transfer
-from apps.organizations.models import Branch
+from .models import Transfer, TransferLine
+from apps.categories.models import Category
+from apps.organizations.models import Branch, Department
+
+
+class TransferLineSerializer(serializers.ModelSerializer):
+    """明细行输出：品目信息联字典回显，前端无需二次查询。"""
+
+    item_code = serializers.CharField(source='item.asset_code', read_only=True)
+    item_name = serializers.CharField(source='item.asset_name', read_only=True)
+    item_spec = serializers.CharField(source='item.specification', read_only=True)
+    unit = serializers.CharField(source='item.unit', read_only=True)
+    asset_category = serializers.CharField(source='item.asset_category', read_only=True)
+    item_category = serializers.CharField(source='item.item_category', read_only=True)
+    management_type = serializers.CharField(source='item.management_type', read_only=True)
+    department_name = serializers.CharField(source='department.name', read_only=True, default='')
+
+    class Meta:
+        model = TransferLine
+        fields = [
+            'id', '行号', 'item', 'item_code', 'item_name', 'item_spec', 'unit',
+            'asset_category', 'item_category', 'management_type',
+            '数量', '本批规格', '单价', '金额', '使用人',
+            'department', 'department_name', '存放位置', '固定资产内部编号',
+        ]
+        read_only_fields = ['id', '行号']
 
 
 class TransferSerializer(serializers.ModelSerializer):
-    """Serializer for Transfer model with Chinese field names used directly."""
+    """单头 + 嵌套明细行（读）。"""
+
     from_branch_name = serializers.CharField(source='from_branch.name', read_only=True, default=None)
     to_branch_name = serializers.CharField(source='to_branch.name', read_only=True, default=None)
+    lines = TransferLineSerializer(many=True, read_only=True)
+    品项数 = serializers.SerializerMethodField()
+    总数量 = serializers.SerializerMethodField()
 
     class Meta:
         model = Transfer
         fields = [
-            'id',
+            'id', '单据编号',
             '调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
-            '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
-            '调出负责人', '调入负责人', '备注', '审批状态', '审批人',
+            '调拨原因', '调出负责人', '调入负责人', '备注', '审批状态', '审批人',
             '审批时间', '创建人', 'action_type',
-            '供应商', '单价', '总金额', '需求部门', '采购经办人', '用途',
-            '回收分类', '回收去向', '处置方式', '处置金额',
-            '单位', '出库日期', '存放位置', '资产类目', '物品分类',
-            '固定资产内部编号',
+            '供应商', '需求部门', '采购经办人', '用途',
+            '回收分类', '回收去向', '处置方式', '处置金额', '出库日期',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
+            'lines', '品项数', '总数量',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', '单据编号']
+
+    def get_品项数(self, obj):
+        return obj.lines.count()
+
+    def get_总数量(self, obj):
+        return sum(line.数量 for line in obj.lines.all())
+
+
+class TransferLineInputSerializer(serializers.Serializer):
+    """明细行输入：品目一律字典 FK 引用（uuid），禁手抄编号。"""
+
+    item = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
+    数量 = serializers.IntegerField(min_value=1)
+    本批规格 = serializers.CharField(required=False, default='', allow_blank=True)
+    单价 = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True,
+    )
+    金额 = serializers.DecimalField(
+        max_digits=14, decimal_places=2, required=False, allow_null=True,
+    )
+    使用人 = serializers.CharField(required=False, default='', allow_blank=True)
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(), required=False, allow_null=True,
+    )
+    存放位置 = serializers.CharField(required=False, default='', allow_blank=True)
+    固定资产内部编号 = serializers.CharField(required=False, default='', allow_blank=True)
 
 
 class TransferActionSerializer(serializers.Serializer):
-    """Serializer for action routes (purchase/assign/return/transfer/recovery)."""
+    """单据创建/编辑入参：单头字段 + items 明细行数组。"""
+
+    def __init__(self, *args, for_update=False, **kwargs):
+        self.for_update = for_update
+        super().__init__(*args, **kwargs)
+
     调拨日期 = serializers.DateField()
-    资产编号 = serializers.CharField()
-    资产名称 = serializers.CharField()
-    调拨数量 = serializers.IntegerField(default=1)
-    规格型号 = serializers.CharField(required=False, default='', allow_blank=True)
+    items = TransferLineInputSerializer(many=True)
     调拨原因 = serializers.CharField(required=False, default='', allow_blank=True)
     调出分公司 = serializers.CharField(required=False, default='', allow_blank=True)
     调出部门 = serializers.CharField(required=False, default='', allow_blank=True)
@@ -44,8 +98,6 @@ class TransferActionSerializer(serializers.Serializer):
     创建人 = serializers.CharField(required=False, default='', allow_blank=True)
     # Purchase fields
     供应商 = serializers.CharField(required=False, default='', allow_blank=True)
-    单价 = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
-    总金额 = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
     需求部门 = serializers.CharField(required=False, default='', allow_blank=True)
     采购经办人 = serializers.CharField(required=False, default='', allow_blank=True)
     用途 = serializers.CharField(required=False, default='', allow_blank=True)
@@ -53,29 +105,23 @@ class TransferActionSerializer(serializers.Serializer):
     回收分类 = serializers.CharField(required=False, default='', allow_blank=True)
     回收去向 = serializers.ChoiceField(choices=['recycle_bin', 'dispose'], required=False, default='recycle_bin')
     处置方式 = serializers.ChoiceField(choices=['', '出售', '报废', '捐赠'], required=False, default='', allow_blank=True)
-    处置金额 = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
-    单位 = serializers.CharField(required=False, default='', allow_blank=True)
+    处置金额 = serializers.DecimalField(
+        max_digits=14, decimal_places=2, required=False, allow_null=True,
+    )
     出库日期 = serializers.DateField(required=False, allow_null=True)
-    存放位置 = serializers.CharField(required=False, default='', allow_blank=True)
-    资产类目 = serializers.CharField(required=False, default='', allow_blank=True)
-    物品分类 = serializers.CharField(required=False, default='', allow_blank=True)
-    固定资产内部编号 = serializers.CharField(required=False, default='', allow_blank=True)
     # FK fields
-    from_branch = serializers.PrimaryKeyRelatedField(
-        queryset=Branch.objects.none(), required=False, allow_null=True,
-    )
-    to_branch = serializers.PrimaryKeyRelatedField(
-        queryset=Branch.objects.none(), required=False, allow_null=True,
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        from apps.organizations.models import Branch
-        self.fields['from_branch'].queryset = Branch.objects.all()
-        self.fields['to_branch'].queryset = Branch.objects.all()
+    from_branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False, allow_null=True)
+    to_branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False, allow_null=True)
 
     def validate(self, attrs):
-        """分公司必填：调出/调入至少一个非空（文字或外键均可）。"""
+        # 编辑（partial）：items 可缺省=保留原明细行；分公司维度沿单据现状，逐字段校验即可
+        if self.for_update:
+            if 'items' in attrs and not attrs['items']:
+                raise serializers.ValidationError({'items': ['至少需要一条明细行']})
+            return attrs
+        if not attrs.get('items'):
+            raise serializers.ValidationError({'items': ['至少需要一条明细行']})
+        # 分公司必填：调出/调入至少一个非空（文字或外键均可）
         has_text = str(attrs.get('调出分公司', '')).strip() or str(attrs.get('调入分公司', '')).strip()
         has_fk = attrs.get('from_branch') or attrs.get('to_branch')
         if not has_text and not has_fk:
@@ -85,5 +131,6 @@ class TransferActionSerializer(serializers.Serializer):
 
 class ApproveSerializer(serializers.Serializer):
     """Serializer for the approve action."""
+
     approved = serializers.BooleanField()
     reason = serializers.CharField(required=False, default='')

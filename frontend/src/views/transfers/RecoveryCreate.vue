@@ -2,12 +2,13 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TransferCreateLayout from './components/TransferCreateLayout.vue'
-import DepartmentSelect from '@/components/DepartmentSelect.vue'
+import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDrafts'
+import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { recoverAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
+import DepartmentSelect from '@/components/DepartmentSelect.vue'
 
 const RECOVERY_CATEGORIES = ['闲置回收', '报废回收', '捐赠回收', '其他']
 const DISPOSAL_METHODS = ['出售', '报废', '捐赠']
@@ -16,29 +17,24 @@ const router = useRouter()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const form = ref({
-  调拨日期: '', 资产编号: '', 资产类目: '', 物品分类: '', 资产名称: '',
-  回收分类: '', 回收去向: 'recycle_bin' as 'recycle_bin' | 'dispose',
-  处置方式: '' as '' | '出售' | '报废' | '捐赠', 处置金额: undefined as number | undefined,
-  调拨数量: 1, 单位: '', 规格型号: '', 出库日期: '',
-  调出分公司: '', 调出部门: '', 存放位置: '', 采购经办人: '', 备注: '',
+  调拨日期: '',
+  回收分类: '',
+  回收去向: 'recycle_bin' as 'recycle_bin' | 'dispose',
+  处置方式: '' as '' | '出售' | '报废' | '捐赠',
+  处置金额: undefined as number | undefined,
+  出库日期: '',
+  调出分公司: '',
+  调出部门: '',
+  采购经办人: '',
+  备注: '',
 })
-
-const { lookupByCode, notFoundCode } = useAssetCodeAutofill()
-
-async function onAssetCodeBlur() {
-  const result = await lookupByCode(form.value.资产编号)
-  if (result) {
-    form.value.资产名称 = result.资产名称
-    form.value.资产类目 = result.资产类目
-    form.value.物品分类 = result.物品分类
-    form.value.单位 = result.计量单位
-  }
-}
+const lines = ref<LineDraft[]>([emptyDraft()])
+const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 
 onMounted(async () => {
   try {
     const { data } = await getBranches()
-    branchOptions.value = data.map((b: any) => ({ value: b.id, label: b.name }))
+    branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }
@@ -50,35 +46,33 @@ function goBack() {
 
 async function submit() {
   const f = form.value
-  if (!f.调拨日期 || !f.资产编号 || !f.资产名称 || !f.调出分公司) {
-    ElMessage.warning('请填写必填字段（日期/编号/名称/分公司）')
+  if (!f.调拨日期 || !f.调出分公司) {
+    ElMessage.warning('请填写日期与分公司')
     return
   }
   if (f.回收去向 === 'dispose' && !f.处置方式) {
     ElMessage.warning('直接处置需选择处置方式')
     return
   }
+  const items = draftsToItems(lines.value)
+  if (items.length === 0 || !linesEditor.value?.validate()) {
+    ElMessage.warning('每行请选择品目并填写数量（≥1）')
+    return
+  }
   creating.value = true
   try {
     await recoverAsset({
       调拨日期: f.调拨日期,
-      资产编号: f.资产编号,
-      资产名称: f.资产名称,
-      资产类目: f.资产类目,
-      物品分类: f.物品分类,
       回收分类: f.回收分类,
       回收去向: f.回收去向,
       处置方式: f.回收去向 === 'dispose' ? f.处置方式 : '',
       处置金额: f.回收去向 === 'dispose' && f.处置方式 === '出售' ? f.处置金额 : undefined,
-      调拨数量: f.调拨数量,
-      单位: f.单位,
-      规格型号: f.规格型号,
       出库日期: f.出库日期 || undefined,
       调出分公司: f.调出分公司,
       调出部门: f.调出部门,
-      存放位置: f.存放位置,
       采购经办人: f.采购经办人,
       备注: f.备注,
+      items,
     })
     ElMessage.success('提交成功')
     goBack()
@@ -94,8 +88,6 @@ async function submit() {
   <TransferCreateLayout title="新建回收记录" :loading="creating" @submit="submit" @back="goBack">
     <div class="form-grid">
       <div class="form-item"><label class="form-label">入库日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">资产编号 <span class="required">*</span></label><input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" @blur="onAssetCodeBlur" /><span v-if="notFoundCode && notFoundCode === form.资产编号" class="field-hint">该编号未在品目字典登记</span></div>
-      <div class="form-item"><label class="form-label">资产名称 <span class="required">*</span></label><input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" /></div>
       <div class="form-item">
         <label class="form-label">回收分类 <span class="required">*</span></label>
         <select v-model="form.回收分类" class="form-select">
@@ -130,12 +122,6 @@ async function submit() {
         <input v-model.number="form.处置金额" type="number" class="form-input" min="0" step="0.01" />
       </div>
 
-      <div class="form-item"><label class="form-label">资产类目</label><input v-model="form.资产类目" type="text" class="form-input" placeholder="如：固定资产类" /></div>
-      <div class="form-item"><label class="form-label">物品分类</label><input v-model="form.物品分类" type="text" class="form-input" placeholder="如：办公设备" /></div>
-      <div class="form-item"><label class="form-label">数量</label><input v-model.number="form.调拨数量" type="number" class="form-input" min="1" /></div>
-      <div class="form-item"><label class="form-label">单位</label><input v-model="form.单位" type="text" class="form-input" placeholder="如：台、个" /></div>
-      <div class="form-item"><label class="form-label">规格</label><input v-model="form.规格型号" type="text" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">出库日期</label><input v-model="form.出库日期" type="date" class="form-input" /></div>
       <div class="form-item">
         <label class="form-label">分公司 <span class="required">*</span></label>
         <select v-model="form.调出分公司" class="form-select">
@@ -144,10 +130,12 @@ async function submit() {
         </select>
       </div>
       <div class="form-item"><label class="form-label">所属部门</label><DepartmentSelect v-model="form.调出部门" :branch="form.调出分公司" /></div>
-      <div class="form-item"><label class="form-label">存放位置</label><input v-model="form.存放位置" type="text" class="form-input" /></div>
+      <div class="form-item"><label class="form-label">出库日期</label><input v-model="form.出库日期" type="date" class="form-input" /></div>
       <div class="form-item"><label class="form-label">经办人</label><input v-model="form.采购经办人" type="text" class="form-input" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
+
+    <TransferLinesEditor ref="linesEditor" v-model="lines" type="recovery" />
   </TransferCreateLayout>
 </template>
 

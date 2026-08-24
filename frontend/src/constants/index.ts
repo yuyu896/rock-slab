@@ -66,6 +66,17 @@ export const APPROVAL_STATUS_COLORS: Record<ApprovalStatusType, { bg: string; co
   '已入库': { bg: 'var(--color-status-in-stock-bg)', color: 'var(--color-status-in-stock-text)' },
 }
 
+// ============ 流转单类型 ============
+
+export const TRANSFER_TYPES = {
+  purchase: { label: '采购入库', color: { bg: 'oklch(0.92 0.08 340)', color: 'oklch(0.45 0.12 340)' } },
+  assign: { label: '领用出库', color: { bg: 'var(--color-primary-50)', color: 'var(--color-primary-600)' } },
+  transfer: { label: '调拨', color: { bg: 'oklch(0.92 0.06 240)', color: 'oklch(0.45 0.12 250)' } },
+  recovery: { label: '回收', color: { bg: 'oklch(0.92 0.08 85)', color: 'oklch(0.45 0.16 85)' } },
+} as const
+
+export type TransferType = keyof typeof TRANSFER_TYPES
+
 // ============ 盘点任务状态 ============
 
 export const INVENTORY_STATUS_MAP: Record<InventoryTaskStatusType, string> = {

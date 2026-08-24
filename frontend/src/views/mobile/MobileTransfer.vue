@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { transferAsset } from '@/api/transfers'
+import { lookupCategoryByCode } from '@/api/categories'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { useUserStore } from '@/store/user'
@@ -67,15 +68,15 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
+    // 编号 → 字典品目 uuid（明细行品目引用一律 FK）
+    const { data: item } = await lookupCategoryByCode(form.value.资产编号.trim())
     await transferAsset({
       调拨日期: form.value.调拨日期 || new Date().toISOString().slice(0, 10),
-      资产编号: form.value.资产编号.trim(),
-      资产名称: form.value.资产名称.trim(),
       fromBranch: form.value.fromBranch || undefined,
       toBranch: form.value.toBranch || undefined,
-      调拨数量: form.value.调拨数量,
       调拨原因: form.value.调拨原因,
       备注: form.value.备注,
+      items: [{ item: item.id, 数量: form.value.调拨数量 }],
     })
     ElMessage.success('调拨申请已提交')
     router.back()

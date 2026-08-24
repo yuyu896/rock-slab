@@ -1,13 +1,13 @@
 """报表契约测试（P1 台账口径）：overview / by-branch / by-status / transfers / 数据范围。
 
-总量=台账三列之和；购入金额与增长来自采购单（金额属单据层）。
+总量=台账三列之和；购入金额与增长来自采购单（P2 起金额/数量按明细行聚合）。
 """
 import pytest
 from datetime import date
 from decimal import Decimal
 from rest_framework import status
 
-from apps.transfers.models import Transfer
+from apps.transfers.models import Transfer, TransferLine
 from conftest import _client_for
 
 
@@ -42,8 +42,8 @@ def _seed_purchase(branch, code, qty, amount, when, client_user=None):
     token, _ = ExpiringToken.objects.get_or_create(user=client_user)
     client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
     resp = client.post('/api/transfers/purchase', {
-        '调拨日期': str(when), '资产编号': code, '资产名称': f'品目 {code}',
-        '调拨数量': qty, '总金额': amount, '调出分公司': branch.name,
+        '调拨日期': str(when), '调出分公司': branch.name,
+        'items': [{'item': str(_item(code).id), '数量': qty, '金额': str(amount)}],
     }, format='json')
     assert resp.status_code == 201, resp.data
     resp = client.post(f"/api/transfers/{resp.data['id']}/approve", {'approved': True}, format='json')
@@ -136,18 +136,25 @@ class TestReportByStatus:
 @pytest.mark.django_db
 class TestReportTransfers:
     def _make_transfer(self, branch, code, action_type, approval='已通过'):
-        return Transfer.objects.create(
+        transfer = Transfer.objects.create(
             调拨日期=date(2026, 8, 1),
-            资产编号=code, 资产名称=f'品目 {code}', 调拨数量=2,
             调出分公司=branch.name, from_branch=branch,
             action_type=action_type, 审批状态=approval,
         )
+        TransferLine.objects.create(
+            transfer=transfer, item=_item(code), 行号=1, 数量=2,
+        )
+        return transfer
 
     def test_transfers_report_returns_data(self, authenticated_client, branch):
         self._make_transfer(branch, 'RP-T-001', 'transfer')
         resp = authenticated_client.get('/api/reports/transfers/')
         assert resp.status_code == 200
         assert len(resp.data) >= 1
+        # 报表明细按行输出：一行明细一行记录
+        row = next(r for r in resp.data if r['assetCode'] == 'RP-T-001')
+        assert row['quantity'] == 2
+        assert 'docNumber' in row
 
     def test_filter_by_action_type(self, authenticated_client, branch):
         self._make_transfer(branch, 'RP-T-002', 'transfer')

@@ -14,29 +14,23 @@ def _action_url(action_name, pk=None):
 
 
 @pytest.fixture
-def purchase_payload():
+def purchase_payload(item_id):
     return {
         '调拨日期': '2026-01-15',
-        '资产编号': 'AST-TEST-001',
-        '资产名称': '测试资产',
-        '调拨数量': 1,
         '调拨原因': '采购入库测试',
         '调出分公司': '测试分公司',
-        'action_type': 'purchase',
+        'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
     }
 
 
 @pytest.fixture
-def assign_payload():
+def assign_payload(item_id):
     return {
         '调拨日期': '2026-01-16',
-        '资产编号': 'AST-TEST-001',
-        '资产名称': '测试资产',
-        '调拨数量': 1,
         '调拨原因': '领用出库测试',
         '调出分公司': '测试分公司',
         '调入分公司': '测试分公司',
-        'action_type': 'assign',
+        'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
     }
 
 
@@ -48,14 +42,17 @@ class TestPurchaseFlow:
         resp = authenticated_client.post(_action_url('purchase'), purchase_payload, format='json')
         assert resp.status_code == status.HTTP_201_CREATED
         data = resp.data
-        assert data['资产编号'] == 'AST-TEST-001'
-        assert data['资产名称'] == '测试资产'
+        assert data['lines'][0]['item_code'] == 'AST-TEST-001'
+        assert data['lines'][0]['item_name'] == '测试品目 AST-TEST-001'
+        assert data['lines'][0]['数量'] == 1
+        assert data['品项数'] == 1 and data['总数量'] == 1
         assert data['action_type'] == 'purchase'
 
     def test_purchase_missing_required_field(self, authenticated_client):
         payload = {
             '调拨日期': '2026-01-15',
-            # missing 资产编号 and 资产名称
+            '调出分公司': '测试分公司',
+            # missing items
         }
         resp = authenticated_client.post(_action_url('purchase'), payload, format='json')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
@@ -82,13 +79,11 @@ class TestAssignFlow:
         data = resp.data
         assert data['action_type'] == 'assign'
 
-    def test_assign_missing_to_branch(self, authenticated_client, branch):
+    def test_assign_missing_to_branch(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-01-16',
-            '资产编号': 'AST-TEST-002',
-            '资产名称': '测试资产2',
             '调出分公司': '测试分公司',
-            'action_type': 'assign',
+            'items': [{'item': item_id('AST-TEST-002'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')
         assert resp.status_code == status.HTTP_201_CREATED
@@ -98,15 +93,12 @@ class TestAssignFlow:
 class TestReturnFlow:
     """归还流程"""
 
-    def test_return_success(self, authenticated_client, branch):
+    def test_return_success(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-01-17',
-            '资产编号': 'AST-TEST-001',
-            '资产名称': '测试资产',
-            '调拨数量': 1,
             '调拨原因': '归还测试',
             '调入分公司': '测试分公司',
-            'action_type': 'return',
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('return'), payload, format='json')
         assert resp.status_code == status.HTTP_201_CREATED
@@ -117,16 +109,13 @@ class TestReturnFlow:
 class TestTransferFlow:
     """调拨流程"""
 
-    def test_transfer_success(self, authenticated_client, branch, second_branch):
+    def test_transfer_success(self, authenticated_client, branch, second_branch, item_id):
         payload = {
             '调拨日期': '2026-01-18',
-            '资产编号': 'AST-TEST-001',
-            '资产名称': '测试资产',
-            '调拨数量': 1,
             '调拨原因': '调拨测试',
             '调出分公司': branch.name,
             '调入分公司': second_branch.name,
-            'action_type': 'transfer',
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('transfer'), payload, format='json')
         assert resp.status_code == status.HTTP_201_CREATED
@@ -135,28 +124,24 @@ class TestTransferFlow:
 
 @pytest.mark.django_db
 class TestRepairScrapRemoved:
-    """维修/报废端点已移除，应返回 404"""
+    """维修/报废端点已移除，应返回 405"""
 
-    def test_repair_returns_405(self, authenticated_client):
+    def test_repair_returns_405(self, authenticated_client, item_id):
         payload = {
             '调拨日期': '2026-01-19',
-            '资产编号': 'AST-TEST-001',
-            '资产名称': '测试资产',
-            '调拨数量': 1,
             '调拨原因': '维修测试',
             '调出分公司': '测试分公司',
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('repair'), payload, format='json')
         assert resp.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_scrap_returns_405(self, authenticated_client):
+    def test_scrap_returns_405(self, authenticated_client, item_id):
         payload = {
             '调拨日期': '2026-01-20',
-            '资产编号': 'AST-TEST-001',
-            '资产名称': '测试资产',
-            '调拨数量': 1,
             '调拨原因': '报废测试',
             '调出分公司': '测试分公司',
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('scrap'), payload, format='json')
         assert resp.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
@@ -166,22 +151,19 @@ class TestRepairScrapRemoved:
 class TestApproveFlow:
     """审批流程"""
 
-    def _create_pending_transfer(self, client):
+    def _create_pending_transfer(self, client, item_id):
         payload = {
             '调拨日期': '2026-01-15',
-            '资产编号': 'AST-APPROVE-001',
-            '资产名称': '审批测试资产',
-            '调拨数量': 1,
             '调拨原因': '审批测试',
             '调出分公司': '测试分公司',
-            'action_type': 'purchase',
+            'items': [{'item': item_id('AST-APPROVE-001'), '数量': 1}],
         }
         resp = client.post(_action_url('purchase'), payload, format='json')
         assert resp.status_code == status.HTTP_201_CREATED
         return resp.data['id']
 
-    def test_approve_success(self, authenticated_client, branch):
-        transfer_id = self._create_pending_transfer(authenticated_client)
+    def test_approve_success(self, authenticated_client, branch, item_id):
+        transfer_id = self._create_pending_transfer(authenticated_client, item_id)
         resp = authenticated_client.post(
             _action_url('approve', transfer_id),
             {'approved': True, 'reason': '同意'},
@@ -191,8 +173,8 @@ class TestApproveFlow:
         data = resp.data
         assert data['审批状态'] == '已入库'
 
-    def test_reject_success(self, authenticated_client, branch):
-        transfer_id = self._create_pending_transfer(authenticated_client)
+    def test_reject_success(self, authenticated_client, branch, item_id):
+        transfer_id = self._create_pending_transfer(authenticated_client, item_id)
         resp = authenticated_client.post(
             _action_url('approve', transfer_id),
             {'approved': False, 'reason': '不合规'},
@@ -202,8 +184,8 @@ class TestApproveFlow:
         data = resp.data
         assert data['审批状态'] == '已驳回'
 
-    def test_approve_missing_decision(self, authenticated_client, branch):
-        transfer_id = self._create_pending_transfer(authenticated_client)
+    def test_approve_missing_decision(self, authenticated_client, branch, item_id):
+        transfer_id = self._create_pending_transfer(authenticated_client, item_id)
         resp = authenticated_client.post(
             _action_url('approve', transfer_id),
             {},
@@ -271,15 +253,13 @@ class TestApproveAssetSync:
             当前状态=status,
         )
 
-    def test_assign_approve_moves_ledger_and_freezes_asset(self, authenticated_client, branch):
+    def test_assign_approve_moves_ledger_and_freezes_asset(self, authenticated_client, branch, item_id):
         asset = self._create_asset(branch)
         self._seed_ledger(branch, 'AST-SYNC-001')
         payload = {
             '调拨日期': '2026-02-01',
-            '资产编号': asset.资产编号,
-            '资产名称': asset.资产名称,
-            '调拨数量': 1,
             '调出分公司': branch.name,
+            'items': [{'item': item_id('AST-SYNC-001'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')
         transfer_id = resp.data['id']
@@ -291,7 +271,7 @@ class TestApproveAssetSync:
         asset.refresh_from_db()
         assert asset.当前状态 == '在库' and asset.数量 == 5  # Asset 冻结零变化
 
-    def test_return_approve_moves_ledger(self, authenticated_client, branch):
+    def test_return_approve_moves_ledger(self, authenticated_client, branch, item_id):
         from apps.assets.models import AssetStock
         from apps.assets.services import ledger
         from apps.categories.models import Category
@@ -300,10 +280,8 @@ class TestApproveAssetSync:
         ledger.apply_adjustment(branch, item, ledger.COLUMN_IN_USE, 3, '造数')
         payload = {
             '调拨日期': '2026-02-02',
-            '资产编号': 'AST-SYNC-001',
-            '资产名称': '同步测试资产',
-            '调拨数量': 2,
             '调入分公司': branch.name,
+            'items': [{'item': item_id('AST-SYNC-001'), '数量': 2}],
         }
         resp = authenticated_client.post(_action_url('return'), payload, format='json')
         transfer_id = resp.data['id']
@@ -311,16 +289,14 @@ class TestApproveAssetSync:
         row = AssetStock.objects.get(branch=branch, item=item)
         assert row.在用数量 == 1 and row.在库数量 == 7
 
-    def test_transfer_approve_moves_both_ledgers(self, authenticated_client, branch, second_branch):
+    def test_transfer_approve_moves_both_ledgers(self, authenticated_client, branch, second_branch, item_id):
         from apps.assets.models import AssetStock
         self._seed_ledger(branch, 'AST-SYNC-001')
         payload = {
             '调拨日期': '2026-02-03',
-            '资产编号': 'AST-SYNC-001',
-            '资产名称': '同步测试资产',
-            '调拨数量': 2,
             '调出分公司': branch.name,
             '调入分公司': second_branch.name,
+            'items': [{'item': item_id('AST-SYNC-001'), '数量': 2}],
         }
         resp = authenticated_client.post(_action_url('transfer'), payload, format='json')
         transfer_id = resp.data['id']
@@ -328,15 +304,13 @@ class TestApproveAssetSync:
         assert AssetStock.objects.get(branch=branch, item__asset_code='AST-SYNC-001').在库数量 == 3
         assert AssetStock.objects.get(branch=second_branch, item__asset_code='AST-SYNC-001').在库数量 == 2
 
-    def test_reject_does_not_touch_ledger(self, authenticated_client, branch):
+    def test_reject_does_not_touch_ledger(self, authenticated_client, branch, item_id):
         from apps.assets.models import AssetStock
         self._seed_ledger(branch, 'AST-SYNC-001')
         payload = {
             '调拨日期': '2026-02-04',
-            '资产编号': 'AST-SYNC-001',
-            '资产名称': '同步测试资产',
-            '调拨数量': 1,
             '调出分公司': branch.name,
+            'items': [{'item': item_id('AST-SYNC-001'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')
         transfer_id = resp.data['id']

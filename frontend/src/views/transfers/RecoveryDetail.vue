@@ -2,9 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import TransferDetailLayout from './components/TransferDetailLayout.vue'
-import { getTransfer, approveTransfer, rejectTransfer } from '@/api/transfers'
+import { getTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import type { TransferDocument } from '@/types'
 
 const route = useRoute()
@@ -23,49 +23,26 @@ async function fetchTransfer() {
   }
 }
 
-async function handleApprove() {
-  try {
-    await ElMessageBox.confirm('确定通过此申请？', '审批确认', { type: 'info' })
-    await approveTransfer(route.params.id as string, { approved: true })
-    ElMessage.success('审批通过')
-    await fetchTransfer()
-  } catch (error) {
-    if (error !== 'cancel') ElMessage.error(handleApiError(error))
-  }
-}
-
-async function handleReject() {
-  try {
-    const { value } = await ElMessageBox.prompt('请输入驳回原因', '驳回确认', {
-      confirmButtonText: '确定驳回',
-      cancelButtonText: '取消',
-      inputValidator: (v: string) => (v && v.trim() ? true : '请输入驳回原因'),
-    })
-    await rejectTransfer(route.params.id as string, { reason: value })
-    ElMessage.success('已驳回')
-    await fetchTransfer()
-  } catch (error) {
-    if (error !== 'cancel') ElMessage.error(handleApiError(error))
-  }
-}
-
 onMounted(fetchTransfer)
 </script>
 
 <template>
   <TransferDetailLayout
-    title="领用出库详情"
-    back-path="/transfers/assign"
-    type="assign"
+    title="回收详情"
+    back-path="/transfers/recovery"
+    type="recovery"
     :doc="transfer"
     :loading="loading"
-    @approve="handleApprove"
-    @reject="handleReject"
   >
     <template #extra-view="{ doc }">
       <div class="extra-grid">
-        <span class="extra-item"><label>调出部门</label><span>{{ doc.调出部门 || '-' }}</span></span>
-        <span class="extra-item"><label>用途</label><span>{{ doc.用途 || '-' }}</span></span>
+        <span class="extra-item"><label>回收分类</label><span>{{ doc.回收分类 || '-' }}</span></span>
+        <span class="extra-item"><label>回收去向</label><span>{{ doc.回收去向 === 'dispose' ? '直接处置' : '入回收库' }}</span></span>
+        <span v-if="doc.回收去向 === 'dispose'" class="extra-item"><label>处置方式</label><span>{{ doc.处置方式 || '-' }}</span></span>
+        <span v-if="doc.回收去向 === 'dispose' && doc.处置方式 === '出售'" class="extra-item"><label>处置金额</label><span>{{ doc.处置金额 ?? '-' }}</span></span>
+        <span class="extra-item"><label>所属部门</label><span>{{ doc.调出部门 || '-' }}</span></span>
+        <span class="extra-item"><label>出库日期</label><span class="mono">{{ doc.出库日期 || '-' }}</span></span>
+        <span class="extra-item"><label>经办人</label><span>{{ doc.采购经办人 || '-' }}</span></span>
         <span class="extra-item full"><label>备注</label><span>{{ doc.备注 || '-' }}</span></span>
       </div>
     </template>
@@ -78,4 +55,5 @@ onMounted(fetchTransfer)
 .extra-item label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
 .extra-item span { color: var(--color-text-primary); }
 .extra-item.full { flex-basis: 100%; }
+.mono { font-family: var(--font-mono); }
 </style>

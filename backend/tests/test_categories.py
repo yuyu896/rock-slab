@@ -10,6 +10,9 @@ from conftest import _client_for
 
 CATEGORY_URL = '/api/categories/'
 
+# 引用检查已改按明细行联查（TransferLine.item），用例恢复
+_DESTROY_TRANSFER_REF_BROKEN = lambda test: test
+
 
 def _build_import_xlsx(rows):
     """Build an xlsx byte buffer with the given rows (list of tuples)."""
@@ -73,6 +76,7 @@ class TestCategoryCRUD:
         assert resp.status_code == 200
         assert resp.json()['资产名称'] == '已修改'
 
+    @_DESTROY_TRANSFER_REF_BROKEN
     def test_delete_category(self, admin_user, category):
         from apps.categories.models import Category
         client = _client_for(admin_user)
@@ -285,6 +289,7 @@ class TestItemDictionary:
         resp = client.post(CATEGORY_URL, self._payload('DICT-X-001', management_type='mixed'))
         assert resp.status_code == 400
 
+    @_DESTROY_TRANSFER_REF_BROKEN
     def test_destroy_blocked_by_asset_reference(self, admin_user):
         from apps.assets.models import Asset
         client = _client_for(admin_user)
@@ -299,6 +304,7 @@ class TestItemDictionary:
         assert resp.status_code == 400
         assert '资产明细' in resp.json()['detail']
 
+    @_DESTROY_TRANSFER_REF_BROKEN
     def test_destroy_allowed_without_reference(self, admin_user):
         client = _client_for(admin_user)
         resp = client.post(CATEGORY_URL, self._payload('DICT-F-001'))
@@ -319,17 +325,30 @@ class TestItemDictionary:
         assert data['规格'] == '定义规格'
         assert '默认供应商' in data
 
-    def test_transfer_with_unregistered_code_rejected_with_suggestion(self, admin_user, authenticated_client):
-        # 先登记相近编号，验证 difflib 提示
+    def test_transfer_with_unregistered_code_rejected_with_suggestion(self, admin_user, branch):
+        """P2 起创建走 items[].item（品目 uuid，FK 即户籍保证）；编号字符串入口只剩批量导入，
+        「未登记编号拒绝 + difflib 相近提示」契约随之由导入路径承载。"""
+        from apps.categories.models import Category
+        # 相近编号 AST-TEST-001/002 已由 conftest 预登记，供 difflib 提示命中
+        assert Category.objects.filter(asset_code='AST-TEST-001').exists()
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['采购日期', '分公司', '资产编号', '物品名称', '规格型号', '图片',
+                   '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注'])
+        ws.append(['2026-08-23', branch.name, 'AST-TEST-002X', '未登记品目', '', '',
+                   '', 1, None, None, '', '', ''])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        buf.name = 'purchase.xlsx'
+
         client = _client_for(admin_user)
-        client.post(CATEGORY_URL, self._payload('AST-TEST-001'))
-        resp = authenticated_client.post('/api/transfers/purchase', {
-            '调拨日期': '2026-08-23',
-            '资产编号': 'AST-TEST-002X',
-            '资产名称': '未登记品目',
-            '调拨数量': 1,
-            '调出分公司': '测试分公司',
-        }, format='json')
-        assert resp.status_code == 400
-        detail = resp.json()['detail']
-        assert '未在品目字典登记' in detail
+        resp = client.post(
+            '/api/transfers/import?type=purchase', {'file': buf}, format='multipart',
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data['imported'] == 0
+        assert any('未在品目字典登记' in e for e in data['errors'])
+        assert any('是否想找' in e for e in data['errors'])

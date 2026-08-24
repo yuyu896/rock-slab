@@ -2,24 +2,20 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TransferCreateLayout from './components/TransferCreateLayout.vue'
+import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDrafts'
+import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { purchaseAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
 
 const router = useRouter()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
-const form = ref({ 调拨日期: '', 资产编号: '', 资产名称: '', 规格型号: '', 调拨数量: 1, toBranch: '', 供应商: '', 需求部门: '', 采购经办人: '', 备注: '' })
-
-const { lookupByCode, notFoundCode } = useAssetCodeAutofill()
-
-async function onAssetCodeBlur() {
-  const result = await lookupByCode(form.value.资产编号)
-  if (result) form.value.资产名称 = result.资产名称
-}
+const form = ref({ 调拨日期: '', toBranch: '', 供应商: '', 需求部门: '', 采购经办人: '', 备注: '' })
+const lines = ref<LineDraft[]>([emptyDraft()])
+const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 
 onMounted(async () => {
   try {
@@ -36,23 +32,25 @@ function goBack() {
 
 async function submit() {
   const f = form.value
-  if (!f.调拨日期 || !f.资产编号 || !f.资产名称 || !f.调拨数量 || !f.toBranch) {
-    ElMessage.warning('请填写必填字段')
+  if (!f.调拨日期 || !f.toBranch) {
+    ElMessage.warning('请填写日期与入库分公司')
+    return
+  }
+  const items = draftsToItems(lines.value)
+  if (items.length === 0 || !linesEditor.value?.validate()) {
+    ElMessage.warning('每行请选择品目并填写数量（≥1）')
     return
   }
   creating.value = true
   try {
     await purchaseAsset({
       调拨日期: f.调拨日期,
-      资产编号: f.资产编号,
-      资产名称: f.资产名称,
-      规格型号: f.规格型号,
-      调拨数量: f.调拨数量,
       toBranch: f.toBranch,
       供应商: f.供应商,
       需求部门: f.需求部门,
       采购经办人: f.采购经办人,
       备注: f.备注,
+      items,
     })
     ElMessage.success('提交成功')
     goBack()
@@ -75,14 +73,12 @@ async function submit() {
           <option v-for="b in branchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
         </select>
       </div>
-      <div class="form-item"><label class="form-label">资产编号 <span class="required">*</span></label><input v-model="form.资产编号" type="text" class="form-input" placeholder="请输入资产编号" @blur="onAssetCodeBlur" /><span v-if="notFoundCode && notFoundCode === form.资产编号" class="field-hint">该编号未在资产分类登记</span></div>
-      <div class="form-item"><label class="form-label">资产名称 <span class="required">*</span></label><input v-model="form.资产名称" type="text" class="form-input" placeholder="请输入资产名称" /></div>
-      <div class="form-item"><label class="form-label">规格</label><input v-model="form.规格型号" type="text" class="form-input" placeholder="规格型号" /></div>
-      <div class="form-item"><label class="form-label">数量 <span class="required">*</span></label><input v-model.number="form.调拨数量" type="number" class="form-input" min="1" /></div>
       <div class="form-item"><label class="form-label">供应商</label><input v-model="form.供应商" type="text" class="form-input" placeholder="选填" /></div>
       <div class="form-item"><label class="form-label">需求部门</label><DepartmentSelect v-model="form.需求部门" :branch-id="form.toBranch" placeholder="选填" /></div>
       <div class="form-item"><label class="form-label">采购经办人</label><input v-model="form.采购经办人" type="text" class="form-input" placeholder="选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
+
+    <TransferLinesEditor ref="linesEditor" v-model="lines" type="purchase" />
   </TransferCreateLayout>
 </template>

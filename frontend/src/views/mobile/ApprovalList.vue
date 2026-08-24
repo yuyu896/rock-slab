@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { getTransfers, approveTransfer, rejectTransfer } from '@/api/transfers'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { transferDocSummary } from '@/types'
 import type { Transfer } from '@/types'
 
 const router = useRouter()
@@ -142,8 +143,8 @@ onMounted(() => {
         </div>
 
         <div class="card-body" @click="viewDetail(item)">
-          <h3 class="asset-name">{{ item.资产名称 }}</h3>
-          <p class="asset-code">{{ item.资产编号 }}</p>
+          <h3 class="asset-name">{{ transferDocSummary(item).name }}</h3>
+          <p class="asset-code">{{ transferDocSummary(item).code }}</p>
           <div class="flow-info">
             <span class="from">{{ item.调出分公司 || '-' }}</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -186,8 +187,8 @@ onMounted(() => {
         </div>
 
         <div class="card-body">
-          <h3 class="asset-name">{{ item.资产名称 }}</h3>
-          <p class="asset-code">{{ item.资产编号 }}</p>
+          <h3 class="asset-name">{{ transferDocSummary(item).name }}</h3>
+          <p class="asset-code">{{ transferDocSummary(item).code }}</p>
           <p class="approver">审批人：{{ item.审批人 || '-' }}</p>
         </div>
       </div>

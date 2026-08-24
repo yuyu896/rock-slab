@@ -37,15 +37,17 @@ def _row(branch, code):
     return AssetStock.objects.get(branch=branch, item__asset_code=code)
 
 
-def _create_doc(client, action, branch, code, qty, **extra):
+def _create_doc(client, action, branch, code, qty, line=None, **header_extra):
+    """建单：单头 + 单条明细行（line 追加行级字段如 单价/金额）。"""
+    from apps.categories.models import Category
+    item_line = {'item': str(Category.objects.get(asset_code=code).id), '数量': qty}
+    item_line.update(line or {})
     payload = {
         '调拨日期': '2026-08-23',
-        '资产编号': code,
-        '资产名称': f'品目 {code}',
-        '调拨数量': qty,
         '调出分公司': branch.name,
+        'items': [item_line],
     }
-    payload.update(extra)
+    payload.update(header_extra)
     resp = client.post(f'/api/transfers/{action}', payload, format='json')
     assert resp.status_code == 201, resp.data
     return resp.data['id']
@@ -143,21 +145,26 @@ class TestDocumentLedgerMatrix:
 
 @pytest.mark.django_db
 class TestDocumentCreationValidation:
-    def test_unregistered_code_rejected_with_suggestion(self, authenticated_client, branch):
+    def test_unregistered_item_uuid_rejected(self, authenticated_client, branch):
+        """未登记编号的新形态：items[].item 指向不存在的外键 → 400。"""
         _ensure_item('MX-V-001')
         resp = authenticated_client.post('/api/transfers/assign', {
-            '调拨日期': '2026-08-23', '资产编号': 'MX-V-001X', '资产名称': '未登记',
-            '调拨数量': 1, '调出分公司': branch.name,
+            '调拨日期': '2026-08-23', '调出分公司': branch.name,
+            'items': [{'item': '00000000-0000-0000-0000-000000000000', '数量': 1}],
         }, format='json')
         assert resp.status_code == 400
-        assert '未在品目字典登记' in str(resp.data['detail'])
+        assert 'items' in resp.data
+        assert any(
+            getattr(e, 'code', '') == 'does_not_exist'
+            for e in resp.data['items'][0]['item']
+        )
 
-    def test_missing_code_rejected(self, authenticated_client, branch):
+    def test_missing_items_rejected(self, authenticated_client, branch):
         resp = authenticated_client.post('/api/transfers/assign', {
-            '调拨日期': '2026-08-23', '资产名称': '无编号', '调拨数量': 1,
-            '调出分公司': branch.name,
+            '调拨日期': '2026-08-23', '调出分公司': branch.name,
         }, format='json')
         assert resp.status_code == 400
+        assert 'items' in resp.data
 
 
 # ---------------------------------------------------------------------------
@@ -304,11 +311,10 @@ class TestReportsLedgerBasis:
         assert statuses == {'在库': 6, '在用': 2, '回收库': 2}
 
     def test_purchase_value_from_documents(self, authenticated_client, branch):
-        from decimal import Decimal
         _seed(branch, 'RP-002', stock=1)
         tid = _create_doc(
             authenticated_client, 'purchase', branch, 'RP-002', 2,
-            总金额=Decimal('120.00'),
+            line={'单价': '60.00', '金额': '120.00'},
         )
         assert _approve(authenticated_client, tid).status_code == 200
         resp = authenticated_client.get('/api/reports/overview/')

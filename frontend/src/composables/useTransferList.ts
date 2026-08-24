@@ -1,24 +1,19 @@
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
-  getTransfers, getTransfer,
+  getTransfers,
   approveTransfer as approveTransferApi, rejectTransfer as rejectTransferApi,
   importTransfers, exportTransfers
 } from '@/api/transfers'
 import { generateTransferTemplate } from '@/utils/importTemplate'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
-import { APPROVAL_STATUS_OPTIONS, APPROVAL_STATUS_COLORS } from '@/constants'
+import { APPROVAL_STATUS_OPTIONS, APPROVAL_STATUS_COLORS, TRANSFER_TYPES } from '@/constants'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Transfer } from '@/types'
 
-// 流转类型元数据
-export const TRANSFER_TYPES = {
-  purchase: { label: '采购入库', color: { bg: 'oklch(0.92 0.08 340)', color: 'oklch(0.45 0.12 340)' } },
-  assign: { label: '领用出库', color: { bg: 'var(--color-primary-50)', color: 'var(--color-primary-600)' } },
-  transfer: { label: '调拨', color: { bg: 'oklch(0.92 0.06 240)', color: 'oklch(0.45 0.12 250)' } },
-  recovery: { label: '回收', color: { bg: 'oklch(0.92 0.08 85)', color: 'oklch(0.45 0.16 85)' } },
-} as const
-
+// 流转类型元数据（权威定义在 constants，此处再导出兼容既有导入方）
+export { TRANSFER_TYPES }
 export type TransferType = keyof typeof TRANSFER_TYPES
 
 export function useTransferList(type: TransferType) {
@@ -87,23 +82,10 @@ export function useTransferList(type: TransferType) {
     }
   }
 
-  // 详情弹窗
-  const showDetailModal = ref(false)
-  const detailItem = ref<Transfer | null>(null)
-  const detailLoading = ref(false)
-
-  async function viewDetail(item: Transfer) {
-    detailItem.value = item
-    showDetailModal.value = true
-    if (!item.资产名称) {
-      detailLoading.value = true
-      try {
-        const { data } = await getTransfer(item.id)
-        detailItem.value = data
-      } catch { /* use cached */ } finally {
-        detailLoading.value = false
-      }
-    }
+  // 详情：各类型统一走 :id 详情路由（弹窗已退役）
+  const router = useRouter()
+  function viewDetail(item: Transfer) {
+    router.push(`/transfers/${type}/${item.id}`)
   }
 
   // 审批
@@ -239,9 +221,6 @@ export function useTransferList(type: TransferType) {
     fetchTransfers,
     resetFilters,
     // 详情
-    showDetailModal,
-    detailItem,
-    detailLoading,
     viewDetail,
     // 审批
     handleApprove,

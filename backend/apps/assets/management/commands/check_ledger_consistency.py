@@ -45,42 +45,38 @@ class Command(BaseCommand):
             expected.setdefault(key, {'在库数量': 0, '在用数量': 0, '回收库数量': 0})
             expected[key][column] += delta
 
-        from apps.categories.models import Category
-        item_map = {c.asset_code: c for c in Category.objects.all()}
-
         # 调整单（全部：期初 + 非期初）
         for adj in LedgerAdjustment.objects.select_related('branch', 'item'):
             bump(adj.branch, adj.item, adj.目标列, adj.变动量)
 
-        # 生效流转单（期初时刻之后）
+        # 生效流转单（期初时刻之后）：按明细行逐行累计（P2 明细行化）
         transfers = Transfer.objects.filter(
             审批状态__in=EFFECTIVE_TRANSFER_STATUSES,
-        ).select_related('from_branch', 'to_branch')
+        ).select_related('from_branch', 'to_branch').prefetch_related('lines__item')
         if initial_time is not None:
             transfers = transfers.filter(created_at__gte=initial_time)
 
         for t in transfers:
-            item = item_map.get((t.资产编号 or '').strip())
-            if item is None:
-                continue
-            qty = int(t.调拨数量 or 0)
             action = t.action_type
-            if action == 'purchase':
-                bump(t.to_branch or t.from_branch, item, '在库数量', qty)
-            elif action == 'assign':
-                bump(t.from_branch, item, '在库数量', -qty)
-                bump(t.from_branch, item, '在用数量', qty)
-            elif action == 'return':
-                branch = t.to_branch or t.from_branch
-                bump(branch, item, '在用数量', -qty)
-                bump(branch, item, '在库数量', qty)
-            elif action == 'transfer':
-                bump(t.from_branch, item, '在库数量', -qty)
-                bump(t.to_branch, item, '在库数量', qty)
-            elif action == 'recovery':
-                bump(t.from_branch, item, '在用数量', -qty)
-                if getattr(t, '回收去向', 'recycle_bin') == 'recycle_bin':
-                    bump(t.from_branch, item, '回收库数量', qty)
+            for line in t.lines.all():
+                item = line.item
+                qty = int(line.数量 or 0)
+                if action == 'purchase':
+                    bump(t.to_branch or t.from_branch, item, '在库数量', qty)
+                elif action == 'assign':
+                    bump(t.from_branch, item, '在库数量', -qty)
+                    bump(t.from_branch, item, '在用数量', qty)
+                elif action == 'return':
+                    branch = t.to_branch or t.from_branch
+                    bump(branch, item, '在用数量', -qty)
+                    bump(branch, item, '在库数量', qty)
+                elif action == 'transfer':
+                    bump(t.from_branch, item, '在库数量', -qty)
+                    bump(t.to_branch, item, '在库数量', qty)
+                elif action == 'recovery':
+                    bump(t.from_branch, item, '在用数量', -qty)
+                    if t.回收去向 == 'recycle_bin':
+                        bump(t.from_branch, item, '回收库数量', qty)
 
         # 逐行比对
         diffs = []

@@ -52,6 +52,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 detail += f'，是否想找：{"、".join(similar)}'
             return Response({'detail': detail}, status=status.HTTP_404_NOT_FOUND)
         return Response({
+            'id': str(category.id),
             '资产名称': category.asset_name,
             '资产类目': category.asset_category,
             '物品分类': category.item_category,
@@ -64,10 +65,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
         })
 
     def destroy(self, request, *args, **kwargs):
-        """删除保护：被台账/资产/固定资产/流转单引用的品目禁止删除。"""
+        """删除保护：被台账/资产/固定资产/流转单明细行引用的品目禁止删除。"""
         instance = self.get_object()
         from apps.assets.models import Asset, AssetStock, FixedAsset
-        from apps.transfers.models import Transfer
+        from apps.transfers.models import TransferLine
 
         references = []
         if AssetStock.objects.filter(item=instance).exists():
@@ -76,7 +77,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
             references.append('资产明细')
         if FixedAsset.objects.filter(资产编号=instance.asset_code).exists():
             references.append('固定资产')
-        if Transfer.objects.filter(资产编号=instance.asset_code).exists():
+        if TransferLine.objects.filter(item=instance).exists():
             references.append('流转单')
         if references:
             return Response(

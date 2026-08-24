@@ -170,13 +170,26 @@ class TestEffectiveApi:
 @pytest.mark.django_db
 class TestNotificationRoutingByGrant:
     def _make_pending_transfer(self, branch_name):
-        from apps.transfers.models import Transfer
+        from apps.transfers.models import Transfer, TransferLine
+        from apps.categories.models import Category
+        from apps.notifications.signals import notify_transfer_created
         import datetime
-        return Transfer.objects.create(
-            action_type='transfer', 资产编号='NP-001', 资产名称='测试资产',
-            调拨数量=1, 调出分公司=branch_name, 审批状态='待审批',
+        item, _ = Category.objects.get_or_create(
+            asset_code='NP-001',
+            defaults={
+                'asset_category': '测试类目', 'item_category': '测试分类',
+                'asset_name': '通知测试资产', 'unit': '个',
+            },
+        )
+        t = Transfer.objects.create(
+            action_type='transfer', 调出分公司=branch_name, 审批状态='待审批',
             调拨日期=datetime.date.today(),
         )
+        TransferLine.objects.create(transfer=t, item=item, 行号=1, 数量=1)
+        # 明细行齐备后显式触发创建通知（与视图 _notify_created 同口径；
+        # 单头 post_save 触发时行尚未建，信号侧会静默跳过）
+        notify_transfer_created(t)
+        return t
 
     def test_grant_holder_receives_approval_notification(self, db, branch, staff_user):
         from apps.notifications.models import Notification

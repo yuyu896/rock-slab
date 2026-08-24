@@ -146,85 +146,74 @@ class TestAssetRBAC:
 
 
 class TestTransferRBAC:
-    def test_purchase_staff_allowed(self, staff_user, branch):
+    def test_purchase_staff_allowed(self, staff_user, branch, item_id):
         client = _client_for(staff_user)
         resp = client.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'PUR-staff',
-            '资产名称': '测试采购',
             '调出分公司': '',
             '调入分公司': branch.name,
-            '调拨数量': 1,
-            'action_type': 'purchase',
-        })
+            'items': [{'item': item_id('PUR-staff'), '数量': 1}],
+        }, format='json')
         assert resp.status_code == 201
 
-    def test_purchase_supervisor_allowed(self, supervisor_user, branch):
+    def test_purchase_supervisor_allowed(self, supervisor_user, branch, item_id):
         client = _client_for(supervisor_user)
         resp = client.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'PUR-sup',
-            '资产名称': '测试采购',
             '调出分公司': '',
             '调入分公司': branch.name,
-            '调拨数量': 1,
-            'action_type': 'purchase',
-        })
+            'items': [{'item': item_id('PUR-sup'), '数量': 1}],
+        }, format='json')
         assert resp.status_code == 201
 
-    def test_approve_transfer_staff_forbidden(self, staff_user, admin_user, branch):
+    def test_approve_transfer_staff_forbidden(self, staff_user, admin_user, branch, item_id):
         client_admin = _client_for(admin_user)
         resp = client_admin.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'APR-001',
-            '资产名称': '测试审批',
             '调出分公司': '',
             '调入分公司': branch.name,
-            '调拨数量': 1,
-            'action_type': 'purchase',
-        })
+            'items': [{'item': item_id('APR-001'), '数量': 1}],
+        }, format='json')
         assert resp.status_code == 201
         transfer_id = resp.data['id']
 
         client_staff = _client_for(staff_user)
-        resp = client_staff.post(f'/api/transfers/{transfer_id}/approve', {'decision': 'approve'})
+        resp = client_staff.post(
+            f'/api/transfers/{transfer_id}/approve', {'approved': True}, format='json',
+        )
         assert resp.status_code == 403
 
-    def test_approve_transfer_leader_forbidden(self, leader_user, admin_user, branch):
+    def test_approve_transfer_leader_forbidden(self, leader_user, admin_user, branch, item_id):
         client_admin = _client_for(admin_user)
         resp = client_admin.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'APR-002',
-            '资产名称': '测试审批2',
             '调出分公司': '',
             '调入分公司': branch.name,
-            '调拨数量': 1,
-            'action_type': 'purchase',
-        })
+            'items': [{'item': item_id('APR-002'), '数量': 1}],
+        }, format='json')
         assert resp.status_code == 201
         transfer_id = resp.data['id']
 
         client_leader = _client_for(leader_user)
-        resp = client_leader.post(f'/api/transfers/{transfer_id}/approve', {'decision': 'approve'})
+        resp = client_leader.post(
+            f'/api/transfers/{transfer_id}/approve', {'approved': True}, format='json',
+        )
         assert resp.status_code == 403
 
-    def test_approve_transfer_admin_allowed(self, admin_user, branch):
+    def test_approve_transfer_admin_allowed(self, admin_user, branch, item_id):
         # Use admin to create and approve since supervisor can't see purchases
         # (DataScopeMixin filters by from_branch__region, but purchases have no from_branch)
         client = _client_for(admin_user)
         resp = client.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'APR-003',
-            '资产名称': '测试审批3',
             '调出分公司': '',
             '调入分公司': branch.name,
-            '调拨数量': 1,
-            'action_type': 'purchase',
-        })
+            'items': [{'item': item_id('APR-003'), '数量': 1}],
+        }, format='json')
         assert resp.status_code == 201
         transfer_id = resp.data['id']
 
-        resp = client.post(f'/api/transfers/{transfer_id}/approve', {'decision': 'approve'})
+        resp = client.post(f'/api/transfers/{transfer_id}/approve', {'approved': True}, format='json')
         assert resp.status_code == 200
 
 

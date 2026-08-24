@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { createAsset } from '@/api/assets'
 import { getCategories } from '@/api/categories'
-import { useAssetCodeAutofill } from '@/composables/useAssetCodeAutofill'
+import { lookupCategoryByCode } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
@@ -16,15 +16,20 @@ const branchOptions = ref<{ value: string; label: string }[]>([])
 const categoryOptions = ref<{ value: string; label: string }[]>([])
 const allCategories = ref<Category[]>([])
 
-const { lookupByCode, notFoundCode } = useAssetCodeAutofill()
+const notFoundCode = ref('')
 
 async function onAssetCodeBlur() {
-  const result = await lookupByCode(newAsset.value.资产编号 || '')
-  if (result) {
-    newAsset.value.资产名称 = result.资产名称
-    newAsset.value.资产类目 = result.资产类目
-    newAsset.value.物品分类 = result.物品分类
-    newAsset.value.警戒线 = result.警戒线
+  const code = (newAsset.value.资产编号 || '').trim()
+  if (!code) return
+  try {
+    const { data } = await lookupCategoryByCode(code)
+    notFoundCode.value = ''
+    newAsset.value.资产名称 = data.资产名称
+    newAsset.value.资产类目 = data.资产类目
+    newAsset.value.物品分类 = data.物品分类
+    newAsset.value.警戒线 = data.警戒线
+  } catch {
+    notFoundCode.value = code
   }
 }
 

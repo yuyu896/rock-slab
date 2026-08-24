@@ -3,13 +3,13 @@ import { useRouter } from 'vue-router'
 import { useTransferList } from '@/composables/useTransferList'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import { transferDocSummary } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 
 const {
   typeLabel, typeColor,
   filters, pagination, loading, transfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
-  showDetailModal, detailItem, detailLoading, viewDetail,
   handleApprove, handleReject,
   showImportModal, importLoading, importResult, openImportModal, handleDownloadTemplate, handleImportFile,
   handleExport,
@@ -56,7 +56,7 @@ function openCreatePage() {
       <div class="filter-row">
         <div class="filter-item search">
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input v-model="filters.keyword" type="text" placeholder="搜索资产编号、名称..." class="filter-input" />
+          <input v-model="filters.keyword" type="text" placeholder="搜索单号、品目编号、名称..." class="filter-input" />
         </div>
         <div class="filter-item">
           <select v-model="filters.fromBranch" class="filter-select">
@@ -77,34 +77,29 @@ function openCreatePage() {
       <table class="data-table">
         <thead>
           <tr>
-            <th>序号</th><th>分公司</th><th>资产编号</th><th>资产类目</th><th>物品分类</th>
-            <th>资产名称</th><th>回收分类</th><th>入库日期</th><th>数量</th><th>单位</th>
-            <th>规格</th><th>出库日期</th><th>所属部门</th><th>当前处理状态</th><th>存放位置</th>
-            <th>经办人</th><th>备注</th><th>操作</th>
+            <th>单号</th><th>入库日期</th><th>分公司</th><th>回收分类</th><th>去向</th>
+            <th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th>
+            <th>出库日期</th><th>所属部门</th><th>状态</th><th>经办人</th><th>备注</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(item, idx) in transfers" :key="item.id">
-            <td>{{ (pagination.page - 1) * pagination.pageSize + idx + 1 }}</td>
-            <td>{{ item.调出分公司 || '-' }}</td>
-            <td><span class="asset-code">{{ item.资产编号 }}</span></td>
-            <td>{{ item.资产类目 || '-' }}</td>
-            <td>{{ item.物品分类 || '-' }}</td>
-            <td><span class="asset-name">{{ item.资产名称 }}</span></td>
-            <td>{{ item.回收分类 || '-' }}</td>
+          <tr v-for="item in transfers" :key="item.id">
+            <td><span class="doc-number">{{ item.单据编号 || item.id.slice(0, 8) }}</span></td>
             <td><span class="date-text">{{ item.调拨日期 || '-' }}</span></td>
-            <td><span class="qty-value">{{ item.调拨数量 || '-' }}</span></td>
-            <td>{{ item.单位 || '-' }}</td>
-            <td>{{ item.规格型号 || '-' }}</td>
+            <td>{{ item.调出分公司 || '-' }}</td>
+            <td>{{ item.回收分类 || '-' }}</td>
+            <td>{{ item.回收去向 === 'dispose' ? '直接处置' : '入回收库' }}</td>
+            <td><span class="asset-name">{{ transferDocSummary(item).name }}</span></td>
+            <td class="col-num">{{ item.品项数 ?? item.lines?.length ?? '-' }}</td>
+            <td><span class="qty-value">{{ item.总数量 ?? '-' }}</span></td>
             <td><span class="date-text">{{ item.出库日期 || '-' }}</span></td>
             <td>{{ item.调出部门 || '-' }}</td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
-            <td>{{ item.存放位置 || '-' }}</td>
             <td>{{ item.采购经办人 || '-' }}</td>
             <td>{{ item.备注 || '-' }}</td>
             <td>
               <div class="action-buttons">
-                <button class="action-btn" @click="viewDetail(item)">详情</button>
+                <button class="action-btn" @click="router.push('/transfers/recovery/' + item.id)">详情</button>
                 <button v-if="item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
               </div>
@@ -121,37 +116,6 @@ function openCreatePage() {
       @change="(page, pageSize) => { pagination.page = page; pagination.pageSize = pageSize; fetchTransfers() }"
     />
 
-    <!-- 详情弹窗 -->
-    <div v-if="showDetailModal" class="modal-overlay" @click.self="showDetailModal = false">
-      <div class="modal-content">
-        <div class="modal-header"><h3>回收详情</h3><button class="modal-close" @click="showDetailModal = false">&times;</button></div>
-        <div v-if="detailItem" class="modal-body">
-          <div class="detail-grid">
-            <div class="detail-field"><span class="detail-label">资产编号</span><span class="detail-value code">{{ detailItem.资产编号 }}</span></div>
-            <div class="detail-field"><span class="detail-label">资产名称</span><span class="detail-value">{{ detailItem.资产名称 }}</span></div>
-            <div class="detail-field"><span class="detail-label">资产类目</span><span class="detail-value">{{ detailItem.资产类目 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">物品分类</span><span class="detail-value">{{ detailItem.物品分类 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">回收分类</span><span class="detail-value">{{ detailItem.回收分类 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">审批状态</span><span class="detail-value"><span class="status-badge" :style="getStatusStyle(detailItem.审批状态)">{{ detailItem.审批状态 }}</span></span></div>
-            <div class="detail-field"><span class="detail-label">入库日期</span><span class="detail-value">{{ detailItem.调拨日期 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">出库日期</span><span class="detail-value">{{ detailItem.出库日期 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">数量</span><span class="detail-value">{{ detailItem.调拨数量 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">单位</span><span class="detail-value">{{ detailItem.单位 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">规格</span><span class="detail-value">{{ detailItem.规格型号 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">分公司</span><span class="detail-value">{{ detailItem.调出分公司 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">所属部门</span><span class="detail-value">{{ detailItem.调出部门 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">存放位置</span><span class="detail-value">{{ detailItem.存放位置 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">经办人</span><span class="detail-value">{{ detailItem.采购经办人 || '-' }}</span></div>
-            <div class="detail-field"><span class="detail-label">备注</span><span class="detail-value">{{ detailItem.备注 || '-' }}</span></div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button v-if="detailItem?.审批状态 === '待审批'" class="btn-reject" @click="handleReject(detailItem); showDetailModal = false">驳回</button>
-          <button v-if="detailItem?.审批状态 === '待审批'" class="btn-confirm" @click="handleApprove(detailItem); showDetailModal = false">通过</button>
-          <button class="btn-cancel" @click="showDetailModal = false">关闭</button>
-        </div>
-      </div>
-    </div>
 
     <!-- 批量导入弹窗 -->
     <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">

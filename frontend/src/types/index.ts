@@ -232,11 +232,60 @@ export interface Team {
   updatedAt: string
 }
 
-/** 调拨/流转记录 */
+/** 调拨/流转记录：单头 + 明细行（P2 明细行化） */
 export type TransferActionType = 'purchase' | 'assign' | 'return' | 'transfer' | 'recovery'
 
-export interface Transfer {
+/** 品目字典摘要（ItemPicker 点选结果） */
+export interface ItemSummary {
   id: string
+  asset_code: string
+  asset_name: string
+  specification?: string
+  unit?: string
+  assetCategory?: string
+  itemCategory?: string
+  managementType?: string
+}
+
+/** 流转单明细行（品目信息由后端联字典回显） */
+export interface TransferLine {
+  id: string
+  行号: number
+  item: string
+  itemCode: string
+  itemName: string
+  itemSpec?: string
+  unit?: string
+  assetCategory?: string
+  itemCategory?: string
+  managementType?: 'quantity' | 'instance'
+  数量: number
+  本批规格?: string
+  单价?: number | null
+  金额?: number | null
+  使用人?: string
+  department?: string | null
+  departmentName?: string
+  存放位置?: string
+  固定资产内部编号?: string
+}
+
+/** 明细行创建入参（品目为字典 uuid） */
+export interface TransferLineInput {
+  item: string
+  数量: number
+  本批规格?: string
+  单价?: number | null
+  金额?: number | null
+  使用人?: string
+  department?: string | null
+  存放位置?: string
+  固定资产内部编号?: string
+}
+
+export interface TransferDocument {
+  id: string
+  单据编号: string
   调拨日期: string
   调出分公司?: string
   调出部门?: string
@@ -244,32 +293,19 @@ export interface Transfer {
   调入部门?: string
   from_branch?: string
   to_branch?: string
-  fromBranch?: string
-  toBranch?: string
   fromBranchName?: string
   toBranchName?: string
-  资产编号: string
-  资产类目?: string
-  物品分类?: string
-  资产名称: string
-  规格型号?: string
-  调拨数量: number
   调拨原因?: string
   供应商?: string
-  单价?: number
-  总金额?: number
   需求部门?: string
   调出负责人?: string
   调入负责人?: string
-  使用人?: string
-  所属部门?: string
+  用途?: string
   回收分类?: string
   回收去向?: 'recycle_bin' | 'dispose'
   处置方式?: '出售' | '报废' | '捐赠' | ''
   处置金额?: number
-  单位?: string
   出库日期?: string
-  存放位置?: string
   采购经办人?: string
   备注?: string
   审批状态: ApprovalStatusType
@@ -277,8 +313,30 @@ export interface Transfer {
   审批时间?: string
   创建人: string
   action_type?: TransferActionType
+  lines: TransferLine[]
+  品项数?: number
+  总数量?: number
   createdAt: string
   updatedAt: string
+}
+
+/** 兼容别名：既有代码沿用 Transfer 名 */
+export type Transfer = TransferDocument
+
+/** 单据摘要：多行单据的首行品目 + 等N项（通知/列表/移动端展示用） */
+export function transferDocSummary(doc: TransferDocument): {
+  name: string
+  code: string
+  qty: number
+} {
+  const lines = doc.lines ?? []
+  if (lines.length === 0) return { name: doc.单据编号 || '-', code: '-', qty: 0 }
+  const first = lines[0]
+  return {
+    name: first.itemName + (lines.length > 1 ? ` 等 ${lines.length} 项` : ''),
+    code: first.itemCode,
+    qty: lines.reduce((sum, line) => sum + (line.数量 || 0), 0),
+  }
 }
 
 /** 盘点任务 */

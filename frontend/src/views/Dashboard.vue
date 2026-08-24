@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getOverview, getByBranch, getByStatus } from '@/api/reports'
 import { getTransfers } from '@/api/transfers'
+import { transferDocSummary } from '@/types'
 import { getInventoryTasks } from '@/api/inventories'
 import { useUserStore } from '@/store/user'
 import { handleApiError } from '@/utils/request'
@@ -92,8 +93,8 @@ async function fetchDashboardData() {
       id: t.id,
       type: getTransferTypeName(t.action_type),
       title: t.调出分公司 && t.调入分公司
-        ? `${t.调出分公司}→${t.调入分公司} ${t.资产名称}`
-        : `${t.资产名称} ${t.调拨数量}件`,
+        ? `${t.调出分公司}→${t.调入分公司} ${transferDocSummary(t).name}`
+        : `${transferDocSummary(t).name} ${transferDocSummary(t).qty}件`,
       submitter: t.创建人,
       time: t.createdAt,
       actionType: t.action_type,
@@ -115,7 +116,7 @@ async function fetchDashboardData() {
     recentActivities.value = transfersRes.data.results?.slice(0, 5).map((t: any) => ({
       id: t.id,
       action: getTransferTypeName(t.action_type).replace('申请', '').replace('出库', '').replace('归还', '归还'),
-      asset: t.资产名称,
+      asset: transferDocSummary(t).name,
       branch: t.调出分公司 && t.调入分公司 ? `${t.调出分公司}→${t.调入分公司}` : '',
       time: t.createdAt,
     })) || []

@@ -47,39 +47,68 @@ def get_approvers_for_branch(branch_name):
     return _users_with_operation_access(branch_name, 'approve_transfer')
 
 
-@receiver(post_save, sender=Transfer)
-def notify_on_transfer_created(sender, instance, created, **kwargs):
-    """调拨单创建时通知审批人"""
-    if created and instance.审批状态 == '待审批':
-        # 获取有审批权限的用户
-        approvers = get_approvers_for_branch(instance.调出分公司)
+def _doc_summary(instance):
+    """多明细单据摘要：首行品目名 +（行数>1 时）等 N 项；返回 None 表示明细行未就绪。"""
+    lines = list(instance.lines.select_related('item').order_by('行号'))
+    if not lines:
+        return None
+    first = lines[0]
+    name = first.item.asset_name + (f' 等 {len(lines)} 项' if len(lines) > 1 else '')
+    return {
+        'asset_name': name,
+        'asset_code': first.item.asset_code,
+        'qty': sum(line.数量 for line in lines),
+    }
 
-        # 动作类型映射
-        action_display = dict(Transfer.ACTION_CHOICES).get(
-            instance.action_type, instance.action_type,
+
+def notify_transfer_created(instance):
+    """单据进入待审批时通知审批人。
+
+    由视图在明细行齐备后显式调用（单头 post_save 触发时行尚未建，信号侧静默跳过）。
+    """
+    if instance.审批状态 != '待审批':
+        return
+    summary = _doc_summary(instance)
+    if summary is None:
+        return
+    # 获取有审批权限的用户
+    approvers = get_approvers_for_branch(instance.调出分公司)
+
+    # 动作类型映射
+    action_display = dict(Transfer.ACTION_CHOICES).get(
+        instance.action_type, instance.action_type,
+    )
+
+    for approver in approvers:
+        # 避免自己通知自己
+        if instance.创建人 and approver.name == instance.创建人:
+            continue
+
+        Notification.objects.create(
+            recipient=approver,
+            notification_type='approval',
+            title=f'待审批：{summary["asset_name"]}',
+            content=f'{instance.创建人 or "用户"} 提交了{action_display}申请，请及时审批。',
+            priority='high',
+            related_object_type='transfer',
+            related_object_id=instance.id,
+            extra_data={
+                'action_type': instance.action_type,
+                'asset_name': summary['asset_name'],
+                'asset_code': summary['asset_code'],
+                'qty': summary['qty'],
+                'doc_number': instance.单据编号,
+                'from_branch': instance.调出分公司,
+                'to_branch': instance.调入分公司,
+            },
         )
 
-        for approver in approvers:
-            # 避免自己通知自己
-            if instance.创建人 and approver.name == instance.创建人:
-                continue
 
-            Notification.objects.create(
-                recipient=approver,
-                notification_type='approval',
-                title=f'待审批：{instance.资产名称}',
-                content=f'{instance.创建人 or "用户"} 提交了{action_display}申请，请及时审批。',
-                priority='high',
-                related_object_type='transfer',
-                related_object_id=instance.id,
-                extra_data={
-                    'action_type': instance.action_type,
-                    'asset_name': instance.资产名称,
-                    'asset_code': instance.资产编号,
-                    'from_branch': instance.调出分公司,
-                    'to_branch': instance.调入分公司,
-                },
-            )
+@receiver(post_save, sender=Transfer)
+def notify_on_transfer_created(sender, instance, created, **kwargs):
+    """兜底路径（admin/shell 等直接建单）：创建即待审批且明细行已就绪时通知。"""
+    if created:
+        notify_transfer_created(instance)
 
 
 @receiver(pre_save, sender=Transfer)
@@ -95,6 +124,9 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
 
     # 检测状态从"待审批"变为"已通过"
     if old_instance.审批状态 == '待审批' and instance.审批状态 == '已通过':
+        summary = _doc_summary(instance) or {
+            'asset_name': instance.单据编号 or '单据', 'asset_code': '', 'qty': 0,
+        }
         # 1. 通知创建人
         if instance.创建人:
             creator = User.objects.filter(name=instance.创建人).first()
@@ -105,7 +137,7 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                 Notification.objects.create(
                     recipient=creator,
                     notification_type='task',
-                    title=f'审批通过：{instance.资产名称}',
+                    title=f'审批通过：{summary["asset_name"]}',
                     content=f'您的{action_display}申请已由 {instance.审批人} 审批通过。',
                     priority='medium',
                     related_object_type='transfer',
@@ -130,15 +162,16 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                 cc_reason='审批通过自动抄送',
                 recipient=manager,
                 approval_snapshot={
-                    'asset_name': instance.资产名称,
-                    'asset_code': instance.资产编号,
+                    'asset_name': summary['asset_name'],
+                    'asset_code': summary['asset_code'],
+                    'doc_number': instance.单据编号,
                     'from_branch': instance.调出分公司,
                     'to_branch': instance.调入分公司,
                     'approver': instance.审批人,
                     'approved_at': instance.审批时间.isoformat() if instance.审批时间 else None,
                     'action_type': instance.action_type,
                     'action_display': action_display,
-                    'qty': instance.调拨数量,
+                    'qty': summary['qty'],
                 },
             )
 
@@ -146,7 +179,7 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
             Notification.objects.create(
                 recipient=manager,
                 notification_type='cc',
-                title=f'抄送：{instance.资产名称} 审批已通过',
+                title=f'抄送：{summary["asset_name"]} 审批已通过',
                 content=f'{instance.审批人} 已通过{action_display}申请，{instance.调出分公司} → {instance.调入分公司}',
                 priority='low',
                 related_object_type='transfer',
@@ -155,6 +188,9 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
 
     # 检测状态从"待审批"变为"已驳回"
     elif old_instance.审批状态 == '待审批' and instance.审批状态 == '已驳回':
+        summary = _doc_summary(instance) or {
+            'asset_name': instance.单据编号 or '单据', 'asset_code': '', 'qty': 0,
+        }
         # 通知创建人
         if instance.创建人:
             creator = User.objects.filter(name=instance.创建人).first()
@@ -165,7 +201,7 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                 Notification.objects.create(
                     recipient=creator,
                     notification_type='task',
-                    title=f'审批驳回：{instance.资产名称}',
+                    title=f'审批驳回：{summary["asset_name"]}',
                     content=f'您的{action_display}申请被 {instance.审批人} 驳回。{instance.备注 or ""}',
                     priority='high',
                     related_object_type='transfer',

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { recoverAsset } from '@/api/transfers'
+import { lookupCategoryByCode } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { Asset, FixedAsset } from '@/types'
@@ -63,22 +64,22 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
+    // 编号 → 字典品目 uuid；行内即时回收为单明细行单据
+    const { data: category } = await lookupCategoryByCode(item.资产编号)
     await recoverAsset({
       调拨日期: new Date().toISOString().slice(0, 10),
-      资产编号: item.资产编号,
-      资产名称: item.资产名称 || item.资产编号,
-      资产类目: item.资产类目 || '',
-      物品分类: item.物品分类 || '',
       调出分公司: item.分公司 || '',
       调出部门: item.所属部门 || '',
-      规格型号: item.规格 || '',
-      调拨数量: isFixed.value ? 1 : form.value.调拨数量,
       回收分类: form.value.回收分类,
       出库日期: form.value.出库日期 || undefined,
-      存放位置: form.value.存放位置,
       备注: form.value.备注,
+      items: [{
+        item: category.id,
+        数量: isFixed.value ? 1 : form.value.调拨数量,
+        存放位置: form.value.存放位置 || undefined,
+        固定资产内部编号: isFixed.value ? (item as FixedAsset).内部编号 || '' : undefined,
+      }],
       immediate: true,
-      固定资产内部编号: isFixed.value ? (item as FixedAsset).内部编号 || '' : '',
     })
     ElMessage.success(isFixed.value ? '已回收，该固定资产记录已移除' : '已回收')
     emit('success')

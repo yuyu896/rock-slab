@@ -5,7 +5,12 @@ import { submitTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { Transfer } from '@/types'
+import { transferDocSummary } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
+
+function itemSummary(item: Transfer) {
+  return transferDocSummary(item).name
+}
 
 const {
   typeLabel,
@@ -67,7 +72,7 @@ async function handleSubmitDraft(item: Transfer) {
       <div class="filter-row">
         <div class="filter-item search">
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input v-model="filters.keyword" type="text" placeholder="搜索资产编号、名称..." class="filter-input" />
+          <input v-model="filters.keyword" type="text" placeholder="搜索单号、品目编号、名称..." class="filter-input" />
         </div>
         <div class="filter-item">
           <select v-model="filters.status" class="filter-select">
@@ -81,13 +86,14 @@ async function handleSubmitDraft(item: Transfer) {
 
     <div class="table-container">
       <table class="data-table">
-        <thead><tr><th>日期</th><th>资产编号</th><th>资产名称</th><th>数量</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>单号</th><th>日期</th><th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="item in transfers" :key="item.id">
-            <td><span class="date-text">{{ item.createdAt?.slice(0, 10) }}</span></td>
-            <td><span class="asset-code">{{ item.资产编号 }}</span></td>
-            <td><span class="asset-name">{{ item.资产名称 }}</span></td>
-            <td><span class="qty-value">{{ item.调拨数量 || '-' }}</span></td>
+            <td><span class="doc-number">{{ item.单据编号 || item.id.slice(0, 8) }}</span></td>
+            <td><span class="date-text">{{ item.调拨日期 || item.createdAt?.slice(0, 10) }}</span></td>
+            <td><span class="asset-name">{{ itemSummary(item) }}</span></td>
+            <td class="col-num">{{ item.品项数 ?? item.lines?.length ?? '-' }}</td>
+            <td><span class="qty-value">{{ item.总数量 ?? '-' }}</span></td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
             <td>
               <div class="action-buttons">
@@ -174,6 +180,8 @@ async function handleSubmitDraft(item: Transfer) {
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }
 .type-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: var(--text-xs); font-weight: 500; }
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); }
+.doc-number { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-secondary); }
+.col-num { text-align: right; }
 .asset-code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary-600); background: var(--color-primary-50); padding: 2px 6px; border-radius: 4px; }
 .asset-name { font-weight: 500; }
 .qty-value { font-weight: 600; }

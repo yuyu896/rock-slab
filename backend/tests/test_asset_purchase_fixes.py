@@ -7,6 +7,11 @@ def _action_url(action, pk=None):
     return f'/api/transfers/{pk}/{action}' if pk else f'/api/transfers/{action}'
 
 
+def _item_uuid(code):
+    from apps.categories.models import Category
+    return str(Category.objects.get(asset_code=code).id)
+
+
 @pytest.mark.django_db
 class TestAssetEditPatch:
     def test_patch_frozen(self, admin_user, branch):
@@ -30,8 +35,8 @@ class TestPurchaseApproveStock:
 
     def _create_purchase(self, client, branch, code):
         resp = client.post(_action_url('purchase'), {
-            '调拨日期': '2026-07-14', '资产编号': code, '资产名称': '采购物',
-            '调拨数量': 5, '调拨原因': '采购', '调出分公司': branch.name,
+            '调拨日期': '2026-07-14', '调拨原因': '采购', '调出分公司': branch.name,
+            'items': [{'item': _item_uuid(code), '数量': 5}],
         }, format='json')
         assert resp.status_code == 201
         return resp.data['id']
@@ -65,18 +70,20 @@ class TestPurchaseDraft:
         from apps.transfers.models import Transfer
         client = _client_for(admin_user)
         resp = client.post(_action_url('purchase'), {
-            '调拨日期': '2026-07-14', '资产编号': 'DRF-001', '资产名称': '草稿物',
-            '调拨数量': 1, '调出分公司': '测试分公司', 'draft': True,
+            '调拨日期': '2026-07-14', '调出分公司': branch.name,
+            'items': [{'item': _item_uuid('DRF-001'), '数量': 1}], 'draft': True,
         }, format='json')
         assert resp.status_code == 201
         assert resp.data['审批状态'] == '草稿'
-        assert Transfer.objects.get(资产编号='DRF-001').审批状态 == '草稿'
+        transfer = Transfer.objects.get(pk=resp.data['id'])
+        assert transfer.审批状态 == '草稿'
+        assert transfer.lines.get().item.asset_code == 'DRF-001'
 
     def test_submit_draft(self, admin_user, branch):
         client = _client_for(admin_user)
         resp = client.post(_action_url('purchase'), {
-            '调拨日期': '2026-07-14', '资产编号': 'DRF-002', '资产名称': '草稿物',
-            '调拨数量': 1, '调出分公司': '测试分公司', 'draft': True,
+            '调拨日期': '2026-07-14', '调出分公司': branch.name,
+            'items': [{'item': _item_uuid('DRF-002'), '数量': 1}], 'draft': True,
         }, format='json')
         tid = resp.data['id']
         resp2 = client.post(f'/api/transfers/{tid}/submit', format='json')

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { formatMoney } from '@/utils/format'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { transferDocSummary } from '@/types'
 import type { Asset, Transfer } from '@/types'
 
 defineProps<{
@@ -86,7 +87,7 @@ const actionLabel = (type: string) => {
                   <span class="timeline-type">{{ actionLabel(t.action_type ?? '') }}</span>
                   <span class="timeline-date">{{ t.createdAt }}</span>
                 </div>
-                <div class="timeline-detail">{{ t.资产名称 }} × {{ t.调拨数量 }}</div>
+                <div class="timeline-detail">{{ transferDocSummary(t).name }} × {{ transferDocSummary(t).qty }}</div>
               </div>
             </div>
           </div>

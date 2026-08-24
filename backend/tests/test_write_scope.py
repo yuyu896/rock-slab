@@ -10,31 +10,25 @@ from conftest import _client_for
 
 @pytest.mark.django_db
 class TestWriteScopeEnforcement:
-    def test_transfer_create_out_of_scope_rejected(self, staff_user, second_branch):
+    def test_transfer_create_out_of_scope_rejected(self, staff_user, second_branch, item_id):
         # staff_user 授权范围 = fixture branch，对第二分公司发起调拨应被拒
         client = _client_for(staff_user)
         resp = client.post('/api/transfers/transfer', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'SCOPE-OUT-001',
-            '资产名称': '越权调拨',
             '调出分公司': second_branch.name,
             '调入分公司': second_branch.name,
-            '调拨数量': 1,
-            'action_type': 'transfer',
+            'items': [{'item': item_id('SCOPE-OUT-001'), '数量': 1}],
         }, format='json')
         assert resp.status_code == 400
 
-    def test_transfer_create_in_scope_allowed(self, staff_user, branch):
+    def test_transfer_create_in_scope_allowed(self, staff_user, branch, item_id):
         # staff_user 对自己授权分公司发起调拨应通过 scope 校验
         client = _client_for(staff_user)
         resp = client.post('/api/transfers/transfer', {
             '调拨日期': '2026-01-15',
-            '资产编号': 'SCOPE-IN-001',
-            '资产名称': '范围内调拨',
             '调出分公司': branch.name,
             '调入分公司': branch.name,
-            '调拨数量': 1,
-            'action_type': 'transfer',
+            'items': [{'item': item_id('SCOPE-IN-001'), '数量': 1}],
         }, format='json')
         assert resp.status_code == 201
 
