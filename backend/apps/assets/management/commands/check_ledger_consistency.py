@@ -90,8 +90,11 @@ class Command(BaseCommand):
         instance_item_ids = set(
             Category.objects.filter(management_type='instance').values_list('id', flat=True)
         )
+        # .order_by() 清模型默认排序（内部编号），否则排序列混进 GROUP BY/SELECT，
+        # 聚合按实例分组、DISTINCT 按实例判重——镜像计数与警告去重双双失效
         inst_counts = (
             FixedAsset.objects.exclude(当前状态='退役')
+            .order_by()
             .values('branch_id', 'item_id', '当前状态')
             .annotate(n=Count('id'))
         )
@@ -109,10 +112,14 @@ class Command(BaseCommand):
 
         qty_with_instances = (
             FixedAsset.objects.exclude(item_id__in=instance_item_ids)
+            .order_by()
             .values_list('item__asset_code', flat=True).distinct()
         )
         for code in qty_with_instances:
-            warnings.append(f'数量管理品目 {code} 挂有实例档案，请决断：改管理方式 或 退役实例')
+            n = FixedAsset.objects.filter(item__asset_code=code).count()
+            warnings.append(
+                f'数量管理品目 {code} 挂有 {n} 条实例档案，请决断：改管理方式（改后执行对齐） 或 退役实例'
+            )
 
         orphan_branch = FixedAsset.objects.filter(branch=None).count()
         if orphan_branch:

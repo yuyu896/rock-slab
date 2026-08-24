@@ -502,3 +502,67 @@ class TestLegacyMigrationSmoke:
         # 迁移完成对账零差异（数量 + 实例双不变量）
         code, text = _check()
         assert code == 0, text
+
+
+# ---------------------------------------------------------------------------
+# 对账警告去重 + 管理方式切换对齐命令
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestMirrorWarningDedup:
+    def test_warning_one_line_per_item_with_count(self, branch):
+        """同品目多实例 → 一行警告（模型默认排序不得混入 DISTINCT）。"""
+        from django.core.management import call_command
+        from io import StringIO
+        item = _item('WD-001', management_type='quantity')
+        _seed(branch, item, stock=5)
+        _make_instances(branch, item, '在库', 3)
+        out = StringIO()
+        try:
+            call_command('check_ledger_consistency', stdout=out)
+        except SystemExit:
+            pass
+        text = out.getvalue()
+        assert text.count('WD-001') == 1
+        assert '3 条实例档案' in text
+
+
+@pytest.mark.django_db
+class TestAlignCommand:
+    def test_management_type_switch_flow(self, branch):
+        """决断路径：数量→实例管理切换 → 对账镜像炸 → 对齐命令 → 对账通过。"""
+        from apps.categories.models import Category
+        from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment
+        item = _item('AL-001', management_type='quantity')
+        _seed(branch, item, stock=5)          # 数量管理时代：台账在库 5
+        _make_instances(branch, item, '在库', 2)  # 实际只有 2 台档案
+
+        # 管理员决断：改为实例管理 → 实例镜像开始执法 → 对账失败
+        Category.objects.filter(pk=item.pk).update(management_type='instance')
+        code, text = _check()
+        assert code == 1
+        assert '实例镜像' in text
+
+        # 预览：列出差异、不落单
+        from django.core.management import call_command
+        from io import StringIO
+        out = StringIO()
+        call_command('align_ledger_to_instances', stdout=out)
+        preview = out.getvalue()
+        assert 'AL-001' in preview and '+2' not in preview  # 5 → 2 是 -3
+        assert '-3' in preview
+        assert not LedgerAdjustment.objects.filter(item=item, 事由__contains='切换对齐').exists()
+
+        # 确认执行：台账对齐实例计数（在库 5 → 2），出非期初调整单
+        call_command('align_ledger_to_instances', '--confirm', stdout=StringIO())
+        row = AssetStock.objects.get(branch=branch, item=item)
+        assert row.在库数量 == 2
+        adj = LedgerAdjustment.objects.get(item=item, 事由__contains='切换对齐')
+        assert adj.变动量 == -3 and adj.is_initial is False
+        code, text = _check()
+        assert code == 0, text
+
+        # 幂等：再跑无差异
+        out = StringIO()
+        call_command('align_ledger_to_instances', stdout=out)
+        assert '已对齐' in out.getvalue()
