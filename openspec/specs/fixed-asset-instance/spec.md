@@ -3,58 +3,92 @@
 ## Purpose
 TBD - created by archiving change add-fixed-asset-model. Update Purpose after archive.
 ## Requirements
-### Requirement: FixedAsset model
-系统 MUST 提供 FixedAsset 模型，一条记录代表一台实物实例。每条记录 MUST 包含：内部编号（自动生成，唯一）、资产编号（关联 Asset 品目）、序列号（可空）、供应商、使用人、所属部门、当前状态（在库/在用/空闲）、分公司、入库日期、备注。
+### Requirement: 实例档案模型
 
-#### Scenario: Create fixed asset instance
-- **WHEN** 用户为资产编号 COMP-001 新增一条 FixedAsset 实例
-- **THEN** 系统自动生成内部编号 COMP-001-1，记录创建成功
+FixedAsset MUST 为四态实例档案：字段含 `item`（→品目字典，PROTECT）、`内部编号`（唯一，`{品目编号}-{序号}`，锁行计数器生成）、`序列号`（空=待补录）、`当前状态`（在库/在用/回收库/退役，退役为终态）、`使用人`（记录性文本）、`department`（→部门字典 FK，可空）、`branch`（→分公司 FK）、`birth_line`（→出生采购明细行 FK，可空=存量迁移）、`入库日期`、`备注`。模型 MUST NOT 存放资产编号/名称/规格/类目/供应商/单价等品目文本列——品目信息经 `item` 联字典输出，供应商/单价/采购日期经出生行派生输出（决策 #8）。实例 MUST NOT 被物理删除。
 
-#### Scenario: Multiple instances for same asset
-- **WHEN** 用户为资产编号 COMP-001 连续新增 3 条实例
-- **THEN** 内部编号分别为 COMP-001-1、COMP-001-2、COMP-001-3
+#### Scenario: 品目信息联字典输出
 
-### Requirement: Quantity sync to Asset
-FixedAsset 实例的创建、删除、状态变更 MUST 自动同步到关联 Asset 的数量字段。Asset.数量 MUST 等于关联 FixedAsset 的总数，Asset 在库数 MUST 等于状态为「在库」的 FixedAsset 数量。
+- **WHEN** 客户端请求实例列表
+- **THEN** 每行输出品目编号/名称/规格/类目/管理方式（item 联查）与供应商/单价/采购日期（出生行派生），实例表无冗余文本列
 
-#### Scenario: Create instance updates Asset count
-- **WHEN** 为 Asset(COMP-001, 原数量=3) 新增 1 条 FixedAsset 实例
-- **THEN** Asset.数量自动更新为 4
+#### Scenario: 退役实例档案保留
 
-#### Scenario: Delete instance updates Asset count
-- **WHEN** 删除 Asset(COMP-001, 原数量=5) 的一条 FixedAsset 实例
-- **THEN** Asset.数量自动更新为 4
+- **WHEN** 某实例经回收直接处置转入退役态
+- **THEN** 该实例记录仍在库中且可查询，MUST NOT 出现任何物理删除路径
 
-### Requirement: FixedAsset API
-系统 MUST 提供 `/api/fixed-assets/` RESTful API，支持列表查询（带筛选/分页）、创建、更新、删除。supervisor(L3) 及以上可执行写操作，leader/staff 只读。
+### Requirement: 内部编号锁行发号
 
-#### Scenario: List fixed assets with filters
-- **WHEN** 用户 GET `/api/fixed-assets/?branch=分公司A&status=在用`
-- **THEN** 返回该分公司下状态为「在用」的 FixedAsset 实例列表
+内部编号 MUST 经实例序列计数行（`InstanceSequence`，品目一行）以 `select_for_update` 锁行自增生成，格式 `{品目编号}-{序号}`；MUST NOT 使用 count() 等存在并发竞ta的方案；唯一约束兜底，并发生成 MUST NOT 重号。
 
-#### Scenario: Staff cannot create instance
-- **WHEN** staff(L5) 用户 POST `/api/fixed-assets/`
-- **THEN** 返回 403
+#### Scenario: 连续新增不重号
 
-### Requirement: Frontend fixed asset page
-固定资产表页面 MUST 展示 FixedAsset 实例列表，表格列包含：内部编号、资产编号、资产名称、序列号、供应商、使用人、所属部门、状态。MUST 支持按分公司、状态、关键词筛选和分页。supervisor 及以上 MUST 可执行编辑和删除操作。
+- **WHEN** 品目 X 已有实例至 X-6，采购单再生成 3 个实例
+- **THEN** 新实例为 X-7、X-8、X-9，无重号
 
-#### Scenario: Fixed asset page displays instances
-- **WHEN** 用户打开固定资产表页面
-- **THEN** 显示所有固定资产实例，每行一台实物
+### Requirement: 序列号补录端点
 
-#### Scenario: Edit instance
-- **WHEN** supervisor 用户点击某实例的编辑按钮
-- **THEN** 打开编辑表单，可修改使用人、状态、供应商等字段
+系统 MUST 提供实例序列号补录端点（PATCH，仅 序列号/备注 两字段），要求 `manage_instances` 操作码；补录 MUST NOT 触碰状态/使用人/分公司（那些经流转单变动）。无权限 MUST 拒绝。
 
-### Requirement: Excel import for fixed assets
-系统 MUST 支持通过 Excel 批量导入 FixedAsset 实例，导入模板 MUST 包含：资产编号、序列号、供应商、使用人、所属部门、状态等列。导入时自动生成内部编号并同步 Asset 数量。
+#### Scenario: 补录序列号
 
-#### Scenario: Import creates instances
-- **WHEN** 用户上传包含 5 行数据的 FixedAsset 导入 Excel
-- **THEN** 创建 5 条 FixedAsset 实例，关联 Asset 的数量自动更新
+- **WHEN** 持 `manage_instances` 的用户对某待补录实例提交序列号 SN-123
+- **THEN** 实例序列号更新为 SN-123，列表待补录标识消失
 
-#### Scenario: Import with invalid asset code
-- **WHEN** 导入的 Excel 中包含不存在的资产编号
-- **THEN** 返回友好错误提示「资产编号 XXX 不存在」
+#### Scenario: 补录试图改状态被拒
+
+- **WHEN** 补录请求携带 当前状态 或 使用人 字段
+- **THEN** 返回 400，仅 序列号/备注 可修改
+
+#### Scenario: 无权限补录被拒
+
+- **WHEN** 不持 `manage_instances` 的用户调用补录端点
+- **THEN** 返回权限不足错误，实例无变化
+
+### Requirement: 实例生平查询
+
+系统 MUST 提供实例生平查询：输出 = 实例档案 + 出生行派生信息（供应商/单价/采购日期，存量实例为空）+ 关联全部明细行倒序（经行-实例关联反查，含单号/类型/日期/行内记录性字段）。单条明细行 MUST 可反向查看其实例列表。P2 验收标准「任一实例可查完整生平」由本要求落实。
+
+#### Scenario: 查询实例生平
+
+- **WHEN** 用户打开某实例的生平视图
+- **THEN** 依时间倒序呈现其出生（采购行信息）与全部流转行（领用/归还/调拨/回收），无缺漏
+
+#### Scenario: 明细行查看实例
+
+- **WHEN** 用户在单据详情明细表点击某行实例列
+- **THEN** 展示该行全部实例的内部编号，可跳转实例生平
+
+### Requirement: 实例写接口冻结
+
+除序列号补录外，实例的全部写接口（create/update/partial_update/destroy/batch-delete/导入）MUST 下线并返回 405/410，提示「实例变动请经流转单」。实例状态/使用人/分公司的全部变动 MUST 收敛于 `assets/services/instances.py`（由台账唯一写入口 `ledger.apply_document` 同事务调用）；架构测试 MUST 执法——services/migrations/tests 白名单之外的实例写操作即测试失败。
+
+#### Scenario: 手动创建实例被拒
+
+- **WHEN** 用户 POST /api/fixed-assets/
+- **THEN** 返回 405 与「实例出生=采购单」提示
+
+#### Scenario: 架构测试抓到越权实例写
+
+- **WHEN** 某视图代码直接修改 FixedAsset.当前状态
+- **THEN** 架构测试失败并指出违规文件
+
+### Requirement: 存量状态归一命令
+
+系统 SHALL 提供 `normalize_instance_status` 管理命令，把旧导入时代混入的非法状态枚举按同义映射归一为四态：使用中→在用、空闲→回收库、空闲中→回收库、维修中→在用、已报废→退役。命令 MUST 默认预览（各非法状态条数与映射目标，不落任何改动），`--confirm` 时经实例服务层执行（写操作收敛 services，架构测试执法）。归一 MUST 只修改 当前状态 一列（分公司、台账、单据一概不动，不生成任何调整单）；MUST 幂等（全部合法后重跑输出无需归一）。
+
+#### Scenario: 预览不落库
+
+- **WHEN** 存在 3 条「使用中」实例，执行 `normalize_instance_status`
+- **THEN** 输出「使用中 × 3 → 在用」，数据库无改动
+
+#### Scenario: 确认归一
+
+- **WHEN** 承上执行 `--confirm`
+- **THEN** 3 条实例 当前状态 变为「在用」，分公司/台账/单据无任何变化
+
+#### Scenario: 幂等重跑
+
+- **WHEN** 归一完成后再次执行
+- **THEN** 输出「全部实例状态均为合法四态，无需归一」，零改动
 
