@@ -1,56 +1,50 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getAsset } from '@/api/assets'
+import { getAssetStocks, getFixedAssets } from '@/api/assets'
 import { ElMessage } from 'element-plus'
-import type { Asset } from '@/types'
+import type { AssetStock, FixedAsset } from '@/types'
 
+/** 台账行详情（P2 第三刀：Asset 退役，移动端详情 = 分公司×品目 台账行 + 其实例） */
 const route = useRoute()
 const router = useRouter()
 
-const assetId = computed(() => route.params.id as string)
-const asset = ref<Asset | null>(null)
+const stockId = computed(() => route.params.id as string)
+const stock = ref<AssetStock | null>(null)
+const instances = ref<FixedAsset[]>([])
 const loading = ref(true)
-
-const statusColors: Record<string, string> = {
-  '在库': 'var(--color-success)',
-  '使用中': 'var(--color-primary-500)',
-  '维修中': 'var(--color-warning)',
-  '报废': 'var(--color-danger)',
-}
-
-const statusLabels: Record<string, string> = {
-  '在库': '在库',
-  '使用中': '使用中',
-  '维修中': '维修中',
-  '报废': '报废',
-}
 
 async function fetchDetail() {
   loading.value = true
   try {
-    const { data } = await getAsset(assetId.value)
-    asset.value = data
+    const { data } = await getAssetStocks({ pageSize: 100 })
+    const rows = data.results || []
+    stock.value = rows.find(r => r.id === stockId.value) || null
+    if (!stock.value) {
+      ElMessage.error('台账行不存在')
+      router.back()
+      return
+    }
+    if (stock.value.管理方式 === 'instance') {
+      const inst = await getFixedAssets({
+        asset_code: stock.value.资产编号,
+        branch: stock.value.branchName || undefined,
+        pageSize: 100,
+      })
+      instances.value = inst.data.results || []
+    }
   } catch (error) {
-    ElMessage.error('获取资产详情失败')
+    ElMessage.error('获取台账行失败')
     router.back()
   } finally {
     loading.value = false
   }
 }
 
-function formatDate(dateStr: string | undefined | null): string {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('zh-CN')
-}
-
-function formatCurrency(value: number | undefined | null): string {
-  if (value == null || value === undefined) return '-'
-  return new Intl.NumberFormat('zh-CN', {
-    style: 'currency',
-    currency: 'CNY',
-  }).format(value)
-}
+const statusText = computed(() => {
+  if (!stock.value) return ''
+  return stock.value.是否充足 === false ? '库存不足' : '库存正常'
+})
 
 onMounted(() => {
   fetchDetail()
@@ -66,7 +60,7 @@ onMounted(() => {
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <h1>资产详情</h1>
+      <h1>台账行详情</h1>
     </div>
 
     <!-- 加载状态 -->
@@ -75,286 +69,81 @@ onMounted(() => {
     </div>
 
     <!-- 详情内容 -->
-    <div v-else-if="asset" class="detail-content">
-      <!-- 资产图片 -->
-      <div class="asset-image-section">
-        <img v-if="asset.图片" :src="asset.图片" />
-        <div v-else class="asset-placeholder">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-          </svg>
-        </div>
-      </div>
-
-      <!-- 状态卡片 -->
+    <div v-else-if="stock" class="detail-content">
+      <!-- 品目与状态 -->
       <div class="status-card">
-        <div class="status-badge" :style="{ background: statusColors[asset.当前状态] }">
-          {{ statusLabels[asset.当前状态] }}
+        <div class="status-badge" :class="{ warn: stock.是否充足 === false }">
+          {{ statusText }}
         </div>
         <div class="asset-names">
-          <h2 class="asset-name">{{ asset.资产名称 }}</h2>
-          <p class="asset-code">{{ asset.资产编号 }}</p>
+          <h2 class="asset-name">{{ stock.资产名称 }}</h2>
+          <p class="asset-code">{{ stock.资产编号 }}</p>
         </div>
       </div>
 
-      <!-- 基本信息 -->
+      <!-- 数量四列 -->
       <div class="info-section">
-        <h3 class="section-title">基本信息</h3>
+        <h3 class="section-title">库存（{{ stock.branchName }}）</h3>
         <div class="info-grid">
-          <div class="info-item">
-            <span class="label">资产类目</span>
-            <span class="value">{{ asset.资产类目 }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">物品分类</span>
-            <span class="value">{{ asset.物品分类 }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">规格型号</span>
-            <span class="value">{{ asset.规格 || '-' }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">供应商</span>
-            <span class="value">{{ asset.供应商 || '-' }}</span>
-          </div>
+          <div class="info-item"><span class="info-label">在库</span><span class="info-value">{{ stock.在库数量 }}</span></div>
+          <div class="info-item"><span class="info-label">在用</span><span class="info-value">{{ stock.在用数量 }}</span></div>
+          <div class="info-item"><span class="info-label">回收库</span><span class="info-value">{{ stock.回收库数量 }}</span></div>
+          <div class="info-item"><span class="info-label">总量</span><span class="info-value">{{ stock.总量 ?? (stock.在库数量 + stock.在用数量 + stock.回收库数量) }}</span></div>
         </div>
       </div>
 
-      <!-- 位置信息 -->
+      <!-- 品目信息 -->
       <div class="info-section">
-        <h3 class="section-title">位置信息</h3>
+        <h3 class="section-title">品目信息</h3>
         <div class="info-grid">
-          <div class="info-item">
-            <span class="label">分公司</span>
-            <span class="value">{{ asset.分公司 }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">所属部门</span>
-            <span class="value">{{ asset.所属部门 || '-' }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">使用人</span>
-            <span class="value">{{ asset.使用人 || '-' }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">是否充足</span>
-            <span class="value" :class="{ warning: asset.是否充足 === false }">
-              {{ asset.是否充足 ? '充足' : '不足' }}
-            </span>
-          </div>
+          <div class="info-item"><span class="info-label">资产类目</span><span class="info-value">{{ stock.资产类目 || '-' }}</span></div>
+          <div class="info-item"><span class="info-label">规格</span><span class="info-value">{{ stock.规格 || '-' }}</span></div>
+          <div class="info-item"><span class="info-label">管理方式</span><span class="info-value">{{ stock.管理方式 === 'instance' ? '实例管理' : '数量管理' }}</span></div>
+          <div class="info-item"><span class="info-label">警戒线</span><span class="info-value">{{ stock.生效警戒线 ?? '—' }}</span></div>
         </div>
       </div>
 
-      <!-- 数量与金额 -->
-      <div class="info-section">
-        <h3 class="section-title">数量与金额</h3>
-        <div class="info-grid">
-          <div class="info-item">
-            <span class="label">数量</span>
-            <span class="value">{{ asset.数量 }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">警戒线</span>
-            <span class="value">{{ asset.警戒线 || '-' }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">单价</span>
-            <span class="value">{{ asset.单价 ? formatCurrency(asset.单价) : '-' }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">购入金额</span>
-            <span class="value">{{ asset.购入金额 ? formatCurrency(asset.购入金额) : '-' }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">采购方式</span>
-            <span class="value">{{ asset.是否租用 ? '租用' : '自购' }}</span>
+      <!-- 实例列表（实例管理品目） -->
+      <div v-if="instances.length" class="info-section">
+        <h3 class="section-title">实例档案（{{ instances.length }}）</h3>
+        <div class="instance-list">
+          <div v-for="inst in instances" :key="inst.id" class="instance-row">
+            <span class="instance-code">{{ inst.内部编号 }}</span>
+            <span class="instance-state">{{ inst.当前状态 }}</span>
+            <span class="instance-user">{{ inst.使用人 || (inst.序列号 || '待补录') }}</span>
           </div>
         </div>
       </div>
-
-      <!-- 日期信息 -->
-      <div class="info-section">
-        <h3 class="section-title">日期信息</h3>
-        <div class="info-grid">
-          <div class="info-item">
-            <span class="label">入库日期</span>
-            <span class="value">{{ formatDate(asset.入库日期) }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">出库日期</span>
-            <span class="value">{{ formatDate(asset.出库日期) }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 备注 -->
-      <div v-if="asset.备注" class="info-section">
-        <h3 class="section-title">备注</h3>
-        <p class="remarks">{{ asset.备注 }}</p>
-      </div>
+      <p v-else-if="stock.管理方式 === 'instance'" class="dim-hint">该品目暂无实例档案（新采购入库后自动生成）</p>
     </div>
   </div>
 </template>
 
 <style scoped>
-.asset-detail-page {
-  padding: var(--space-4);
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-
-.back-btn {
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 10px;
-  background: var(--color-bg-card);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.back-btn svg {
-  width: 20px;
-  height: 20px;
-  color: var(--color-text-secondary);
-}
-
-.page-header h1 {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.loading-state {
-  padding: var(--space-8);
-  text-align: center;
-  color: var(--color-text-tertiary);
-}
-
-.asset-image-section {
-  width: 100%;
-  height: 200px;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  overflow: hidden;
-  margin-bottom: var(--space-4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.asset-image-section img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.asset-placeholder {
-  width: 80px;
-  height: 80px;
-  color: var(--color-text-tertiary);
-}
-
-.asset-placeholder svg {
-  width: 100%;
-  height: 100%;
-}
-
-.status-card {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  padding: var(--space-4);
-  margin-bottom: var(--space-4);
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.status-badge {
-  padding: var(--space-2) var(--space-3);
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: white;
-}
-
-.asset-names {
-  flex: 1;
-}
-
-.asset-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0;
-}
-
-.asset-code {
-  font-size: 12px;
-  font-family: var(--font-mono);
-  color: var(--color-text-tertiary);
-  margin: 4px 0 0;
-}
-
-.info-section {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  margin-bottom: var(--space-3);
-  overflow: hidden;
-}
-
-.section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-elevated);
-  margin: 0;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-3);
-  padding: var(--space-4);
-}
-
-.info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.info-item .label {
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-}
-
-.info-item .value {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.info-item .value.warning {
-  color: var(--color-danger);
-}
-
-.remarks {
-  padding: var(--space-4);
-  font-size: 14px;
-  color: var(--color-text-secondary);
-  line-height: 1.6;
-  margin: 0;
-}
+.asset-detail-page { min-height: 100vh; background: var(--color-bg-page); padding-bottom: 24px; }
+.page-header { display: flex; align-items: center; gap: 12px; padding: 16px; background: var(--color-bg-card); border-bottom: 1px solid var(--color-border); }
+.page-header h1 { margin: 0; font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
+.back-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; color: var(--color-text-primary); cursor: pointer; }
+.back-btn svg { width: 20px; height: 20px; }
+.loading-state { display: flex; justify-content: center; padding: 48px 0; color: var(--color-text-tertiary); }
+.detail-content { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.status-card { display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--color-bg-card); border-radius: 12px; }
+.status-badge { padding: 6px 12px; border-radius: 16px; font-size: 13px; font-weight: 600; color: white; background: var(--color-success); }
+.status-badge.warn { background: var(--color-warning); }
+.asset-names { min-width: 0; }
+.asset-name { margin: 0; font-size: 17px; font-weight: 600; color: var(--color-text-primary); }
+.asset-code { margin: 4px 0 0; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-tertiary); }
+.info-section { background: var(--color-bg-card); border-radius: 12px; padding: 16px; }
+.section-title { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--color-text-secondary); }
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.info-item { display: flex; flex-direction: column; gap: 4px; }
+.info-label { font-size: 12px; color: var(--color-text-tertiary); }
+.info-value { font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
+.instance-list { display: flex; flex-direction: column; }
+.instance-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--color-border-light); font-size: 13px; }
+.instance-row:last-child { border-bottom: none; }
+.instance-code { font-family: var(--font-mono); color: var(--color-primary-600); min-width: 120px; }
+.instance-state { color: var(--color-text-secondary); flex: 1; }
+.instance-user { color: var(--color-text-tertiary); }
+.dim-hint { margin: 0; font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 </style>

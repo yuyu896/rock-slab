@@ -71,30 +71,30 @@ class TestScopeResolution:
 @pytest.mark.django_db
 class TestDataScopeByGrant:
     def test_staff_granted_branch_sees_only_that_branch(
-        self, branch, second_branch, make_asset, make_asset_b,
+        self, branch, second_branch, make_stock, make_stock_b,
     ):
-        """被授予某分公司的 staff 仅见该分公司资产（数据范围由授权决定）。"""
+        """被授予某分公司的 staff 仅见该分公司台账行（数据范围由授权决定）。"""
         from apps.users.models import User
-        make_asset()  # branch
-        make_asset_b()  # second_branch
+        make_stock()  # branch
+        make_stock_b()  # second_branch
         user = User.objects.create_user(
             phone='13600000010', name='范围用户', password='test123456', role='staff',
         )
         ManagementScope.objects.create(user=user, branch=branch)
         client = _client_for(user)
-        resp = client.get('/api/assets/')
+        resp = client.get('/api/assets/summary')
         assert resp.data['count'] == 1
-        assert resp.data['results'][0]['分公司'] == branch.name
+        assert resp.data['results'][0]['branch_name'] == branch.name
 
-    def test_staff_without_grant_sees_nothing(self, make_asset):
+    def test_staff_without_grant_sees_nothing(self, make_stock):
         """无授权的非 admin 用户见空范围。"""
         from apps.users.models import User
-        make_asset()
+        make_stock()
         user = User.objects.create_user(
             phone='13600000011', name='无范围', password='test123456', role='staff',
         )
         client = _client_for(user)
-        resp = client.get('/api/assets/')
+        resp = client.get('/api/assets/summary')
         assert resp.data['count'] == 0
 
 

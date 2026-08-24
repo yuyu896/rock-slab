@@ -2,10 +2,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getInventoryTask, getInventoryProgress, checkInventoryItem, getInventoryChecks, submitInventory } from '@/api/inventories'
-import { getAssets } from '@/api/assets'
+import { getAssetStocks } from '@/api/assets'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import type { Asset } from '@/types'
+import type { AssetStock } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -119,7 +119,7 @@ const recentScans = ref<any[]>([])
 
 // 弹窗状态
 const showResultModal = ref(false)
-const currentScanResult = ref<{ assetId: string; code: string; name: string; expected: number; actual: number | null; result: string } | null>(null)
+const currentScanResult = ref<{ stockId: string; code: string; name: string; expected: number; actual: number | null; result: string } | null>(null)
 const actualQty = ref(1)
 
 // 进度计算
@@ -165,24 +165,24 @@ const handleScan = async () => {
 
   isScanning.value = true
   try {
-    const { data } = await getAssets({ keyword: scanInput.value.trim(), pageSize: 1 })
+    const { data } = await getAssetStocks({ keyword: scanInput.value.trim(), pageSize: 1 })
     const results = data.results || data as any
-    const assets = Array.isArray(results) ? results : []
-    if (assets.length === 0) {
-      ElMessage.warning('未找到该资产')
+    const rows = Array.isArray(results) ? results : []
+    if (rows.length === 0) {
+      ElMessage.warning('未找到该品目的台账行')
       isScanning.value = false
       return
     }
-    const asset: Asset = assets[0]
+    const stock: AssetStock = rows[0]
     currentScanResult.value = {
-      assetId: asset.id,
-      code: asset.资产编号,
-      name: asset.资产名称,
-      expected: asset.数量,
+      stockId: stock.id,
+      code: stock.资产编号,
+      name: stock.资产名称 || '',
+      expected: stock.在库数量,
       actual: null,
       result: 'pending'
     }
-    actualQty.value = asset.数量
+    actualQty.value = stock.在库数量
     showResultModal.value = true
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -197,7 +197,7 @@ const confirmScan = async () => {
 
   try {
     await checkInventoryItem(taskId, {
-      assetId: currentScanResult.value.assetId,
+      stockId: currentScanResult.value.stockId,
       qty: actualQty.value
     })
 

@@ -94,7 +94,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         )
         if err:
             return err
-        # Create inventory items from assets in scope
+        # Create inventory items from ledger rows in scope
         self._generate_items(task)
         return Response(InventoryTaskSerializer(task).data)
 
@@ -111,20 +111,20 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer = CheckItemSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        from apps.assets.models import Asset
-        asset = Asset.objects.filter(
-            id=serializer.validated_data['asset_id'], branch=task.branch,
+        from apps.assets.models import AssetStock
+        stock = AssetStock.objects.select_related('item').filter(
+            id=serializer.validated_data['stock_id'], branch=task.branch,
         ).first()
-        if not asset:
+        if not stock:
             return Response(
-                {'detail': '资产不存在或不属于本盘点任务分公司'},
+                {'detail': '台账行不存在或不属于本盘点任务分公司'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Get or create the inventory item
+        # Get or create the inventory item（应盘数量=台账在库）
         item, _ = InventoryItem.objects.get_or_create(
-            task=task, asset=asset,
-            defaults={'expected_qty': asset.数量},
+            task=task, stock=stock,
+            defaults={'expected_qty': stock.在库数量},
         )
 
         qty = serializer.validated_data['qty']
@@ -152,7 +152,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         # Create check record
         check_record = InventoryCheck.objects.create(
-            task=task, item=item, asset=asset, qty=qty,
+            task=task, item=item, stock=stock, qty=qty,
             checked_by=request.user,
         )
         return Response(InventoryCheckSerializer(check_record).data)
@@ -192,8 +192,8 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         def _adjust(t):
-            # P1：盘点为记录模式——差异仅留存于盘点结果，不再直接改 Asset 数量
-            # （Asset 已冻结；差异修数走台账调整单，P3 接「差异自动生成调整单」）
+            # 盘点为记录模式——差异仅留存于盘点结果，不直接改台账数量
+            # （差异修数走台账调整单，P3 接「差异自动生成调整单」）
             t.completed_at = timezone.now()
 
         task, err = self._transition(
@@ -312,7 +312,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def report(self, request, pk=None):
         """盘点报告"""
         task = self.get_object()
-        items = task.items.select_related('asset').all()
+        items = task.items.select_related('stock__item', 'stock__branch').all()
         data = {
             'task': InventoryTaskSerializer(task).data,
             'progress': self._build_progress_data(task, items),
@@ -324,7 +324,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def checks(self, request, pk=None):
         """盘点记录（多人协作）"""
         task = self.get_object()
-        queryset = task.checks.select_related('asset', 'checked_by').all()
+        queryset = task.checks.select_related('stock__item', 'checked_by').all()
 
         # Paginate
         paginator = StandardPagination()
@@ -346,7 +346,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.http import HttpResponse
 
         task = self.get_object()
-        items = task.items.select_related('asset').order_by('created_at')
+        items = task.items.select_related('stock__item').order_by('created_at')
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -354,12 +354,12 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.append(['序号', '资产编号', '资产名称', '资产类目', '账面数量', '实盘数量', '备注'])
 
         for idx, item in enumerate(items, start=1):
-            asset = item.asset
+            stock = item.stock
             ws.append([
                 idx,
-                asset.资产编号,
-                asset.资产名称,
-                asset.资产类目,
+                stock.item.asset_code,
+                stock.item.asset_name,
+                stock.item.asset_category,
                 item.expected_qty,
                 '',  # 实盘数量 - 用户填写
                 '',  # 备注 - 用户填写
@@ -440,7 +440,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
             # Find the inventory item by asset code
             try:
-                item = task.items.select_related('asset').get(asset__资产编号=asset_code)
+                item = task.items.select_related('stock__item').get(stock__item__asset_code=asset_code)
             except InventoryItem.DoesNotExist:
                 errors.append(f'第 {i} 行: 资产编号 "{asset_code}" 不在盘点范围内')
                 continue
@@ -468,7 +468,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
             # Create check record
             InventoryCheck.objects.create(
-                task=task, item=item, asset=item.asset, qty=actual_qty,
+                task=task, item=item, stock=item.stock, qty=actual_qty,
                 checked_by=request.user,
             )
             imported += 1
@@ -481,17 +481,20 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     # ---- Helpers ----
 
     def _generate_items(self, task):
-        """Generate inventory items from assets matching the task scope."""
-        from apps.assets.models import Asset
-        qs = Asset.objects.all()
+        """从任务范围内台账行生成盘点项（跳过三列全零空行，应盘=在库数量）。"""
+        from apps.assets.models import AssetStock
+        from django.db.models import Q
+        qs = AssetStock.objects.select_related('item').filter(
+            Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
+        )
         if task.branch:
-            qs = qs.filter(分公司编号=task.branch.code)
+            qs = qs.filter(branch=task.branch)
         if task.category:
-            qs = qs.filter(资产类目=task.category.asset_category)
-        for asset in qs:
+            qs = qs.filter(item__asset_category=task.category.asset_category)
+        for stock in qs:
             InventoryItem.objects.get_or_create(
-                task=task, asset=asset,
-                defaults={'expected_qty': asset.数量},
+                task=task, stock=stock,
+                defaults={'expected_qty': stock.在库数量},
             )
 
     def _apply_missed_rule(self, task):

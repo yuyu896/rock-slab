@@ -7,9 +7,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from io import StringIO
 
-from apps.assets.models import Asset, AssetStock, LedgerAdjustment
+from apps.assets.models import AssetStock, LedgerAdjustment
 from apps.assets.services import ledger
-from apps.organizations.models import Department
 
 
 def _item(code):
@@ -19,19 +18,6 @@ def _item(code):
         defaults={'asset_category': 't', 'item_category': 't', 'asset_name': code, 'unit': '个'},
     )
     return item
-
-
-def _make_asset(branch, code, qty, status='在库', dept=''):
-    return Asset.objects.create(
-        序号=_next_seq(), 分公司=branch.name, 分公司编号=branch.code, branch=branch,
-        资产编号=code, 资产类目='t', 物品分类='t', 资产名称=code,
-        数量=qty, 当前状态=status, 所属部门=dept,
-    )
-
-
-def _next_seq():
-    last = Asset.objects.order_by('-序号').first()
-    return (last.序号 + 1) if last else 1
 
 
 def _check():
@@ -46,70 +32,6 @@ def _check():
 # ---------------------------------------------------------------------------
 # 分桶与期初单
 # ---------------------------------------------------------------------------
-
-@pytest.mark.django_db
-class TestInitialMigration:
-    def test_status_bucketing_rules(self, branch):
-        _item('MG-001')
-        _make_asset(branch, 'MG-001', 5, status='在库')
-        _make_asset(branch, 'MG-001', 2, status='使用中')
-        _make_asset(branch, 'MG-001', 1, status='维修中')
-        _make_asset(branch, 'MG-001', 3, status='报废')  # 出局不计
-
-        out = StringIO()
-        call_command('migrate_initial_ledger', '--confirm-backup', stdout=out)
-
-        row = AssetStock.objects.get(branch=branch, item__asset_code='MG-001')
-        assert row.在库数量 == 5
-        assert row.在用数量 == 3  # 使用中 2 + 维修中 1
-        code, _ = _check()
-        assert code == 0  # 期初单生成后立即对账零差异
-
-    def test_initial_adjustments_created(self, branch):
-        _item('MG-002')
-        _make_asset(branch, 'MG-002', 4, status='在库', dept='行政部')
-        out = StringIO()
-        call_command('migrate_initial_ledger', '--confirm-backup', stdout=out)
-        adj = LedgerAdjustment.objects.get(item__asset_code='MG-002', is_initial=True)
-        assert adj.变动量 == 4 and adj.事由 == '系统期初'
-
-    def test_unregistered_code_blocks_migration(self, branch):
-        _item('MG-003')
-        _make_asset(branch, 'MG-UNKNOWN-1', 2)  # 未登记
-        with pytest.raises(CommandError, match='未登记'):
-            call_command('migrate_initial_ledger', '--confirm-backup')
-        assert not AssetStock.objects.exists()
-
-    def test_requires_backup_confirmation(self, branch):
-        with pytest.raises(CommandError, match='备份'):
-            call_command('migrate_initial_ledger')
-
-    def test_department_normalization(self, branch):
-        _item('MG-004')
-        _make_asset(branch, 'MG-004', 1, dept='行政部')
-        _make_asset(branch, 'MG-004', 1, dept='行政部')  # 重复文本归一
-        _make_asset(branch, 'MG-004', 1, dept='仓库')
-        out = StringIO()
-        call_command('migrate_initial_ledger', '--confirm-backup', stdout=out)
-        depts = set(Department.objects.filter(branch=branch).values_list('name', flat=True))
-        assert depts == {'行政部', '仓库'}
-
-    def test_rerun_requires_reset(self, branch):
-        _item('MG-005')
-        _make_asset(branch, 'MG-005', 1)
-        call_command('migrate_initial_ledger', '--confirm-backup')
-        with pytest.raises(CommandError, match='reset'):
-            call_command('migrate_initial_ledger', '--confirm-backup')
-
-    def test_preview_reports_unregistered_with_suggestion(self, branch):
-        _item('MG-006')
-        _make_asset(branch, 'MG-006X', 1)
-        out = StringIO()
-        call_command('preview_ledger_migration', stdout=out)
-        text = out.getvalue()
-        assert 'MG-006X' in text
-        assert '阻断' in text
-
 
 # ---------------------------------------------------------------------------
 # 对账命令
@@ -134,18 +56,18 @@ class TestCheckLedgerConsistency:
         assert 'CK-002' in text
 
     def test_post_initial_documents_reconcile(self, branch):
-        """期初单吸收历史后，其后的单据参与重算。"""
+        """期初单吸收历史后，其后的单据参与重算（期初经增量导入语义的调整单入账）。"""
         from apps.transfers.models import Transfer, TransferLine
         item = _item('CK-003')
-        # 历史（期初前）单据：不参与重算
+        # 历史（期初前）单据：被期初吸收，不参与重算
         transfer = Transfer.objects.create(
             调拨日期='2026-01-01',
             调出分公司=branch.name, from_branch=branch,
             action_type='purchase', 审批状态='已入库',
         )
         TransferLine.objects.create(transfer=transfer, item=item, 行号=1, 数量=99)
-        _make_asset(branch, 'CK-003', 6)
-        call_command('migrate_initial_ledger', '--confirm-backup')
+        # 期初入账：is_initial 调整单（P2 第三刀起唯一期初形态）
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 6, '系统期初', is_initial=True)
         row = AssetStock.objects.get(branch=branch, item__asset_code='CK-003')
         assert row.在库数量 == 6  # 历史单据被期初吸收，不重复计
         code, _ = _check()
@@ -230,6 +152,7 @@ class TestUninitializedTolerance:
         code, text = _check()
         assert code == 0
         assert '未初始化' in text
+        assert '台账增量导入' in text
 
     def test_any_ledger_row_enforces_strict(self, branch):
         """只要台账有行（哪怕无期初单），即严格对账。"""

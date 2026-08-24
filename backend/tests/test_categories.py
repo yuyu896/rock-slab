@@ -290,19 +290,20 @@ class TestItemDictionary:
         assert resp.status_code == 400
 
     @_DESTROY_TRANSFER_REF_BROKEN
-    def test_destroy_blocked_by_asset_reference(self, admin_user):
-        from apps.assets.models import Asset
+    @_DESTROY_TRANSFER_REF_BROKEN
+    def test_destroy_blocked_by_instance_reference(self, admin_user):
+        from apps.assets.models import FixedAsset
         client = _client_for(admin_user)
         resp = client.post(CATEGORY_URL, self._payload('DICT-R-001'))
         code_id = resp.json()['id']
-        Asset.objects.create(
-            序号=1, 分公司='测试分公司', 分公司编号='CS001',
-            资产编号='DICT-R-001', 资产类目='电子设备', 物品分类='笔记本',
-            资产名称='品目 DICT-R-001', 数量=1, 当前状态='在库',
+        from apps.categories.models import Category
+        FixedAsset.objects.create(
+            item=Category.objects.get(id=code_id),
+            内部编号='DICT-R-001-1', 当前状态='在库',
         )
         resp = client.delete(f'{CATEGORY_URL}{code_id}')
         assert resp.status_code == 400
-        assert '资产明细' in resp.json()['detail']
+        assert '固定资产实例' in resp.json()['detail']
 
     @_DESTROY_TRANSFER_REF_BROKEN
     def test_destroy_allowed_without_reference(self, admin_user):

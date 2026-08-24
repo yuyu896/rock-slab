@@ -36,8 +36,8 @@ class Command(BaseCommand):
         # 通过并提示；一旦存在期初单或任何台账行，即进入严格对账。
         if initial_time is None and not AssetStock.objects.exists():
             self.stdout.write(self.style.WARNING(
-                '台账未初始化（无期初单、无台账行）——请执行 preview_ledger_migration → '
-                'migrate_initial_ledger 完成存量入账；初始化后本命令将严格对账'
+                '台账未初始化（无期初单、无台账行）——请使用台账增量导入完成期初入账'
+                '（差异预览 → 确认生成期初调整单）；初始化后本命令将严格对账'
             ))
             return
 

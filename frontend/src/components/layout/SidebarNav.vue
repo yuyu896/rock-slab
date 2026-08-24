@@ -58,9 +58,8 @@ const navItems = computed<NavItem[]>(() => [
     label: '库存',
     path: '/inventory-group',
     children: [
-      { icon: '', label: '资产汇总', path: '/assets/summary' },
-      { icon: '', label: '资产明细', path: '/assets/list' },
-      { icon: '', label: '固定资产表', path: '/fixed-assets' },
+      { icon: '', label: '资产台账', path: '/assets/summary' },
+      { icon: '', label: '实例档案', path: '/fixed-assets' },
     ]
   },
   {

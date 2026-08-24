@@ -1,16 +1,6 @@
-/* 磐盘 - 资产 API */
+/* 磐盘 - 资产 API（P2 第三刀起 Asset 退役：台账 / 调整单 / 实例档案）*/
 import request from '@/utils/request'
-import type { Asset, AssetStock, FixedAsset, PaginatedResponse, PaginationParams } from '@/types'
-
-export function getAssets(params?: PaginationParams & {
-  branch?: string
-  category?: string
-  status?: string
-  keyword?: string
-  ordering?: string
-}) {
-  return request.get<PaginatedResponse<Asset>>('/api/assets/', { params })
-}
+import type { AssetStock, FixedAsset, PaginatedResponse, PaginationParams } from '@/types'
 
 // ── 资产汇总（库存台账） ──
 
@@ -46,40 +36,6 @@ export function downloadAssetStockTemplate() {
   return request.get<Blob>('/api/assets/summary/template', { responseType: 'blob' })
 }
 
-export function getAsset(id: string) {
-  return request.get<Asset>(`/api/assets/${id}`)
-}
-
-export function createAsset(data: Partial<Asset>) {
-  return request.post<Asset>('/api/assets/', data)
-}
-
-export function updateAsset(id: string, data: Partial<Asset>) {
-  return request.patch<Asset>(`/api/assets/${id}`, data)
-}
-
-export function deleteAsset(id: string) {
-  return request.delete(`/api/assets/${id}`)
-}
-
-/** 批量删除资产（ids: 资产 id 列表） */
-export function batchDeleteAssets(ids: string[]) {
-  return request.post<{ deleted: number }>('/api/assets/batch-delete', { ids })
-}
-
-/** Excel 批量导入 */
-export function importAssets(file: File) {
-  const formData = new FormData()
-  formData.append('file', file)
-  return request.post<{ imported: number; errors: string[] }>('/api/assets/import', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
-}
-
-/** Excel 导出（遵循页面筛选） */
-export function exportAssets(params?: { branch?: string; category?: string; status?: string; keyword?: string }) {
-  return request.get<Blob>('/api/assets/export', { params, responseType: 'blob' })
-}
 
 // ── 固定资产实例（P2 第二刀：冻结只读 + 序列号补录 + 生平；变动经流转单） ──
 

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { nextTick, watch } from 'vue'
 import JsBarcode from 'jsbarcode'
-import type { Asset } from '@/types'
+/* 打印对象为字段映射后的宽松形状（内部编号/品目编号等） */
+ type Asset = Record<string, any>
 
 const props = defineProps<{
   visible: boolean

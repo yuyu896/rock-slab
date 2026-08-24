@@ -627,3 +627,74 @@ class TestNormalizeStatus:
         assert LedgerAdjustment.objects.count() == before_adj
         code, _ = _check()
         assert code == 0
+
+
+# ---------------------------------------------------------------------------
+# P2 第三刀存量迁移冒烟：盘点项换挂台账行 + Asset 删表
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db(transaction=True)
+class TestThirdCutMigrationSmoke:
+    def test_inventory_remap_and_asset_drop(self):
+        import uuid as uuid_mod
+        from django.core.management import call_command
+        from django.db import connection
+        from apps.assets.models import AssetStock
+        from apps.categories.models import Category
+        from apps.inventories.models import InventoryTask, InventoryItem
+        from apps.organizations.models import Branch, Region, Team
+        from apps.assets.services import ledger
+
+        region = Region.objects.create(name='三大区', code='TC01')
+        team = Team.objects.create(name='三组', region=region)
+        branch = Branch.objects.create(name='三分公司', code='TC001', team=team)
+        item = Category.objects.create(
+            asset_category='固定', item_category='办公', asset_name='三刀品目',
+            asset_code='TC-001', unit='台', management_type='quantity',
+        )
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 4, '造数')
+        stock = AssetStock.objects.get(branch=branch, item=item)
+        task = InventoryTask.objects.create(name='三刀盘点', branch=branch, status='in_progress')
+
+        call_command('migrate', 'inventories', '0003', verbosity=0)
+        call_command('migrate', 'assets', '0019', verbosity=0)
+
+        # 旧形状：Asset 行（一条可解析 / 一条脏编号）+ 盘点项挂 Asset
+        asset_cols = (
+            "id, 序号, 分公司, 分公司编号, branch_id, 资产编号, 资产类目, 物品分类, "
+            "资产名称, 规格, 供应商, 入库日期, 是否租用, 数量, 所属部门, 使用人, "
+            "当前状态, 是否充足, 电脑序列号, 备注, created_at, updated_at"
+        )
+        asset_vals = (
+            "%s, %s, '三分公司', 'TC001', %s, %s, '固定', '办公', %s, '', '', NULL, 0, %s, "
+            "'', '', '在库', 1, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP"
+        )
+        with connection.cursor() as cur:
+            good_id = uuid_mod.uuid4().hex
+            dirty_id = uuid_mod.uuid4().hex
+            cur.execute(
+                f"INSERT INTO assets_asset ({asset_cols}) VALUES ({asset_vals})",
+                [good_id, 1, branch.id.hex, 'TC-001', '旧品', 4],
+            )
+            cur.execute(
+                f"INSERT INTO assets_asset ({asset_cols}) VALUES ({asset_vals})",
+                [dirty_id, 2, branch.id.hex, 'DIRTY-XXX', '脏品', 1],
+            )
+            for aid in (good_id, dirty_id):
+                cur.execute(
+                    "INSERT INTO inventories_item (id, task_id, asset_id, expected_qty, actual_qty, "
+                    "result, check_count, remarks, created_at, updated_at) "
+                    "VALUES (%s, %s, %s, 4, NULL, 'unchecked', 0, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    [uuid_mod.uuid4().hex, task.id.hex, aid])
+
+        call_command('migrate', verbosity=0)
+
+        # 好行换挂台账行；脏行被清理
+        kept = InventoryItem.objects.filter(task=task)
+        assert kept.count() == 1
+        assert kept.first().stock_id == stock.id
+        assert kept.first().expected_qty == 4
+        # Asset 表已物理删除
+        with connection.cursor() as cur:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='assets_asset'")
+            assert cur.fetchone() is None

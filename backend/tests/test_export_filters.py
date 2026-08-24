@@ -6,7 +6,6 @@ import io
 import pytest
 import openpyxl
 
-from apps.assets.models import Asset
 from apps.transfers.models import Transfer
 from conftest import _client_for
 
@@ -17,27 +16,33 @@ def _xlsx_rows(content):
 
 
 @pytest.mark.django_db
-class TestAssetExportFilters:
-    def test_export_respects_branch_category_keyword(self, supervisor_user, branch, second_branch):
-        def make(seq, br, code, cat, name):
-            return Asset.objects.create(
-                序号=seq, 分公司=br.name, 分公司编号=br.code, branch=br,
-                资产编号=code, 资产类目=cat, 物品分类='办公设备',
-                资产名称=name, 数量=1, 当前状态='在库',
-            )
+class TestStockExportFilters:
+    """台账导出遵循筛选（Asset 导出已随第三刀退役，台账承接导出契约）。"""
 
-        make(1, branch, 'EF-1', '固定资产', '办公椅甲')
-        make(2, branch, 'EF-2', '耗材', '办公椅乙')
-        make(3, second_branch, 'EF-3', '固定资产', '办公椅丙')
+    def test_export_respects_branch_keyword(self, supervisor_user, branch, second_branch):
+        from apps.assets.services import ledger
+        from apps.categories.models import Category
+        for br, code, cat, name in [
+            (branch, 'EF-1', '固定资产', '办公椅甲'),
+            (branch, 'EF-2', '耗材', '办公椅乙'),
+            (second_branch, 'EF-3', '固定资产', '办公椅丙'),
+        ]:
+            item, _ = Category.objects.get_or_create(
+                asset_code=code,
+                defaults={'asset_category': cat, 'item_category': '办公设备',
+                          'asset_name': name, 'unit': '件'},
+            )
+            ledger.apply_adjustment(br, item, ledger.COLUMN_STOCK, 1, '造数')
 
         client = _client_for(supervisor_user)
-        resp = client.get('/api/assets/export', {
+        resp = client.get('/api/assets/summary/export', {
             'branch': branch.name, 'category': '固定资产', 'keyword': '办公椅',
         })
         assert resp.status_code == 200
         rows = _xlsx_rows(resp.content)
         codes = [r[2] for r in rows[1:]]  # 第 3 列为资产编号
         assert codes == ['EF-1']
+
 
 
 @pytest.mark.django_db

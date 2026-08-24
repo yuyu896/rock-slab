@@ -44,13 +44,16 @@ class TestWriteScopeEnforcement:
         self, staff_user, admin_user, branch, second_branch,
     ):
         """盘点 check 提交不属于任务分公司的资产 → 404（IDOR 修复）。"""
-        from apps.assets.models import Asset
-        asset = Asset.objects.create(
-            序号=901, 资产编号='CROSS-CHECK-001', 资产名称='跨范围资产',
-            资产类目='固定', 物品分类='办公',
-            分公司=second_branch.name, 分公司编号=second_branch.code,
-            branch=second_branch, 数量=5, 当前状态='在库',
+        from apps.assets.models import AssetStock
+        from apps.assets.services import ledger
+        from apps.categories.models import Category
+        item, _ = Category.objects.get_or_create(
+            asset_code='CROSS-CHECK-001',
+            defaults={'asset_category': '固定', 'item_category': '办公',
+                      'asset_name': '跨范围资产', 'unit': '件'},
         )
+        ledger.apply_adjustment(second_branch, item, ledger.COLUMN_STOCK, 5, '造数')
+        stock = AssetStock.objects.get(branch=second_branch, item=item)
         client_admin = _client_for(admin_user)
         resp = client_admin.post('/api/inventories/', {'name': '跨范围盘点', 'branch': branch.id})
         assert resp.status_code == 201
@@ -59,7 +62,7 @@ class TestWriteScopeEnforcement:
 
         client_staff = _client_for(staff_user)
         resp = client_staff.post(f'/api/inventories/{task_id}/check', {
-            'assetId': str(asset.id), 'qty': 1,
+            'stockId': str(stock.id), 'qty': 1,
         }, format='json')
         assert resp.status_code == 404
 
@@ -80,9 +83,9 @@ class TestWritePermissionBaseline:
 
     def test_assets_write_endpoints_frozen(self):
         """P1 起 Asset 写接口整体下线（405），无需再声明编辑操作码。"""
-        from apps.assets.views import AssetViewSet
-        assert not getattr(AssetViewSet, 'required_operations', None)
-
+        from importlib import import_module
+        views = import_module('apps.assets.views')
+        assert not hasattr(views, 'AssetViewSet')
 
 @pytest.mark.django_db
 class TestUserDirectoryScoping:

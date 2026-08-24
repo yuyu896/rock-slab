@@ -1,10 +1,9 @@
 from rest_framework.routers import DefaultRouter
-from .views import AssetViewSet, AssetStockViewSet, FixedAssetViewSet, LedgerAdjustmentViewSet
+from .views import AssetStockViewSet, FixedAssetViewSet, LedgerAdjustmentViewSet
 
 router = DefaultRouter(trailing_slash=False)
-# summary / adjustments 前缀必须注册在 r'' 之前，否则会被 AssetViewSet 的通配路由吞掉
+# 台账 / 调整单 / 实例档案（Asset 主路由已随 P2 第三刀退役）
 router.register(r'summary', AssetStockViewSet, basename='asset-stock')
 router.register(r'adjustments', LedgerAdjustmentViewSet, basename='ledger-adjustment')
 router.register(r'fixed-assets', FixedAssetViewSet, basename='fixed-asset')
-router.register(r'', AssetViewSet, basename='asset')
 urlpatterns = router.urls

@@ -229,7 +229,7 @@ class TestTransferList:
 
 @pytest.mark.django_db
 class TestApproveAssetSync:
-    """P1：审批联动台账（原「更新 Asset 状态」契约随冻结废止）。"""
+    """审批联动台账矩阵（Asset 时代契约已随第三刀退役）。"""
 
     def _seed_ledger(self, branch, code, stock=5):
         from apps.assets.services import ledger
@@ -238,23 +238,7 @@ class TestApproveAssetSync:
         ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, stock, '测试造数')
         return item
 
-    def _create_asset(self, branch, asset_code='AST-SYNC-001', qty=5, status='在库'):
-        from apps.assets.models import Asset
-        return Asset.objects.create(
-            序号=9999,
-            分公司=branch.name,
-            分公司编号=branch.code,
-            branch=branch,
-            资产编号=asset_code,
-            资产类目='固定资产',
-            物品分类='办公设备',
-            资产名称='同步测试资产',
-            数量=qty,
-            当前状态=status,
-        )
-
-    def test_assign_approve_moves_ledger_and_freezes_asset(self, authenticated_client, branch, item_id):
-        asset = self._create_asset(branch)
+    def test_assign_approve_moves_ledger(self, authenticated_client, branch, item_id):
         self._seed_ledger(branch, 'AST-SYNC-001')
         payload = {
             '调拨日期': '2026-02-01',
@@ -268,8 +252,7 @@ class TestApproveAssetSync:
         from apps.assets.models import AssetStock
         row = AssetStock.objects.get(branch=branch, item__asset_code='AST-SYNC-001')
         assert row.在库数量 == 4 and row.在用数量 == 1
-        asset.refresh_from_db()
-        assert asset.当前状态 == '在库' and asset.数量 == 5  # Asset 冻结零变化
+        row.refresh_from_db()
 
     def test_return_approve_moves_ledger(self, authenticated_client, branch, item_id):
         from apps.assets.models import AssetStock

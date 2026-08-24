@@ -268,58 +268,58 @@ def item_id():
 
 
 # ---------------------------------------------------------------------------
-# Asset factory helpers
+# 台账行 factory（P2 第三刀起 Asset 退役，造数一律走台账行 + 调整单）
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def make_asset(branch):
-    """Factory fixture to create Asset instances with sensible defaults."""
-    from apps.assets.models import Asset
+def make_stock(branch):
+    """Factory fixture：造 (分公司 × 品目) 台账行，数量经调整单入账（口径一致）。"""
+    from apps.assets.services import ledger
+    from apps.categories.models import Category
 
     counter = {'n': 0}
 
-    def _make(**overrides):
+    def _make(code=None, qty=1, column=ledger.COLUMN_STOCK, management_type='quantity'):
         counter['n'] += 1
-        defaults = dict(
-            序号=counter['n'],
-            分公司=branch.name,
-            分公司编号=branch.code,
-            资产编号=f'AUTO-{counter["n"]:04d}',
-            资产类目='固定资产',
-            物品分类='办公设备',
-            资产名称=f'自动测试资产{counter["n"]}',
-            数量=1,
-            当前状态='在库',
-            branch=branch,
+        code = code or f'AUTO-{counter["n"]:04d}'
+        item, _ = Category.objects.get_or_create(
+            asset_code=code,
+            defaults={
+                'asset_category': '固定资产', 'item_category': '办公设备',
+                'asset_name': f'自动测试资产{counter["n"]}', 'unit': '件',
+                'management_type': management_type,
+            },
         )
-        defaults.update(overrides)
-        return Asset.objects.create(**defaults)
+        ledger.apply_adjustment(branch, item, column, qty, '测试造数')
+        from apps.assets.models import AssetStock
+        return AssetStock.objects.get(branch=branch, item=item)
 
     return _make
 
 
 @pytest.fixture
-def make_asset_b(second_branch):
-    """Factory fixture to create Asset instances in the second region."""
-    from apps.assets.models import Asset
+def make_stock_b(second_branch):
+    """Factory fixture：区域 B 分公司台账行。"""
+    from apps.assets.services import ledger
+    from apps.categories.models import Category
 
     counter = {'n': 0}
 
-    def _make(**overrides):
+    def _make(code=None, qty=1):
         counter['n'] += 1
-        defaults = dict(
-            序号=counter['n'] + 100,
-            分公司=second_branch.name,
-            分公司编号=second_branch.code,
-            资产编号=f'B-AUTO-{counter["n"]:04d}',
-            资产类目='固定资产',
-            物品分类='办公设备',
-            资产名称=f'区域B资产{counter["n"]}',
-            数量=1,
-            当前状态='在库',
-            branch=second_branch,
+        code = code or f'B-AUTO-{counter["n"]:04d}'
+        item, _ = Category.objects.get_or_create(
+            asset_code=code,
+            defaults={
+                'asset_category': '固定资产', 'item_category': '办公设备',
+                'asset_name': f'区域B资产{counter["n"]}', 'unit': '件',
+            },
         )
-        defaults.update(overrides)
-        return Asset.objects.create(**defaults)
+        ledger.apply_adjustment(second_branch, item, ledger.COLUMN_STOCK, qty, '测试造数')
+        from apps.assets.models import AssetStock
+        return AssetStock.objects.get(branch=second_branch, item=item)
 
     return _make
+
+
+# ---------------------------------------------------------------------------

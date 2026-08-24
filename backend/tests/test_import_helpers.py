@@ -126,13 +126,13 @@ class TestMergeErrors:
 class TestAssetImportFriendlyErrors:
     """资产导入已下线（410）；友好错误逻辑保留给台账增量导入（见 test_asset_summary）。"""
 
-    def test_import_returns_410(self, authenticated_client):
+    def test_import_returns_404(self, authenticated_client):
         from django.core.files.uploadedfile import SimpleUploadedFile
         resp = authenticated_client.post(
             '/api/assets/import',
             {'file': SimpleUploadedFile('t.xlsx', b'x')},
             format='multipart',
         )
-        assert resp.status_code == 410
+        assert resp.status_code == 404
 
 

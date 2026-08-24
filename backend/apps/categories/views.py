@@ -67,14 +67,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         """删除保护：被台账/资产/固定资产/流转单明细行引用的品目禁止删除。"""
         instance = self.get_object()
-        from apps.assets.models import Asset, AssetStock, FixedAsset
+        from apps.assets.models import AssetStock, FixedAsset
         from apps.transfers.models import TransferLine
 
         references = []
         if AssetStock.objects.filter(item=instance).exists():
             references.append('台账')
-        if Asset.objects.filter(资产编号=instance.asset_code).exists():
-            references.append('资产明细')
         if FixedAsset.objects.filter(item=instance).exists():
             references.append('固定资产实例')
         if TransferLine.objects.filter(item=instance).exists():

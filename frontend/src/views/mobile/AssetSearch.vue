@@ -1,31 +1,31 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAssets } from '@/api/assets'
+import { getAssetStocks } from '@/api/assets'
 import { ElMessage } from 'element-plus'
-import type { Asset } from '@/types'
+import type { AssetStock } from '@/types'
 
 const router = useRouter()
 const searchQuery = ref('')
-const assets = ref<Asset[]>([])
+const assets = ref<AssetStock[]>([])
 const loading = ref(false)
 const recentSearches = ref<string[]>([])
 
-const statusColors: Record<string, string> = {
-  '在库': 'var(--color-success)',
-  '使用中': 'var(--color-primary-500)',
-  '维修中': 'var(--color-warning)',
-  '报废': 'var(--color-danger)',
+/** 台账行口径：在库充足绿、低于警戒橙、其余灰 */
+function stockColor(stock: AssetStock): string {
+  if (stock.在库数量 <= 0) return 'var(--color-text-tertiary)'
+  if (stock.是否充足 === false) return 'var(--color-warning)'
+  return 'var(--color-success)'
 }
 
 async function handleSearch() {
   if (!searchQuery.value.trim()) return
   loading.value = true
   try {
-    const { data } = await getAssets({
-    keyword: searchQuery.value.trim(),
-    pageSize: 20,
-  })
+    const { data } = await getAssetStocks({
+      keyword: searchQuery.value.trim(),
+      pageSize: 20,
+    })
     assets.value = data.results || []
     if (assets.value.length > 0) {
     const query = searchQuery.value.trim()
@@ -45,7 +45,7 @@ function handleScan() {
   router.push('/mobile/scan')
 }
 
-function viewAsset(asset: Asset) {
+function viewAsset(asset: AssetStock) {
   router.push(`/mobile/assets/${asset.id}`)
 }
 
@@ -103,8 +103,7 @@ function formatTime(dateStr: string): string {
         @click="viewAsset(asset)"
       >
         <div class="asset-image">
-          <img v-if="asset.图片" :src="asset.图片" />
-          <div v-else class="asset-placeholder">
+          <div class="asset-placeholder">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="3" y="3" width="18" height="18" rx="2"/>
             </svg>
@@ -114,12 +113,9 @@ function formatTime(dateStr: string): string {
           <div class="asset-code">{{ asset.资产编号 }}</div>
           <div class="asset-name">{{ asset.资产名称 }}</div>
           <div class="asset-meta">
-            <span class="asset-branch">{{ asset.分公司 }}</span>
-            <span
-              class="asset-status"
-              :style="{ background: statusColors[asset.当前状态] || 'var(--color-text-tertiary)' }"
-            >
-              {{ asset.当前状态 }}
+            <span class="asset-branch">{{ asset.branchName }}</span>
+            <span class="asset-status" :style="{ background: stockColor(asset) }">
+              在库 {{ asset.在库数量 }} · 总量 {{ asset.总量 ?? asset.在库数量 + asset.在用数量 + asset.回收库数量 }}
             </span>
           </div>
         </div>
@@ -135,7 +131,7 @@ function formatTime(dateStr: string): string {
         <circle cx="11" cy="11" r="8"/>
         <path d="M21 21l-4.35-4.35"/>
       </svg>
-      <p>未找到匹配的资产</p>
+      <p>未找到匹配的台账行</p>
     </div>
 
     <!-- 加载状态 -->

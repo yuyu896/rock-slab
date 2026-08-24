@@ -1,6 +1,6 @@
 """
 Comprehensive tests for all import/export/template endpoints across 7 modules.
-Covers: Asset, FixedAsset, Category, Transfer (4 types), Inventory.
+Covers: FixedAsset, Category, Transfer (4 types), Inventory.
 """
 import io
 import pytest
@@ -77,16 +77,6 @@ def test_category(db):
 
 
 @pytest.fixture
-def test_asset(db, test_branch):
-    from apps.assets.models import Asset
-    return Asset.objects.create(
-        序号=1, 分公司=test_branch.name, 分公司编号=test_branch.code,
-        branch=test_branch, 资产编号='TA001', 资产类目='测试类目',
-        物品分类='测试分类', 资产名称='测试资产', 数量=5, 当前状态='在库',
-    )
-
-
-@pytest.fixture
 def ta001_category(db):
     from apps.categories.models import Category
     return Category.objects.create(
@@ -99,55 +89,8 @@ def ta001_category(db):
 # 2. Asset module
 # ===========================================================================
 
-ASSET_HEADERS = [
-    '分公司', '资产编号', '分公司编号', '资产类目',
-    '电脑序列号', '供应商', '物品分类', '资产名称', '图片',
-    '入库日期', '是否租用', '数量', '规格', '单价',
-    '购入金额', '出库日期', '所属部门', '使用人', '当前状态',
-    '是否充足', '备注',
-]
-
-
-class TestAssetTemplate:
-    def test_download_template(self, admin_client):
-        resp = admin_client.get('/api/assets/template')
-        headers, rows = _parse_excel_response(resp)
-        assert rows == []
-        expected = ['分公司', '资产编号', '资产类目', '物品分类', '资产名称', '入库日期', '是否租用',
-                    '数量', '规格', '单价', '购入金额', '出库日期', '所属部门', '当前状态', '备注']
-        for h in expected:
-            assert h in headers, f"Missing header: {h}"
-        assert len(headers) == len(expected)
-        assert '供应商' not in headers
-
-
-class TestAssetImport:
-    """资产明细导入已随 Asset 冻结下线（410），改走台账增量导入。"""
-
-    def test_import_returns_410(self, admin_client):
-        buf = _make_xlsx(ASSET_HEADERS, [])
-        resp = _upload_url(admin_client, '/api/assets/import', buf)
-        assert resp.status_code == status.HTTP_410_GONE
-
-
-
-class TestAssetExport:
-    def test_export_with_data(self, admin_client, test_asset):
-        resp = admin_client.get('/api/assets/export')
-        headers, rows = _parse_excel_response(resp)
-        assert len(rows) >= 1
-        assert test_asset.资产编号 in [r[2] for r in rows]
-
-    def test_export_empty(self, admin_client, db):
-        from apps.assets.models import Asset
-        Asset.objects.all().delete()
-        resp = admin_client.get('/api/assets/export')
-        headers, rows = _parse_excel_response(resp)
-        assert len(rows) == 0
-
-
 # ===========================================================================
-# 3. FixedAsset module
+# 2. FixedAsset module
 # ===========================================================================
 
 class TestFixedAssetEndpointsFrozen:
@@ -393,7 +336,7 @@ class TestTransferExport:
 # ===========================================================================
 
 class TestInventoryImportExport:
-    def test_download_template(self, admin_client, test_asset, admin_user):
+    def test_download_template(self, admin_client, admin_user):
         from apps.inventories.models import InventoryTask
         task = InventoryTask.objects.create(
             name='导入测试盘点',
@@ -405,23 +348,34 @@ class TestInventoryImportExport:
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
         assert wb.active is not None
 
-    def test_import_results(self, admin_client, test_asset, admin_user):
+    def test_import_results(self, admin_client, admin_user, branch):
         from apps.inventories.models import InventoryTask, InventoryItem
         task = InventoryTask.objects.create(
             name='结果导入测试', status='in_progress', created_by=admin_user,
         )
+        from apps.assets.models import AssetStock
+        from apps.assets.services import ledger
+        from apps.categories.models import Category
+        item = Category.objects.create(
+            asset_category='测试类目', item_category='测试分类',
+            asset_name='盘点导入资产', asset_code='INV-IMP-001', unit='台',
+        )
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 5, '造数')
+        task.branch = branch
+        task.save(update_fields=['branch'])
+        stock = AssetStock.objects.get(branch=branch, item=item)
         InventoryItem.objects.create(
-            task=task, asset=test_asset,
+            task=task, stock=stock,
             expected_qty=5, actual_qty=None, result='unchecked', check_count=0,
         )
         # Inventory import expects specific columns: match the actual template
         # row[1]=资产编号, row[5]=实盘数量
         headers = ['序号', '资产编号', '资产名称', '规格', '账面数量', '实盘数量', '备注']
-        rows = [[1, test_asset.资产编号, test_asset.资产名称, '', 5, 5, '盘点正常']]
+        rows = [[1, 'INV-IMP-001', '盘点导入资产', '', 5, 5, '盘点正常']]
         buf = _make_xlsx(headers, rows)
         resp = _upload_url(admin_client, f'/api/inventories/{task.id}/import-result', buf)
         assert resp.status_code == status.HTTP_200_OK
-        item = InventoryItem.objects.get(task=task, asset=test_asset)
+        item = InventoryItem.objects.get(task=task, stock=stock)
         assert item.actual_qty == 5
         assert item.result == 'matched'
 
@@ -431,13 +385,15 @@ class TestInventoryImportExport:
 # ===========================================================================
 
 class TestImportEdgeCases:
-    """资产导入下线后，边界校验仅剩 410 语义；台账/固定资产导入边界见各自测试。"""
+    """资产导入端点已随 Asset 退役（404）。"""
 
-    def test_asset_import_wrong_extension_returns_410(self, admin_client):
+    def test_asset_import_endpoint_gone(self, admin_client):
         from io import BytesIO
         buf = BytesIO(b'not excel')
         buf.name = 'test.txt'
         resp = admin_client.post('/api/assets/import', {'file': buf}, format='multipart')
-        assert resp.status_code == status.HTTP_410_GONE
+        assert resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_410_GONE)
+
+
 
 

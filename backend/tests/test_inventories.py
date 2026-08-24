@@ -113,21 +113,18 @@ class TestCheckItem:
     """盘点扫描"""
 
     def test_check_success(self, authenticated_client, in_progress_task):
-        from apps.assets.models import Asset
-        asset = Asset.objects.create(
-            序号=1,
-            资产编号='AST-INV-001',
-            资产名称='盘点测试资产',
-            资产类目='测试类目',
-            物品分类='测试分类',
-            分公司=in_progress_task.branch.name if in_progress_task.branch else '',
-            分公司编号='CS001',
-            branch=in_progress_task.branch,
-            数量=10,
-            当前状态='在库',
+        from apps.assets.models import AssetStock
+        from apps.assets.services import ledger
+        from apps.categories.models import Category
+        item, _ = Category.objects.get_or_create(
+            asset_code='AST-INV-001',
+            defaults={'asset_category': '测试类目', 'item_category': '测试分类',
+                      'asset_name': '盘点测试资产', 'unit': '个'},
         )
+        ledger.apply_adjustment(in_progress_task.branch, item, ledger.COLUMN_STOCK, 10, '造数')
+        stock = AssetStock.objects.get(branch=in_progress_task.branch, item=item)
         payload = {
-            'assetId': str(asset.id),
+            'stockId': str(stock.id),
             'qty': 10,
         }
         resp = authenticated_client.post(
@@ -139,7 +136,7 @@ class TestCheckItem:
 
     def test_check_invalid_qty(self, authenticated_client, in_progress_task):
         payload = {
-            'assetId': '00000000-0000-0000-0000-000000000000',
+            'stockId': '00000000-0000-0000-0000-000000000000',
             'qty': -1,
         }
         resp = authenticated_client.post(

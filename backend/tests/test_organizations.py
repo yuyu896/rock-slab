@@ -118,10 +118,10 @@ class TestRegionCRUD:
         assert del_resp.status_code == status.HTTP_204_NO_CONTENT
 
     def test_delete_region_with_protected_branches(
-        self, authenticated_client, region, branch, make_asset,
+        self, authenticated_client, region, branch, make_stock,
     ):
         # Branch has a protected asset, so cascading delete of branch fails
-        make_asset(branch=branch)
+        make_stock()
         resp = authenticated_client.delete(f'/api/regions/{region.id}')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -148,8 +148,8 @@ class TestBranchCRUD:
         del_resp = authenticated_client.delete(f'/api/branches/{branch_id}')
         assert del_resp.status_code == status.HTTP_204_NO_CONTENT
 
-    def test_delete_branch_with_assets(self, authenticated_client, branch, make_asset):
-        make_asset(branch=branch)
+    def test_delete_branch_with_stock_rows(self, authenticated_client, branch, make_stock):
+        make_stock()
         resp = authenticated_client.delete(f'/api/branches/{branch.id}')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert '资产' in resp.data['detail']

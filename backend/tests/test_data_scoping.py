@@ -10,41 +10,43 @@ from conftest import _client_for
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-class TestAssetScoping:
-    def test_admin_sees_all_assets(self, admin_user, make_asset, make_asset_b):
-        make_asset()
-        make_asset_b()
+class TestStockScoping:
+    """台账行数据范围（Asset 退役后由台账承接 scoping 契约）。"""
+
+    def test_admin_sees_all(self, admin_user, make_stock, make_stock_b):
+        make_stock()
+        make_stock_b()
         client = _client_for(admin_user)
-        resp = client.get('/api/assets/')
+        resp = client.get('/api/assets/summary')
         assert resp.data['count'] == 2
 
-    def test_manager_sees_all_assets(self, manager_user, make_asset, make_asset_b):
-        make_asset()
-        make_asset_b()
+    def test_manager_sees_all(self, manager_user, make_stock, make_stock_b):
+        make_stock()
+        make_stock_b()
         client = _client_for(manager_user)
-        resp = client.get('/api/assets/')
+        resp = client.get('/api/assets/summary')
         assert resp.data['count'] == 2
 
-    def test_supervisor_sees_own_region_only(self, supervisor_user, make_asset, make_asset_b):
-        make_asset()
-        make_asset_b()
+    def test_supervisor_sees_own_region_only(self, supervisor_user, make_stock, make_stock_b):
+        make_stock()
+        make_stock_b()
         client = _client_for(supervisor_user)
-        resp = client.get('/api/assets/')
+        resp = client.get('/api/assets/summary')
         assert resp.data['count'] == 1
-        assert resp.data['results'][0]['分公司'] == '测试分公司'
+        assert resp.data['results'][0]['branch_name'] == '测试分公司'
 
-    def test_leader_sees_own_branch_only(self, leader_user, make_asset, make_asset_b):
-        make_asset()
-        make_asset_b()
+    def test_leader_sees_own_branch_only(self, leader_user, make_stock, make_stock_b):
+        make_stock()
+        make_stock_b()
         client = _client_for(leader_user)
-        resp = client.get('/api/assets/')
+        resp = client.get('/api/assets/summary')
         assert resp.data['count'] == 1
 
-    def test_staff_sees_own_branch_only(self, staff_user, make_asset, make_asset_b):
-        make_asset()
-        make_asset_b()
+    def test_staff_sees_own_branch_only(self, staff_user, make_stock, make_stock_b):
+        make_stock()
+        make_stock_b()
         client = _client_for(staff_user)
-        resp = client.get('/api/assets/')
+        resp = client.get('/api/assets/summary')
         assert resp.data['count'] == 1
 
 

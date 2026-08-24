@@ -13,23 +13,6 @@ def _item_uuid(code):
 
 
 @pytest.mark.django_db
-class TestAssetEditPatch:
-    def test_patch_frozen(self, admin_user, branch):
-        """P1 冻结：Asset PATCH 一律 405。"""
-        from apps.assets.models import Asset
-        asset = Asset.objects.create(
-            序号=1, 分公司=branch.name, 分公司编号=branch.code, branch=branch,
-            资产编号='EDT-001', 资产类目='固定', 物品分类='办公',
-            资产名称='编辑测试', 数量=1, 当前状态='在库',
-        )
-        client = _client_for(admin_user)
-        resp = client.patch(f'/api/assets/{asset.id}', {'当前状态': '使用中'}, format='json')
-        assert resp.status_code == 405
-        asset.refresh_from_db()
-        assert asset.当前状态 == '在库'
-
-
-@pytest.mark.django_db
 class TestPurchaseApproveStock:
     """P1：采购审批通过写台账（在库+N），不再创建/累加 Asset。"""
 

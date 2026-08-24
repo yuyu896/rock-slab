@@ -39,7 +39,7 @@ export function startInventory(id: string) {
 }
 
 /** 盘点单项 */
-export function checkInventoryItem(id: string, data: { assetId: string; qty: number; remarks?: string }) {
+export function checkInventoryItem(id: string, data: { stockId: string; qty: number; remarks?: string }) {
   return request.post<InventoryCheck>(`/api/inventories/${id}/check`, data)
 }
 

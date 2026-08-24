@@ -134,37 +134,6 @@ export interface CategoryRequest {
   remarks?: string
 }
 
-/** 资产 */
-export interface Asset {
-  id: string
-  序号: number
-  分公司: string
-  分公司编号: string
-  branch?: string
-  branchName?: string
-  资产编号: string
-  资产类目: string
-  物品分类: string
-  资产名称: string
-  规格?: string
-  供应商?: string
-  图片?: string
-  入库日期?: string
-  是否租用: boolean
-  数量: number
-  单价?: number
-  购入金额?: number
-  出库日期?: string
-  所属部门?: string
-  使用人?: string
-  当前状态: AssetStatusType
-  警戒线?: number | null
-  是否充足?: boolean
-  电脑序列号?: string
-  备注?: string
-  createdAt: string
-  updatedAt: string
-}
 
 /** 台账行（P1：一行 = 分公司 × 品目，数量四列，品目信息联字典） */
 export interface AssetStock {
@@ -366,7 +335,10 @@ export interface InventoryTask {
 export interface InventoryItem {
   id: string
   taskId: string
-  assetId: string
+  stockId: string
+  assetCode?: string
+  assetName?: string
+  branchName?: string
   expectedQty: number
   actualQty?: number
   result: InventoryItemResultType
@@ -438,7 +410,7 @@ export interface InventoryCheck {
   id: string
   taskId: string
   itemId: string
-  assetId: string
+  stockId: string
   qty: number
   checkedBy: string
   checkedAt: string

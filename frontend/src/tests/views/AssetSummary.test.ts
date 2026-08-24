@@ -79,7 +79,7 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     vi.clearAllMocks()
   })
 
-  it('表头 13 列（品目信息 + 管理方式 + 四列数量），序号为分页连续序号', async () => {
+  it('表头 14 列（P2 第三刀加实例下钻列），序号为分页连续序号', async () => {
     vi.mocked(getAssetStocks).mockResolvedValue({
       data: { count: 30, next: null, previous: null, results: [_stock({ id: 's1' }), _stock({ id: 's2' })] },
     } as any)
@@ -89,7 +89,7 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     const headers = wrapper.findAll('thead th').map(th => th.text())
     expect(headers).toEqual([
       '序号', '分公司', '资产编号', '资产名称', '规格', '资产类目', '管理方式',
-      '在库', '在用', '回收库', '总量', '警戒线', '是否充足',
+      '在库', '在用', '回收库', '总量', '警戒线', '是否充足', '实例',
     ])
 
     // 第 1 页首行序号为 1，默认每页 50 条

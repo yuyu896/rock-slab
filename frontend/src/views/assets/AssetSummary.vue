@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
-import { getAssetStocks, exportAssetStocks } from '@/api/assets'
+import { ref, computed, onMounted, watch } from 'vue'
+import { getAssetStocks, exportAssetStocks, getFixedAssets } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
@@ -9,6 +9,37 @@ import { usePermission } from '@/hooks/usePermission'
 import type { AssetStock } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 import SummaryImportDialog from './SummaryImportDialog.vue'
+import type { FixedAsset } from '@/types'
+
+// ── 实例下钻（实例管理品目行：该分公司×品目的实例档案，P2 第三刀） ──
+const drillStock = ref<(typeof stocks.value)[number] | null>(null)
+const drillInstances = ref<FixedAsset[]>([])
+const drillLoading = ref(false)
+const drillVisible = computed({
+  get: () => drillStock.value !== null,
+  set: (v: boolean) => { if (!v) drillStock.value = null },
+})
+
+async function openDrill(stock: (typeof stocks.value)[number]) {
+  drillStock.value = stock
+  drillInstances.value = []
+  drillLoading.value = true
+  try {
+    const { data } = await getFixedAssets({
+      asset_code: stock.资产编号,
+      branch: stock.branchName || undefined,
+      pageSize: 100,
+    })
+    drillInstances.value = data.results || []
+  } finally {
+    drillLoading.value = false
+  }
+}
+
+function goTimeline(code: string) {
+  drillVisible.value = false
+  window.open(`/fixed-assets?keyword=${encodeURIComponent(code)}`, '_self')
+}
 
 const { can } = usePermission()
 const canImport = can('adjust_ledger') || can('manage_assets')
@@ -203,14 +234,15 @@ onMounted(() => {
             <th>总量</th>
             <th>警戒线</th>
             <th>是否充足</th>
+            <th>实例</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && stocks.length === 0">
-            <td colspan="13" class="empty-cell">加载中...</td>
+            <td colspan="14" class="empty-cell">加载中...</td>
           </tr>
           <tr v-else-if="stocks.length === 0">
-            <td colspan="13" class="empty-cell">暂无数据</td>
+            <td colspan="14" class="empty-cell">暂无数据</td>
           </tr>
           <tr v-for="(stock, index) in stocks" :key="stock.id">
             <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
@@ -230,6 +262,15 @@ onMounted(() => {
                 {{ stock.是否充足 ? '是' : '否' }}
               </span>
             </td>
+            <td>
+              <button
+                v-if="stock.管理方式 === 'instance'"
+                class="drill-btn"
+                type="button"
+                @click="openDrill(stock)"
+              >下钻实例</button>
+              <span v-else class="dim">—</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -247,6 +288,34 @@ onMounted(() => {
       @close="showImportModal = false"
       @success="fetchStocks"
     />
+
+    <!-- 实例下钻抽屉：该（分公司×品目）实例档案 -->
+    <el-drawer v-model="drillVisible" title="实例下钻" size="620px">
+      <div v-if="drillLoading" class="drill-empty">加载中...</div>
+      <template v-else-if="drillStock">
+        <div class="drill-head">
+          <div class="drill-code">{{ drillStock.资产编号 }}</div>
+          <div class="drill-meta">{{ drillStock.资产名称 }} · {{ drillStock.branchName }} · 在库 {{ drillStock.在库数量 }} / 在用 {{ drillStock.在用数量 }} / 回收库 {{ drillStock.回收库数量 }}</div>
+        </div>
+        <table class="data-table drill-table">
+          <thead>
+            <tr><th>内部编号</th><th>序列号</th><th>状态</th><th>使用人</th><th>生平</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="inst in drillInstances" :key="inst.id">
+              <td><span class="asset-code">{{ inst.内部编号 }}</span></td>
+              <td>{{ inst.序列号 || '待补录' }}</td>
+              <td>{{ inst.当前状态 }}</td>
+              <td>{{ inst.使用人 || '-' }}</td>
+              <td><a class="drill-link" @click.prevent="goTimeline(inst.内部编号)">查看</a></td>
+            </tr>
+            <tr v-if="drillInstances.length === 0">
+              <td colspan="5" class="empty-cell">暂无实例档案（新采购入库后自动生成）</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -486,4 +555,17 @@ onMounted(() => {
     gap: var(--space-3);
   }
 }
+</style>
+
+<style scoped>
+.drill-btn { padding: 4px 10px; background: var(--color-primary-50); border: 1px solid var(--color-primary-200); border-radius: 6px; color: var(--color-primary-600); font-size: 12px; cursor: pointer; }
+.drill-btn:hover { background: var(--color-primary-100); }
+.dim { color: var(--color-text-tertiary); }
+.drill-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-4); }
+.drill-code { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--color-primary-600); }
+.drill-meta { font-size: 13px; color: var(--color-text-secondary); }
+.drill-table th, .drill-table td { padding: var(--space-2) var(--space-3); }
+.drill-empty { text-align: center; color: var(--color-text-tertiary); padding: var(--space-8); }
+.drill-link { color: var(--color-primary-600); cursor: pointer; font-size: 13px; }
+.drill-link:hover { text-decoration: underline; }
 </style>

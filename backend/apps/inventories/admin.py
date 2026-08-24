@@ -21,12 +21,12 @@ class InventoryItemInline(admin.TabularInline):
 
 @admin.register(InventoryItem)
 class InventoryItemAdmin(admin.ModelAdmin):
-    list_display = ['task', 'asset', 'expected_qty', 'actual_qty', 'result', 'check_count']
+    list_display = ['task', 'stock', 'expected_qty', 'actual_qty', 'result', 'check_count']
     list_filter = ['result']
-    raw_id_fields = ['task', 'asset', 'checked_by']
+    raw_id_fields = ['task', 'stock', 'checked_by']
 
 
 @admin.register(InventoryCheck)
 class InventoryCheckAdmin(admin.ModelAdmin):
-    list_display = ['task', 'item', 'asset', 'qty', 'checked_by', 'checked_at']
-    raw_id_fields = ['task', 'item', 'asset', 'checked_by']
+    list_display = ['task', 'item', 'stock', 'qty', 'checked_by', 'checked_at']
+    raw_id_fields = ['task', 'item', 'stock', 'checked_by']

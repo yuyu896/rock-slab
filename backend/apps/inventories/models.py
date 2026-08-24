@@ -99,9 +99,9 @@ class InventoryItem(UUIDModel, TimestampedModel):
         InventoryTask, on_delete=models.CASCADE,
         related_name='items', verbose_name='盘点任务',
     )
-    asset = models.ForeignKey(
-        'assets.Asset', on_delete=models.CASCADE,
-        related_name='inventory_items', verbose_name='资产',
+    stock = models.ForeignKey(
+        'assets.AssetStock', on_delete=models.CASCADE,
+        related_name='inventory_items', verbose_name='台账行',
     )
     expected_qty = models.IntegerField('应盘数量', default=0)
     actual_qty = models.IntegerField('实盘数量', null=True, blank=True)
@@ -123,9 +123,12 @@ class InventoryItem(UUIDModel, TimestampedModel):
         ordering = ['created_at']
         verbose_name = '盘点项'
         verbose_name_plural = '盘点项'
+        constraints = [
+            models.UniqueConstraint(fields=['task', 'stock'], name='uniq_inventory_task_stock'),
+        ]
 
     def __str__(self):
-        return f'{self.task.name} - {self.asset.资产名称}'
+        return f'{self.task.name} - {self.stock.item.asset_name}'
 
 
 class InventoryCheck(UUIDModel, TimestampedModel):
@@ -138,9 +141,9 @@ class InventoryCheck(UUIDModel, TimestampedModel):
         InventoryItem, on_delete=models.CASCADE,
         related_name='check_records', verbose_name='盘点项',
     )
-    asset = models.ForeignKey(
-        'assets.Asset', on_delete=models.CASCADE,
-        related_name='inventory_checks', verbose_name='资产',
+    stock = models.ForeignKey(
+        'assets.AssetStock', on_delete=models.CASCADE,
+        related_name='inventory_checks', verbose_name='台账行',
     )
     qty = models.IntegerField('盘点数量')
     checked_by = models.ForeignKey(
@@ -158,4 +161,4 @@ class InventoryCheck(UUIDModel, TimestampedModel):
         verbose_name_plural = '盘点记录'
 
     def __str__(self):
-        return f'{self.task.name} - {self.asset.资产名称} - {self.qty}'
+        return f'{self.task.name} - {self.stock.item.asset_name} - {self.qty}'

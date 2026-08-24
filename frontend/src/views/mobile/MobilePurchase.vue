@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { createAsset } from '@/api/assets'
+import { purchaseAsset } from '@/api/transfers'
+import { lookupCategoryByCode } from '@/api/categories'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
@@ -11,6 +12,7 @@ import type { Category, Branch } from '@/types'
 const router = useRouter()
 
 const form = ref({
+  资产编号: '',
   资产名称: '',
   资产类目: '',
   物品分类: '',
@@ -41,8 +43,9 @@ async function fetchOptions() {
 }
 
 async function handleSubmit() {
-  if (!form.value.资产名称.trim()) {
-    ElMessage.warning('请输入资产名称')
+  const code = form.value.资产编号.trim()
+  if (!code) {
+    ElMessage.warning('请输入资产编号')
     return
   }
   if (!form.value.数量 || form.value.数量 < 1) {
@@ -52,15 +55,15 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
-    await createAsset({
-      资产名称: form.value.资产名称.trim(),
-      资产类目: form.value.资产类目,
-      物品分类: form.value.物品分类,
-      数量: form.value.数量,
-      分公司: form.value.分公司,
+    // 编号户籍：反查字典品目，未登记拒绝（P1 契约）
+    const { data: category } = await lookupCategoryByCode(code)
+    await purchaseAsset({
+      调拨日期: new Date().toISOString().slice(0, 10),
+      调出分公司: form.value.分公司,
       备注: form.value.备注,
+      items: [{ item: category.id, 数量: form.value.数量 }],
     })
-    ElMessage.success('提交成功')
+    ElMessage.success('采购单已提交，待审批后入库')
     router.back()
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -93,6 +96,16 @@ onMounted(() => {
 
     <!-- 表单 -->
     <div class="form-section">
+      <div class="form-group">
+        <label class="form-label">资产编号 <span class="required">*</span></label>
+        <input
+          v-model="form.资产编号"
+          type="text"
+          class="form-input"
+          placeholder="须在品目字典登记"
+        />
+      </div>
+
       <div class="form-group">
         <label class="form-label">资产名称 <span class="required">*</span></label>
         <input

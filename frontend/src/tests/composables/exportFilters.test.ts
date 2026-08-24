@@ -17,11 +17,8 @@ vi.mock('@/utils/importTemplate', () => ({
 }))
 
 vi.mock('@/api/assets', () => ({
-  getAssets: vi.fn(),
-  updateAsset: vi.fn(),
-  deleteAsset: vi.fn(),
-  batchDeleteAssets: vi.fn(),
-  exportAssets: vi.fn(),
+  getAssetStocks: vi.fn(),
+  exportAssetStocks: vi.fn(),
   getFixedAssets: vi.fn(),
   getFixedAsset: vi.fn(),
   supplementFixedAsset: vi.fn(),
@@ -61,9 +58,8 @@ vi.mock('@/hooks/usePermission', () => ({
 }))
 
 import { useTransferList } from '@/composables/useTransferList'
-import AssetList from '@/views/AssetList.vue'
 import FixedAssetList from '@/views/FixedAssetList.vue'
-import { exportAssets, exportFixedAssets } from '@/api/assets'
+import { exportFixedAssets } from '@/api/assets'
 import { exportTransfers, getTransfers } from '@/api/transfers'
 
 const emptyPage = { data: { count: 0, next: null, previous: null, results: [] } }
@@ -82,7 +78,6 @@ beforeEach(() => {
   stubObjectUrl()
   vi.mocked(getTransfers).mockResolvedValue(emptyPage as any)
   vi.mocked(exportTransfers).mockResolvedValue({ data: new Blob(['x']) } as any)
-  vi.mocked(exportAssets).mockResolvedValue({ data: new Blob(['x']) } as any)
   vi.mocked(exportFixedAssets).mockResolvedValue({ data: new Blob(['x']) } as any)
 })
 
@@ -115,27 +110,6 @@ describe('useTransferList 导出透传全部筛选', () => {
   })
 })
 
-describe('资产明细导出透传全部筛选', () => {
-  it('branch/category/status/keyword 全部携带', async () => {
-    const wrapper = mount(AssetList, { shallow: true })
-    await flushPromises()
-
-    await wrapper.find('input[aria-label="搜索资产"]').setValue('笔记本')
-    const selects = wrapper.findAll('select')
-    await selects[0].setValue('杭州分公司')   // 分公司
-    await selects[1].setValue('固定资产')      // 资产类目
-    await selects[2].setValue('在库')          // 状态
-    await findButtonByText(wrapper, '导出').trigger('click')
-    await flushPromises()
-
-    expect(exportAssets).toHaveBeenCalledWith({
-      branch: '杭州分公司',
-      category: '固定资产',
-      status: '在库',
-      keyword: '笔记本',
-    })
-  })
-})
 
 describe('固定资产实例导出透传全部筛选', () => {
   it('branch/status/keyword/pending_serial 全部携带', async () => {

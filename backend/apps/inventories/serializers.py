@@ -3,13 +3,14 @@ from .models import InventoryTask, InventoryItem, InventoryCheck
 
 
 class InventoryItemSerializer(serializers.ModelSerializer):
-    asset_code = serializers.CharField(source='asset.资产编号', read_only=True)
-    asset_name = serializers.CharField(source='asset.资产名称', read_only=True)
+    asset_code = serializers.CharField(source='stock.item.asset_code', read_only=True)
+    asset_name = serializers.CharField(source='stock.item.asset_name', read_only=True)
+    branch_name = serializers.CharField(source='stock.branch.name', read_only=True)
 
     class Meta:
         model = InventoryItem
         fields = [
-            'id', 'task', 'asset', 'asset_code', 'asset_name',
+            'id', 'task', 'stock', 'asset_code', 'asset_name', 'branch_name',
             'expected_qty', 'actual_qty',
             'result', 'check_count', 'checked_by', 'checked_at',
             'remarks', 'created_at', 'updated_at',
@@ -21,7 +22,7 @@ class InventoryCheckSerializer(serializers.ModelSerializer):
     class Meta:
         model = InventoryCheck
         fields = [
-            'id', 'task', 'item', 'asset', 'qty',
+            'id', 'task', 'item', 'stock', 'qty',
             'checked_by', 'checked_at', 'device',
         ]
         read_only_fields = ['checked_at']
@@ -57,7 +58,7 @@ class InventoryTaskListSerializer(serializers.ModelSerializer):
 
 class CheckItemSerializer(serializers.Serializer):
     """Serializer for the check action (single item check)."""
-    asset_id = serializers.CharField()
+    stock_id = serializers.CharField()
     qty = serializers.IntegerField()
     remarks = serializers.CharField(required=False, default='')
 

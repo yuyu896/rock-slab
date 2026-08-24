@@ -4,13 +4,15 @@ from datetime import date
 from conftest import _client_for
 
 
-def _make_asset(branch, code, name='测试资产'):
-    from apps.assets.models import Asset
-    return Asset.objects.create(
-        序号=1, 分公司=branch.name, 分公司编号='WRONG-CODE',  # 故意与真实 code 不一致，证明按名称过滤
-        资产编号=code, 资产类目='固定', 物品分类='办公',
-        资产名称=name, 数量=1, branch=branch,
+def _make_stock(branch, code, name='测试品目'):
+    from apps.assets.services import ledger
+    from apps.categories.models import Category
+    item, _ = Category.objects.get_or_create(
+        asset_code=code,
+        defaults={'asset_category': '固定', 'item_category': '办公', 'asset_name': name, 'unit': '件'},
     )
+    ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 1, '造数')
+    return item
 
 
 def _make_transfer(item_code, branch_name):
@@ -33,11 +35,11 @@ def _make_transfer(item_code, branch_name):
 
 @pytest.mark.django_db
 class TestBranchFilter:
-    def test_asset_filter_by_branch_name(self, admin_user, branch, second_branch):
-        _make_asset(branch, 'BF-A1')
-        _make_asset(second_branch, 'BF-A2')
+    def test_stock_filter_by_branch_name(self, admin_user, branch, second_branch):
+        _make_stock(branch, 'BF-A1')
+        _make_stock(second_branch, 'BF-A2')
         client = _client_for(admin_user)
-        resp = client.get('/api/assets/', {'branch': branch.name})
+        resp = client.get('/api/assets/summary', {'branch': branch.name})
         assert resp.status_code == 200
         codes = [a['资产编号'] for a in resp.data['results']]
         assert 'BF-A1' in codes

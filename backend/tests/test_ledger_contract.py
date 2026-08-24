@@ -1,11 +1,11 @@
-"""P1 台账契约测试：五单对称矩阵、唯一写入口、调整单、Asset 冻结、报表口径。
+"""台账契约测试：五单对称矩阵、唯一写入口、调整单、盘点记录模式、报表口径。
 
 对应 document-ledger-sync / ledger-single-source / asset-freeze-readonly 能力。
 """
 import pytest
 from rest_framework import status
 
-from apps.assets.models import Asset, AssetStock, LedgerAdjustment
+from apps.assets.models import AssetStock, LedgerAdjustment
 from apps.assets.services import ledger
 from apps.transfers.models import Transfer
 
@@ -241,60 +241,30 @@ class TestConcurrencyGuards:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-class TestAssetFreeze:
-    def test_write_endpoints_return_405(self, authenticated_client, branch):
-        _ensure_item('FZ-001')
-        resp = authenticated_client.post('/api/assets/', {
-            '分公司': branch.name, '资产编号': 'FZ-001', '资产类目': 'a', '物品分类': 'b',
-            '资产名称': 'x', '数量': 1,
-        }, format='json')
-        assert resp.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-
-    def test_import_returns_410(self, authenticated_client):
-        import io
-        resp = authenticated_client.post('/api/assets/import', {'file': io.BytesIO(b'x')}, format='multipart')
-        assert resp.status_code == status.HTTP_410_GONE
-
-    def test_list_still_readable(self, authenticated_client, branch):
-        Asset.objects.create(
-            序号=1, 分公司=branch.name, 分公司编号=branch.code, branch=branch,
-            资产编号='FZ-002', 资产类目='a', 物品分类='b', 资产名称='历史', 数量=2, 当前状态='在库',
-        )
-        resp = authenticated_client.get('/api/assets/')
-        assert resp.status_code == 200
-
-    def test_assign_approval_leaves_asset_untouched(self, authenticated_client, branch):
-        asset = Asset.objects.create(
-            序号=2, 分公司=branch.name, 分公司编号=branch.code, branch=branch,
-            资产编号='FZ-003', 资产类目='a', 物品分类='b', 资产名称='冻结', 数量=5, 当前状态='在库',
-        )
-        _seed(branch, 'FZ-003', stock=10)
-        tid = _create_doc(authenticated_client, 'assign', branch, 'FZ-003', 3)
-        assert _approve(authenticated_client, tid).status_code == 200
-        asset.refresh_from_db()
-        assert asset.数量 == 5 and asset.当前状态 == '在库'  # Asset 零变化
+class TestAssetRetired:
+    def test_main_route_gone(self, authenticated_client):
+        """P2 第三刀：Asset 主路由随表退役（summary/fixed-assets 子路由不受影响）。"""
+        resp = authenticated_client.get('/api/assets/00000000-0000-0000-0000-000000000000')
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.django_db
 class TestInventoryRecordMode:
-    def test_approve_keeps_asset_quantities(self, authenticated_client, branch, supervisor_user):
-        """盘点审核通过仅记录差异，不再改 Asset 数量。"""
+    def test_approve_keeps_ledger_quantities(self, authenticated_client, branch, supervisor_user):
+        """盘点审核通过仅记录差异，不改台账数量（差异修数走调整单）。"""
         from conftest import _client_for
         from apps.inventories.models import InventoryTask, InventoryItem
-        asset = Asset.objects.create(
-            序号=3, 分公司=branch.name, 分公司编号=branch.code, branch=branch,
-            资产编号='INV-001', 资产类目='测试类目', 物品分类='测试分类',
-            资产名称='盘点物', 数量=5, 当前状态='在库',
-        )
+        item = _seed(branch, 'INV-001', stock=5)
+        row = AssetStock.objects.get(branch=branch, item=item)
         task = InventoryTask.objects.create(name='记录模式盘点', branch=branch, status='pending_review')
         InventoryItem.objects.create(
-            task=task, asset=asset, expected_qty=5, actual_qty=3, result='discrepancy',
+            task=task, stock=row, expected_qty=5, actual_qty=3, result='discrepancy',
         )
         client = _client_for(supervisor_user)
         resp = client.post(f'/api/inventories/{task.id}/approve')
         assert resp.status_code == 200
-        asset.refresh_from_db()
-        assert asset.数量 == 5  # 不再直改
+        row.refresh_from_db()
+        assert row.在库数量 == 5  # 不再直改
 
 
 @pytest.mark.django_db

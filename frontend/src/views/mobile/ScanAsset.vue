@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getAssets } from '@/api/assets'
+import { getAssetStocks, getFixedAssets } from '@/api/assets'
 import { ElMessage } from 'element-plus'
-import type { Asset } from '@/types'
+import type { AssetStock, FixedAsset } from '@/types'
 
 const router = useRouter()
 const scanInput = ref('')
-const scannedAsset = ref<Asset | null>(null)
+const scannedStock = ref<AssetStock | null>(null)
+const scannedInstances = ref<FixedAsset[]>([])
 const loading = ref(false)
 const showResult = ref(false)
 
@@ -107,16 +108,30 @@ async function handleScan() {
   showResult.value = false
 
   try {
-    const { data } = await getAssets({
-      keyword: scanInput.value.trim(),
-      pageSize: 1,
-    })
-    if (data.results && data.results.length > 0) {
-      scannedAsset.value = data.results[0]
+    const kw = scanInput.value.trim()
+    const [stockRes, instRes] = await Promise.all([
+      getAssetStocks({ keyword: kw, pageSize: 5 }),
+      getFixedAssets({ keyword: kw, pageSize: 10 }),
+    ])
+    scannedInstances.value = instRes.data.results || []
+    const rows = stockRes.data.results || []
+    if (rows.length > 0) {
+      scannedStock.value = rows[0]
       showResult.value = true
+    } else if (scannedInstances.value.length > 0) {
+      // 只有实例命中（贵重物品台账行可能不在范围）：以首条实例的品目构造轻量展示
+      const first = scannedInstances.value[0]
+      showResult.value = true
+      scannedStock.value = {
+        id: '', branch: '', item: first.item,
+        资产编号: first.itemCode, 资产名称: first.itemName,
+        branchName: first.branchName || '',
+        在库数量: 0, 在用数量: 0, 回收库数量: 0,
+        管理方式: 'instance',
+      }
     } else {
-      ElMessage.warning('未找到对应资产')
-      scannedAsset.value = null
+      ElMessage.warning('未找到对应台账行或实例')
+      scannedStock.value = null
     }
   } catch (error) {
     ElMessage.error('查询失败')
@@ -126,14 +141,15 @@ async function handleScan() {
 }
 
 function viewDetail() {
-  if (scannedAsset.value) {
-    router.push(`/mobile/assets/${scannedAsset.value.id}`)
+  if (scannedStock.value && scannedStock.value.id) {
+    router.push(`/mobile/assets/${scannedStock.value.id}`)
   }
 }
 
 function clearScan() {
   scanInput.value = ''
-  scannedAsset.value = null
+  scannedStock.value = null
+  scannedInstances.value = []
   showResult.value = false
 }
 
@@ -203,43 +219,40 @@ onUnmounted(() => {
     </div>
     <p v-if="!barcodeDetectorSupported && showCamera" class="camera-hint">当前浏览器不支持摄像头扫码，请使用手动输入</p>
 
-    <!-- 扫描结果 -->
-    <div v-if="showResult && scannedAsset" class="result-section">
+    <!-- 扫描结果（台账行口径） -->
+    <div v-if="showResult && scannedStock" class="result-section">
       <div class="result-card" @click="viewDetail">
         <div class="asset-header">
-          <span class="asset-status" :class="scannedAsset.当前状态">
-            {{ scannedAsset.当前状态 }}
+          <span class="asset-status">
+            {{ scannedStock.管理方式 === 'instance' ? '实例管理' : '数量管理' }}
           </span>
         </div>
-        <div class="asset-image">
-          <img v-if="scannedAsset.图片" :src="scannedAsset.图片" />
-          <div v-else class="asset-placeholder">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-            </svg>
-          </div>
-        </div>
         <div class="asset-info">
-          <div class="asset-code">{{ scannedAsset.资产编号 }}</div>
-          <div class="asset-name">{{ scannedAsset.资产名称 }}</div>
+          <div class="asset-code">{{ scannedStock.资产编号 }}</div>
+          <div class="asset-name">{{ scannedStock.资产名称 }}</div>
           <div class="asset-meta">
             <div class="meta-item">
               <span class="label">分公司</span>
-              <span class="value">{{ scannedAsset.分公司 }}</span>
+              <span class="value">{{ scannedStock.branchName || '-' }}</span>
             </div>
             <div class="meta-item">
-              <span class="label">规格型号</span>
-              <span class="value">{{ scannedAsset.规格 || '-' }}</span>
-            </div>
-            <div class="meta-item">
-              <span class="label">数量</span>
-              <span class="value">{{ scannedAsset.数量 }}</span>
+              <span class="label">在库 / 在用 / 回收库</span>
+              <span class="value">{{ scannedStock.在库数量 }} / {{ scannedStock.在用数量 }} / {{ scannedStock.回收库数量 }}</span>
             </div>
           </div>
         </div>
 
+        <div v-if="scannedInstances.length" class="instance-hits">
+          <div class="instance-title">命中实例 {{ scannedInstances.length }} 台</div>
+          <div v-for="inst in scannedInstances.slice(0, 5)" :key="inst.id" class="instance-line">
+            <span class="i-code">{{ inst.内部编号 }}</span>
+            <span class="i-state">{{ inst.当前状态 }}</span>
+            <span class="i-user">{{ inst.使用人 || (inst.序列号 || '待补录') }}</span>
+          </div>
+        </div>
+
         <div class="result-actions">
-          <button class="detail-btn" @click="viewDetail">
+          <button v-if="scannedStock.id" class="detail-btn" @click="viewDetail">
             查看详情
           </button>
           <button class="clear-btn" @click="clearScan">
@@ -588,4 +601,13 @@ onUnmounted(() => {
   z-index: 100;
   color: var(--color-text-secondary);
 }
+</style>
+
+<style scoped>
+.instance-hits { padding: 10px 16px; border-top: 1px solid var(--color-border-light); }
+.instance-title { font-size: 12px; color: var(--color-text-tertiary); margin-bottom: 6px; }
+.instance-line { display: flex; gap: 10px; font-size: 13px; padding: 4px 0; }
+.instance-line .i-code { font-family: var(--font-mono); color: var(--color-primary-600); min-width: 110px; }
+.instance-line .i-state { color: var(--color-text-secondary); flex: 1; }
+.instance-line .i-user { color: var(--color-text-tertiary); }
 </style>

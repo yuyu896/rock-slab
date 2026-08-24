@@ -108,42 +108,6 @@ class TestUserManagementRBAC:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-class TestAssetRBAC:
-    """Asset 冻结只读（P1）：所有角色写接口一律 405，读取按范围。"""
-
-    def test_list_assets_all_roles(
-        self, admin_user, manager_user, supervisor_user,
-        leader_user, staff_user, make_asset,
-    ):
-        make_asset()
-        for _name, user in _all_clients(
-            admin_user, manager_user, supervisor_user,
-            leader_user, staff_user,
-        ):
-            client = _client_for(user)
-            resp = client.get('/api/assets/')
-            assert resp.status_code == 200, f'{_name} should list assets'
-
-    def test_create_returns_405_for_all_roles(self, staff_user, leader_user, supervisor_user):
-        for user in (staff_user, leader_user, supervisor_user):
-            client = _client_for(user)
-            resp = client.post('/api/assets/', {'资产名称': '测试', '资产编号': 'X-001'})
-            assert resp.status_code == 405, f'{user.role} create should be frozen'
-
-    def test_update_returns_405(self, supervisor_user, make_asset):
-        asset = make_asset()
-        client = _client_for(supervisor_user)
-        resp = client.patch(f'/api/assets/{asset.id}', {'资产名称': '改'})
-        assert resp.status_code == 405
-
-    def test_delete_returns_405(self, supervisor_user, staff_user, make_asset):
-        asset = make_asset()
-        for user in (supervisor_user, staff_user):
-            client = _client_for(user)
-            resp = client.delete(f'/api/assets/{asset.id}')
-            assert resp.status_code == 405
-
-
 
 class TestTransferRBAC:
     def test_purchase_staff_allowed(self, staff_user, branch, item_id):
