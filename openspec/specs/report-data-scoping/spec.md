@@ -31,3 +31,14 @@ TBD - created by archiving change remediate-audit-findings. Update Purpose after
 - **WHEN** 一个 `director`（level 2）用户请求报表，且其在授权表中有对应大区/分公司授权
 - **THEN** 报表按其 `ManagementScope` 授权范围返回数据，与其角色等级一致，MUST NOT 被当作无授权的普通 staff 处理
 
+
+### Requirement: 报表数量口径按明细行聚合
+流转类报表（调拨流水、领用统计、资产价值变动等）的数量与金额聚合 MUST 以明细行（`TransferLine`）为口径联查聚合，MUST NOT 引用单头已删除的平铺数量列；数据范围过滤规则（`resolve_user_scope`）与既有契约保持不变。
+
+#### Scenario: 领用数量统计跨多行单据
+- **WHEN** 某季度报表统计领用数量，期间存在一张含 品目 X×2、品目 Y×3 的领用单
+- **THEN** 报表中品目 X 计 2、品目 Y 计 3，总领用计 5
+
+#### Scenario: 数据范围过滤不因口径切换放松
+- **WHEN** 无管理授权的用户请求调拨流水报表
+- **THEN** 结果集仍为空（resolve_user_scope 过滤在明细行口径下同样生效）

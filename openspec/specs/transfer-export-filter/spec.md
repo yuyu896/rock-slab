@@ -1,10 +1,11 @@
 # transfer-export-filter Specification
 
 ## Purpose
-TBD - created by archiving change add-transfer-export-filter. Update Purpose after archive.
+流转记录按筛选参数导出 Excel：输出按明细行展开（单头信息随行重复），模板列保持稳定；旧版采购页已清退，导出统一经由各类型列表页。
+
 ## Requirements
 ### Requirement: Transfer export with filter parameters
-The system SHALL support exporting transfer records with filter parameters (branch, status, type) passed to the backend API, returning a complete filtered Excel file.
+The system SHALL support exporting transfer records with filter parameters (branch, status, type) passed to the backend API, returning a complete filtered Excel file. Export MUST expand one output row per detail line (单头信息随行重复)，值按行取数（编号/名称/规格/单位/类目联字典回显），模板列保持不变；筛选语义不变。
 
 #### Scenario: Export with branch filter
 - **WHEN** user selects a branch filter and clicks "导出" on any transfer type page
@@ -14,14 +15,6 @@ The system SHALL support exporting transfer records with filter parameters (bran
 - **WHEN** user selects a status filter and clicks "导出"
 - **THEN** the exported Excel contains only records matching the selected status
 
-#### Scenario: Export without filters
-- **WHEN** user clicks "导出" without any filters applied
-- **THEN** the system exports all records of the current transfer type
-
-### Requirement: Purchase page export button
-The Purchase.vue page SHALL have an export button in the header actions that downloads purchase transfer records as Excel.
-
-#### Scenario: Export from purchase page
-- **WHEN** user clicks "导出" on the Purchase.vue page
-- **THEN** the system downloads an Excel file containing purchase type transfer records
-
+#### Scenario: Multi-line document expands to multiple rows
+- **WHEN** the filtered result contains a purchase document with 3 detail lines
+- **THEN** the exported Excel contains 3 rows for that document, each carrying the header fields (单号/日期/分公司/供应商) repeated
