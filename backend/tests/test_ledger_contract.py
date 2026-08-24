@@ -1,6 +1,6 @@
-"""台账契约测试：五单对称矩阵、唯一写入口、调整单、盘点记录模式、报表口径。
+"""台账契约测试：五单对称矩阵、唯一写入口、调整单、盘点差异自动生成调整单、报表口径。
 
-对应 document-ledger-sync / ledger-single-source / asset-freeze-readonly 能力。
+对应 document-ledger-sync / ledger-single-source / inventory-item-basis 能力。
 """
 import pytest
 from rest_framework import status
@@ -210,6 +210,64 @@ class TestLedgerAdjustment:
         with pytest.raises(ValidationError):
             ledger.apply_adjustment(branch, item, '不存在的列', 1, 'x')
 
+    def test_manual_create_audited_and_numbered(self, admin_user, branch):
+        """手动开单：留审计日志，响应带 TZ 编号与空来源。"""
+        from conftest import _client_for
+        from apps.audit.models import AuditLog
+        item = _ensure_item('ADJ-005')
+        client = _client_for(admin_user)
+        resp = client.post('/api/assets/adjustments', {
+            'branch': str(branch.id), '资产编号': 'ADJ-005',
+            '目标列': '在库数量', '变动量': 2, '事由': '手工校准',
+        }, format='json')
+        assert resp.status_code == 201
+        assert resp.data['单据编号'].startswith('TZ')
+        assert resp.data['source_task'] is None
+        assert AuditLog.objects.filter(
+            action='create', resource_type='LedgerAdjustment',
+        ).exists()
+
+    def test_list_filters_by_code_and_branch(self, admin_user, branch):
+        from conftest import _client_for
+        item = _ensure_item('ADJ-006')
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 1, '测试造数')
+        client = _client_for(admin_user)
+        resp = client.get('/api/assets/adjustments', {'assetCode': 'ADJ-006'})
+        assert resp.status_code == 200
+        codes = {row['资产编号'] for row in resp.data['results']}
+        assert codes == {'ADJ-006'}
+        resp = client.get('/api/assets/adjustments', {'assetCode': '不存在的编号'})
+        assert resp.data['results'] == []
+
+    def test_numbers_sequential_unique(self, branch):
+        item = _ensure_item('ADJ-007')
+        numbers = [
+            ledger.apply_adjustment(
+                branch, item, ledger.COLUMN_STOCK, 1, '测试造数',
+            ).单据编号
+            for _ in range(3)
+        ]
+        assert all(n.startswith('TZ') for n in numbers)
+        assert len(set(numbers)) == 3
+
+    def test_backfill_migration_idempotent(self, branch):
+        """存量回填：空编号行全部补齐、唯一、重跑无副作用。"""
+        import importlib
+        from django.db import connection
+        item = _ensure_item('ADJ-008')
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 2, '测试造数')
+        LedgerAdjustment.objects.update(单据编号=None)
+        migration = importlib.import_module(
+            'apps.assets.migrations.0022_backfill_adjustment_doc_no',
+        )
+        from django.apps import apps as global_apps
+        migration.backfill(global_apps, None)
+        rows = list(LedgerAdjustment.objects.all())
+        assert rows and all(r.单据编号.startswith('TZ') for r in rows)
+        assert len({r.单据编号 for r in rows}) == len(rows)
+        migration.backfill(global_apps, None)
+        assert LedgerAdjustment.objects.count() == len(rows)
+
 
 @pytest.mark.django_db
 class TestConcurrencyGuards:
@@ -249,22 +307,83 @@ class TestAssetRetired:
 
 
 @pytest.mark.django_db
-class TestInventoryRecordMode:
-    def test_approve_keeps_ledger_quantities(self, authenticated_client, branch, supervisor_user):
-        """盘点审核通过仅记录差异，不改台账数量（差异修数走调整单）。"""
-        from conftest import _client_for
+class TestInventoryVarianceAdjustment:
+    def _make_task(self, branch, code, stock, entries, name='差异盘点'):
+        """entries: [(expected, actual, result), ...]，actual 为 None 表示未盘。"""
         from apps.inventories.models import InventoryTask, InventoryItem
-        item = _seed(branch, 'INV-001', stock=5)
+        item = _seed(branch, code, stock=stock)
         row = AssetStock.objects.get(branch=branch, item=item)
-        task = InventoryTask.objects.create(name='记录模式盘点', branch=branch, status='pending_review')
-        InventoryItem.objects.create(
-            task=task, stock=row, expected_qty=5, actual_qty=3, result='discrepancy',
-        )
+        task = InventoryTask.objects.create(name=name, branch=branch, status='pending_review')
+        for expected, actual, result in entries:
+            InventoryItem.objects.create(
+                task=task, stock=row,
+                expected_qty=expected, actual_qty=actual, result=result,
+            )
+        return task, row
+
+    def test_approve_generates_adjustments_for_variance(self, authenticated_client, branch, supervisor_user):
+        """审批通过：盘亏开在库 −2 调整单修账，经办人=审批人、来源=任务。"""
+        from conftest import _client_for
+        task, row = self._make_task(branch, 'INV-001', 5, [(5, 3, 'missing')])
+        client = _client_for(supervisor_user)
+        resp = client.post(f'/api/inventories/{task.id}/approve')
+        assert resp.status_code == 200, resp.data
+        row.refresh_from_db()
+        assert row.在库数量 == 3
+        adj = LedgerAdjustment.objects.get(source_task=task)
+        assert adj.目标列 == ledger.COLUMN_STOCK
+        assert adj.变动量 == -2
+        assert adj.经办人 == supervisor_user
+        assert adj.单据编号.startswith('TZ')
+        assert task.name in adj.事由 and '在库 5 → 3' in adj.事由
+
+    def test_approve_generates_surplus_adjustment(self, authenticated_client, branch, supervisor_user):
+        """盘盈开正量调整单。"""
+        from conftest import _client_for
+        task, row = self._make_task(branch, 'INV-002', 4, [(4, 6, 'surplus')])
         client = _client_for(supervisor_user)
         resp = client.post(f'/api/inventories/{task.id}/approve')
         assert resp.status_code == 200
         row.refresh_from_db()
-        assert row.在库数量 == 5  # 不再直改
+        assert row.在库数量 == 6
+        assert LedgerAdjustment.objects.get(source_task=task).变动量 == 2
+
+    def test_approve_no_variance_no_adjustment(self, authenticated_client, branch, supervisor_user):
+        """全部 matched：审批正常完成，不产调整单。"""
+        from conftest import _client_for
+        task, row = self._make_task(branch, 'INV-003', 5, [(5, 5, 'matched')])
+        client = _client_for(supervisor_user)
+        resp = client.post(f'/api/inventories/{task.id}/approve')
+        assert resp.status_code == 200
+        assert LedgerAdjustment.objects.filter(source_task=task).count() == 0
+
+    def test_approve_insufficient_rolls_back_whole_task(self, authenticated_client, branch, supervisor_user):
+        """差异致负数：整笔回滚——任务留 pending_review、台账与调整单零残留。"""
+        from conftest import _client_for
+        from apps.inventories.models import InventoryTask
+        task, row = self._make_task(branch, 'INV-004', 5, [(5, 0, 'missing')])
+        # 审批前台账在库被流转单扣到 1：差异 −5 会致负
+        row.在库数量 = 1
+        row.save(update_fields=['在库数量'])
+        client = _client_for(supervisor_user)
+        resp = client.post(f'/api/inventories/{task.id}/approve')
+        assert resp.status_code == 400
+        task.refresh_from_db()
+        assert task.status == 'pending_review'
+        row.refresh_from_db()
+        assert row.在库数量 == 1
+        assert LedgerAdjustment.objects.filter(source_task=task).count() == 0
+
+    def test_unchecked_items_not_adjusted(self, authenticated_client, branch, supervisor_user):
+        """keep 规则下未盘项（unchecked）与 actual 缺失项不开单。"""
+        from conftest import _client_for
+        task, row = self._make_task(branch, 'INV-005', 5, [(5, None, 'unchecked')])
+        client = _client_for(supervisor_user)
+        resp = client.post(f'/api/inventories/{task.id}/approve')
+        assert resp.status_code == 200
+        row.refresh_from_db()
+        assert row.在库数量 == 5
+        assert LedgerAdjustment.objects.filter(source_task=task).count() == 0
 
 
 @pytest.mark.django_db

@@ -24,6 +24,7 @@ import type { MissedRuleType, RepeatRuleType } from '@/types'
 import InventoryTaskList from './inventory/InventoryTaskList.vue'
 import InventoryCheckPanel from './inventory/InventoryCheckPanel.vue'
 import InventoryReport from './inventory/InventoryReport.vue'
+import ApprovePreviewDialog from './inventory/ApprovePreviewDialog.vue'
 
 const inventoryStore = useInventoryStore()
 const router = useRouter()
@@ -210,21 +211,27 @@ const cancelTask = async (task: any) => {
   }
 }
 
-// ========== 审批通过 ==========
-const approveTask = async (task: any) => {
+// ========== 审批通过（先弹差异预览：将生成 N 条调整单修正台账） ==========
+const approvePreviewVisible = ref(false)
+const approvePreviewTask = ref<any>(null)
+const approvePreviewRef = ref<InstanceType<typeof ApprovePreviewDialog> | null>(null)
+
+const approveTask = (task: any) => {
+  approvePreviewTask.value = task
+  approvePreviewVisible.value = true
+}
+
+const confirmApprove = async () => {
+  const task = approvePreviewTask.value
+  if (!task) return
   try {
-    await ElMessageBox.confirm(
-      `确定要通过「${task.name}」的盘点审批吗？`,
-      '审批确认',
-      { confirmButtonText: '通过', cancelButtonText: '取消', type: 'success' }
-    )
     await approveInventory(task.id)
-    ElMessage.success('审批已通过')
+    ElMessage.success('审批已通过，差异已生成调整单入账')
+    approvePreviewVisible.value = false
     await fetchTasks()
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(handleApiError(error))
-    }
+    approvePreviewRef.value?.done()
+    ElMessage.error(handleApiError(error))
   }
 }
 
@@ -524,6 +531,17 @@ onMounted(() => {
 
     <!-- 报告弹窗 -->
     <InventoryReport ref="reportRef" :visible="reportVisible" @update:visible="reportVisible = $event" />
+
+    <!-- 审批差异预览弹窗（通过前明示将生成的调整单） -->
+    <ApprovePreviewDialog
+      v-if="approvePreviewTask"
+      ref="approvePreviewRef"
+      :visible="approvePreviewVisible"
+      :task-id="approvePreviewTask.id"
+      :task-name="approvePreviewTask.name"
+      @close="approvePreviewVisible = false"
+      @confirm="confirmApprove"
+    />
   </div>
 </template>
 

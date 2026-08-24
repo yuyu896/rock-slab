@@ -41,13 +41,14 @@ class LedgerAdjustmentSerializer(serializers.ModelSerializer):
     资产编号 = serializers.CharField(source='item.asset_code', read_only=True)
     资产名称 = serializers.CharField(source='item.asset_name', read_only=True)
     经办人姓名 = serializers.CharField(source='经办人.name', read_only=True, default=None)
+    来源任务 = serializers.CharField(source='source_task.name', read_only=True, default=None)
 
     class Meta:
         model = LedgerAdjustment
         fields = [
-            'id', 'branch', 'branch_name', 'item', '资产编号', '资产名称',
+            'id', '单据编号', 'branch', 'branch_name', 'item', '资产编号', '资产名称',
             '目标列', '变动量', '事由', '经办人', '经办人姓名', 'is_initial',
-            'created_at',
+            'source_task', '来源任务', 'created_at',
         ]
         read_only_fields = fields
 

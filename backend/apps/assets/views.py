@@ -7,6 +7,7 @@ from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin
 from apps.permissions.permissions import OperationPermission
+from apps.audit.decorators import audit_create
 from rest_framework.exceptions import ValidationError
 from .models import AssetStock, FixedAsset, LedgerAdjustment
 from .serializers import (
@@ -280,7 +281,9 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
 class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     """台账调整单：创建即生效（走 ledger service 唯一写入口），列表按范围可读。"""
 
-    queryset = LedgerAdjustment.objects.select_related('branch', 'item', '经办人').all()
+    queryset = LedgerAdjustment.objects.select_related(
+        'branch', 'item', '经办人', 'source_task',
+    ).all()
     serializer_class = LedgerAdjustmentSerializer
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
@@ -291,8 +294,23 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        return self.get_scoped_queryset(qs)
+        qs = self.get_scoped_queryset(qs)
+        params = self.request.query_params
+        branch = params.get('branch')
+        if branch:
+            qs = qs.filter(branch_id=branch)
+        asset_code = (params.get('assetCode') or '').strip()
+        if asset_code:
+            qs = qs.filter(item__asset_code__icontains=asset_code)
+        date_from = params.get('dateFrom')
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+        date_to = params.get('dateTo')
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+        return qs
 
+    @audit_create(resource_type='LedgerAdjustment')
     def create(self, request, *args, **kwargs):
         from .services import ledger
         from apps.categories.models import Category

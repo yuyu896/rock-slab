@@ -170,6 +170,26 @@ export interface LedgerImportDiff {
   变动量: number
 }
 
+/** 台账调整单（P3：编号 + 来源盘点任务；创建即生效） */
+export interface LedgerAdjustment {
+  id: string
+  单据编号: string
+  branch: string
+  branchName?: string
+  item: string
+  资产编号: string
+  资产名称?: string
+  目标列: string
+  变动量: number
+  事由: string
+  经办人?: string | null
+  经办人姓名?: string | null
+  isInitial?: boolean
+  sourceTask?: string | null
+  来源任务?: string | null
+  createdAt?: string
+}
+
 /** 用户 */
 export interface User {
   id: string

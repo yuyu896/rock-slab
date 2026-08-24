@@ -18,6 +18,7 @@ from .serializers import (
     RecountSerializer,
 )
 from .filters import InventoryTaskFilterSet
+from .services import generate_variance_adjustments
 
 
 class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
@@ -192,8 +193,9 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         def _adjust(t):
-            # 盘点为记录模式——差异仅留存于盘点结果，不直接改台账数量
-            # （差异修数走台账调整单，P3 接「差异自动生成调整单」）
+            # 差异自动生成调整单（P3）：锁内事务逐差异项经唯一写入口修账，
+            # 任一行致负数抛错整笔回滚（任务留 pending_review），差异不吞
+            generate_variance_adjustments(t, request.user)
             t.completed_at = timezone.now()
 
         task, err = self._transition(
@@ -310,13 +312,19 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def report(self, request, pk=None):
-        """盘点报告"""
+        """盘点报告（完成后含差异生成的调整单汇总）"""
         task = self.get_object()
         items = task.items.select_related('stock__item', 'stock__branch').all()
+        adjustments = task.adjustments.all()
         data = {
             'task': InventoryTaskSerializer(task).data,
             'progress': self._build_progress_data(task, items),
             'items': InventoryItemSerializer(items, many=True).data,
+            'adjustments': {
+                'total': adjustments.count(),
+                'surplus': adjustments.filter(变动量__gt=0).count(),
+                'missing': adjustments.filter(变动量__lt=0).count(),
+            },
         }
         return Response(data)
 

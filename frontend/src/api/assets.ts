@@ -1,6 +1,6 @@
 /* 磐盘 - 资产 API（P2 第三刀起 Asset 退役：台账 / 调整单 / 实例档案）*/
 import request from '@/utils/request'
-import type { AssetStock, FixedAsset, PaginatedResponse, PaginationParams } from '@/types'
+import type { AssetStock, FixedAsset, LedgerAdjustment, PaginatedResponse, PaginationParams } from '@/types'
 
 // ── 资产汇总（库存台账） ──
 
@@ -34,6 +34,29 @@ export function exportAssetStocks(params?: Record<string, string>) {
 /** 下载台账导入模板 */
 export function downloadAssetStockTemplate() {
   return request.get<Blob>('/api/assets/summary/template', { responseType: 'blob' })
+}
+
+
+// ── 台账调整单（P3：手动开单 + 记录列表；盘点差异单由审批自动生成） ──
+
+export function getLedgerAdjustments(params?: PaginationParams & {
+  branch?: string
+  assetCode?: string
+  dateFrom?: string
+  dateTo?: string
+}) {
+  return request.get<PaginatedResponse<LedgerAdjustment>>('/api/assets/adjustments', { params })
+}
+
+/** 手动开调整单（adjust_ledger 权限；创建即生效走唯一写入口） */
+export function createLedgerAdjustment(data: {
+  branch: string
+  资产编号: string
+  目标列: string
+  变动量: number
+  事由: string
+}) {
+  return request.post<LedgerAdjustment>('/api/assets/adjustments', data)
 }
 
 

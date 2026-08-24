@@ -39,20 +39,20 @@ def _build_in_review_task(admin_user, branch, asset_qty, check_qty, code):
 @pytest.mark.django_db
 class TestInventoryApproveIdempotency:
     def test_repeat_approve_no_double_adjust(self, admin_user, branch):
-        """盘点为记录模式：approve 不改台账数量，重复 approve 仅状态拦截。"""
-        # expected=10, actual=8 → 差异仅记录
+        """差异开单只生效一次：首次 approve 修账并开单，重复 approve 仅状态拦截。"""
+        # expected=10, actual=8 → 首次 approve 生成 −2 调整单修账
         task_id, stock = _build_in_review_task(admin_user, branch, 10, 8, 'CONC-001')
         client = _client_for(admin_user)
 
         resp1 = client.post(f'/api/inventories/{task_id}/approve')
         assert resp1.status_code == 200
         stock.refresh_from_db()
-        assert stock.在库数量 == 10  # 记录模式：不直改
+        assert stock.在库数量 == 8
 
         resp2 = client.post(f'/api/inventories/{task_id}/approve')
         assert resp2.status_code == 400
         stock.refresh_from_db()
-        assert stock.在库数量 == 10
+        assert stock.在库数量 == 8  # 不重复调整
 
     def test_invalid_state_transition_rejected(self, admin_user, branch):
         """非法状态转换被 _transition 二次校验拦截（pending→in_progress→cancelled→非法）。"""

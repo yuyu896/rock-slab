@@ -10,6 +10,18 @@ from apps.users.models import User
 from .models import Notification, ApprovalCC
 
 
+def _adjustment_summary(task):
+    """盘点完成后汇总差异生成的调整单数（盘盈/盘亏分计），附进通知 extra_data。"""
+    summary = {'total': 0, 'surplus': 0, 'missing': 0}
+    for delta in task.adjustments.values_list('变动量', flat=True):
+        summary['total'] += 1
+        if delta > 0:
+            summary['surplus'] += 1
+        else:
+            summary['missing'] += 1
+    return summary
+
+
 def _users_with_operation_access(branch, code, include_admin=True, exclude_admin=False):
     """返回持指定业务操作授权且数据范围覆盖该分公司的活跃用户。
 
@@ -226,8 +238,12 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
     if instance.status in status_notifications:
         notify_type, title_prefix, priority = status_notifications[instance.status]
 
-        # 通知创建人
+        # 通知创建人（完成后 extra_data 附差异生成的调整单数，盘盈/盘亏分计）
         if instance.created_by:
+            extra = (
+                _adjustment_summary(instance)
+                if instance.status == 'completed' else {}
+            )
             Notification.objects.create(
                 recipient=instance.created_by,
                 notification_type=notify_type,
@@ -236,6 +252,7 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
                 priority=priority,
                 related_object_type='inventory_task',
                 related_object_id=instance.id,
+                extra_data=extra,
             )
 
     # 提交审核时通知审批人

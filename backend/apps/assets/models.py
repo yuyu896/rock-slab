@@ -56,7 +56,8 @@ class AssetStock(UUIDModel, TimestampedModel):
 class LedgerAdjustment(UUIDModel, TimestampedModel):
     """台账调整单 —— 数量变动的非流转出口（含期初入账），铁律 2 的合规载体。
 
-    创建即生效（无审批流，P3 按需补充）；台账变动由 services/ledger.py 执行。
+    创建即生效（不设审批流：盘点路径的审批由盘点任务承担，手动/导入路径
+    靠权限+审计约束）；台账变动由 services/ledger.py 执行。
     """
 
     TARGET_STOCK = '在库数量'
@@ -68,6 +69,10 @@ class LedgerAdjustment(UUIDModel, TimestampedModel):
         (TARGET_RECYCLE, '回收库'),
     ]
 
+    单据编号 = models.CharField(
+        '单据编号', max_length=32, unique=True,
+        null=True, blank=True, db_index=True,
+    )
     branch = models.ForeignKey(
         'organizations.Branch',
         on_delete=models.PROTECT,
@@ -91,16 +96,24 @@ class LedgerAdjustment(UUIDModel, TimestampedModel):
         related_name='ledger_adjustments',
         verbose_name='经办人',
     )
+    source_task = models.ForeignKey(
+        'inventories.InventoryTask',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='adjustments',
+        verbose_name='来源盘点任务',
+    )
     is_initial = models.BooleanField('期初单', default=False)
 
     class Meta:
         db_table = 'assets_ledger_adjustment'
-        ordering = ['-created_at']
+        ordering = ['-单据编号', '-created_at']
         verbose_name = '台账调整单'
         verbose_name_plural = '台账调整单'
 
     def __str__(self):
-        return f'{self.branch.name} {self.item.asset_code} {self.目标列}{self.变动量:+d}'
+        return f'{self.单据编号 or self.pk} {self.branch.name} {self.item.asset_code} {self.目标列}{self.变动量:+d}'
 
 
 class FixedAsset(UUIDModel, TimestampedModel):

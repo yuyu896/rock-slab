@@ -87,6 +87,15 @@ defineExpose({ open })
               <span class="report-stat-label">盘亏率</span>
             </div>
           </div>
+          <!-- 审批生成调整单汇总（P3：差异自动开单修账） -->
+          <div
+            v-if="reportData.task?.status === 'completed' && reportData.adjustments"
+            class="adjustment-summary"
+          >
+            已生成调整单 <strong>{{ reportData.adjustments.total }}</strong> 条（盘盈
+            {{ reportData.adjustments.surplus }} / 盘亏 {{ reportData.adjustments.missing }}），
+            台账已按差异修正，可在台账页「调整记录」查看。
+          </div>
           <!-- 盘点明细列表 -->
           <div v-if="reportData.items?.length" class="report-table-wrapper">
             <table class="report-table">
@@ -136,6 +145,7 @@ defineExpose({ open })
 .modal-footer { padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 12px; }
 .report-loading { text-align: center; padding: 40px; color: var(--color-text-secondary); }
 .report-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.adjustment-summary { margin-bottom: 20px; padding: 10px 14px; border: 1px solid var(--color-primary-200); border-radius: 8px; background: var(--color-primary-50); font-size: 13px; color: var(--color-text-secondary); }
 .report-stat-item { text-align: center; padding: 12px; background: var(--color-bg); border-radius: 8px; }
 .report-stat-value { display: block; font-size: 24px; font-weight: 700; }
 .report-stat-value.success { color: var(--color-success); }

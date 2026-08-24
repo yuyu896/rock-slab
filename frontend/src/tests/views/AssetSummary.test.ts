@@ -19,6 +19,9 @@ vi.mock('@/api/assets', () => ({
   importAssetStocks: vi.fn(),
   exportAssetStocks: vi.fn(),
   downloadAssetStockTemplate: vi.fn(),
+  getFixedAssets: vi.fn(),
+  getLedgerAdjustments: vi.fn(),
+  createLedgerAdjustment: vi.fn(),
 }))
 
 vi.mock('@/api/branches', () => ({
@@ -79,7 +82,7 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     vi.clearAllMocks()
   })
 
-  it('表头 14 列（P2 第三刀加实例下钻列），序号为分页连续序号', async () => {
+  it('表头 15 列（P3 加操作列：行内调整），序号为分页连续序号', async () => {
     vi.mocked(getAssetStocks).mockResolvedValue({
       data: { count: 30, next: null, previous: null, results: [_stock({ id: 's1' }), _stock({ id: 's2' })] },
     } as any)
@@ -89,7 +92,7 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     const headers = wrapper.findAll('thead th').map(th => th.text())
     expect(headers).toEqual([
       '序号', '分公司', '资产编号', '资产名称', '规格', '资产类目', '管理方式',
-      '在库', '在用', '回收库', '总量', '警戒线', '是否充足', '实例',
+      '在库', '在用', '回收库', '总量', '警戒线', '是否充足', '实例', '操作',
     ])
 
     // 第 1 页首行序号为 1，默认每页 50 条
@@ -121,7 +124,7 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     expect(cells[10].text()).toBe('10')
   })
 
-  it('页面无行级写操作（铁律 2）', async () => {
+  it('行内唯一写操作是「调整」（开调整单），无直接改数入口（铁律 2）', async () => {
     vi.mocked(getAssetStocks).mockResolvedValue({
       data: { count: 1, next: null, previous: null, results: [_stock({})] },
     } as any)
@@ -129,6 +132,7 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain('新增')
     expect(wrapper.find('tbody .action-btn').exists()).toBe(false)
+    expect(wrapper.find('tbody .drill-btn').text()).toBe('调整')
   })
 
   it('库存不足行显示「否」并以警示样式标识', async () => {

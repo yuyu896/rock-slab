@@ -10,6 +10,7 @@ DOC_NUMBER_PREFIXES = {
     'return': 'GH',
     'transfer': 'DB',
     'recovery': 'HS',
+    'adjust': 'TZ',
 }
 
 

@@ -9,7 +9,19 @@ import { usePermission } from '@/hooks/usePermission'
 import type { AssetStock } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 import SummaryImportDialog from './SummaryImportDialog.vue'
+import AdjustDialog from './AdjustDialog.vue'
+import AdjustRecordsDialog from './AdjustRecordsDialog.vue'
 import type { FixedAsset } from '@/types'
+
+// ── 台账调整（P3：行内开调整单 + 调整记录；数量变动唯一合规出口之一） ──
+const adjustVisible = ref(false)
+const adjustStock = ref<AssetStock | null>(null)
+const recordsVisible = ref(false)
+
+function openAdjust(stock: (typeof stocks.value)[number]) {
+  adjustStock.value = stock
+  adjustVisible.value = true
+}
 
 // ── 实例下钻（实例管理品目行：该分公司×品目的实例档案，P2 第三刀） ──
 const drillStock = ref<(typeof stocks.value)[number] | null>(null)
@@ -43,6 +55,7 @@ function goTimeline(code: string) {
 
 const { can } = usePermission()
 const canImport = can('adjust_ledger') || can('manage_assets')
+const canAdjust = can('adjust_ledger')
 
 const filters = ref({
   branch: '',
@@ -183,6 +196,15 @@ onMounted(() => {
           </svg>
           增量导入
         </button>
+        <button class="btn-secondary" @click="recordsVisible = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          调整记录
+        </button>
       </div>
     </div>
 
@@ -216,7 +238,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 数据表格（13 列，无行级写操作——铁律 2） -->
+    <!-- 数据表格（行级写唯一出口是调整单——铁律 2 的合规载体） -->
     <div class="table-container">
       <table class="data-table">
         <thead>
@@ -235,14 +257,15 @@ onMounted(() => {
             <th>警戒线</th>
             <th>是否充足</th>
             <th>实例</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && stocks.length === 0">
-            <td colspan="14" class="empty-cell">加载中...</td>
+            <td colspan="15" class="empty-cell">加载中...</td>
           </tr>
           <tr v-else-if="stocks.length === 0">
-            <td colspan="14" class="empty-cell">暂无数据</td>
+            <td colspan="15" class="empty-cell">暂无数据</td>
           </tr>
           <tr v-for="(stock, index) in stocks" :key="stock.id">
             <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
@@ -271,6 +294,15 @@ onMounted(() => {
               >下钻实例</button>
               <span v-else class="dim">—</span>
             </td>
+            <td>
+              <button
+                v-if="canAdjust"
+                class="drill-btn"
+                type="button"
+                @click="openAdjust(stock)"
+                >调整</button>
+              <span v-else class="dim">—</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -287,6 +319,18 @@ onMounted(() => {
       :visible="showImportModal"
       @close="showImportModal = false"
       @success="fetchStocks"
+    />
+
+    <AdjustDialog
+      :visible="adjustVisible"
+      :stock="adjustStock"
+      @close="adjustVisible = false"
+      @success="fetchStocks"
+    />
+
+    <AdjustRecordsDialog
+      :visible="recordsVisible"
+      @close="recordsVisible = false"
     />
 
     <!-- 实例下钻抽屉：该（分公司×品目）实例档案 -->

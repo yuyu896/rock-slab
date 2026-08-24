@@ -16,6 +16,7 @@
 """
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment
@@ -52,21 +53,26 @@ def _apply_delta(row, column, delta):
     return new_value
 
 
-def apply_adjustment(branch, item, column, delta, reason, operator=None, is_initial=False):
-    """调整单入口：目标列 ±N，负数拒绝，留痕后返回调整单。"""
+def apply_adjustment(branch, item, column, delta, reason, operator=None,
+                     is_initial=False, source_task=None):
+    """调整单入口：目标列 ±N，负数拒绝，发号留痕后返回调整单。"""
     if column not in COLUMNS:
         raise ValidationError({'detail': f'未知目标列 {column}'})
+    from apps.transfers.services import generate_document_number
+
     with transaction.atomic():
         row = _locked_row(branch, item)
         _apply_delta(row, column, delta)
         row.save()
         return LedgerAdjustment.objects.create(
+            单据编号=generate_document_number('adjust', timezone.now().date()),
             branch=branch,
             item=item,
             目标列=column,
             变动量=delta,
             事由=reason,
             经办人=operator,
+            source_task=source_task,
             is_initial=is_initial,
         )
 
