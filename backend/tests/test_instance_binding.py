@@ -566,3 +566,64 @@ class TestAlignCommand:
         out = StringIO()
         call_command('align_ledger_to_instances', stdout=out)
         assert '已对齐' in out.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# 存量状态归一（决断路线 A：品目维持数量管理，档案只修枚举）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestNormalizeStatus:
+    def _make_legacy(self, branch, code, state, n):
+        item = _item(code, management_type='quantity')
+        for i in range(n):
+            FixedAsset.objects.create(
+                item=item, 内部编号=f'{code}-{i + 1}', 当前状态=state, branch=branch,
+            )
+        return item
+
+    def test_legacy_states_normalized(self, branch):
+        from django.core.management import call_command
+        from io import StringIO
+        item = self._make_legacy(branch, 'NS-001', '使用中', 3)
+        self._make_legacy(branch, 'NS-002', '空闲中', 2)
+        self._make_legacy(branch, 'NS-003', '维修中', 1)
+        self._make_legacy(branch, 'NS-004', '已报废', 1)
+        self._make_legacy(branch, 'NS-005', '在库', 1)  # 合法不动
+
+        out = StringIO()
+        call_command('normalize_instance_status', stdout=out)  # 预览不落
+        assert '使用中 × 3 → 在用' in out.getvalue()
+        assert FixedAsset.objects.filter(当前状态='使用中').count() == 3  # 未执行
+
+        call_command('normalize_instance_status', '--confirm', stdout=StringIO())
+        assert FixedAsset.objects.filter(当前状态='使用中').count() == 0
+        assert FixedAsset.objects.filter(item__asset_code='NS-001', 当前状态='在用').count() == 3
+        assert FixedAsset.objects.filter(item__asset_code='NS-002', 当前状态='回收库').count() == 2
+        assert FixedAsset.objects.filter(item__asset_code='NS-003', 当前状态='在用').count() == 1
+        assert FixedAsset.objects.filter(item__asset_code='NS-004', 当前状态='退役').count() == 1
+        assert FixedAsset.objects.filter(item__asset_code='NS-005', 当前状态='在库').count() == 1
+
+    def test_idempotent(self, branch):
+        from django.core.management import call_command
+        from io import StringIO
+        self._make_legacy(branch, 'NS-006', '使用中', 2)
+        call_command('normalize_instance_status', '--confirm', stdout=StringIO())
+        out = StringIO()
+        call_command('normalize_instance_status', stdout=out)
+        assert '无需归一' in out.getvalue()
+
+    def test_normalize_keeps_ledger_untouched(self, branch):
+        """路线 A 语义：只动状态枚举，台账/单据一概不碰（数量管理品目不参与镜像）。"""
+        from django.core.management import call_command
+        from apps.assets.models import AssetStock, LedgerAdjustment
+        item = _item('NS-007', management_type='quantity')
+        _seed(branch, item, in_use=5)
+        self._make_legacy(branch, 'NS-007', '使用中', 2)
+        before_adj = LedgerAdjustment.objects.count()
+        call_command('normalize_instance_status', '--confirm', stdout=StringIO())
+        row = AssetStock.objects.get(branch=branch, item=item)
+        assert row.在用数量 == 5
+        assert LedgerAdjustment.objects.count() == before_adj
+        code, _ = _check()
+        assert code == 0

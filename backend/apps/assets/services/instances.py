@@ -157,3 +157,44 @@ def apply_line_instances(transfer, line, instances):
         raise _err(f'单据类型 {action} 不存在实例迁移')
     for inst in instances:
         inst.save()
+
+
+# ---------------------------------------------------------------------------
+# 存量状态归一（P2 第二刀补丁）：旧导入时代的非法枚举 → 四态
+# ---------------------------------------------------------------------------
+
+# 同义映射依据：使用中=旧 Asset 枚举（FixedAsset 导入未校验混入）；空闲中=「空闲」变体
+# （回收入库待再分配）；维修中按 P1 台账桶规则计入在用；已报废=出局终态
+LEGACY_STATUS_MAP = {
+    '使用中': FixedAsset.STATUS_IN_USE,
+    '空闲中': FixedAsset.STATUS_RECYCLE,
+    '空闲': FixedAsset.STATUS_RECYCLE,
+    '维修中': FixedAsset.STATUS_IN_USE,
+    '已报废': FixedAsset.STATUS_RETIRED,
+}
+
+
+def normalize_legacy_status():
+    """非法状态枚举归一为四态；返回 [(原状态, 新状态, 条数)]，零改动返回 []。
+
+    只动 当前状态 一列（分公司/台账/单据一概不碰）——用于数量管理品目挂着的
+    历史死档（决断路线 A：品目维持数量管理，档案仅修展示层枚举）。
+    """
+    from django.db.models import Count
+
+    stats = list(
+        FixedAsset.objects.filter(当前状态__in=LEGACY_STATUS_MAP.keys())
+        .order_by()
+        .values('当前状态')
+        .annotate(n=Count('id'))
+    )
+    if not stats:
+        return []
+    for row in stats:
+        FixedAsset.objects.filter(当前状态=row['当前状态']).update(
+            当前状态=LEGACY_STATUS_MAP[row['当前状态']],
+        )
+    return [
+        (row['当前状态'], LEGACY_STATUS_MAP[row['当前状态']], row['n'])
+        for row in stats
+    ]
