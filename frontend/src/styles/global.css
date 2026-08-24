@@ -107,6 +107,12 @@ textarea:focus-visible {
   transition: all 0.15s;
   white-space: nowrap;
 }
+/* 图标型操作按钮（按钮内仅一个 svg）：固定小宽 + border-box 下，
+   8px 16px padding 会吃光内容宽，svg 被 flex 收缩为 0 宽而"隐形"——
+   padding 归零根治（各列表页表格操作列按钮长期不可见即此因） */
+.action-btn:has(> svg:only-child) {
+  padding: 0;
+}
 .action-btn:hover { border-color: var(--color-primary-300); color: var(--color-primary-500); background: var(--color-primary-50); }
 .action-btn.approve { color: var(--color-primary-500); border-color: var(--color-primary-200); }
 .action-btn.approve:hover { background: var(--color-primary-500); border-color: var(--color-primary-500); color: white; }
