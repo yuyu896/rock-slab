@@ -8,7 +8,7 @@ import type { Asset, FixedAsset } from '@/types'
 
 const props = defineProps<{
   visible: boolean
-  /** asset=资产明细行；fixed=固定资产实例行 */
+  /** asset=资产明细行；fixed=固定资产实例行（P2 第二刀：按实例引用回收，档案保留） */
   mode: 'asset' | 'fixed'
   item: Asset | FixedAsset | null
 }>()
@@ -30,6 +30,8 @@ const form = ref({
 })
 
 const isFixed = computed(() => props.mode === 'fixed')
+const fixedItem = computed(() => (isFixed.value ? (props.item as FixedAsset | null) : null))
+const assetItem = computed(() => (isFixed.value ? null : (props.item as Asset | null)))
 const maxQty = computed(() => {
   if (isFixed.value) return 1
   return (props.item as Asset | null)?.数量 ?? 1
@@ -64,24 +66,42 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
-    // 编号 → 字典品目 uuid；行内即时回收为单明细行单据
-    const { data: category } = await lookupCategoryByCode(item.资产编号)
-    await recoverAsset({
-      调拨日期: new Date().toISOString().slice(0, 10),
-      调出分公司: item.分公司 || '',
-      调出部门: item.所属部门 || '',
-      回收分类: form.value.回收分类,
-      出库日期: form.value.出库日期 || undefined,
-      备注: form.value.备注,
-      items: [{
-        item: category.id,
-        数量: isFixed.value ? 1 : form.value.调拨数量,
-        存放位置: form.value.存放位置 || undefined,
-        固定资产内部编号: isFixed.value ? (item as FixedAsset).内部编号 || '' : undefined,
-      }],
-      immediate: true,
-    })
-    ElMessage.success(isFixed.value ? '已回收，该固定资产记录已移除' : '已回收')
+    if (isFixed.value) {
+      // 实例行回收：单明细行单据按实例 uuid 引用，生效后实例转回收库/退役（档案保留）
+      const fixed = item as FixedAsset
+      await recoverAsset({
+        调拨日期: new Date().toISOString().slice(0, 10),
+        调出分公司: fixed.branchName || '',
+        回收分类: form.value.回收分类,
+        出库日期: form.value.出库日期 || undefined,
+        备注: form.value.备注,
+        items: [{
+          item: fixed.item,
+          数量: 1,
+          存放位置: form.value.存放位置 || undefined,
+          instances: [fixed.id],
+        }],
+        immediate: true,
+      })
+    } else {
+      // 资产明细行回收：编号 → 字典品目 uuid
+      const { data: category } = await lookupCategoryByCode((item as Asset).资产编号)
+      await recoverAsset({
+        调拨日期: new Date().toISOString().slice(0, 10),
+        调出分公司: (item as Asset).分公司 || '',
+        调出部门: (item as Asset).所属部门 || '',
+        回收分类: form.value.回收分类,
+        出库日期: form.value.出库日期 || undefined,
+        备注: form.value.备注,
+        items: [{
+          item: category.id,
+          数量: form.value.调拨数量,
+          存放位置: form.value.存放位置 || undefined,
+        }],
+        immediate: true,
+      })
+    }
+    ElMessage.success(isFixed.value ? '已回收，实例档案已保留（可查生平）' : '已回收')
     emit('success')
     emit('close')
   } catch (error) {
@@ -101,12 +121,21 @@ async function handleSubmit() {
       </div>
       <div class="modal-body">
         <div class="prefill-grid">
-          <div class="prefill-item" v-if="isFixed"><span class="prefill-label">内部编号</span><span class="asset-code">{{ (item as FixedAsset).内部编号 }}</span></div>
-          <div class="prefill-item"><span class="prefill-label">资产编号</span><span class="asset-code">{{ item.资产编号 }}</span></div>
-          <div class="prefill-item"><span class="prefill-label">资产名称</span><span>{{ item.资产名称 || '-' }}</span></div>
-          <div class="prefill-item"><span class="prefill-label">分公司</span><span>{{ item.分公司 || '-' }}</span></div>
-          <div class="prefill-item"><span class="prefill-label">所属部门</span><span>{{ item.所属部门 || '-' }}</span></div>
-          <div class="prefill-item" v-if="!isFixed"><span class="prefill-label">当前数量</span><span>{{ (item as Asset).数量 }}</span></div>
+          <template v-if="fixedItem">
+            <div class="prefill-item"><span class="prefill-label">内部编号</span><span class="asset-code">{{ fixedItem.内部编号 }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">品目编号</span><span class="asset-code">{{ fixedItem.itemCode }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">品目名称</span><span>{{ fixedItem.itemName || '-' }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">分公司</span><span>{{ fixedItem.branchName || '-' }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">使用人</span><span>{{ fixedItem.使用人 || '-' }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">当前状态</span><span>{{ fixedItem.当前状态 }}</span></div>
+          </template>
+          <template v-else-if="assetItem">
+            <div class="prefill-item"><span class="prefill-label">资产编号</span><span class="asset-code">{{ assetItem.资产编号 }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">资产名称</span><span>{{ assetItem.资产名称 || '-' }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">分公司</span><span>{{ assetItem.分公司 || '-' }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">所属部门</span><span>{{ assetItem.所属部门 || '-' }}</span></div>
+            <div class="prefill-item"><span class="prefill-label">当前数量</span><span>{{ assetItem.数量 }}</span></div>
+          </template>
         </div>
 
         <div class="form-grid">
@@ -148,7 +177,7 @@ async function handleSubmit() {
             <textarea v-model="form.备注" class="form-textarea" rows="2"></textarea>
           </div>
         </div>
-        <p class="recover-hint">确认后立即生效：生成「已通过」回收单并同步扣减资产汇总库存{{ isFixed ? '、删除该固定资产记录' : '、扣减该明细数量' }}。</p>
+        <p class="recover-hint">确认后立即生效：生成「已通过」回收单并同步台账{{ isFixed ? '，实例转入回收库（档案保留）' : '，扣减对应数量' }}。</p>
       </div>
       <div class="modal-footer">
         <button class="btn-cancel" @click="emit('close')">取消</button>

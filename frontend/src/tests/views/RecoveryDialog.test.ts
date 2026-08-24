@@ -27,13 +27,10 @@ vi.mock('@/api/assets', () => ({
   batchDeleteAssets: vi.fn(),
   exportAssets: vi.fn(),
   getFixedAssets: vi.fn(),
-  updateFixedAsset: vi.fn(),
-  deleteFixedAsset: vi.fn(),
-  batchDeleteFixedAssets: vi.fn(),
-  importFixedAssets: vi.fn(),
+  getFixedAsset: vi.fn(),
+  supplementFixedAsset: vi.fn(),
+  getFixedAssetTimeline: vi.fn(),
   exportFixedAssets: vi.fn(),
-  downloadFixedAssetTemplate: vi.fn(),
-  createFixedAsset: vi.fn(),
 }))
 
 vi.mock('@/api/branches', () => ({
@@ -63,9 +60,9 @@ const assetRow = {
 } as unknown as Asset
 
 const fixedRow = {
-  id: 'f1', 内部编号: 'A-1-3', 资产编号: 'A-1', 资产类目: '固定资产',
-  物品分类: '办公设备', 资产名称: '办公椅', 规格: '标准', 数量: 1,
-  分公司: '分公司A', 所属部门: '仓库', 序列号: 'SN-9',
+  id: 'f1', 内部编号: 'A-1-3', 当前状态: '在用', 序列号: 'SN-9',
+  item: 'cat-1', itemCode: 'A-1', itemName: '办公椅', itemSpec: '标准',
+  branchName: '分公司A', 使用人: '张三', departmentName: '仓库',
 } as unknown as FixedAsset
 
 function mountDialog(mode: 'asset' | 'fixed', item: Asset | FixedAsset) {
@@ -109,7 +106,7 @@ describe('RecoveryDialog 行内回收', () => {
     expect(recoverAsset).not.toHaveBeenCalled()
   })
 
-  it('固定资产模式：数量固定 1，提交携带内部编号', async () => {
+  it('固定资产模式：数量固定 1，提交携带实例引用（档案保留）', async () => {
     const wrapper = mountDialog('fixed', fixedRow)
 
     const qtyInput = wrapper.find('input[type="number"]')
@@ -120,7 +117,8 @@ describe('RecoveryDialog 行内回收', () => {
 
     expect(recoverAsset).toHaveBeenCalledWith(expect.objectContaining({
       immediate: true,
-      items: [expect.objectContaining({ item: 'cat-1', 数量: 1, 固定资产内部编号: 'A-1-3' })],
+      调出分公司: '分公司A',
+      items: [expect.objectContaining({ item: 'cat-1', 数量: 1, instances: ['f1'] })],
     }))
   })
 })

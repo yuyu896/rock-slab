@@ -267,10 +267,11 @@ export interface TransferLine {
   department?: string | null
   departmentName?: string
   存放位置?: string
-  固定资产内部编号?: string
+  /** 行关联实例（实例管理品目）：内部编号列表，可跳转实例生平 */
+  instances?: { id: string; code: string }[]
 }
 
-/** 明细行创建入参（品目为字典 uuid） */
+/** 明细行创建入参（品目为字典 uuid；实例引用为实例 uuid 数组） */
 export interface TransferLineInput {
   item: string
   数量: number
@@ -280,7 +281,7 @@ export interface TransferLineInput {
   使用人?: string
   department?: string | null
   存放位置?: string
-  固定资产内部编号?: string
+  instances?: string[]
 }
 
 export interface TransferDocument {
@@ -303,6 +304,7 @@ export interface TransferDocument {
   用途?: string
   回收分类?: string
   回收去向?: 'recycle_bin' | 'dispose'
+  领用来源?: 'stock' | 'recycle_bin'
   处置方式?: '出售' | '报废' | '捐赠' | ''
   处置金额?: number
   出库日期?: string
@@ -376,33 +378,59 @@ export interface InventoryItem {
   updatedAt: string
 }
 
-/** 固定资产实例（对照后端 FixedAssetSerializer，中文字段名保持原样） */
+/** 固定资产实例档案（P2 第二刀：品目联字典、供应商/单价/采购日期经出生行派生） */
 export interface FixedAsset {
   id: string
-  内部编号?: string
-  资产编号: string
-  资产类目?: string
-  资产名称: string
+  内部编号: string
   序列号: string
-  供应商?: string
+  /** 序列号为空 = 待补录 */
+  待补录?: boolean
+  当前状态: '在库' | '在用' | '回收库' | '退役'
   使用人?: string
-  所属部门?: string
-  当前状态?: string
-  分公司?: string
-  分公司编号?: string
-  branch?: string
+  department?: string | null
+  departmentName?: string
+  branch?: string | null
   branchName?: string
-  入库日期?: string
-  是否租用?: boolean
-  数量?: number
-  规格?: string
-  单价?: number | string
-  购入金额?: number | string
-  出库日期?: string
-  物品分类?: string
+  item: string
+  itemCode: string
+  itemName: string
+  itemSpec?: string
+  assetCategory?: string
+  itemCategory?: string
+  managementType?: 'quantity' | 'instance'
+  入库日期?: string | null
+  供应商?: string
+  单价?: number | string | null
+  采购日期?: string | null
   备注?: string
   createdAt: string
   updatedAt: string
+}
+
+/** 实例生平（出生信息 + 关联全部明细行倒序） */
+export interface FixedAssetTimeline {
+  instance: FixedAsset
+  birth: {
+    transferId: string
+    单据编号: string
+    日期: string
+    供应商: string
+    单价: number | null
+    采购日期: string
+  } | null
+  timeline: {
+    transferId: string
+    单据编号: string
+    actionType: string
+    日期: string
+    行号: number
+    品目编号: string
+    数量: number
+    使用人: string
+    部门: string
+    本批规格: string
+    审批状态: string
+  }[]
 }
 
 /** 盘点记录 */

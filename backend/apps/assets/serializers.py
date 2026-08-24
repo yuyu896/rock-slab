@@ -115,62 +115,67 @@ class AssetSerializer(serializers.ModelSerializer):
 
 
 class FixedAssetSerializer(serializers.ModelSerializer):
-    """Serializer for FixedAsset instances（与资产库存解耦，挂品目）。"""
+    """实例档案输出：品目信息联字典、供应商/单价/采购日期经出生明细行派生（决策 #8）。"""
+
     branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
+    department_name = serializers.CharField(source='department.name', read_only=True, default=None)
+    item = serializers.PrimaryKeyRelatedField(read_only=True)
+    item_code = serializers.CharField(source='item.asset_code', read_only=True)
+    item_name = serializers.CharField(source='item.asset_name', read_only=True)
+    item_spec = serializers.CharField(source='item.specification', read_only=True, default='')
+    asset_category = serializers.CharField(source='item.asset_category', read_only=True, default='')
+    item_category = serializers.CharField(source='item.item_category', read_only=True, default='')
+    management_type = serializers.ChoiceField(
+        source='item.management_type',
+        choices=Category.MANAGEMENT_CHOICES,
+        read_only=True,
+    )
+    待补录 = serializers.SerializerMethodField()
+    供应商 = serializers.SerializerMethodField()
+    单价 = serializers.SerializerMethodField()
+    采购日期 = serializers.SerializerMethodField()
 
     class Meta:
         model = FixedAsset
         fields = [
-            'id', '内部编号', '资产编号', '资产类目', '资产名称',
-            '序列号', '供应商', '使用人', '所属部门', '当前状态',
-            '分公司', '分公司编号', 'branch', 'branch_name',
-            '入库日期', '是否租用', '数量', '规格', '单价', '购入金额', '出库日期',
-            '物品分类', '备注', 'created_at', 'updated_at',
+            'id', '内部编号', '序列号', '待补录', '当前状态',
+            '使用人', 'department', 'department_name', 'branch', 'branch_name',
+            'item', 'item_code', 'item_name', 'item_spec',
+            'asset_category', 'item_category', 'management_type',
+            '入库日期', '供应商', '单价', '采购日期',
+            '备注', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at', '内部编号']
+        read_only_fields = fields
+
+    def get_待补录(self, obj):
+        return not (obj.序列号 or '').strip()
+
+    def get_供应商(self, obj):
+        if obj.birth_line is None:
+            return ''
+        return obj.birth_line.transfer.供应商 or ''
+
+    def get_单价(self, obj):
+        if obj.birth_line is None:
+            return None
+        return obj.birth_line.单价
+
+    def get_采购日期(self, obj):
+        if obj.birth_line is None:
+            return None
+        return obj.birth_line.transfer.调拨日期
+
+
+class FixedAssetSupplementSerializer(serializers.Serializer):
+    """序列号补录入参：仅 序列号/备注 两字段（状态等经流转单变动）。"""
+
+    序列号 = serializers.CharField(required=False, allow_blank=True, default='')
+    备注 = serializers.CharField(required=False, allow_blank=True, default='')
 
     def validate(self, attrs):
-        """必填校验 + 资产编号须存在于品目（Category）。"""
-        for field in ('分公司', '资产名称', '序列号'):
-            val = attrs.get(field)
-            if val is None and self.instance:
-                val = getattr(self.instance, field, '')
-            if not val or not str(val).strip():
-                raise serializers.ValidationError({field: [f'{field}不能为空']})
-        code = attrs.get('资产编号')
-        if code:
-            from apps.categories.models import Category
-            if not Category.objects.filter(asset_code=code).exists():
-                raise serializers.ValidationError(
-                    {'资产编号': ['资产编号未在品目登记']}
-                )
+        unknown = set(self.initial_data) - {'序列号', '备注'}
+        if unknown:
+            raise serializers.ValidationError(
+                {'detail': f'补录仅支持 序列号/备注，多余字段：{"、".join(sorted(unknown))}'}
+            )
         return attrs
-
-    def create(self, validated_data):
-        validated_data['内部编号'] = FixedAsset.generate_internal_code(
-            validated_data['资产编号']
-        )
-        # 资产类目/物品分类/资产名称 缺省从品目取
-        code = validated_data.get('资产编号')
-        if code:
-            from apps.categories.models import Category
-            cat = Category.objects.filter(asset_code=code).first()
-            if cat:
-                validated_data.setdefault('资产类目', cat.asset_category)
-                validated_data.setdefault('物品分类', cat.item_category)
-                validated_data.setdefault('资产名称', cat.asset_name)
-        # branch FK 按分公司名称自动解析
-        company = validated_data.get('分公司', '')
-        if company and not validated_data.get('branch'):
-            from apps.organizations.models import Branch
-            br = Branch.objects.filter(name=company).first()
-            if br:
-                validated_data['branch'] = br
-        return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        branch = validated_data.get('branch')
-        if branch is not None:
-            validated_data['分公司'] = branch.name
-            validated_data['分公司编号'] = branch.code
-        return super().update(instance, validated_data)

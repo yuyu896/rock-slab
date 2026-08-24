@@ -5,18 +5,20 @@
 
 单据 × 数量对照（设计书 5.2，粒度 = 明细行）：
     采购入库    在库+N（无行则建行）
-    领用        在库−N，在用+N（校验在库充足）
+    领用        按来源扣列：新品库 在库−N / 回收库 回收库−N，在用+N
     归还        在用−N，在库+N
     调拨        调出在库−N（校验充足），调入在库+N（无行则建行）
     回收入回收库 在用−N，回收库+N
     回收直接处置 在用−N（三存储列均不增加，总量随之下跌）
     调整单      任一列 ±N（不可为负）
+
+实例状态迁移（services/instances.py）与数量变动同事务执行。
 """
 from django.db import transaction
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
-from apps.assets.models import AssetStock, LedgerAdjustment
+from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment
 
 COLUMN_STOCK = '在库数量'
 COLUMN_IN_USE = '在用数量'
@@ -83,8 +85,14 @@ def _line_plan(transfer, line):
         branch = to_branch or from_branch
         return [(branch, item, COLUMN_STOCK, qty)]
     if action == 'assign':
+        # 领用来源：新品库扣在库，回收库扣回收库（设计书决策 #10）
+        source_col = (
+            COLUMN_RECYCLE
+            if transfer.领用来源 == 'recycle_bin'
+            else COLUMN_STOCK
+        )
         return [
-            (from_branch, item, COLUMN_STOCK, -qty),
+            (from_branch, item, source_col, -qty),
             (from_branch, item, COLUMN_IN_USE, qty),
         ]
     if action == 'return':
@@ -120,14 +128,21 @@ def _with_line_context(line, error):
 
 
 def apply_document(transfer):
-    """流转单生效入口：明细行逐行执行联动矩阵。
+    """流转单生效入口：明细行逐行执行联动矩阵（台账数量 + 实例状态同事务）。
 
-    两阶段防死锁：先收集单据全部 (分公司, 品目) 依赖并按序一次性锁齐，
-    再逐行变动——两张多行单据交叉审批不会形成环形等待。
-    任一行充足性不足抛 ValidationError（LEDGER_INSUFFICIENT，带行号定位），
+    两阶段防死锁：先收集单据全部 (分公司, 品目) 依赖并按序一次性锁齐
+    （台账行 → 实例行两段全局有序加锁），再逐行变动——两张多行单据交叉审批
+    不会形成环形等待。任一行充足性/实例校验不足抛 ValidationError
+    （LEDGER_INSUFFICIENT / INSTANCE_INVALID，带行号定位），
     调用方事务整体回滚，不存在部分生效。
     """
-    lines = list(transfer.lines.select_related('item').order_by('行号'))
+    from apps.assets.services import instances as instance_service
+
+    lines = list(
+        transfer.lines.select_related('item')
+        .prefetch_related('instances')
+        .order_by('行号')
+    )
     if not lines:
         raise ValidationError({'detail': '单据缺少明细行'})
 
@@ -147,6 +162,21 @@ def apply_document(transfer):
             raise ValidationError({'detail': '调出与调入分公司不能相同'})
 
     plans = [(line, _line_plan(transfer, line)) for line in lines]
+    line_instances = {line.pk: list(line.instances.all()) for line in lines}
+
+    # 单内实例重复引用拒绝：两行绑同一实例会让台账计双份、实例只计一份（不变量必炸）
+    seen_line = {}
+    for line in lines:
+        for inst in line_instances[line.pk]:
+            if inst.pk in seen_line:
+                raise ValidationError({
+                    'detail': (
+                        f'实例 {inst.内部编号} 在单内重复引用'
+                        f'（行 {seen_line[inst.pk]} 与行 {line.行号}）'
+                    ),
+                    'code': 'INSTANCE_INVALID',
+                })
+            seen_line[inst.pk] = line.行号
 
     keys = sorted({
         (branch.pk, item.pk)
@@ -156,6 +186,12 @@ def apply_document(transfer):
     lock_q = Q()
     for branch_pk, item_pk in keys:
         lock_q |= Q(branch_id=branch_pk, item_id=item_pk)
+
+    all_instance_ids = sorted({
+        inst.pk
+        for insts in line_instances.values()
+        for inst in insts
+    })
 
     with transaction.atomic():
         locked = {}
@@ -167,9 +203,23 @@ def apply_document(transfer):
             )
             locked = {(r.branch_id, r.item_id): r for r in rows}
 
+        # 实例行锁（按 pk 排序，全局加锁顺序一致）
+        locked_instances = {}
+        if all_instance_ids:
+            locked_instances = {
+                inst.pk: inst
+                for inst in FixedAsset.objects.select_for_update()
+                .filter(pk__in=all_instance_ids)
+                .order_by('pk')
+            }
+
         touched = set()
         for line, plan in plans:
+            insts = [
+                locked_instances[i.pk] for i in line_instances[line.pk]
+            ]
             try:
+                instance_service.check_line_instances(transfer, line, insts)
                 for branch, item, column, delta in plan:
                     key = (branch.pk, item.pk)
                     row = locked.get(key)
@@ -178,8 +228,17 @@ def apply_document(transfer):
                         locked[key] = row
                     _apply_delta(row, column, delta)
                     touched.add(key)
+                if action == 'purchase':
+                    instance_service.generate_instances(
+                        line, to_branch or from_branch,
+                    )
+                else:
+                    instance_service.apply_line_instances(transfer, line, insts)
             except ValidationError as error:
                 raise _with_line_context(line, error)
+
+        for key in sorted(touched):
+            locked[key].save()
 
         for key in sorted(touched):
             locked[key].save()

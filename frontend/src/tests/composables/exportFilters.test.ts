@@ -9,6 +9,7 @@ vi.mock('element-plus', () => ({
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useRoute: () => ({ query: {} }),
 }))
 
 vi.mock('@/utils/importTemplate', () => ({
@@ -22,13 +23,10 @@ vi.mock('@/api/assets', () => ({
   batchDeleteAssets: vi.fn(),
   exportAssets: vi.fn(),
   getFixedAssets: vi.fn(),
-  updateFixedAsset: vi.fn(),
-  deleteFixedAsset: vi.fn(),
-  batchDeleteFixedAssets: vi.fn(),
-  importFixedAssets: vi.fn(),
+  getFixedAsset: vi.fn(),
+  supplementFixedAsset: vi.fn(),
+  getFixedAssetTimeline: vi.fn(),
   exportFixedAssets: vi.fn(),
-  downloadFixedAssetTemplate: vi.fn(),
-  createFixedAsset: vi.fn(),
 }))
 
 vi.mock('@/api/transfers', () => ({
@@ -56,7 +54,10 @@ vi.mock('@/api/categories', () => ({
 }))
 
 vi.mock('@/hooks/usePermission', () => ({
-  usePermission: () => ({ canManageAssets: computed(() => true) }),
+  usePermission: () => ({
+    canManageAssets: computed(() => true),
+    can: () => true,
+  }),
 }))
 
 import { useTransferList } from '@/composables/useTransferList'
@@ -136,24 +137,24 @@ describe('资产明细导出透传全部筛选', () => {
   })
 })
 
-describe('固定资产导出透传全部筛选', () => {
-  it('branch/status/keyword/资产名称 全部携带', async () => {
+describe('固定资产实例导出透传全部筛选', () => {
+  it('branch/status/keyword/pending_serial 全部携带', async () => {
     const wrapper = mount(FixedAssetList, { shallow: true })
     await flushPromises()
 
-    await wrapper.find('input[placeholder^="搜索资产编号"]').setValue('SN-1')
-    await wrapper.find('input[placeholder="资产名称"]').setValue('打印机')
+    await wrapper.find('input[placeholder^="搜索内部编号"]').setValue('NB-1')
     const selects = wrapper.findAll('select')
     await selects[0].setValue('杭州分公司')
     await selects[1].setValue('在库')
+    await wrapper.find('input[type="checkbox"]').setValue(true)
     await findButtonByText(wrapper, '导出').trigger('click')
     await flushPromises()
 
     expect(exportFixedAssets).toHaveBeenCalledWith({
       branch: '杭州分公司',
       status: '在库',
-      keyword: 'SN-1',
-      资产名称: '打印机',
+      keyword: 'NB-1',
+      pending_serial: '1',
     })
   })
 })

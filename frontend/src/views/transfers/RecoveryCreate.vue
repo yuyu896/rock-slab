@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TransferCreateLayout from './components/TransferCreateLayout.vue'
 import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDrafts'
@@ -30,6 +30,7 @@ const form = ref({
 })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
+const fromBranchName = computed(() => form.value.调出分公司)
 
 onMounted(async () => {
   try {
@@ -135,7 +136,7 @@ async function submit() {
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
 
-    <TransferLinesEditor ref="linesEditor" v-model="lines" type="recovery" />
+    <TransferLinesEditor ref="linesEditor" v-model="lines" type="recovery" :branch-name="fromBranchName" />
   </TransferCreateLayout>
 </template>
 

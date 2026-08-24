@@ -45,16 +45,24 @@ class TestBranchFilter:
 
     def test_fixed_asset_filter_by_branch_name(self, admin_user, branch, second_branch):
         from apps.assets.models import FixedAsset
-        FixedAsset.objects.create(内部编号='BF-FA-P1-1', 资产编号='BF-FA-P1',
-                                  资产名称='X', 分公司=branch.name, 分公司编号='WRONG-CODE', branch=branch)
-        FixedAsset.objects.create(内部编号='BF-FA-P2-1', 资产编号='BF-FA-P2',
-                                  资产名称='Y', 分公司=second_branch.name, 分公司编号='WRONG-CODE', branch=second_branch)
+        from apps.categories.models import Category
+        item = Category.objects.create(
+            asset_category='固定', item_category='办公',
+            asset_name='BF实例品目', asset_code='BF-FA-P1', unit='台',
+            management_type='instance',
+        )
+        FixedAsset.objects.create(item=item, 内部编号='BF-FA-P1-1',
+                                  当前状态='在库', branch=branch)
+        FixedAsset.objects.create(item=item, 内部编号='BF-FA-P1-2',
+                                  当前状态='在库', branch=second_branch)
         client = _client_for(admin_user)
         resp = client.get('/api/assets/fixed-assets', {'branch': branch.name})
         assert resp.status_code == 200
-        codes = [f['资产编号'] for f in resp.data['results']]
+        codes = [f['item_code'] for f in resp.data['results']]
         assert 'BF-FA-P1' in codes
-        assert 'BF-FA-P2' not in codes
+        inner = [f['内部编号'] for f in resp.data['results']]
+        assert 'BF-FA-P1-1' in inner
+        assert 'BF-FA-P1-2' not in inner
 
     def test_transfer_filter_by_from_branch_name(self, admin_user, branch, second_branch):
         _make_transfer('BF-T1', branch.name)

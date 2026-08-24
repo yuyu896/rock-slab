@@ -75,8 +75,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
             references.append('台账')
         if Asset.objects.filter(资产编号=instance.asset_code).exists():
             references.append('资产明细')
-        if FixedAsset.objects.filter(资产编号=instance.asset_code).exists():
-            references.append('固定资产')
+        if FixedAsset.objects.filter(item=instance).exists():
+            references.append('固定资产实例')
         if TransferLine.objects.filter(item=instance).exists():
             references.append('流转单')
         if references:

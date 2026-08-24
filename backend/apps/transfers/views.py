@@ -11,11 +11,11 @@ from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
-from .models import Transfer, TransferLine
+from .models import Transfer, TransferLine, TransferLineInstance
 from .serializers import (
     TransferSerializer, TransferActionSerializer, ApproveSerializer,
 )
-from .services import generate_document_number
+from .services import generate_document_number, validate_line_items_instances
 from .filters import TransferFilterSet
 
 # Active inventory statuses that lock a branch's transfers
@@ -23,10 +23,16 @@ _INVENTORY_LOCKED_STATUSES = ['in_progress', 'pending_review']
 
 
 def _build_lines(transfer, items):
-    """按提交顺序赋行号批量建明细行（行号唯一约束守护）。"""
-    TransferLine.objects.bulk_create([
+    """按提交顺序赋行号批量建明细行（行号唯一约束守护），并落行-实例关联。"""
+    entries = [(idx, item, item.pop('instances', [])) for idx, item in enumerate(items, start=1)]
+    lines = TransferLine.objects.bulk_create([
         TransferLine(transfer=transfer, 行号=idx, **item)
-        for idx, item in enumerate(items, start=1)
+        for idx, item, _ in entries
+    ])
+    TransferLineInstance.objects.bulk_create([
+        TransferLineInstance(line=line, instance=inst)
+        for line, (_, _, insts) in zip(lines, entries)
+        for inst in insts
     ])
 
 
@@ -125,6 +131,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         # 写操作越权校验：调出 / 调入分公司必须在操作者授权范围内（admin 豁免）
         validate_branches_in_scope(request.user, from_branch, to_branch)
 
+        # 明细行实例引用预检（品目管理方式 × 类型矩阵；生效时 ledger 行锁终检）
+        validate_line_items_instances(
+            action_type, from_branch, to_branch,
+            data.get('领用来源') or Transfer.ASSIGN_SOURCE_STOCK, items,
+        )
+
         # Check inventory lock on both source and target branches
         self._check_inventory_lock(branch_id=from_branch.id if from_branch else None)
         self._check_inventory_lock(branch_id=to_branch.id if to_branch else None)
@@ -190,22 +202,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return self._create_action(request, Transfer.ACTION_RECOVERY)
 
     def _apply_ledger(self, transfer):
-        """台账联动（唯一写入口 services/ledger.py 按明细行迭代）+ 回收按行内部编号删固定资产实例。
+        """台账联动 + 实例状态迁移（唯一写入口 services/ledger.py 按明细行同事务执行）。
 
-        FixedAsset 物理删除为 P1 过渡现状（P2 实例层接入后改为状态退役，设计书 5.3）。
+        回收不再物理删除实例：直接处置 → 实例退役，档案永久保留（设计书 5.3）。
         """
         from apps.assets.services import ledger
 
         ledger.apply_document(transfer)
-        if transfer.action_type == Transfer.ACTION_RECOVERY:
-            from apps.assets.models import FixedAsset
-            inner_codes = [
-                (line.固定资产内部编号 or '').strip()
-                for line in transfer.lines.all()
-            ]
-            for inner_code in inner_codes:
-                if inner_code:
-                    FixedAsset.objects.filter(内部编号=inner_code).delete()
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='approve', resource_type='Transfer', description_template='审批流转单')
@@ -320,6 +323,16 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             from_branch or instance.from_branch,
             to_branch or instance.to_branch,
         )
+
+        # 明细整替的实例引用预检（分公司维度取编辑后单据现状）
+        if items is not None:
+            validate_line_items_instances(
+                instance.action_type,
+                from_branch or instance.from_branch,
+                to_branch or instance.to_branch,
+                data.get('领用来源') or instance.领用来源,
+                items,
+            )
 
         with transaction.atomic():
             for field, value in data.items():
@@ -674,6 +687,15 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         }
                         line_kwargs = {'item': item, '数量': _qty(8), '本批规格': _cell(row, 7)}
                         action = Transfer.ACTION_TRANSFER
+
+                    # 实例引用预检：实例管理品目的绑定类单据无法在 Excel 表达，引导走页面
+                    validate_line_items_instances(
+                        action,
+                        branch_cache.get(header.get('调出分公司', '')),
+                        branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None,
+                        Transfer.ASSIGN_SOURCE_STOCK,
+                        [line_kwargs],
+                    )
 
                     transfer = Transfer(
                         action_type=action,

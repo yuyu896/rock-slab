@@ -1,7 +1,7 @@
 import type { ItemSummary } from '@/types'
 import type { TransferLine, TransferLineInput } from '@/types'
 
-/** 明细行草稿：品目对象 + 数量 + 类型专属记录性字段 */
+/** 明细行草稿：品目对象 + 数量 + 类型专属记录性字段 + 实例引用（实例管理品目） */
 export interface LineDraft {
   key: number
   item: ItemSummary | null
@@ -12,7 +12,8 @@ export interface LineDraft {
   使用人: string
   department: string | null
   存放位置: string
-  固定资产内部编号: string
+  /** 选中的实例（id 提交、code 回显）；实例管理品目的绑定类单据必填 */
+  instances: { id: string; code: string }[]
 }
 
 let seq = 0
@@ -28,7 +29,7 @@ export function emptyDraft(): LineDraft {
     使用人: '',
     department: null,
     存放位置: '',
-    固定资产内部编号: '',
+    instances: [],
   }
 }
 
@@ -45,7 +46,7 @@ export function draftsToItems(drafts: LineDraft[]): TransferLineInput[] {
       使用人: d.使用人 || undefined,
       department: d.department ?? undefined,
       存放位置: d.存放位置 || undefined,
-      固定资产内部编号: d.固定资产内部编号 || undefined,
+      instances: d.instances.length ? d.instances.map((i) => i.id) : undefined,
     }))
 }
 
@@ -71,7 +72,7 @@ export function draftsFromLines(lines: TransferLine[]): LineDraft[] {
     draft.使用人 = line.使用人 || ''
     draft.department = line.department ?? null
     draft.存放位置 = line.存放位置 || ''
-    draft.固定资产内部编号 = line.固定资产内部编号 || ''
+    draft.instances = (line.instances || []).map((i) => ({ id: i.id, code: i.code }))
     return draft
   })
 }

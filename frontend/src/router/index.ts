@@ -23,7 +23,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'assets/list', component: () => import('@/views/AssetList.vue'), meta: { title: '资产明细' } },
       { path: 'assets/list/create', component: () => import('@/views/assets/AssetCreatePage.vue'), meta: { title: '新增资产' } },
       { path: 'fixed-assets', component: () => import('@/views/FixedAssetList.vue'), meta: { title: '固定资产表' } },
-      { path: 'fixed-assets/create', component: () => import('@/views/FixedAssetCreate.vue'), meta: { title: '新增固定资产' } },
+      { path: 'fixed-assets/create', redirect: '/transfers/purchase' },
       { path: 'assets/purchase', redirect: '/transfers/purchase' },
       { path: 'assets/transfer', redirect: '/transfers/transfer' },
       { path: 'transfers/purchase', component: () => import('@/views/transfers/PurchaseList.vue'), meta: { title: '采购入库' } },

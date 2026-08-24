@@ -81,50 +81,37 @@ export function exportAssets(params?: { branch?: string; category?: string; stat
   return request.get<Blob>('/api/assets/export', { params, responseType: 'blob' })
 }
 
-// ── 固定资产实例 ──
+// ── 固定资产实例（P2 第二刀：冻结只读 + 序列号补录 + 生平；变动经流转单） ──
 
 export function getFixedAssets(params?: PaginationParams & {
   branch?: string
   status?: string
+  /** 品目编号精确筛选（实例点选器用） */
+  asset_code?: string
+  /** 品目编号/名称关键字 */
+  item_keyword?: string
+  /** '1' = 仅待补录序列号 */
+  pending_serial?: string
   keyword?: string
-  资产名称?: string
-  ordering?: string
 }) {
   return request.get<PaginatedResponse<FixedAsset>>('/api/assets/fixed-assets', { params })
 }
 
-export function updateFixedAsset(id: string, data: Partial<FixedAsset>) {
-  return request.patch<FixedAsset>(`/api/assets/fixed-assets/${id}`, data)
+export function getFixedAsset(id: string) {
+  return request.get<FixedAsset>(`/api/assets/fixed-assets/${id}`)
 }
 
-export function deleteFixedAsset(id: string) {
-  return request.delete(`/api/assets/fixed-assets/${id}`)
+/** 序列号补录（manage_instances 权限；仅 序列号/备注 两字段） */
+export function supplementFixedAsset(id: string, data: { 序列号?: string; 备注?: string }) {
+  return request.patch<FixedAsset>(`/api/assets/fixed-assets/${id}/supplement`, data)
 }
 
-/** 批量删除固定资产（ids: 固定资产 id 列表） */
-export function batchDeleteFixedAssets(ids: string[]) {
-  return request.post<{ deleted: number }>('/api/assets/fixed-assets/batch-delete', { ids })
+/** 实例生平：出生信息 + 关联全部明细行倒序 */
+export function getFixedAssetTimeline(id: string) {
+  return request.get<import('@/types').FixedAssetTimeline>(`/api/assets/fixed-assets/${id}/timeline`)
 }
 
-export function importFixedAssets(file: File) {
-  const formData = new FormData()
-  formData.append('file', file)
-  return request.post<{ imported: number; errors: string[] }>('/api/assets/fixed-assets/import', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
-}
-
-/** 导出固定资产 Excel */
+/** 导出固定资产 Excel（遵循页面筛选） */
 export function exportFixedAssets(params?: Record<string, string>) {
   return request.get<Blob>('/api/assets/fixed-assets/export', { params, responseType: 'blob' })
-}
-
-/** 新增固定资产 */
-export function createFixedAsset(data: Partial<FixedAsset>) {
-  return request.post<FixedAsset>('/api/assets/fixed-assets', data)
-}
-
-/** 下载固定资产导入模板 */
-export function downloadFixedAssetTemplate() {
-  return request.get<Blob>('/api/assets/fixed-assets/template', { responseType: 'blob' })
 }

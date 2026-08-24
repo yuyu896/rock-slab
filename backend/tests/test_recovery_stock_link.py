@@ -10,21 +10,22 @@ from apps.assets.models import AssetStock, FixedAsset
 from apps.assets.services import ledger
 
 
-def _ensure_item(code):
+def _ensure_item(code, management_type='quantity'):
     from apps.categories.models import Category
     item, _ = Category.objects.get_or_create(
         asset_code=code,
         defaults={
             'asset_category': '测试类目', 'item_category': '测试分类',
             'asset_name': f'品目 {code}', 'unit': '个',
+            'management_type': management_type,
         },
     )
     return item
 
 
-def _seed_ledger(branch, code, in_use=10, stock=0):
+def _seed_ledger(branch, code, in_use=10, stock=0, management_type='quantity'):
     """经调整单（唯一写入口）造台账底数。"""
-    item = _ensure_item(code)
+    item = _ensure_item(code, management_type)
     if stock:
         ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, stock, '测试造数')
     if in_use:
@@ -32,11 +33,11 @@ def _seed_ledger(branch, code, in_use=10, stock=0):
     return AssetStock.objects.get(branch=branch, item=item)
 
 
-def _recovery_payload(item_id, branch, code, qty=3, inner_code='', **overrides):
-    """单头 + items 明细行（P2 契约）：品目经字典 uuid 引用，回收行内字段在明细行上。"""
+def _recovery_payload(item_id, branch, code, qty=3, instances=None, **overrides):
+    """单头 + items 明细行（P2 契约）：品目经字典 uuid 引用，实例引用在明细行 instances。"""
     line = {'item': item_id(code), '数量': qty}
-    if inner_code:
-        line['固定资产内部编号'] = inner_code
+    if instances is not None:
+        line['instances'] = [str(pk) for pk in instances]
     payload = {
         '调拨日期': '2026-08-23',
         '调出分公司': branch.name,
@@ -114,33 +115,39 @@ class TestRecoveryDirectDispose:
 
 @pytest.mark.django_db
 class TestRecoveryFixedAsset:
-    def test_fa_deleted_by_inner_code_on_approve(self, authenticated_client, branch, item_id):
-        _seed_ledger(branch, 'RC-5', in_use=2)
-        FixedAsset.objects.create(
-            内部编号='RC-5-1', 资产编号='RC-5', 资产名称='实例RC-5',
-            分公司=branch.name, 分公司编号=branch.code, branch=branch,
+    def test_fa_retired_via_instance_ref_on_approve(self, authenticated_client, branch, item_id):
+        """回收绑实例 → 实例转回收库（默认去向），档案保留不删除（P2 第二刀）。"""
+        _seed_ledger(branch, 'FAI-1', in_use=2, management_type='instance')
+        item = _ensure_item('FAI-1', 'instance')
+        inst = FixedAsset.objects.create(
+            item=item, 内部编号='FAI-1-1', 当前状态='在用', branch=branch, 使用人='张三',
         )
         resp = authenticated_client.post(
             '/api/transfers/recovery',
-            _recovery_payload(item_id, branch, 'RC-5', qty=1, inner_code='RC-5-1'),
+            _recovery_payload(item_id, branch, 'FAI-1', qty=1, instances=[inst.pk]),
             format='json',
         )
         assert resp.status_code == 201
         assert _approve(authenticated_client, resp.data['id']).status_code == 200
-        assert not FixedAsset.objects.filter(内部编号='RC-5-1').exists()
+        inst.refresh_from_db()
+        assert inst.当前状态 == '回收库'
+        assert inst.使用人 == ''
+        assert FixedAsset.objects.filter(pk=inst.pk).exists()  # 档案保留
 
-    def test_fa_untouched_without_inner_code(self, authenticated_client, branch, item_id):
+    def test_fa_untouched_without_instance_ref(self, authenticated_client, branch, item_id):
+        """数量管理品目回收不携带实例，实例档案不受影响。"""
         _seed_ledger(branch, 'RC-6', in_use=2)
-        FixedAsset.objects.create(
-            内部编号='RC-6-1', 资产编号='RC-6', 资产名称='实例RC-6',
-            分公司=branch.name, 分公司编号=branch.code, branch=branch,
+        item = _ensure_item('RC-6')
+        inst = FixedAsset.objects.create(
+            item=item, 内部编号='RC-6-1', 当前状态='在库', branch=branch,
         )
         resp = authenticated_client.post(
             '/api/transfers/recovery', _recovery_payload(item_id, branch, 'RC-6', qty=1), format='json',
         )
         assert resp.status_code == 201
         assert _approve(authenticated_client, resp.data['id']).status_code == 200
-        assert FixedAsset.objects.filter(内部编号='RC-6-1').exists()
+        inst.refresh_from_db()
+        assert inst.当前状态 == '在库'
 
 
 @pytest.mark.django_db
@@ -170,20 +177,26 @@ class TestImmediateRecovery:
         row = _row(branch, 'IM-2')
         assert row.在用数量 == 3 and row.回收库数量 == 0
 
-    def test_immediate_fa_recovery_deletes_record(self, supervisor_user, branch, item_id):
-        _seed_ledger(branch, 'IM-3', in_use=1)
-        FixedAsset.objects.create(
-            内部编号='IM-3-1', 资产编号='IM-3', 资产名称='实例IM-3',
-            分公司=branch.name, 分公司编号=branch.code, branch=branch,
+    def test_immediate_fa_recovery_retires_instance(self, supervisor_user, branch, item_id):
+        """即时回收绑实例 → 立即退役（直接处置），档案保留（P2 第二刀）。"""
+        _seed_ledger(branch, 'FAI-2', in_use=1, management_type='instance')
+        item = _ensure_item('FAI-2', 'instance')
+        inst = FixedAsset.objects.create(
+            item=item, 内部编号='FAI-2-1', 当前状态='在用', branch=branch, 使用人='李四',
         )
         client = _client_for(supervisor_user)
         resp = client.post(
             '/api/transfers/recovery',
-            _recovery_payload(item_id, branch, 'IM-3', qty=1, inner_code='IM-3-1', immediate=True),
+            _recovery_payload(
+                item_id, branch, 'FAI-2', qty=1, instances=[inst.pk],
+                immediate=True, 回收去向='dispose', 处置方式='报废',
+            ),
             format='json',
         )
         assert resp.status_code == 201
-        assert not FixedAsset.objects.filter(内部编号='IM-3-1').exists()
+        inst.refresh_from_db()
+        assert inst.当前状态 == '退役'
+        assert FixedAsset.objects.filter(pk=inst.pk).exists()  # 退役档案永久保留
 
     def test_immediate_without_manage_assets_rejected(self, staff_user, branch, item_id):
         _seed_ledger(branch, 'IM-4', in_use=5)

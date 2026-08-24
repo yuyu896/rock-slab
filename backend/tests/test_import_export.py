@@ -150,61 +150,18 @@ class TestAssetExport:
 # 3. FixedAsset module
 # ===========================================================================
 
-# Must match FixedAssetViewSet.FA_TEMPLATE_HEADERS exactly (set-based check, order-independent)
-FA_TEMPLATE_HEADERS = [
-    '分公司', '资产编号', '分公司编号', '电脑序列号', '供应商',
-    '物品分类', '资产名称', '入库日期', '是否租用', '数量',
-    '规格', '单价', '购入金额', '出库日期',
-    '所属部门', '使用人', '当前状态', '备注',
-]
+class TestFixedAssetEndpointsFrozen:
+    """P2 第二刀：实例导入/模板下线——出生=采购单，存量=迁移。"""
 
-
-class TestFixedAssetTemplate:
-    def test_download_template(self, admin_client):
+    def test_template_endpoint_gone(self, admin_client):
         resp = admin_client.get('/api/assets/fixed-assets/template')
-        headers, rows = _parse_excel_response(resp)
-        assert rows == []
-        expected = ['分公司', '资产编号', '分公司编号', '电脑序列号', '供应商', '物品分类', '资产名称',
-                    '入库日期', '是否租用', '数量', '规格', '单价', '购入金额', '出库日期',
-                    '所属部门', '使用人', '当前状态', '备注']
-        for h in expected:
-            assert h in headers, f"Missing header: {h}"
-        assert len(headers) == len(expected)
-        assert '序号' not in headers
+        assert resp.status_code in (404, 410)
 
-
-class TestFixedAssetImport:
-    def test_import_valid_data(self, admin_client, test_asset, ta001_category):
-        # 行顺序与 FA_TEMPLATE_HEADERS 一致：分公司, 资产编号, 分公司编号, 电脑序列号, 供应商,
-        # 物品分类, 资产名称, 入库日期, 是否租用, 数量, 规格, 单价, 购入金额, 出库日期,
-        # 所属部门, 使用人, 当前状态, 备注
-        rows = [
-            ['测试分公司', 'TA001', 'TB001', 'SN-FT001', '',
-             '', '测试资产', '2026-03-01', '', '', '', '', '', '',
-             '', '', '在库', ''],
-        ]
-        buf = _make_xlsx(FA_TEMPLATE_HEADERS, rows)
+    def test_import_endpoint_gone(self, admin_client):
+        buf = _make_xlsx(['资产编号', '名称'], [['TA001', 'x']])
         resp = _upload_url(admin_client, '/api/assets/fixed-assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] >= 1
-
-    def test_import_rejects_duplicate_serial_within_file(self, admin_client, test_asset, ta001_category):
-        # 同表内「相同分公司 + 分公司编号 + 电脑序列号 + 所属部门」四元组全同 → 第二行提醒重复
-        row = ['测试分公司', 'TA001', 'TB001', 'SN-DUP', '',
-               '', '', '2026-03-01', '', '', '', '', '', '',
-               '', '', '在库', '']
-        buf = _make_xlsx(FA_TEMPLATE_HEADERS, [row, row])
-        resp = _upload_url(admin_client, '/api/assets/fixed-assets/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['imported'] == 1
-        assert any('资产编号 TA001 重复' in e for e in resp.data['errors'])
-
-    def test_import_rejects_mismatched_headers(self, admin_client):
-        # 表头与模板列集合不一致 → 400
-        buf = _make_xlsx(['资产编号', '名称'])
-        resp = _upload_url(admin_client, '/api/assets/fixed-assets/import', buf)
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert '表头与模板不一致' in resp.data['detail']
+        assert resp.status_code == status.HTTP_410_GONE
+        assert '采购入库单' in resp.data['detail']
 
 
 # ===========================================================================

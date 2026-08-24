@@ -155,27 +155,41 @@ class Asset(UUIDModel, TimestampedModel):
 
 
 class FixedAsset(UUIDModel, TimestampedModel):
-    """固定资产实例 — 一条记录代表一台实物。"""
+    """固定资产实例 — 一物一档（仅实例管理品目）。
+
+    四态档案：在库 → 在用 → 回收库 → 退役（终态，档案永久保留）。
+    品目信息经 item 联字典、供应商/单价经出生明细行派生，本表不存品目文本（铁律 1）；
+    状态/使用人/分公司的全部变动经 services/instances.py（由台账唯一写入口同事务调用）。
+    """
+    STATUS_IN_STOCK = '在库'
+    STATUS_IN_USE = '在用'
+    STATUS_RECYCLE = '回收库'
+    STATUS_RETIRED = '退役'
     INSTANCE_STATUS_CHOICES = [
-        ('在库', '在库'),
-        ('在用', '在用'),
-        ('空闲', '空闲'),
+        (STATUS_IN_STOCK, '在库'),
+        (STATUS_IN_USE, '在用'),
+        (STATUS_RECYCLE, '回收库'),
+        (STATUS_RETIRED, '退役'),
     ]
 
+    item = models.ForeignKey(
+        'categories.Category',
+        on_delete=models.PROTECT,
+        related_name='instances',
+        verbose_name='品目',
+    )
     内部编号 = models.CharField('内部编号', max_length=100, unique=True)
-    资产编号 = models.CharField('资产编号', max_length=100)
-    资产类目 = models.CharField('资产类目', max_length=100, blank=True, default='')
-    资产名称 = models.CharField('资产名称', max_length=200, blank=True, default='')
-    序列号 = models.CharField('序列号', max_length=200, blank=True, default='')
-    供应商 = models.CharField('供应商', max_length=200, blank=True, default='')
-    使用人 = models.CharField('使用人', max_length=100, blank=True, default='')
-    所属部门 = models.CharField('所属部门', max_length=100, blank=True, default='')
+    序列号 = models.CharField('序列号（空=待补录）', max_length=200, blank=True, default='')
     当前状态 = models.CharField(
         '当前状态', max_length=20,
-        choices=INSTANCE_STATUS_CHOICES, default='在库',
+        choices=INSTANCE_STATUS_CHOICES, default=STATUS_IN_STOCK, db_index=True,
     )
-    分公司 = models.CharField('分公司', max_length=100, blank=True, default='')
-    分公司编号 = models.CharField('分公司编号', max_length=50, blank=True, default='')
+    使用人 = models.CharField('使用人（记录性）', max_length=100, blank=True, default='')
+    department = models.ForeignKey(
+        'organizations.Department',
+        on_delete=models.PROTECT, null=True, blank=True,
+        related_name='instances', verbose_name='归属部门',
+    )
     branch = models.ForeignKey(
         'organizations.Branch',
         on_delete=models.PROTECT,
@@ -183,15 +197,13 @@ class FixedAsset(UUIDModel, TimestampedModel):
         null=True, blank=True,
         verbose_name='所属分公司',
     )
+    birth_line = models.ForeignKey(
+        'transfers.TransferLine',
+        on_delete=models.PROTECT, null=True, blank=True,
+        related_name='born_instances', verbose_name='出生明细行',
+    )
     入库日期 = models.DateField('入库日期', null=True, blank=True)
     备注 = models.TextField('备注', blank=True, default='')
-    物品分类 = models.CharField('物品分类', max_length=100, blank=True, default='')
-    规格 = models.CharField('规格', max_length=200, blank=True, default='')
-    是否租用 = models.BooleanField('是否租用', default=False)
-    数量 = models.IntegerField('数量', default=1)
-    单价 = models.DecimalField('单价', max_digits=12, decimal_places=2, null=True, blank=True)
-    购入金额 = models.DecimalField('购入金额', max_digits=14, decimal_places=2, null=True, blank=True)
-    出库日期 = models.DateField('出库日期', null=True, blank=True)
 
     class Meta:
         db_table = 'assets_fixedasset'
@@ -200,16 +212,24 @@ class FixedAsset(UUIDModel, TimestampedModel):
         verbose_name_plural = '固定资产实例'
 
     def __str__(self):
-        return f'{self.内部编号} ({self.资产名称})'
+        return f'{self.内部编号} ({self.item.asset_name})'
 
-    @classmethod
-    def next_instance_number(cls, 资产编号: str) -> int:
-        """Return the next sequence number for a given 资产编号."""
-        existing = cls.objects.filter(资产编号=资产编号).count()
-        return existing + 1
 
-    @classmethod
-    def generate_internal_code(cls, 资产编号: str) -> str:
-        """Generate the next 内部编号 like COMP-001-3."""
-        seq = cls.next_instance_number(资产编号)
-        return f'{资产编号}-{seq}'
+class InstanceSequence(UUIDModel, TimestampedModel):
+    """实例内部编号计数行：品目一行，锁行自增杜绝并发重号（同 DocumentSequence 模式）。"""
+
+    item = models.OneToOneField(
+        'categories.Category',
+        on_delete=models.CASCADE,
+        related_name='instance_sequence',
+        verbose_name='品目',
+    )
+    last_no = models.IntegerField('已发号数', default=0)
+
+    class Meta:
+        db_table = 'assets_instancesequence'
+        verbose_name = '实例编号序列'
+        verbose_name_plural = '实例编号序列'
+
+    def __str__(self):
+        return f'{self.item.asset_code} #{self.last_no}'

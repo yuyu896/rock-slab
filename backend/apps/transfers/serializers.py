@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Transfer, TransferLine
+from apps.assets.models import FixedAsset
 from apps.categories.models import Category
 from apps.organizations.models import Branch, Department
 
@@ -15,6 +16,7 @@ class TransferLineSerializer(serializers.ModelSerializer):
     item_category = serializers.CharField(source='item.item_category', read_only=True)
     management_type = serializers.CharField(source='item.management_type', read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True, default='')
+    instances = serializers.SerializerMethodField()
 
     class Meta:
         model = TransferLine
@@ -22,9 +24,15 @@ class TransferLineSerializer(serializers.ModelSerializer):
             'id', '行号', 'item', 'item_code', 'item_name', 'item_spec', 'unit',
             'asset_category', 'item_category', 'management_type',
             '数量', '本批规格', '单价', '金额', '使用人',
-            'department', 'department_name', '存放位置', '固定资产内部编号',
+            'department', 'department_name', '存放位置', 'instances',
         ]
         read_only_fields = ['id', '行号']
+
+    def get_instances(self, obj):
+        return [
+            {'id': inst.pk, 'code': inst.内部编号}
+            for inst in obj.instances.all()
+        ]
 
 
 class TransferSerializer(serializers.ModelSerializer):
@@ -44,7 +52,7 @@ class TransferSerializer(serializers.ModelSerializer):
             '调拨原因', '调出负责人', '调入负责人', '备注', '审批状态', '审批人',
             '审批时间', '创建人', 'action_type',
             '供应商', '需求部门', '采购经办人', '用途',
-            '回收分类', '回收去向', '处置方式', '处置金额', '出库日期',
+            '回收分类', '回收去向', '处置方式', '处置金额', '出库日期', '领用来源',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
             'lines', '品项数', '总数量',
             'created_at', 'updated_at',
@@ -59,7 +67,7 @@ class TransferSerializer(serializers.ModelSerializer):
 
 
 class TransferLineInputSerializer(serializers.Serializer):
-    """明细行输入：品目一律字典 FK 引用（uuid），禁手抄编号。"""
+    """明细行输入：品目一律字典 FK 引用（uuid），禁手抄编号；实例引用见 instances。"""
 
     item = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
     数量 = serializers.IntegerField(min_value=1)
@@ -75,7 +83,9 @@ class TransferLineInputSerializer(serializers.Serializer):
         queryset=Department.objects.all(), required=False, allow_null=True,
     )
     存放位置 = serializers.CharField(required=False, default='', allow_blank=True)
-    固定资产内部编号 = serializers.CharField(required=False, default='', allow_blank=True)
+    instances = serializers.PrimaryKeyRelatedField(
+        queryset=FixedAsset.objects.all(), many=True, required=False, default=[],
+    )
 
 
 class TransferActionSerializer(serializers.Serializer):
@@ -104,6 +114,7 @@ class TransferActionSerializer(serializers.Serializer):
     # Recovery fields
     回收分类 = serializers.CharField(required=False, default='', allow_blank=True)
     回收去向 = serializers.ChoiceField(choices=['recycle_bin', 'dispose'], required=False, default='recycle_bin')
+    领用来源 = serializers.ChoiceField(choices=['stock', 'recycle_bin'], required=False, default='stock')
     处置方式 = serializers.ChoiceField(choices=['', '出售', '报废', '捐赠'], required=False, default='', allow_blank=True)
     处置金额 = serializers.DecimalField(
         max_digits=14, decimal_places=2, required=False, allow_null=True,

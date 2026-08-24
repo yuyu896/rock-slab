@@ -13,6 +13,7 @@ from .serializers import (
     AssetSerializer,
     AssetStockSerializer,
     FixedAssetSerializer,
+    FixedAssetSupplementSerializer,
     LedgerAdjustmentSerializer,
 )
 from .filters import AssetFilterSet, AssetStockFilterSet, FixedAssetFilterSet
@@ -471,97 +472,60 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         return Response(self.get_serializer(adjustment).data, status=status.HTTP_201_CREATED)
 
 
-class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
-    """固定资产实例管理视图。"""
-    queryset = FixedAsset.objects.select_related('branch').all()
+class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
+    """固定资产实例视图 —— P2 第二刀重塑：冻结只读 + 序列号补录 + 生平查询。
+
+    实例出生 = 采购单（或存量迁移），状态/使用人/分公司变动经流转单
+    （services/instances.py 由台账唯一写入口同事务调用，架构测试执法）。
+    """
+    queryset = FixedAsset.objects.select_related(
+        'branch', 'department', 'item', 'birth_line__transfer',
+    ).all()
     serializer_class = FixedAssetSerializer
     filterset_class = FixedAssetFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
     required_operations = {
-        'create': 'manage_assets',
-        'update': 'manage_assets',
-        'partial_update': 'manage_assets',
-        'destroy': 'manage_assets',
-        'import_excel': 'manage_assets',
-        'batch_delete': 'manage_assets',
+        'supplement': 'manage_instances',
     }
 
     def get_queryset(self):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
 
-    def perform_destroy(self, instance):
-        instance.delete()
+    def _frozen(self, request):
+        return Response(
+            {'detail': '实例变动请经流转单（出生=采购入库单，存量=系统迁移）；'
+                       '序列号待补录请使用补录操作'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def create(self, request, *args, **kwargs):
+        return self._frozen(request)
+
+    def update(self, request, *args, **kwargs):
+        return self._frozen(request)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self._frozen(request)
+
+    def destroy(self, request, *args, **kwargs):
+        return self._frozen(request)
 
     @action(detail=False, methods=['post'], url_path='batch-delete')
     def batch_delete(self, request):
-        """批量删除固定资产（受数据范围与 manage_assets 权限约束）。"""
-        return _batch_delete(self, request)
+        return self._frozen(request)
 
-    # 固定资产表 19 列定义（顺序固定）——用于导出
-    FA_HEADERS = [
-        '序号', '分公司编号', '分公司', '资产编号', '资产类目',
-        '物品分类', '资产名称', '电脑序列号', '供应商', '入库日期',
-        '是否租用', '数量', '规格', '单价', '购入金额',
-        '出库日期', '所属部门', '使用人', '当前状态',
+    # 实例表导出列（与列表新列布局一致，设计书决策 #11 朴素表格）
+    FA_EXPORT_HEADERS = [
+        '序号', '分公司', '内部编号', '品目编号', '品目名称', '规格',
+        '序列号', '当前状态', '使用人', '部门', '入库日期', '供应商', '采购日期',
     ]
-    # 导入模板仅含用户填写列（其余导入时自动继承自父资产）
-    FA_TEMPLATE_HEADERS = [
-        '分公司', '资产编号', '分公司编号', '电脑序列号', '供应商',
-        '物品分类', '资产名称', '入库日期', '是否租用', '数量',
-        '规格', '单价', '购入金额', '出库日期',
-        '所属部门', '使用人', '当前状态', '备注',
-    ]
-
-    @action(detail=False, methods=['get'], url_path='template')
-    def download_template(self, request):
-        import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from openpyxl.utils import get_column_letter
-        from django.http import HttpResponse
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = '固定资产实例'
-        ws.append(self.FA_TEMPLATE_HEADERS)
-
-        # 表头样式：加粗、浅绿底、居中、边框
-        header_font = Font(bold=True)
-        header_fill = PatternFill('solid', fgColor='FFE8F0E8')
-        center = Alignment(horizontal='center', vertical='center')
-        thin = Side(style='thin')
-        border = Border(top=thin, bottom=thin, left=thin, right=thin)
-
-        for col_idx in range(1, len(self.FA_TEMPLATE_HEADERS) + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = center
-            cell.border = border
-
-        ws.row_dimensions[1].height = 15
-        ws.freeze_panes = 'A2'
-
-        # 自适应列宽（不在数据区创建单元格，避免模板出现空数据行）
-        for col_idx, header in enumerate(self.FA_TEMPLATE_HEADERS, start=1):
-            width = max(len(header) * 2.2 + 2, 10)
-            ws.column_dimensions[get_column_letter(col_idx)].width = width
-
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        response = HttpResponse(
-            output.getvalue(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
-        response['Content-Disposition'] = 'attachment; filename="fixed_assets_template.xlsx"'
-        return response
 
     @action(detail=False, methods=['get'], url_path='export')
     def export_excel(self, request):
-        """固定资产表导出 19 列。"""
+        """实例表导出：新列布局（品目联查 + 出生行派生）。"""
         import openpyxl
         from django.http import HttpResponse
 
@@ -569,30 +533,25 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = '固定资产表'
-        ws.append(self.FA_HEADERS)
+        ws.title = '固定资产实例'
+        ws.append(self.FA_EXPORT_HEADERS)
 
-        for inst in queryset:
+        serializer = FixedAssetSerializer(queryset, many=True)
+        for idx, data in enumerate(serializer.data, start=1):
             ws.append([
-                '',
-                inst.分公司编号,
-                inst.分公司,
-                inst.资产编号,
-                inst.资产类目,
-                inst.物品分类,
-                inst.资产名称,
-                inst.序列号,
-                inst.供应商,
-                str(inst.入库日期) if inst.入库日期 else '',
-                inst.是否租用,
-                inst.数量,
-                inst.规格,
-                inst.单价 or '',
-                inst.购入金额 or '',
-                str(inst.出库日期) if inst.出库日期 else '',
-                inst.所属部门,
-                inst.使用人,
-                inst.当前状态,
+                idx,
+                data['branch_name'] or '',
+                data['内部编号'],
+                data['item_code'],
+                data['item_name'],
+                data['item_spec'],
+                data['序列号'] or '待补录',
+                data['当前状态'],
+                data['使用人'],
+                data['department_name'] or '',
+                str(data['入库日期']) if data['入库日期'] else '',
+                data['供应商'] or '',
+                str(data['采购日期']) if data['采购日期'] else '',
             ])
 
         output = io.BytesIO()
@@ -605,191 +564,65 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="fixed_assets.xlsx"'
         return response
 
-    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import',
-            permission_classes=[IsAuthenticated, OperationPermission])
+    @action(detail=True, methods=['patch'], url_path='supplement')
+    def supplement(self, request, pk=None):
+        """序列号补录：仅 序列号/备注 两字段（manage_instances 权限，渐进录入）。"""
+        instance = self.get_object()
+        serializer = FixedAssetSupplementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance.序列号 = serializer.validated_data.get('序列号', '')
+        instance.备注 = serializer.validated_data.get('备注', '')
+        instance.save(update_fields=['序列号', '备注', 'updated_at'])
+        return Response(FixedAssetSerializer(instance).data)
+
+    @action(detail=True, methods=['get'], url_path='timeline')
+    def timeline(self, request, pk=None):
+        """实例生平：档案 + 出生行派生 + 关联全部明细行倒序（P2 验收：任一实例可查完整生平）。"""
+        instance = self.get_object()
+
+        birth = None
+        if instance.birth_line is not None:
+            birth_transfer = instance.birth_line.transfer
+            birth = {
+                'transfer_id': str(birth_transfer.pk),
+                '单据编号': birth_transfer.单据编号,
+                '日期': birth_transfer.调拨日期,
+                '供应商': birth_transfer.供应商 or '',
+                '单价': instance.birth_line.单价,
+                '采购日期': birth_transfer.调拨日期,
+            }
+
+        rows = []
+        links = instance.line_links.select_related(
+            'line__transfer', 'line__item', 'line__department',
+        ).order_by('-line__created_at')
+        for link in links:
+            line = link.line
+            transfer = line.transfer
+            rows.append({
+                'transfer_id': str(transfer.pk),
+                '单据编号': transfer.单据编号,
+                'action_type': transfer.action_type,
+                '日期': transfer.调拨日期,
+                '行号': line.行号,
+                '品目编号': line.item.asset_code,
+                '数量': line.数量,
+                '使用人': line.使用人,
+                '部门': line.department.name if line.department else '',
+                '本批规格': line.本批规格,
+                '审批状态': transfer.审批状态,
+            })
+
+        return Response({
+            'instance': FixedAssetSerializer(instance).data,
+            'birth': birth,
+            'timeline': rows,
+        })
+
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
     def import_excel(self, request):
-        from apps.assets.utils.import_helpers import (
-            excel_date_to_python, parse_bool_cn, parse_decimal_safe, merge_errors,
+        """实例 Excel 导入冻结（P2 第二刀）：绕过单据直写实例违反铁律，存量由迁移承载。"""
+        return Response(
+            {'detail': '实例导入已下线：存量实例由系统迁移承载，新增实例请走采购入库单'},
+            status=status.HTTP_410_GONE,
         )
-        from apps.organizations.models import Branch
-        from apps.organizations.utils import get_branch_name_set, branch_validation_error
-        from apps.categories.models import Category
-
-        file = request.FILES.get('file')
-        if not file:
-            return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
-
-        from core.upload_validation import (
-            validate_excel_upload, validate_row_count, UploadValidationError,
-        )
-        try:
-            validate_excel_upload(file)
-        except UploadValidationError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(file, read_only=True)
-            ws = wb.active
-        except Exception as e:
-            return Response(
-                {'detail': f'文件解析失败: {str(e)}'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            validate_row_count(ws)
-        except UploadValidationError as e:
-            wb.close()
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        all_rows = list(ws.iter_rows(values_only=True))
-        wb.close()
-
-        if len(all_rows) > 201:
-            return Response(
-                {'detail': f'数据量过大（{len(all_rows) - 1} 行），建议分批导入（每次不超过 200 行）'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not all_rows:
-            return Response({'imported': 0, 'errors': []})
-
-        # 按表头列名建立映射（列顺序无关，兼容用户自定义或简化模板）
-        header_row = [str(c or '').strip() for c in all_rows[0]]
-
-        # 校验表头与模板一致（列名集合相同，顺序不限）
-        template_set = set(self.FA_TEMPLATE_HEADERS)
-        uploaded_set = set(h for h in header_row if h)
-        if uploaded_set != template_set:
-            missing = sorted(template_set - uploaded_set)
-            extra = sorted(uploaded_set - template_set)
-            parts = []
-            if missing:
-                parts.append(f'缺少：{"、".join(missing)}')
-            if extra:
-                parts.append(f'多余：{"、".join(extra)}')
-            return Response(
-                {'detail': f'表头与模板不一致（{"；".join(parts)}）'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        col = {}
-        for idx, name in enumerate(header_row):
-            if name and name not in col:
-                col[name] = idx
-        if '序列号' not in col and '电脑序列号' in col:
-            col['序列号'] = col['电脑序列号']
-        if '电脑序列号' not in col and '序列号' in col:
-            col['电脑序列号'] = col['序列号']
-
-        def cell(row, name):
-            idx = col.get(name)
-            if idx is None or idx >= len(row):
-                return ''
-            val = row[idx]
-            return '' if val is None else val
-
-        imported = 0
-        raw_errors = []
-        seen_fa_keys = set()  # 表内去重：(分公司, 分公司编号, 电脑序列号, 所属部门)
-        valid_branches = get_branch_name_set()
-        # 预加载 DB 已有四元组（防止重复导入）
-        existing_fa_keys = set()
-        for fa in FixedAsset.objects.values_list('分公司', '分公司编号', '序列号', '所属部门'):
-            existing_fa_keys.add(tuple(str(v or '').strip() for v in fa))
-        # 预加载每个资产编号的最大内部编号后缀（用 max 后缀而非 count，避免删除/失败导入后序号空洞）
-        import re
-        from collections import defaultdict
-        fa_seq = defaultdict(int)
-        for code, inner_code in FixedAsset.objects.values_list('资产编号', '内部编号'):
-            match = re.search(r'-(\d+)$', inner_code or '')
-            if match:
-                seq = int(match.group(1))
-                if seq > fa_seq[code]:
-                    fa_seq[code] = seq
-
-        for i, row in enumerate(all_rows[1:], start=2):
-            资产编号 = str(cell(row, '资产编号')).strip()
-            if not 资产编号:
-                raw_errors.append((i, '资产编号为空，跳过该行'))
-                continue
-
-            # 校验资产编号存在于品目（Category），不再关联资产库存
-            category = Category.objects.filter(asset_code=资产编号).first()
-            if not category:
-                raw_errors.append((i, f'资产编号 {资产编号} 未在品目登记'))
-                continue
-
-            分公司 = str(cell(row, '分公司')).strip()
-            branch_err = branch_validation_error(分公司, '分公司', valid_branches)
-            if branch_err:
-                raw_errors.append((i, branch_err))
-                continue
-
-            分公司编号 = str(cell(row, '分公司编号')).strip()
-            if not 分公司编号:
-                raw_errors.append((i, '分公司编号为空，请填写'))
-                continue
-            电脑序列号 = str(cell(row, '电脑序列号')).strip()
-            if not 电脑序列号:
-                raw_errors.append((i, '电脑序列号为空，请填写'))
-                continue
-            所属部门_val = str(cell(row, '所属部门')).strip()
-            使用人_val = str(cell(row, '使用人')).strip()
-
-            # 表内去重 + DB 级去重：分公司 + 分公司编号 + 电脑序列号 + 所属部门
-            fa_key = (分公司, 分公司编号, 电脑序列号, 所属部门_val)
-            if fa_key in seen_fa_keys:
-                raw_errors.append((i, f'资产编号 {资产编号} 重复'))
-                continue
-            if fa_key in existing_fa_keys:
-                raw_errors.append((i, f'该行数据已存在（分公司+编号+序列号+部门重复），跳过'))
-                continue
-            seen_fa_keys.add(fa_key)
-            existing_fa_keys.add(fa_key)
-
-            # branch FK 按分公司名称解析（分公司编号是资产内部编号，不是组织编码）
-            fa_branch = Branch.objects.filter(name=分公司).first() if 分公司 else None
-
-            try:
-                数量 = int(cell(row, '数量')) if cell(row, '数量') else 1
-            except (ValueError, TypeError):
-                数量 = 1
-            单价, _ = parse_decimal_safe(cell(row, '单价'), '单价')
-            购入金额, _ = parse_decimal_safe(cell(row, '购入金额'), '购入金额')
-
-            # 内存递增序号（避免同编号多行 count 不更新导致内部编号重复）
-            fa_seq[资产编号] += 1
-            内部编号 = f'{资产编号}-{fa_seq[资产编号]}'
-
-            try:
-                FixedAsset.objects.create(
-                    内部编号=内部编号,
-                    资产编号=资产编号,
-                    资产类目=str(cell(row, '资产类目')) or category.asset_category,
-                    资产名称=str(cell(row, '资产名称')) or category.asset_name,
-                    序列号=电脑序列号,
-                    供应商=str(cell(row, '供应商')),
-                    物品分类=str(cell(row, '物品分类')) or category.item_category,
-                    入库日期=excel_date_to_python(cell(row, '入库日期') or None),
-                    是否租用=parse_bool_cn(cell(row, '是否租用')),
-                    数量=数量,
-                    规格=str(cell(row, '规格')),
-                    单价=单价,
-                    购入金额=购入金额,
-                    出库日期=excel_date_to_python(cell(row, '出库日期') or None),
-                    所属部门=str(cell(row, '所属部门')),
-                    使用人=str(cell(row, '使用人')),
-                    当前状态=str(cell(row, '当前状态') or '在库'),
-                    分公司=分公司,
-                    分公司编号=分公司编号,
-                    branch=fa_branch,
-                    备注=str(cell(row, '备注')),
-                )
-                imported += 1
-            except Exception as e:
-                raw_errors.append((i, f'保存失败: {str(e)}'))
-
-        errors = merge_errors(raw_errors)
-        return Response({'imported': imported, 'errors': errors})

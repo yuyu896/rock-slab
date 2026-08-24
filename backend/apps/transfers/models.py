@@ -32,6 +32,13 @@ class Transfer(UUIDModel, TimestampedModel):
         ('其他', '其他'),
     ]
 
+    ASSIGN_SOURCE_STOCK = 'stock'
+    ASSIGN_SOURCE_RECYCLE = 'recycle_bin'
+    ASSIGN_SOURCE_CHOICES = [
+        (ASSIGN_SOURCE_STOCK, '新品库'),
+        (ASSIGN_SOURCE_RECYCLE, '回收库'),
+    ]
+
     RECYCLE_BIN = 'recycle_bin'
     DISPOSE = 'dispose'
     RECOVERY_DESTINATION_CHOICES = [
@@ -87,6 +94,10 @@ class Transfer(UUIDModel, TimestampedModel):
         '回收去向', max_length=20,
         choices=RECOVERY_DESTINATION_CHOICES, default=RECYCLE_BIN,
     )
+    领用来源 = models.CharField(
+        '领用来源', max_length=20,
+        choices=ASSIGN_SOURCE_CHOICES, default=ASSIGN_SOURCE_STOCK,
+    )
     处置方式 = models.CharField('处置方式', max_length=20, blank=True, default='', choices=DISPOSAL_METHOD_CHOICES)
     处置金额 = models.DecimalField('处置金额', max_digits=14, decimal_places=2, null=True, blank=True)
     出库日期 = models.DateField('出库日期', null=True, blank=True)
@@ -102,7 +113,7 @@ class Transfer(UUIDModel, TimestampedModel):
 
 
 class TransferLine(UUIDModel, TimestampedModel):
-    """流转单明细行：品目 × 数量 × 类型专属记录性字段（采购单价/金额、领用使用人/部门、回收存放位置/内部编号）。"""
+    """流转单明细行：品目 × 数量 × 类型专属记录性字段（采购单价/金额、领用使用人/部门、回收存放位置）× 实例关联。"""
 
     transfer = models.ForeignKey(
         Transfer, on_delete=models.CASCADE, related_name='lines', verbose_name='单头',
@@ -121,7 +132,13 @@ class TransferLine(UUIDModel, TimestampedModel):
         related_name='transfer_lines', verbose_name='领用部门',
     )
     存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
-    固定资产内部编号 = models.CharField('固定资产内部编号', max_length=100, blank=True, default='')
+    instances = models.ManyToManyField(
+        'assets.FixedAsset',
+        through='TransferLineInstance',
+        related_name='transfer_lines',
+        blank=True,
+        verbose_name='关联实例',
+    )
 
     class Meta:
         db_table = 'transfers_transferline'
@@ -134,6 +151,28 @@ class TransferLine(UUIDModel, TimestampedModel):
 
     def __str__(self):
         return f'{self.transfer_id} #{self.行号} {self.item_id} × {self.数量}'
+
+
+class TransferLineInstance(UUIDModel, TimestampedModel):
+    """行-实例关联：一个实例一生出现在多行（出生/领用/归还/调拨/回收），角色由单据类型隐含。"""
+
+    line = models.ForeignKey(
+        TransferLine, on_delete=models.CASCADE, related_name='instance_links', verbose_name='明细行',
+    )
+    instance = models.ForeignKey(
+        'assets.FixedAsset', on_delete=models.PROTECT, related_name='line_links', verbose_name='实例',
+    )
+
+    class Meta:
+        db_table = 'transfers_transferlineinstance'
+        verbose_name = '明细行实例关联'
+        verbose_name_plural = '明细行实例关联'
+        constraints = [
+            models.UniqueConstraint(fields=['line', 'instance'], name='uniq_line_instance'),
+        ]
+
+    def __str__(self):
+        return f'{self.line_id} × {self.instance_id}'
 
 
 class DocumentSequence(UUIDModel, TimestampedModel):

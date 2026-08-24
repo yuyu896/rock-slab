@@ -41,6 +41,27 @@ export const ASSET_STATUS_OPTIONS: { value: AssetStatusType; label: string }[] =
   { value: '报废', label: '报废' },
 ]
 
+// ============ 实例状态（固定资产一物一档，P2 第二刀） ============
+
+export const INSTANCE_STATUS_OPTIONS = [
+  { value: '在库', label: '在库' },
+  { value: '在用', label: '在用' },
+  { value: '回收库', label: '回收库' },
+  { value: '退役', label: '退役' },
+] as const
+
+// ============ 领用来源（设计书决策 #10：新品库 / 回收库） ============
+
+export const ASSIGN_SOURCE_OPTIONS = [
+  { value: 'stock', label: '新品库' },
+  { value: 'recycle_bin', label: '回收库' },
+] as const
+
+export const ASSIGN_SOURCE_LABELS: Record<string, string> = {
+  stock: '新品库',
+  recycle_bin: '回收库',
+}
+
 export const ASSET_STATUS_COLORS: Record<AssetStatusType, { bg: string; color: string }> = {
   '在库': { bg: 'var(--color-status-in-stock-bg)', color: 'var(--color-status-in-stock-text)' },
   '使用中': { bg: 'var(--color-status-in-use-bg)', color: 'var(--color-status-in-use-text)' },
