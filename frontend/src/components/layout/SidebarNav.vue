@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getInventoryTasks } from '@/api/inventories'
+import { getFixedAssets } from '@/api/assets'
 import { useUserStore } from '@/store/user'
 
 interface NavItem {
@@ -27,6 +28,7 @@ watch(() => props.isCollapsed, (collapsed) => {
   if (collapsed) expandedMenus.value = new Set()
 })
 const inventoryCount = ref(0)
+const pendingSerialCount = ref(0)
 
 onMounted(async () => {
   try {
@@ -34,6 +36,12 @@ onMounted(async () => {
     inventoryCount.value = res.data?.count || 0
   } catch {
     inventoryCount.value = 0
+  }
+  try {
+    const res = await getFixedAssets({ pending_serial: '1', pageSize: 1 })
+    pendingSerialCount.value = res.data?.count || 0
+  } catch {
+    pendingSerialCount.value = 0
   }
 })
 
@@ -59,7 +67,10 @@ const navItems = computed<NavItem[]>(() => [
     path: '/inventory-group',
     children: [
       { icon: '', label: '资产台账', path: '/assets/summary' },
-      { icon: '', label: '实例档案', path: '/fixed-assets' },
+      {
+        icon: '', label: '实例档案', path: '/fixed-assets',
+        ...(pendingSerialCount.value > 0 ? { badge: pendingSerialCount.value } : {}),
+      },
     ]
   },
   {
@@ -177,6 +188,7 @@ const getIcon = (name: string) => {
               @click="navigateTo(child.path)"
             >
               {{ child.label }}
+              <span v-if="child.badge" class="nav-badge">{{ child.badge }}</span>
             </a>
           </div>
         </template>
@@ -259,6 +271,7 @@ const getIcon = (name: string) => {
   border-radius: 10px;
   min-width: 18px;
   text-align: center;
+  margin-left: var(--space-2);
 }
 
 .nav-arrow {
