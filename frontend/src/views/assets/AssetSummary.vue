@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { getAssetStocks, exportAssetStocks, getFixedAssets } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
@@ -57,10 +58,13 @@ const { can } = usePermission()
 const canImport = can('adjust_ledger') || can('manage_assets')
 const canAdjust = can('adjust_ledger')
 
+// 报表"库存不足"下钻：/assets/summary?sufficient=0 预置仅不足
+const route = useRoute()
 const filters = ref({
   branch: '',
   category: '',
   keyword: '',
+  sufficient: route.query.sufficient === '0' ? '0' : '',
 })
 
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
@@ -79,6 +83,7 @@ async function fetchStocks() {
       branch: filters.value.branch || undefined,
       category: filters.value.category || undefined,
       keyword: filters.value.keyword || undefined,
+      sufficient: filters.value.sufficient || undefined,
     })
     stocks.value = data.results
     pagination.value.total = data.count
@@ -149,7 +154,7 @@ async function handleExport() {
 }
 
 function resetFilters() {
-  filters.value = { branch: '', category: '', keyword: '' }
+  filters.value = { branch: '', category: '', keyword: '', sufficient: '' }
   pagination.value.page = 1
   fetchStocks()
 }
@@ -232,6 +237,13 @@ onMounted(() => {
         <div class="filter-item">
           <select v-model="filters.category" class="filter-select" aria-label="筛选类目">
             <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <select v-model="filters.sufficient" class="filter-select" aria-label="筛选是否充足">
+            <option value="">全部充足状态</option>
+            <option value="0">仅不足</option>
+            <option value="1">仅充足</option>
           </select>
         </div>
         <button class="filter-reset" @click="resetFilters">重置</button>

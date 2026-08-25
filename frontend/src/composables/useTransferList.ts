@@ -130,6 +130,7 @@ export function useTransferList(type: TransferType) {
     const templateConfig: Record<TransferType, { filename: string }> = {
       purchase: { filename: '采购入库导入模板' },
       assign: { filename: '领用出库导入模板' },
+      return: { filename: '归还入库导入模板' },
       transfer: { filename: '调拨导入模板' },
       recovery: { filename: '回收导入模板' },
     }

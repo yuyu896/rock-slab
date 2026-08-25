@@ -8,6 +8,8 @@ export function getAssetStocks(params?: PaginationParams & {
   branch?: string
   category?: string
   keyword?: string
+  /** '0' = 仅不足行（在库 < 生效警戒线） */
+  sufficient?: string
 }) {
   return request.get<PaginatedResponse<AssetStock>>('/api/assets/summary', { params })
 }

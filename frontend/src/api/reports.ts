@@ -1,6 +1,6 @@
 /* 磐盘 - 报表 API */
 import request from '@/utils/request'
-import type { ReportOverview, BranchStat, StatusStat, CategoryStat } from '@/types'
+import type { ReportOverview, BranchStat, StatusStat, CategoryStat, TransferReportRow } from '@/types'
 
 export function getOverview(params?: Record<string, string>) {
   return request.get<ReportOverview>('/api/reports/overview/', { params })
@@ -19,7 +19,7 @@ export function getByCategory(params?: Record<string, string>) {
 }
 
 export function getTransferReport(params?: Record<string, string>) {
-  return request.get('/api/reports/transfers/', { params })
+  return request.get<TransferReportRow[]>('/api/reports/transfers/', { params })
 }
 
 /* 当前用户数据范围内的分公司列表（用于报表分公司筛选下拉） */

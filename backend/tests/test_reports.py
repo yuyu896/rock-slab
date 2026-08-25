@@ -93,6 +93,36 @@ class TestReportOverview:
         resp = authenticated_client.get('/api/reports/overview/')
         assert resp.data['growthRate'] == 100.0  # (2-1)/1
 
+    def test_value_growth_rate_month_over_month(self, authenticated_client, admin_user, branch):
+        from django.utils import timezone
+        now = timezone.now()
+        prev_month = now.month - 1 if now.month > 1 else 12
+        prev_year = now.year if now.month > 1 else now.year - 1
+        _item('RP-O-005')
+        _seed_purchase(branch, 'RP-O-005', 1, Decimal('100.00'), date(prev_year, prev_month, 15), admin_user)
+        _seed_purchase(branch, 'RP-O-005', 3, Decimal('300.00'), date(now.year, now.month, 1), admin_user)
+        resp = authenticated_client.get('/api/reports/overview/')
+        assert resp.data['valueGrowthRate'] == 200.0  # (300-100)/100
+
+    def test_low_stock_count_row_and_item_levels(self, authenticated_client, branch):
+        from apps.assets.models import AssetStock
+        # 行级警戒线不足
+        low_by_row = _seed(branch, 'RP-O-006', stock=2)
+        AssetStock.objects.filter(item=low_by_row, branch=branch).update(警戒线=5)
+        # 品目默认警戒线不足
+        low_by_item = _item('RP-O-007')
+        low_by_item.warning_line = 10
+        low_by_item.save(update_fields=['warning_line'])
+        from apps.assets.services import ledger
+        ledger.apply_adjustment(branch, low_by_item, ledger.COLUMN_STOCK, 3, '造数')
+        # 充足行（在库 ≥ 品目默认）
+        ok_item = _item('RP-O-008')
+        ok_item.warning_line = 1
+        ok_item.save(update_fields=['warning_line'])
+        ledger.apply_adjustment(branch, ok_item, ledger.COLUMN_STOCK, 5, '造数')
+        resp = authenticated_client.get('/api/reports/overview/')
+        assert resp.data['lowStockCount'] == 2
+
     def test_overview_unauthenticated(self, api_client):
         resp = api_client.get('/api/reports/overview/')
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
@@ -109,9 +139,26 @@ class TestReportByBranch:
         _seed(second_branch, 'RP-B-002', stock=2)
         resp = authenticated_client.get('/api/reports/by-branch/')
         assert resp.status_code == 200
-        data = {row['name']: row['value'] for row in resp.data}
-        assert data[branch.name] == 8
-        assert data[second_branch.name] == 2
+        data = {row['name']: row for row in resp.data}
+        assert data[branch.name]['value'] == 8
+        assert data[branch.name]['stock'] == 6
+        assert data[branch.name]['inUse'] == 2
+        assert data[branch.name]['recycle'] == 0
+        assert data[second_branch.name]['value'] == 2
+
+    def test_by_branch_amount_from_purchase_lines(self, authenticated_client, admin_user, branch, second_branch):
+        _seed(branch, 'RP-B-003', stock=1)
+        _seed(second_branch, 'RP-B-004', stock=1)
+        # 两张已生效采购单均入库 branch（金额按明细行并入同名分公司）
+        _seed_purchase(branch, 'RP-B-003', 1, Decimal('100.00'), date(2026, 8, 1), admin_user)
+        _seed_purchase(branch, 'RP-B-003', 2, Decimal('50.00'), date(2026, 8, 2), admin_user)
+        resp = authenticated_client.get('/api/reports/by-branch/')
+        data = {row['name']: row for row in resp.data}
+        assert float(data[branch.name]['amount']) == 150.0
+        assert float(data[second_branch.name]['amount']) == 0.0
+        # 采购生效后台账加量：branch 在库 1+1+2=4 / second 1 → 数量占比 80/20
+        assert data[branch.name]['percentage'] == 80.0
+        assert float(data[branch.name]['amountPercentage']) == 100.0
 
     def test_by_branch_empty(self, authenticated_client):
         resp = authenticated_client.get('/api/reports/by-branch/')
@@ -135,11 +182,11 @@ class TestReportByStatus:
 
 @pytest.mark.django_db
 class TestReportTransfers:
-    def _make_transfer(self, branch, code, action_type, approval='已通过'):
+    def _make_transfer(self, branch, code, action_type, approval='已通过', operator=''):
         transfer = Transfer.objects.create(
             调拨日期=date(2026, 8, 1),
             调出分公司=branch.name, from_branch=branch,
-            action_type=action_type, 审批状态=approval,
+            action_type=action_type, 审批状态=approval, 创建人=operator,
         )
         TransferLine.objects.create(
             transfer=transfer, item=_item(code), 行号=1, 数量=2,
@@ -155,6 +202,12 @@ class TestReportTransfers:
         row = next(r for r in resp.data if r['assetCode'] == 'RP-T-001')
         assert row['quantity'] == 2
         assert 'docNumber' in row
+
+    def test_transfers_row_includes_operator(self, authenticated_client, branch):
+        self._make_transfer(branch, 'RP-T-004', 'assign', operator='张三')
+        resp = authenticated_client.get('/api/reports/transfers/')
+        row = next(r for r in resp.data if r['assetCode'] == 'RP-T-004')
+        assert row['operator'] == '张三'
 
     def test_filter_by_action_type(self, authenticated_client, branch):
         self._make_transfer(branch, 'RP-T-002', 'transfer')

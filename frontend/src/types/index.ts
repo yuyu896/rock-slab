@@ -474,22 +474,31 @@ export interface PaginationParams {
 
 // ============ 报表类型 ============
 
-/** 报表概览 */
+/** 报表概览（数量=台账三列时点快照；金额/环比=已生效采购单明细行） */
 export interface ReportOverview {
   totalAssets: number
   totalValue: number
   activeRate: number
   growthRate: number
-  pendingApproval: number
+  /** 采购金额月环比（%） */
+  valueGrowthRate: number
+  /** 在库数量低于生效警戒线的台账行数 */
   lowStockCount: number
-  pendingInventory: number
 }
 
-/** 分公司统计 */
+/** 分公司统计（数量四列 + 采购金额，双口径） */
 export interface BranchStat {
   name: string
+  branchId?: string
+  stock: number
+  inUse: number
+  recycle: number
+  /** 总量 = 三列之和（数量口径值） */
   value: number
   percentage: number
+  /** 已生效采购单金额（明细行求和，入库分公司归属） */
+  amount: number
+  amountPercentage?: number
 }
 
 /** 状态统计 */
@@ -504,6 +513,21 @@ export interface CategoryStat {
   category: string
   count: number
   percentage: number
+}
+
+/** 调拨流水报表行（按明细行展开，字段与后端一一对应） */
+export interface TransferReportRow {
+  id: string
+  date: string
+  docNumber?: string | null
+  assetCode: string
+  assetName: string
+  fromBranch?: string | null
+  toBranch?: string | null
+  quantity: number
+  status: string
+  actionType: string
+  operator?: string
 }
 
 /** 盘点进度 */

@@ -133,14 +133,30 @@ def overview(request):
         prev_year, prev_month = now.year - 1, 12
     else:
         prev_year, prev_month = now.year, now.month - 1
-    prev_month_qty = purchases.filter(
+    prev_month_purchases = purchases.filter(
         调拨日期__year=prev_year, 调拨日期__month=prev_month,
-    ).aggregate(q=Sum('lines__数量'))['q'] or 0
+    )
+    prev_month_qty = prev_month_purchases.aggregate(q=Sum('lines__数量'))['q'] or 0
 
     if prev_month_qty > 0:
         growth_rate = ((current_month_qty - prev_month_qty) / prev_month_qty) * 100
     else:
         growth_rate = 100.0 if current_month_qty > 0 else 0.0
+
+    # 采购金额月环比（与数量环比同构，口径=本月 vs 上月已生效采购金额）
+    current_month_value = purchases.filter(
+        调拨日期__year=now.year, 调拨日期__month=now.month,
+    ).aggregate(v=Sum('lines__金额'))['v'] or 0
+    prev_month_value = prev_month_purchases.aggregate(
+        v=Sum('lines__金额'),
+    )['v'] or 0
+    if prev_month_value > 0:
+        value_growth_rate = ((current_month_value - prev_month_value) / prev_month_value) * 100
+    else:
+        value_growth_rate = 100.0 if current_month_value > 0 else 0.0
+
+    from apps.assets.filters import insufficient_stock_q
+    low_stock_count = ledger.filter(insufficient_stock_q()).count()
 
     active_qty = stock_qty + in_use_qty
     active_rate = (active_qty / total_qty * 100) if total_qty > 0 else 0
@@ -150,32 +166,70 @@ def overview(request):
         'totalValue': total_value,
         'activeRate': round(active_rate, 2),
         'growthRate': round(growth_rate, 2),
+        'valueGrowthRate': round(value_growth_rate, 2),
+        'lowStockCount': low_stock_count,
     })
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def by_branch(request):
-    """按分公司统计（台账总量口径：在库+在用+回收库）。"""
+    """按分公司统计：数量=台账三列（时点快照），金额=已生效采购单明细行（入库分公司归属）。"""
     selected = _parse_selected_branches(request.query_params)
     ledger = AssetStock.objects.all()
     ledger = _scope_queryset(
         request.user, ledger, branch_field='branch', selected_branches=selected,
     )
     stats = (
-        ledger.values('branch__name')
-        .annotate(qty=Sum('在库数量') + Sum('在用数量') + Sum('回收库数量'))
-        .order_by('-qty')
+        ledger.values('branch__name', 'branch__id')
+        .annotate(
+            stock=Sum('在库数量'), in_use=Sum('在用数量'),
+            recycle=Sum('回收库数量'),
+        )
+        .order_by('-stock')
     )
-    total = sum(s['qty'] for s in stats)
-    return Response([
-        {
+    rows = []
+    by_name = {}
+    for s in stats:
+        qty = (s['stock'] or 0) + (s['in_use'] or 0) + (s['recycle'] or 0)
+        row = {
             'name': s['branch__name'],
-            'value': s['qty'],
-            'percentage': round((s['qty'] / total * 100), 2) if total > 0 else 0,
+            'branchId': str(s['branch__id']),
+            'stock': s['stock'] or 0,
+            'inUse': s['in_use'] or 0,
+            'recycle': s['recycle'] or 0,
+            'value': qty,
+            'amount': 0,
+            'percentage': 0,
         }
-        for s in stats
-    ])
+        rows.append(row)
+        by_name[row['name']] = row
+
+    # 采购金额并入同名分公司（入库分公司 = Coalesce(to_branch, from_branch)）
+    purchases = Transfer.objects.filter(
+        action_type=Transfer.ACTION_PURCHASE, 审批状态__in=['已入库', '已通过'],
+    )
+    purchases = _scope_queryset(
+        request.user, purchases,
+        transfer_fields=('from_branch', 'to_branch'), selected_branches=selected,
+    )
+    for p in purchases.values('to_branch__name', 'from_branch__name').annotate(
+        amount=Sum('lines__金额'),
+    ):
+        name = p['to_branch__name'] or p['from_branch__name']
+        row = by_name.get(name)
+        if row is not None and p['amount']:
+            row['amount'] += p['amount']
+
+    total = sum(r['value'] for r in rows)
+    total_amount = sum(r['amount'] for r in rows)
+    for r in rows:
+        r['percentage'] = round((r['value'] / total * 100), 2) if total > 0 else 0
+        r['amountPercentage'] = (
+            round((r['amount'] / total_amount * 100), 2) if total_amount > 0 else 0
+        )
+    rows.sort(key=lambda r: r['value'], reverse=True)
+    return Response(rows)
 
 
 @api_view(['GET'])
@@ -279,5 +333,6 @@ def transfers(request):
                 'quantity': line.数量,
                 'status': t.审批状态,
                 'actionType': t.action_type,
+                'operator': t.创建人,
             })
     return Response(data)

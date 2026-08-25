@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { getOverview, getByBranch, getByStatus, getTransferReport, getReportBranches } from '@/api/reports'
-import { getCategories } from '@/api/categories'
+import { useRouter } from 'vue-router'
+import { getOverview, getByBranch, getByStatus, getByCategory, getTransferReport, getReportBranches } from '@/api/reports'
 import { handleApiError } from '@/utils/request'
 import { formatMoney } from '@/utils/format'
 import { ElMessage } from 'element-plus'
-import type { ReportOverview, BranchStat, StatusStat } from '@/types'
+import { TRANSFER_TYPES } from '@/constants'
+import type { ReportOverview, BranchStat, StatusStat, CategoryStat, TransferReportRow } from '@/types'
+
+const router = useRouter()
+
+const actionLabel = (type: string) =>
+  (TRANSFER_TYPES as Record<string, { label: string }>)[type]?.label ?? type
 
 // 分公司筛选（多选，仅含当前用户数据范围内的分公司）
 const branchOptions = ref<{ id: string; name: string }[]>([])
@@ -14,7 +20,7 @@ const selectedBranches = ref<string[]>([])
 // 报表类型
 const reportType = ref<'overview' | 'branch' | 'category' | 'changeDetails'>('overview')
 
-// 时间范围
+// 时间范围（仅作用于单据层指标/流水；台账数量为时点快照）
 const dateRange = ref('month')
 
 // 加载状态
@@ -23,20 +29,21 @@ const loading = ref(false)
 // 总览数据
 const overviewData = ref<ReportOverview | null>(null)
 
-// 分公司资产统计
+// 分公司资产统计 + 排行口径（数量 / 价值=采购金额）
 const branchStats = ref<BranchStat[]>([])
+const branchMetric = ref<'qty' | 'amount'>('qty')
 
-// 分类统计（用于环形图）
-const categoryStats = ref<StatusStat[]>([])
+// 分类统计（环形图，台账数量口径）
+const categoryStats = ref<CategoryStat[]>([])
 
 // 状态统计
 const statusStats = ref<StatusStat[]>([])
 
 // 月度趋势
-const monthlyTrend = ref<any[]>([])
+const monthlyTrend = ref<{ month: string; inbound: number; outbound: number; transfer: number }[]>([])
 
 // 变动明细数据
-const transferDetails = ref<any[]>([])
+const transferDetails = ref<TransferReportRow[]>([])
 
 // 拉取当前用户数据范围内的分公司列表（下拉选项）
 async function fetchBranches() {
@@ -56,28 +63,18 @@ async function fetchReportData() {
     if (selectedBranches.value.length) {
       params.branches = selectedBranches.value.join(',')
     }
-    const [overviewRes, branchRes, statusRes, transferRes, categoriesRes] = await Promise.all([
+    const [overviewRes, branchRes, statusRes, transferRes, categoryRes] = await Promise.all([
       getOverview(params),
       getByBranch(params),
       getByStatus(params),
       getTransferReport(params),
-      getCategories(),
+      getByCategory(params),
     ])
     overviewData.value = overviewRes.data
     branchStats.value = branchRes.data
-
-    // 8.2: populate categoryStats from categories API (category-dimension)
-    const allCategories = categoriesRes.data?.results ?? categoriesRes.data ?? []
-    const totalCatCount = allCategories.reduce((sum: number, c: any) => sum + (c.资产数量 ?? 0), 0)
-    categoryStats.value = allCategories.map((c: any) => ({
-      status: c.资产类目 || c.物品分类 || c.资产名称,
-      count: c.资产数量 ?? 0,
-      percentage: totalCatCount > 0 ? Math.round((c.资产数量 ?? 0) / totalCatCount * 1000) / 10 : 0,
-    })).filter((s: any) => s.count > 0)
-
+    categoryStats.value = categoryRes.data.filter(c => c.count > 0)
     statusStats.value = statusRes.data
-    // 8.3: populate monthlyTrend from transfer report data
-    transferDetails.value = transferRes.data?.results ?? transferRes.data ?? []
+    transferDetails.value = transferRes.data ?? []
     buildMonthlyTrend(transferDetails.value)
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -86,42 +83,29 @@ async function fetchReportData() {
   }
 }
 
-// 从变动明细中聚合月度趋势数据
-function buildMonthlyTrend(details: any[]) {
+// 从流水明细聚合月度趋势（按数量求和）：
+// 入库 = 采购 + 归还（在库 +）；出库 = 领用 + 回收（在库/在用 −）；调拨 = 位移
+function buildMonthlyTrend(details: TransferReportRow[]) {
   const monthMap: Record<string, { month: string; inbound: number; outbound: number; transfer: number }> = {}
   for (const d of details) {
-    const dateStr = d.createdAt || d.创建时间 || d.date || ''
-    const month = dateStr.slice(0, 7) // "YYYY-MM"
+    const month = (d.date || '').slice(0, 7)
     if (!month) continue
     if (!monthMap[month]) {
       monthMap[month] = { month, inbound: 0, outbound: 0, transfer: 0 }
     }
-    const type = d.type || d.操作类型 || d.action || ''
-    if (type === '入库' || type === 'inbound' || type === 'assign') {
-      monthMap[month].inbound += 1
-    } else if (type === '出库' || type === 'outbound' || type === 'return') {
-      monthMap[month].outbound += 1
-    } else {
-      monthMap[month].transfer += 1
+    const qty = d.quantity || 0
+    if (d.actionType === 'purchase' || d.actionType === 'return') {
+      monthMap[month].inbound += qty
+    } else if (d.actionType === 'assign' || d.actionType === 'recovery') {
+      monthMap[month].outbound += qty
+    } else if (d.actionType === 'transfer') {
+      monthMap[month].transfer += qty
     }
   }
-  const sorted = Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month))
-  // 如果没有后端数据，则使用示例数据作为备用
-  if (sorted.length === 0) {
-    monthlyTrend.value = [
-      { month: '2026-01', inbound: 120, outbound: 80, transfer: 45 },
-      { month: '2026-02', inbound: 150, outbound: 60, transfer: 55 },
-      { month: '2026-03', inbound: 200, outbound: 90, transfer: 70 },
-      { month: '2026-04', inbound: 180, outbound: 100, transfer: 65 },
-      { month: '2026-05', inbound: 220, outbound: 110, transfer: 80 },
-      { month: '2026-06', inbound: 250, outbound: 95, transfer: 90 },
-    ]
-  } else {
-    monthlyTrend.value = sorted
-  }
+  monthlyTrend.value = Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month))
 }
 
-// 8.5: 导出报表为 Excel
+// 8.5: 导出报表为 Excel（列与页面表格一致）
 const exportReport = async () => {
   try {
     // 动态导入 xlsx 以避免影响打包体积
@@ -130,14 +114,18 @@ const exportReport = async () => {
 
     if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
       // 导出变动明细
-      const rows = transferDetails.value.map((d: any, i: number) => ({
+      const rows = transferDetails.value.map((d, i) => ({
         '序号': i + 1,
-        '资产名称': d.资产名称 || d.assetName || '',
-        '操作类型': d.type || d.操作类型 || d.action || '',
-        '调出分公司': d.调出分公司 || d.fromBranch || '',
-        '调入分公司': d.调入分公司 || d.toBranch || '',
-        '操作人': d.创建人 || d.operator || '',
-        '时间': d.createdAt || d.创建时间 || '',
+        '单据编号': d.docNumber || '',
+        '日期': d.date,
+        '操作类型': actionLabel(d.actionType),
+        '资产编号': d.assetCode,
+        '资产名称': d.assetName,
+        '调出分公司': d.fromBranch || '',
+        '调入分公司': d.toBranch || '',
+        '数量': d.quantity,
+        '审批状态': d.status,
+        '经办人': d.operator || '',
       }))
       const ws = XLSX.utils.json_to_sheet(rows)
       XLSX.utils.book_append_sheet(wb, ws, '变动明细')
@@ -146,8 +134,12 @@ const exportReport = async () => {
       const rows = branchStats.value.map((b, i) => ({
         '序号': i + 1,
         '分公司': b.name,
-        '资产总数': b.value,
-        '占比(%)': b.percentage,
+        '在库': b.stock,
+        '在用': b.inUse,
+        '回收库': b.recycle,
+        '总量': b.value,
+        '采购金额': b.amount,
+        '数量占比(%)': b.percentage,
       }))
       const ws = XLSX.utils.json_to_sheet(rows)
       XLSX.utils.book_append_sheet(wb, ws, '分公司报表')
@@ -160,14 +152,14 @@ const exportReport = async () => {
     const BOM = '\uFEFF'
     let csv = ''
     if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
-      csv = '序号,资产名称,操作类型,调出分公司,调入分公司,操作人,时间\n'
-      transferDetails.value.forEach((d: any, i: number) => {
-        csv += `${i + 1},${d.资产名称 || d.assetName || ''},${d.type || d.操作类型 || ''},${d.调出分公司 || ''},${d.调入分公司 || ''},${d.创建人 || ''},${d.createdAt || ''}\n`
+      csv = '序号,单据编号,日期,操作类型,资产编号,资产名称,调出分公司,调入分公司,数量,审批状态,经办人\n'
+      transferDetails.value.forEach((d, i) => {
+        csv += `${i + 1},${d.docNumber || ''},${d.date},${actionLabel(d.actionType)},${d.assetCode},${d.assetName},${d.fromBranch || ''},${d.toBranch || ''},${d.quantity},${d.status},${d.operator || ''}\n`
       })
     } else {
-      csv = '序号,分公司,资产总数,占比\n'
+      csv = '序号,分公司,在库,在用,回收库,总量,采购金额,数量占比\n'
       branchStats.value.forEach((b, i) => {
-        csv += `${i + 1},${b.name},${b.value},${b.percentage}%\n`
+        csv += `${i + 1},${b.name},${b.stock},${b.inUse},${b.recycle},${b.value},${b.amount},${b.percentage}%\n`
       })
     }
     const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' })
@@ -181,30 +173,38 @@ const exportReport = async () => {
   }
 }
 
-// 状态颜色映射
+// 状态颜色映射（台账三态）
 const statusColors: Record<string, string> = {
   '在库': 'var(--color-primary-500)',
-  '使用中': 'var(--color-success)',
-  '维修中': 'var(--color-warning)',
-  '报废': 'var(--color-danger)',
+  '在用': 'var(--color-success)',
+  '回收库': 'var(--color-warning)',
 }
 
-// 计算最大值用于柱状图
+// 分公司排行当前口径的数值（数量=总量 / 价值=采购金额）
+const branchMetricValue = (b: BranchStat) =>
+  branchMetric.value === 'amount' ? b.amount : b.value
+const formatBranchMetric = (b: BranchStat) =>
+  branchMetric.value === 'amount' ? formatMoney(b.amount) : b.value.toLocaleString()
+
+// 计算最大值用于柱状图（随口径切换）
 const maxBranchValue = computed(() => {
   if (branchStats.value.length === 0) return 1
-  return Math.max(...branchStats.value.map(b => b.value))
+  return Math.max(...branchStats.value.map(branchMetricValue), 1)
 })
 
-// 月度趋势最大值（取所有 inbound/outbound/transfer 的最大值并向上取整）
+// 月度趋势最大值（取三桶最大值并向上取整到整百）
 const maxTrendValue = computed(() => {
-  if (monthlyTrend.value.length === 0) return 600
   let max = 0
   for (const item of monthlyTrend.value) {
     max = Math.max(max, item.inbound || 0, item.outbound || 0, item.transfer || 0)
   }
-  // 向上取整到最近的整百
-  return max > 0 ? Math.ceil(max / 100) * 100 : 600
+  return max > 0 ? Math.ceil(max / 100) * 100 : 100
 })
+
+// 库存不足下钻：台账页仅不足筛选
+function goLowStock() {
+  router.push('/assets/summary?sufficient=0')
+}
 
 // 监听时间范围 / 分公司筛选变化
 watch(dateRange, () => {
@@ -295,11 +295,11 @@ onMounted(() => {
           <span class="metric-value">{{ formatMoney(overviewData?.totalValue ?? 0) }}</span>
           <span class="metric-label">资产总值</span>
         </div>
-        <div class="metric-trend up">
+        <div class="metric-trend" :class="(overviewData?.valueGrowthRate ?? 0) >= 0 ? 'up' : 'down'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
           </svg>
-          +12.3%
+          {{ (overviewData?.valueGrowthRate ?? 0) >= 0 ? '+' : '' }}{{ overviewData?.valueGrowthRate ?? 0 }}%
         </div>
       </div>
 
@@ -314,12 +314,6 @@ onMounted(() => {
           <span class="metric-value">{{ overviewData?.activeRate ?? 0 }}%</span>
           <span class="metric-label">使用率</span>
         </div>
-        <div class="metric-trend up">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
-          </svg>
-          +2.1%
-        </div>
       </div>
 
       <div class="metric-card warning">
@@ -331,11 +325,11 @@ onMounted(() => {
           </svg>
         </div>
         <div class="metric-content">
-          <span class="metric-value">12</span>
+          <span class="metric-value">{{ overviewData?.lowStockCount ?? 0 }}</span>
           <span class="metric-label">库存不足</span>
         </div>
         <div class="metric-action">
-          <button class="action-link">立即查看</button>
+          <button class="action-link" @click="goLowStock">立即查看</button>
         </div>
       </div>
     </div>
@@ -347,8 +341,8 @@ onMounted(() => {
         <div class="chart-header">
           <h3 class="chart-title">分公司资产排行</h3>
           <div class="chart-tabs">
-            <button class="chart-tab active">数量</button>
-            <button class="chart-tab">价值</button>
+            <button class="chart-tab" :class="{ active: branchMetric === 'qty' }" @click="branchMetric = 'qty'">数量</button>
+            <button class="chart-tab" :class="{ active: branchMetric === 'amount' }" @click="branchMetric = 'amount'">价值</button>
           </div>
         </div>
         <div class="chart-body">
@@ -361,15 +355,16 @@ onMounted(() => {
               <div class="bar-info">
                 <span class="bar-rank" :class="{ top: index < 3 }">{{ index + 1 }}</span>
                 <span class="bar-name">{{ branch.name }}</span>
-                <span class="bar-value">{{ branch.value.toLocaleString() }}</span>
+                <span class="bar-value">{{ formatBranchMetric(branch) }}</span>
               </div>
               <div class="bar-track">
                 <div
                   class="bar-fill"
-                  :style="{ width: (branch.value / maxBranchValue * 100) + '%' }"
+                  :style="{ width: (branchMetricValue(branch) / maxBranchValue * 100) + '%' }"
                 />
               </div>
             </div>
+            <div v-if="branchStats.length === 0" class="chart-empty">暂无台账数据</div>
           </div>
         </div>
       </div>
@@ -394,7 +389,7 @@ onMounted(() => {
                 <!-- 动态生成扇形 -->
                 <circle
                   v-for="(cat, index) in categoryStats"
-                  :key="cat.status"
+                  :key="cat.category"
                   cx="100"
                   cy="100"
                   r="70"
@@ -413,14 +408,15 @@ onMounted(() => {
             <div class="distribution-legend">
               <div
                 v-for="(cat, idx) in categoryStats"
-                :key="cat.status"
+                :key="cat.category"
                 class="legend-item"
               >
                 <span class="legend-color" :style="{ background: `var(--color-primary-${500 - idx * 100})` }" />
-                <span class="legend-name">{{ cat.status }}</span>
+                <span class="legend-name">{{ cat.category || '未分类' }}</span>
                 <span class="legend-value">{{ cat.count.toLocaleString() }}</span>
                 <span class="legend-percent">{{ cat.percentage }}%</span>
               </div>
+              <div v-if="categoryStats.length === 0" class="chart-empty">暂无台账数据</div>
             </div>
           </div>
         </div>
@@ -479,6 +475,7 @@ onMounted(() => {
               <span>0</span>
             </div>
             <div class="trend-bars">
+              <div v-if="monthlyTrend.length === 0" class="chart-empty">暂无流水数据</div>
               <div v-for="item in monthlyTrend" :key="item.month" class="trend-group">
                 <div class="trend-bar-container">
                   <div class="trend-bar inbound" :style="{ height: ((item.inbound || 0) / maxTrendValue * 100) + '%' }" />
@@ -531,47 +528,83 @@ onMounted(() => {
         <table class="data-table">
           <thead>
             <tr>
-              <th v-for="header in ['序号', '资产名称', '操作类型', '调出分公司', '调入分公司', '操作人', '时间']" :key="header">
+              <th v-for="header in ['序号', '单据编号', '日期', '操作类型', '资产编号', '资产名称', '调出分公司', '调入分公司', '数量', '审批状态', '经办人']" :key="header">
                 {{ header }}
               </th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="transferDetails.length === 0">
-              <td colspan="7" style="text-align: center; color: var(--color-text-tertiary);">暂无变动明细数据</td>
+              <td colspan="11" style="text-align: center; color: var(--color-text-tertiary);">暂无变动明细数据</td>
             </tr>
-            <tr v-for="(item, index) in transferDetails" :key="index">
+            <tr v-for="(item, index) in transferDetails" :key="`${item.id}-${index}`">
               <td>{{ index + 1 }}</td>
-              <td>{{ item.资产名称 || item.assetName || '-' }}</td>
-              <td>{{ item.type || item.操作类型 || item.action || '-' }}</td>
-              <td>{{ item.调出分公司 || item.fromBranch || '-' }}</td>
-              <td>{{ item.调入分公司 || item.toBranch || '-' }}</td>
-              <td>{{ item.创建人 || item.operator || '-' }}</td>
-              <td>{{ item.createdAt || item.创建时间 || '-' }}</td>
+              <td>{{ item.docNumber || '-' }}</td>
+              <td>{{ item.date }}</td>
+              <td>{{ actionLabel(item.actionType) }}</td>
+              <td>{{ item.assetCode }}</td>
+              <td>{{ item.assetName || '-' }}</td>
+              <td>{{ item.fromBranch || '-' }}</td>
+              <td>{{ item.toBranch || '-' }}</td>
+              <td>{{ item.quantity }}</td>
+              <td>{{ item.status }}</td>
+              <td>{{ item.operator || '-' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <!-- 其他报表表格 -->
-      <div v-else class="table-container">
+      <!-- 分类报表表格 -->
+      <div v-else-if="reportType === 'category'" class="table-container">
         <table class="data-table">
           <thead>
             <tr>
-              <th v-for="header in ['序号', '分公司', '资产总数', '使用中', '在库', '维修中', '资产总值', '占比']" :key="header">
+              <th v-for="header in ['序号', '资产类目', '数量', '占比']" :key="header">
                 {{ header }}
               </th>
             </tr>
           </thead>
           <tbody>
+            <tr v-if="categoryStats.length === 0">
+              <td colspan="4" style="text-align: center; color: var(--color-text-tertiary);">暂无台账数据</td>
+            </tr>
+            <tr v-for="(cat, index) in categoryStats" :key="cat.category">
+              <td>{{ index + 1 }}</td>
+              <td>{{ cat.category || '未分类' }}</td>
+              <td>{{ cat.count.toLocaleString() }}</td>
+              <td>
+                <div class="percent-bar">
+                  <div class="percent-fill" :style="{ width: cat.percentage + '%' }" />
+                  <span>{{ cat.percentage }}%</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 分公司报表表格 -->
+      <div v-else class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th v-for="header in ['序号', '分公司', '在库', '在用', '回收库', '总量', '采购金额', '数量占比']" :key="header">
+                {{ header }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="branchStats.length === 0">
+              <td colspan="8" style="text-align: center; color: var(--color-text-tertiary);">暂无台账数据</td>
+            </tr>
             <tr v-for="(branch, index) in branchStats" :key="branch.name">
               <td>{{ index + 1 }}</td>
               <td>{{ branch.name }}</td>
+              <td>{{ branch.stock.toLocaleString() }}</td>
+              <td>{{ branch.inUse.toLocaleString() }}</td>
+              <td>{{ branch.recycle.toLocaleString() }}</td>
               <td>{{ branch.value.toLocaleString() }}</td>
-              <td>{{ Math.round(branch.value * (branch.percentage / 100)).toLocaleString() }}</td>
-              <td>-</td>
-              <td>-</td>
-              <td>{{ formatMoney(branch.value) }}</td>
+              <td>{{ formatMoney(branch.amount) }}</td>
               <td>
                 <div class="percent-bar">
                   <div class="percent-fill" :style="{ width: branch.percentage + '%' }" />
@@ -749,6 +782,18 @@ onMounted(() => {
 
 .metric-trend.up {
   color: var(--color-success);
+}
+
+.metric-trend.down {
+  color: var(--color-danger);
+}
+
+.chart-empty {
+  width: 100%;
+  text-align: center;
+  padding: var(--space-8) 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
 }
 
 .metric-trend svg {

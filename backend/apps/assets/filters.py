@@ -1,5 +1,15 @@
 import django_filters
+from django.db.models import F, Q
 from .models import AssetStock, FixedAsset
+
+
+def insufficient_stock_q():
+    """不足行判定：在库 < 生效警戒线（行级优先，空回落品目默认）——与
+    AssetStock.生效警戒线 property 语义一字不差，供筛选与报表计数共用。"""
+    return (
+        Q(警戒线__isnull=False, 在库数量__lt=F('警戒线')) |
+        Q(item__warning_line__isnull=False, 警戒线__isnull=True, 在库数量__lt=F('item__warning_line'))
+    )
 
 
 class AssetStockFilterSet(django_filters.FilterSet):
@@ -8,10 +18,18 @@ class AssetStockFilterSet(django_filters.FilterSet):
     物品分类 = django_filters.CharFilter(field_name='item__item_category')
     management_type = django_filters.CharFilter(field_name='item__management_type')
     keyword = django_filters.CharFilter(method='filter_keyword')
+    sufficient = django_filters.CharFilter(method='filter_sufficient')
 
     class Meta:
         model = AssetStock
         fields = []
+
+    def filter_sufficient(self, queryset, name, value):
+        if value in ('0', 'false', 'False'):
+            return queryset.filter(insufficient_stock_q())
+        if value in ('1', 'true', 'True'):
+            return queryset.exclude(insufficient_stock_q())
+        return queryset
 
     def filter_keyword(self, queryset, name, value):
         from django.db.models import Q

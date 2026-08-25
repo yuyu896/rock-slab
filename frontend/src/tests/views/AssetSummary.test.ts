@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -12,6 +12,11 @@ vi.mock('@/hooks/usePermission', () => ({
     canManageAssets: computed(() => true),
     can: () => true,
   }),
+}))
+
+const mockRouteQuery = ref<Record<string, string>>({})
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: mockRouteQuery.value }),
 }))
 
 vi.mock('@/api/assets', () => ({
@@ -150,6 +155,23 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     expect(badges[0].classes()).toContain('ok')
     expect(badges[1].text()).toBe('否')
     expect(badges[1].classes()).toContain('low')
+  })
+
+  it('报表下钻：?sufficient=0 预置仅不足筛选并随查询下发', async () => {
+    mockRouteQuery.value = { sufficient: '0' }
+    vi.mocked(getAssetStocks).mockResolvedValue({
+      data: { count: 0, next: null, previous: null, results: [] },
+    } as any)
+    const wrapper = await mountSummary()
+    await flushPromises()
+
+    const selects = wrapper.findAll('select')
+    const sufficientSelect = selects.find(s => s.text().includes('仅不足'))
+    expect((sufficientSelect!.element as HTMLSelectElement).value).toBe('0')
+    expect(getAssetStocks).toHaveBeenCalledWith(
+      expect.objectContaining({ sufficient: '0' }),
+    )
+    mockRouteQuery.value = {}
   })
 })
 

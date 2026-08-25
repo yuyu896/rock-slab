@@ -79,10 +79,10 @@ async function fetchDashboardData() {
     stats.value = {
       totalAssets: overview.totalAssets,
       activeAssets: Math.floor(overview.totalAssets * overview.activeRate / 100),
-      pendingApproval: overview.pendingApproval || transfersRes.data.count || 0,
+      pendingApproval: transfersRes.data.count || 0,
       lowStock: overview.lowStockCount || 0,
       growthRate: overview.growthRate || 0,
-      pendingInventory: overview.pendingInventory || inventoriesRes.data?.count || 0,
+      pendingInventory: inventoriesRes.data?.count || 0,
     }
     branchStats.value = branchRes.data.slice(0, 5)
     categoryDistribution.value = statusRes.data

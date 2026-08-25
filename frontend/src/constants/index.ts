@@ -92,6 +92,7 @@ export const APPROVAL_STATUS_COLORS: Record<ApprovalStatusType, { bg: string; co
 export const TRANSFER_TYPES = {
   purchase: { label: '采购入库', color: { bg: 'oklch(0.92 0.08 340)', color: 'oklch(0.45 0.12 340)' } },
   assign: { label: '领用出库', color: { bg: 'var(--color-primary-50)', color: 'var(--color-primary-600)' } },
+  return: { label: '归还入库', color: { bg: 'oklch(0.92 0.06 160)', color: 'oklch(0.45 0.10 160)' } },
   transfer: { label: '调拨', color: { bg: 'oklch(0.92 0.06 240)', color: 'oklch(0.45 0.12 250)' } },
   recovery: { label: '回收', color: { bg: 'oklch(0.92 0.08 85)', color: 'oklch(0.45 0.16 85)' } },
 } as const

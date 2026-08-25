@@ -126,6 +126,23 @@ class TestAssetStockList:
         resp = authenticated_client.get(SUMMARY_URL, {'keyword': '不存在的关键词'})
         assert resp.data['results'] == []
 
+    def test_list_sufficient_filter(self, authenticated_client, branch):
+        # 行级警戒线不足 / 品目默认不足 / 充足 三行
+        from apps.categories.models import Category
+        _make_stock(branch, 'SUM-W-001', stock=2, warning=5)
+        low_item = _get_item('SUM-W-002')
+        Category.objects.filter(pk=low_item.pk).update(warning_line=10)
+        _make_stock(branch, 'SUM-W-002', stock=3)
+        ok_item = _get_item('SUM-W-003')
+        Category.objects.filter(pk=ok_item.pk).update(warning_line=1)
+        _make_stock(branch, 'SUM-W-003', stock=5)
+
+        resp = authenticated_client.get(SUMMARY_URL, {'sufficient': '0'})
+        assert {r['资产编号'] for r in resp.data['results']} == {'SUM-W-001', 'SUM-W-002'}
+
+        resp = authenticated_client.get(SUMMARY_URL, {'sufficient': '1'})
+        assert {r['资产编号'] for r in resp.data['results']} == {'SUM-W-003'}
+
     def test_list_scoped_to_authorized_branches(self, supervisor_user, branch, second_branch):
         _make_stock(branch, 'SUM-S-001')
         _make_stock(second_branch, 'SUM-S-002')
