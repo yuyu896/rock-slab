@@ -108,6 +108,22 @@ class TestRegionCRUD:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['name'] == '更新后区域名'
 
+    def test_patch_region_manager_only(self, authenticated_client, region, staff_user):
+        """任命/卸任大区负责人：仅传 manager 的 PATCH（权限分配页调用形态）。"""
+        resp = authenticated_client.patch(
+            f'/api/regions/{region.id}', {'manager': staff_user.id}, format='json',
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        region.refresh_from_db()
+        assert region.manager == staff_user
+
+        resp = authenticated_client.patch(
+            f'/api/regions/{region.id}', {'manager': None}, format='json',
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        region.refresh_from_db()
+        assert region.manager is None
+
     def test_delete_region_no_branches(self, authenticated_client, region):
         # Create a fresh region with no branches
         resp = authenticated_client.post('/api/regions/', {
@@ -138,6 +154,15 @@ class TestBranchCRUD:
         })
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['name'] == '新分公司名'
+
+    def test_patch_branch_manager_only(self, authenticated_client, branch, staff_user):
+        """任命分公司负责人：仅传 manager 的 PATCH（权限分配页调用形态）。"""
+        resp = authenticated_client.patch(f'/api/branches/{branch.id}', {
+            'manager': staff_user.id,
+        })
+        assert resp.status_code == status.HTTP_200_OK
+        branch.refresh_from_db()
+        assert branch.manager == staff_user
 
     def test_delete_branch_no_assets(self, authenticated_client, team):
         # Create a fresh branch with no assets

@@ -33,6 +33,7 @@ class ManagementScopeSerializer(serializers.ModelSerializer):
         is_all_data = attrs.get(
             'is_all_data', getattr(self.instance, 'is_all_data', False)
         )
+        user = attrs.get('user', getattr(self.instance, 'user', None))
         data = {
             'region': attrs.get('region', getattr(self.instance, 'region', None)),
             'branch': attrs.get('branch', getattr(self.instance, 'branch', None)),
@@ -43,7 +44,6 @@ class ManagementScopeSerializer(serializers.ModelSerializer):
             if nodes:
                 raise serializers.ValidationError('「全部数据」授权与具体组织节点互斥')
             # 每用户至多一条「全部数据」授权（DB 约束为兜底，这里返回友好 400）
-            user = attrs.get('user', getattr(self.instance, 'user', None))
             qs = ManagementScope.objects.filter(user=user, is_all_data=True)
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
@@ -54,6 +54,13 @@ class ManagementScopeSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError('必须指定一个组织节点（region / branch / team 三选一）或勾选 is_all_data')
             if len(nodes) > 1:
                 raise serializers.ValidationError('至多指定一个组织节点（region / branch / team 三选一）')
+            # 去重：同一员工对同一节点只授权一次（DB 约束为兜底，这里返回友好 400）
+            field = 'region' if data['region'] is not None else ('branch' if data['branch'] is not None else 'team')
+            qs = ManagementScope.objects.filter(user=user, **{field: data[field]})
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError('该员工已拥有该节点的授权')
         return attrs
 
 

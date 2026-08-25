@@ -224,3 +224,15 @@ class TestAllDataApi:
             'user': user.id, 'isAllData': True, 'region': region.id,
         })
         assert r.status_code == 400
+
+    def test_duplicate_node_scope_returns_400(self, admin_user, region):
+        """重复授予同一组织节点应返回 400（而非触发 DB 唯一约束 500）。"""
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13600000052', name='重复节点API', password='test123456', role='staff',
+        )
+        client = _client_for(admin_user)
+        r1 = client.post('/api/permissions/management-scopes', {'user': user.id, 'region': region.id})
+        assert r1.status_code == 201
+        r2 = client.post('/api/permissions/management-scopes', {'user': user.id, 'region': region.id})
+        assert r2.status_code == 400

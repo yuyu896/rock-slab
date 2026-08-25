@@ -15,7 +15,7 @@ export function createRegion(data: Partial<Region>) {
 }
 
 export function updateRegion(id: string, data: Partial<Region>) {
-  return request.put<Region>(`/api/regions/${id}`, data)
+  return request.patch<Region>(`/api/regions/${id}`, data)
 }
 
 export function deleteRegion(id: string) {

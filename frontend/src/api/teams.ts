@@ -15,7 +15,7 @@ export function createTeam(data: Partial<Team>) {
 }
 
 export function updateTeam(id: string, data: Partial<Team>) {
-  return request.put<Team>(`/api/teams/${id}`, data)
+  return request.patch<Team>(`/api/teams/${id}`, data)
 }
 
 export function deleteTeam(id: string) {

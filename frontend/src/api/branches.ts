@@ -15,7 +15,7 @@ export function createBranch(data: Partial<Branch>) {
 }
 
 export function updateBranch(id: string, data: Partial<Branch>) {
-  return request.put<Branch>(`/api/branches/${id}`, data)
+  return request.patch<Branch>(`/api/branches/${id}`, data)
 }
 
 export function deleteBranch(id: string) {

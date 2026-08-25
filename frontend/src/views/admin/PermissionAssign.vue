@@ -159,6 +159,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getUsers, updateUser } from '@/api/users'
+import { handleApiError } from '@/utils/request'
 import { getRegions, updateRegion } from '@/api/regions'
 import { getBranches, updateBranch } from '@/api/branches'
 import { getTeams, updateTeam } from '@/api/teams'
@@ -332,8 +333,8 @@ async function saveRole() {
     grants.value = grants.value.filter(g => draftOps.value.has(g.code))
     await reloadUser()
     ElMessage.success('岗位与操作码已保存')
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
   } finally {
     saving.value = false
   }
@@ -354,8 +355,8 @@ async function saveAppointment() {
     appointNodeId.value = ''
     await refreshGrants()
     ElMessage.success('已任命，范围即时生效')
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '任命失败')
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
   } finally {
     saving.value = false
   }
@@ -369,6 +370,8 @@ async function removeAppointment(a: AppointmentItem) {
     else await updateBranch(a.id, { manager: null } as any)
     await refreshGrants()
     ElMessage.success('已卸任')
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
   } finally {
     saving.value = false
   }
@@ -377,6 +380,8 @@ async function removeAppointment(a: AppointmentItem) {
 async function addScope() {
   if (!selectedUserId.value) return
   if (newScope.type !== 'all' && !newScope.id) return
+  // 防御：id 必须属于当前类型的选项，避免跨类型残留 id 发错 FK
+  if (newScope.type !== 'all' && !scopeOptions.value.some(n => n.id === newScope.id)) return
   const payload: Partial<ManagementScope> & { isAllData?: boolean } = { user: selectedUserId.value }
   if (newScope.type === 'all') payload.isAllData = true
   else if (newScope.type === 'region') payload.region = newScope.id
@@ -388,8 +393,8 @@ async function addScope() {
     newScope.id = ''
     newScope.type = 'region'
     await refreshGrants()
-  } catch {
-    ElMessage.error('添加失败：该授权可能已存在或组合非法。')
+  } catch (e) {
+    ElMessage.error(handleApiError(e))
   }
 }
 
@@ -433,6 +438,11 @@ async function reloadUser() {
 
 watch(selectedUserId, () => {
   void refreshGrants().then(() => onSelectUser())
+})
+
+// 切换授权类型时清空已选节点，避免拿着大区的 id 提交成分公司授权
+watch(() => newScope.type, () => {
+  newScope.id = ''
 })
 
 onMounted(async () => {
