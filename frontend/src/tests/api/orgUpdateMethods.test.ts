@@ -26,7 +26,7 @@ describe('组织节点 update API 使用 PATCH（任命/卸任仅传单字段，
   })
 
   it('updateBranch 走 PATCH', async () => {
-    await updateBranch('b1', { manager: null })
+    await updateBranch('b1', { manager: null } as any)
     expect(request.patch).toHaveBeenCalledWith('/api/branches/b1', { manager: null })
     expect(request.put).not.toHaveBeenCalled()
   })
