@@ -58,7 +58,7 @@ TBD - created by archiving change asset-v2-p2-instances. Update Purpose after ar
 
 | 单据 | 实例动作 |
 |---|---|
-| 采购入库 | 每行生成 数量 个实例（状态 在库，branch=入库分公司，birth_line=该行，内部编号锁行发号） |
+| 采购入库 | 实例管理品目每行生成 数量 个实例（状态 在库，branch=入库分公司，birth_line=该行，内部编号锁行发号）；数量管理品目不生成实例，台账照常联动 |
 | 领用（新品库） | 所选在库实例 → 在用，写入使用人/部门 |
 | 领用（回收库） | 所选回收库实例 → 在用，写入使用人/部门 |
 | 归还 | 所选在用实例 → 在库，清空使用人/部门 |
@@ -72,6 +72,11 @@ TBD - created by archiving change asset-v2-p2-instances. Update Purpose after ar
 
 - **WHEN** 采购单行（实例管理品目 X × 3）审批通过
 - **THEN** 生成 3 个实例 内部编号 X-7/X-8/X-9（承接存量最大序号），状态在库，出生行=该行
+
+#### Scenario: 数量管理品目采购不生成实例
+
+- **WHEN** 采购单行（数量管理品目 Y × 200）审批通过
+- **THEN** 台账在库 +200，实例层无新生成（该品目实例数不变）
 
 #### Scenario: 领用绑定使用人
 
