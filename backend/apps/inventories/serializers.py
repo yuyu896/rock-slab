@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.organizations.models import Branch
 from .models import InventoryTask, InventoryItem, InventoryCheck
 
 
@@ -29,6 +30,11 @@ class InventoryCheckSerializer(serializers.ModelSerializer):
 
 
 class InventoryTaskSerializer(serializers.ModelSerializer):
+    # 分公司必填（空值会触发全公司盘点项生成 + check 永远 404），创建后不可变更
+    branch = serializers.PrimaryKeyRelatedField(
+        queryset=Branch.objects.all(), required=True, allow_null=False,
+    )
+
     class Meta:
         model = InventoryTask
         fields = [
@@ -39,6 +45,14 @@ class InventoryTaskSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
+        extra_kwargs = {
+            # 状态只经状态机动作流转，不接受 API 直改
+            'status': {'read_only': True},
+        }
+
+    def update(self, instance, validated_data):
+        validated_data.pop('branch', None)
+        return super().update(instance, validated_data)
 
 
 class InventoryTaskListSerializer(serializers.ModelSerializer):

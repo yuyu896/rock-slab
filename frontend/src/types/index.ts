@@ -115,6 +115,8 @@ export interface Category {
   计量单位: string
   警戒线?: number | null
   备注?: string
+  /** 有存量（实例档案/台账非零）时管理方式锁定（后端派生只读） */
+  managementLocked?: boolean
   createdAt?: string
   updatedAt?: string
 }

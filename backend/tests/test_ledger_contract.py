@@ -69,10 +69,28 @@ class TestDocumentLedgerMatrix:
         assert _approve(authenticated_client, tid).status_code == 200
         row = _row(branch, 'MX-P-001')
         assert row.在库数量 == 10
+        # 数量管理品目不生成实例档案（审计 P0-3 守卫）
+        from apps.assets.models import FixedAsset
+        assert FixedAsset.objects.filter(item__asset_code='MX-P-001').count() == 0
         # 再采购累加
         tid = _create_doc(authenticated_client, 'purchase', branch, 'MX-P-001', 5)
         _approve(authenticated_client, tid)
         assert _row(branch, 'MX-P-001').在库数量 == 15
+        assert FixedAsset.objects.filter(item__asset_code='MX-P-001').count() == 0
+
+    def test_purchase_instance_item_generates_instances(self, authenticated_client, branch):
+        """实例管理品目采购：台账与实例档案双口径（每件一档，状态在库）。"""
+        from apps.assets.models import FixedAsset
+        item = _ensure_item('MX-P-INS-001')
+        item.management_type = 'instance'
+        item.save()
+        tid = _create_doc(authenticated_client, 'purchase', branch, 'MX-P-INS-001', 3)
+        assert _approve(authenticated_client, tid).status_code == 200
+        assert _row(branch, 'MX-P-INS-001').在库数量 == 3
+        instances = FixedAsset.objects.filter(item__asset_code='MX-P-INS-001')
+        assert instances.count() == 3
+        assert all(i.当前状态 == FixedAsset.STATUS_IN_STOCK for i in instances)
+        assert all(i.birth_line is not None for i in instances)
 
     def test_assign_moves_stock_to_in_use(self, authenticated_client, branch):
         _seed(branch, 'MX-A-001', stock=10)

@@ -40,10 +40,17 @@
         </div>
         <div class="form-item">
           <label class="form-label">管理方式 <span class="required">*</span></label>
-          <select v-model="form.管理方式" class="form-input">
+          <select
+            v-model="form.管理方式"
+            class="form-input"
+            :disabled="isEdit && managementLocked"
+          >
             <option value="quantity">数量管理</option>
             <option value="instance">实例管理</option>
           </select>
+          <div v-if="isEdit && managementLocked" class="split-hint">
+            该品目存在存量（实例档案或台账数量），管理方式不可切换；数量→实例请先清零台账，实例→数量因档案永久保留不可切换。
+          </div>
         </div>
         <div class="form-item">
           <label class="form-label">规格（定义性）</label>
@@ -98,6 +105,7 @@ const route = useRoute()
 const id = computed(() => (route.params.id as string) || '')
 const isEdit = computed(() => !!id.value)
 const saving = ref(false)
+const managementLocked = ref(false)
 
 const form = reactive({
   资产类目: '',
@@ -128,6 +136,7 @@ async function loadCategory() {
     form.计量单位 = data.计量单位 ?? ''
     form.警戒线 = data.警戒线 ?? null
     form.备注 = data.备注 ?? ''
+    managementLocked.value = data.managementLocked ?? false
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }

@@ -353,3 +353,61 @@ class TestItemDictionary:
         assert data['imported'] == 0
         assert any('未在品目字典登记' in e for e in data['errors'])
         assert any('是否想找' in e for e in data['errors'])
+
+
+@pytest.mark.django_db
+class TestManagementTypeSwitchGuard:
+    """管理方式有存量时禁切换（审计 P0-4；item-dictionary 增量）。"""
+
+    def _patch_type(self, client, cid, new_type):
+        return client.patch(f'/api/categories/{cid}', {'management_type': new_type}, format='json')
+
+    def test_nonzero_stock_blocks_switch_to_instance(self, admin_user, branch):
+        from apps.assets.services import ledger
+        from apps.categories.models import Category
+        client = _client_for(admin_user)
+        resp = client.post(CATEGORY_URL, {
+            'asset_category': '切换', 'item_category': '办公',
+            'asset_name': '有存量品目', 'asset_code': 'SWITCH-001', 'unit': '件',
+        }, format='json')
+        cid = resp.data['id']
+        item = Category.objects.get(pk=cid)
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 3, '造数')
+
+        resp = self._patch_type(client, cid, 'instance')
+        assert resp.status_code == 400
+        item.refresh_from_db()
+        assert item.management_type == 'quantity'
+        # 锁定标志随详情输出（.data 为未渲染原始键名，前端 JSON 为 managementLocked）
+        detail = client.get(f'/api/categories/{cid}').data
+        assert detail['management_locked'] is True
+
+    def test_instance_archive_blocks_switch_to_quantity(self, admin_user):
+        from apps.assets.models import FixedAsset
+        from apps.categories.models import Category
+        client = _client_for(admin_user)
+        resp = client.post(CATEGORY_URL, {
+            'asset_category': '切换', 'item_category': '办公',
+            'asset_name': '挂实例品目', 'asset_code': 'SWITCH-002', 'unit': '件',
+            'management_type': 'instance',
+        }, format='json')
+        cid = resp.data['id']
+        FixedAsset.objects.create(item=Category.objects.get(pk=cid), 内部编号='SWITCH-002-1')
+
+        resp = self._patch_type(client, cid, 'quantity')
+        assert resp.status_code == 400
+        assert Category.objects.get(pk=cid).management_type == 'instance'
+
+    def test_clean_category_can_switch(self, admin_user):
+        client = _client_for(admin_user)
+        resp = client.post(CATEGORY_URL, {
+            'asset_category': '切换', 'item_category': '办公',
+            'asset_name': '无存量品目', 'asset_code': 'SWITCH-003', 'unit': '件',
+        }, format='json')
+        cid = resp.data['id']
+
+        resp = self._patch_type(client, cid, 'instance')
+        assert resp.status_code == 200
+        detail = client.get(f'/api/categories/{cid}').data
+        assert detail['management_locked'] is False
+        assert detail['管理方式'] == 'instance'

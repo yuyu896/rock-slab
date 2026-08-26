@@ -688,6 +688,16 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         line_kwargs = {'item': item, '数量': _qty(8), '本批规格': _cell(row, 7)}
                         action = Transfer.ACTION_TRANSFER
 
+                    # 范围校验：调出/调入分公司必须在操作者授权范围内（与表单路径同源）
+                    try:
+                        validate_branches_in_scope(
+                            request.user,
+                            branch_cache.get(header.get('调出分公司', '')),
+                            branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None,
+                        )
+                    except ValidationError:
+                        errors.append(f'第 {i} 行: 调出/调入分公司不在你的授权范围')
+                        continue
                     # 实例引用预检：实例管理品目的绑定类单据无法在 Excel 表达，引导走页面
                     validate_line_items_instances(
                         action,

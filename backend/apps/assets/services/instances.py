@@ -107,7 +107,12 @@ def _next_seq(item):
 
 
 def generate_instances(line, branch):
-    """采购行生效：按数量生成实例（在库、出生行=该行、编号锁行发号）并建行关联。"""
+    """采购行生效：按数量生成实例（在库、出生行=该行、编号锁行发号）并建行关联。
+
+    仅实例管理品目展开档案（设计书四层架构 ③）；数量管理品目只动台账，不产实例。
+    """
+    if line.item.management_type != 'instance':
+        return []
     created = []
     for _ in range(int(line.数量 or 0)):
         seq = _next_seq(line.item)

@@ -2,6 +2,22 @@ from rest_framework import serializers
 from .models import Category
 
 
+def management_stock_status(category):
+    """品目管理方式的存量状况：(locked, 原因)。锁定 = 挂实例档案（含退役，永久保留）
+    或台账任一数量列非零——两个方向切换都会立即造成实例镜像与台账不一致。"""
+    from django.db.models import Q
+    from apps.assets.models import AssetStock, FixedAsset
+
+    if FixedAsset.objects.filter(item=category).exists():
+        return True, '挂有实例档案（含已退役档案，永久保留）'
+    if AssetStock.objects.filter(
+        Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
+        item=category,
+    ).exists():
+        return True, '台账存量非零'
+    return False, ''
+
+
 class CategorySerializer(serializers.ModelSerializer):
     """Serializer that maps English model fields to Chinese JSON field names.
 
@@ -23,6 +39,7 @@ class CategorySerializer(serializers.ModelSerializer):
     警戒线 = serializers.IntegerField(source='warning_line', read_only=True, allow_null=True)
     备注 = serializers.CharField(source='remarks', read_only=True)
     属性模板 = serializers.JSONField(source='attribute_template', read_only=True)
+    management_locked = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
@@ -35,7 +52,7 @@ class CategorySerializer(serializers.ModelSerializer):
             # 输出字段（中文名）
             '资产类目', '物品分类', '资产名称', '资产编号',
             '规格', '管理方式', '图片', '是否租用', '默认供应商',
-            '计量单位', '警戒线', '备注', '属性模板',
+            '计量单位', '警戒线', '备注', '属性模板', 'management_locked',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
@@ -81,6 +98,10 @@ class CategorySerializer(serializers.ModelSerializer):
             return value
         raise serializers.ValidationError('属性模板必须是数组或对象格式')
 
+    def get_management_locked(self, obj):
+        locked, _ = management_stock_status(obj)
+        return locked
+
     def create(self, validated_data):
         """创建时验证资产编号"""
         asset_code = validated_data.get('asset_code')
@@ -89,7 +110,17 @@ class CategorySerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        """更新时验证资产编号"""
+        """更新时验证资产编号与管理方式存量约束"""
+        new_type = validated_data.get('management_type')
+        if new_type and new_type != instance.management_type:
+            locked, why = management_stock_status(instance)
+            if locked:
+                raise serializers.ValidationError({
+                    'management_type': [
+                        f'该品目{why}，不可切换管理方式；数量→实例方向请先清零台账存量，'
+                        '实例→数量方向因档案永久保留不可切换'
+                    ],
+                })
         asset_code = validated_data.get('asset_code', instance.asset_code)
         if Category.objects.filter(asset_code=asset_code).exclude(pk=instance.pk).exists():
             raise serializers.ValidationError({'asset_code': ['资产编号已存在，请使用其他编号']})

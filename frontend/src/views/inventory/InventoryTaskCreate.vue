@@ -14,7 +14,7 @@
         <input v-model="form.name" type="text" class="form-input" placeholder="请输入任务名称" />
       </div>
       <div class="form-group">
-        <label class="form-label">分公司</label>
+        <label class="form-label">分公司 <span class="required">*</span></label>
         <select v-model="form.branchId" class="form-input">
           <option value="">请选择分公司</option>
           <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -86,11 +86,15 @@ async function submit() {
     ElMessage.warning('请输入任务名称')
     return
   }
+  if (!form.branchId) {
+    ElMessage.warning('请选择分公司')
+    return
+  }
   creating.value = true
   try {
     await createInventoryTask({
       name: form.name,
-      branch: form.branchId || undefined,
+      branch: form.branchId,
       category: form.categoryId || undefined,
       missed_rule: form.missedRule,
       repeat_rule: form.repeatRule,

@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
 from core.pagination import StandardPagination
-from core.permissions import DataScopeMixin
+from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_create
 from rest_framework.exceptions import ValidationError
@@ -90,7 +90,7 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="asset_summary_template.xlsx"'
         return response
 
-    def _parse_import_rows(self, file):
+    def _parse_import_rows(self, file, user):
         """解析增量导入文件 → (diffs, errors)。diffs 元素含 branch/item ORM 对象。"""
         from apps.categories.models import Category
         from apps.categories.views import suggest_similar_codes
@@ -145,6 +145,11 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
             if branch is None:
                 errors.append(f'第 {i} 行: 分公司「{branch_name}」不存在')
                 continue
+            try:
+                validate_branches_in_scope(user, branch)
+            except ValidationError:
+                errors.append(f'第 {i} 行: 分公司「{branch_name}」不在你的授权范围')
+                continue
             key = (branch_name, asset_code)
             if key in seen_keys:
                 errors.append(f'第 {i} 行: 资产编号 {asset_code} 在文件内重复')
@@ -195,7 +200,7 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            diffs, errors = self._parse_import_rows(file)
+            diffs, errors = self._parse_import_rows(file, request.user)
         except ValueError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -331,6 +336,7 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
             branch = Branch.objects.filter(name=branch_name).first() if branch_name else None
         if branch is None:
             return Response({'detail': '分公司无效'}, status=status.HTTP_400_BAD_REQUEST)
+        validate_branches_in_scope(request.user, branch)
         item = Category.objects.filter(asset_code=asset_code).first() if asset_code else None
         if item is None:
             return Response(
