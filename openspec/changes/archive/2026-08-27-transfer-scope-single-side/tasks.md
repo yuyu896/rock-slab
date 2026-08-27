@@ -21,4 +21,4 @@
 
 - [x] 4.1 后端 `pytest` 全绿
 - [x] 4.2 前端 `npm run build`（类型门禁）+ `npm run test` 全绿
-- [ ] 4.3 feat + openspec 两个 commit → push → 归档 change，v2-revision-draft.md 第 3 案状态改 ✅
+- [x] 4.3 feat + openspec 两个 commit → push → 归档 change，v2-revision-draft.md 第 3 案状态改 ✅
