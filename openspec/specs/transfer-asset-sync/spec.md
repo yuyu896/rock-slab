@@ -28,24 +28,27 @@ TBD - created by archiving change fix-asset-quantity-sync. Update Purpose after 
 - **WHEN** 调拨类型的 Transfer 审批状态从"待审批"变为"已通过"
 - **THEN** 对应 `资产编号` 的 Asset 的分公司字段更新为 Transfer 的目标分公司
 
-
-
 ### Requirement: 回收联动资产汇总台账库存
-回收（recovery）类型的 Transfer 单生效时（审批通过，或行内直接回收即时生效），系统 SHALL 按「调出分公司 + 资产编号」匹配台账行并扣减数量（扣减值为单据的调拨数量，下限 0），保存时自动重算 `是否充足`。无匹配台账行时 MUST 跳过扣减且不使单据失败。其他流转类型（采购、领用、归还、调拨）MUST NOT 联动台账库存。
+
+回收（recovery）类型的 Transfer 单生效时（审批通过），系统 SHALL 按「调出分公司 + 资产编号」匹配台账行并扣减数量（扣减值为单据的调拨数量，下限 0），保存时自动重算 `是否充足`。无匹配台账行时 MUST 跳过扣减且不使单据失败。其他流转类型（采购、领用、归还、调拨）MUST NOT 联动台账库存。
 
 #### Scenario: 回收审批通过后扣减台账
+
 - **WHEN** 「分公司 A / 资产编号 X」台账数量为 10，该编号的回收单（数量 3，调出分公司 A）审批通过
 - **THEN** 台账行数量变为 7，`是否充足` 按新数量重算
 
 #### Scenario: 台账无匹配行时容错
+
 - **WHEN** 回收单的资产编号未在台账登记，单据审批通过
 - **THEN** 单据正常通过，台账无变化，不报错
 
 #### Scenario: 扣减下限为零
+
 - **WHEN** 台账数量为 2，回收单数量为 5
 - **THEN** 台账数量扣至 0，不为负数
 
 #### Scenario: 领用不联动台账
+
 - **WHEN** 领用单审批通过
 - **THEN** 台账库存不变（仅资产明细按现有逻辑扣减）
 
@@ -70,3 +73,4 @@ TBD - created by archiving change fix-asset-quantity-sync. Update Purpose after 
 #### Scenario: 无内部编号的单据不影响固定资产
 - **WHEN** 回收页手工创建的回收单（未填内部编号）审批通过
 - **THEN** 固定资产表记录不变
+

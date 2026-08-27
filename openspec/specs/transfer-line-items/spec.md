@@ -43,7 +43,7 @@
 
 ### Requirement: 单据创建 API 携带明细行数组
 
-五个创建 action（purchase/assign/return/transfer/recovery）MUST 接受 `{...单头字段, items: [...]}` payload：items 非空，每行含品目引用（uuid）、数量与可选 `instances`（实例 uuid 数组，校验矩阵见 document-instance-binding），数量 MUST ≥ 1。领用单 MUST 接受 `领用来源`（stock 默认 / recycle_bin）。品目引用 MUST 指向品目字典已登记品目，未登记 MUST 拒绝并提示相近编号（沿用既有 suggest 机制）；MUST NOT 接受手抄编号字符串创建。类型维度规则沿用既有契约（领用需调出分公司、调拨双分公司且不同、回收需调出分公司）。`draft` 与 `immediate`（行内即时回收）语义保持，immediate 回收按行实例引用执行退役（不再按文本内部编号物理删除）。
+五个创建 action（purchase/assign/return/transfer/recovery）MUST 接受 `{...单头字段, items: [...]}` payload：items 非空，每行含品目引用（uuid）、数量与可选 `instances`（实例 uuid 数组，校验矩阵见 document-instance-binding），数量 MUST ≥ 1。领用单 MUST 接受 `领用来源`（stock 默认 / recycle_bin）。品目引用 MUST 指向品目字典已登记品目，未登记 MUST 拒绝并提示相近编号（沿用既有 suggest 机制）；MUST NOT 接受手抄编号字符串创建。类型维度规则沿用既有契约（领用需调出分公司、调拨双分公司且不同、回收需调出分公司）。`draft` 语义保持；`immediate`（行内即时回收）通道已下线（修订 5.1）——回收创建请求携带 `immediate` MUST 被拒绝（400）并引导走回收单审批流，实例退役经审批生效路径按行实例引用执行（不再按文本内部编号物理删除）。
 
 #### Scenario: 多行采购单一次提交
 

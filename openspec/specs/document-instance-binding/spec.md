@@ -40,7 +40,7 @@ TBD - created by archiving change asset-v2-p2-instances. Update Purpose after ar
 
 ### Requirement: 实例充足性终检与行锁
 
-单据生效（审批通过/即时生效）时，系统 MUST 在与台账变动同一事务内以 `select_for_update` 重取全部行实例，按输入矩阵同一规则终检状态/分公司/品目与数量一致：任一实例校验失败 MUST 整单回滚（台账与实例均无变化），错误信息 MUST 带明细行定位（行号 × 品目编号）。终检 MUST 防止创建到生效之间实例被并发单据占用或状态漂移。
+单据生效（审批通过）时，系统 MUST 在与台账变动同一事务内以 `select_for_update` 重取全部行实例，按输入矩阵同一规则终检状态/分公司/品目与数量一致：任一实例校验失败 MUST 整单回滚（台账与实例均无变化），错误信息 MUST 带明细行定位（行号 × 品目编号）。终检 MUST 防止创建到生效之间实例被并发单据占用或状态漂移。
 
 #### Scenario: 生效时实例已被占用整单回滚
 
@@ -49,7 +49,7 @@ TBD - created by archiving change asset-v2-p2-instances. Update Purpose after ar
 
 #### Scenario: 并发领用同一实例仅一单成功
 
-- **WHEN** 两张领用单（immediate 生效）同时绑定同一在库实例并发提交
+- **WHEN** 两张领用单绑定同一在库实例先后审批通过
 - **THEN** 仅一单成功，另一单回滚并提示实例状态不符
 
 ### Requirement: 五单实例状态迁移矩阵
