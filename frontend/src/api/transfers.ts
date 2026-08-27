@@ -51,8 +51,8 @@ export function transferAsset(data: TransferPayload) {
   return request.post<TransferDocument>('/api/transfers/transfer', data)
 }
 
-/** 资产回收（immediate=true 直接回收：即时生效并联动台账） */
-export function recoverAsset(data: TransferPayload & { immediate?: boolean }) {
+/** 资产回收（统一走审批流：待审批 → 审批通过生效；行内即时通道已下线） */
+export function recoverAsset(data: TransferPayload) {
   return request.post<TransferDocument>('/api/transfers/recovery', data)
 }
 

@@ -123,6 +123,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     def _create_action(self, request, action_type):
         """Shared helper for the 5 action routes：单头 + items 明细行。"""
+        # 行内即时回收已下线（修订 5.1）：回收统一走单据审批流，明拒不静默降级
+        if request.data.get('immediate'):
+            return Response(
+                {'detail': '行内即时回收已下线：请创建回收单走审批流（数据修正走台账调整单）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = TransferActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -154,18 +161,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         self._check_inventory_lock(branch_id=from_branch.id if from_branch else None)
         self._check_inventory_lock(branch_id=to_branch.id if to_branch else None)
 
-        # 行内直接回收（明细/固定资产列表发起）：manage_assets 持有者创建即「已通过」并即时联动
-        immediate_recovery = bool(request.data.get('immediate')) and action_type == Transfer.ACTION_RECOVERY
-        if immediate_recovery and not request.user.can('manage_assets'):
-            return Response(
-                {'detail': '直接回收需要资产管理权限'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if immediate_recovery:
-            data['审批状态'] = '已通过'
-            data['审批人'] = request.user.name or request.user.phone
-            data['审批时间'] = timezone.now()
-
         from django.db import transaction
         with transaction.atomic():
             transfer = Transfer(
@@ -176,8 +171,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
             transfer.save()
             _build_lines(transfer, items)
-            if immediate_recovery:
-                self._apply_ledger(transfer)
         _notify_created(transfer)
         return Response(
             TransferSerializer(transfer).data,

@@ -10,10 +10,9 @@ import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
-import RecoveryDialog from './assets/RecoveryDialog.vue'
 import { INSTANCE_STATUS_OPTIONS } from '@/constants'
 
-const { canManageAssets, can } = usePermission()
+const { can } = usePermission()
 const canSupplement = computed(() => can('manage_instances'))
 const route = useRoute()
 
@@ -104,15 +103,6 @@ async function openTimeline(asset: FixedAsset) {
   } finally {
     timelineLoading.value = false
   }
-}
-
-// ── 行内回收（即时生效：入回收库/直接处置 → 实例转回收库/退役，档案保留） ──
-const showRecoveryDialog = ref(false)
-const recoveringAsset = ref<FixedAsset | null>(null)
-
-function openRecovery(asset: FixedAsset) {
-  recoveringAsset.value = asset
-  showRecoveryDialog.value = true
 }
 
 // ── 标签打印 ──
@@ -288,12 +278,6 @@ onMounted(() => { fetchAssets(); fetchBranches() })
                   <rect x="6" y="14" width="12" height="8"/>
                 </svg>
               </button>
-              <button v-if="canManageAssets && item.当前状态 === '在用'" class="action-btn" title="回收" @click="openRecovery(item)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="1 4 1 10 7 10"/>
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-                </svg>
-              </button>
             </td>
           </tr>
         </tbody>
@@ -351,16 +335,6 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 
     <!-- 标签打印弹窗 -->
     <AssetPrintDialog :visible="showPrintDialog" :assets="printItems" @close="showPrintDialog = false" />
-
-    <!-- 行内回收（即时生效 → 实例转回收库/退役） -->
-    <RecoveryDialog
-      v-if="showRecoveryDialog"
-      :visible="showRecoveryDialog"
-      mode="fixed"
-      :item="recoveringAsset"
-      @close="showRecoveryDialog = false"
-      @success="fetchAssets"
-    />
   </div>
 </template>
 
