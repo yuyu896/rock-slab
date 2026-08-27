@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElSelect, ElOption } from 'element-plus'
+import { MANAGEMENT_TYPE_LABELS } from '@/constants'
 import { getCategories } from '@/api/categories'
 import type { ItemSummary } from '@/types'
 
@@ -69,7 +70,7 @@ function onChange(value: string) {
         <span class="item-name">{{ opt.asset_name }}</span>
         <span v-if="opt.specification" class="item-meta">{{ opt.specification }}</span>
         <span class="item-meta">{{ opt.assetCategory }}/{{ opt.itemCategory }}</span>
-        <span class="item-meta">{{ opt.managementType === 'instance' ? '实例管理' : '数量管理' }}</span>
+        <span class="item-meta">{{ MANAGEMENT_TYPE_LABELS[opt.managementType ?? ''] || opt.managementType }}</span>
       </div>
     </ElOption>
   </ElSelect>

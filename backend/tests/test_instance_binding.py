@@ -116,7 +116,7 @@ class TestInstanceInputMatrix:
         resp = self._assign(authenticated_client, branch, item,
                             _line(item, insts, 使用人='张三'))
         assert resp.status_code == 400
-        assert '数量管理品目无需选择实例' in str(resp.data['detail'])
+        assert '非实例管理品目无需选择实例' in str(resp.data['detail'])
 
     def test_purchase_with_instances_rejected(self, authenticated_client, branch):
         item = _item('IB-P-001')

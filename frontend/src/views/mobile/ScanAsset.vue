@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MANAGEMENT_TYPE_LABELS } from '@/constants'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAssetStocks, getFixedAssets } from '@/api/assets'
@@ -224,7 +225,7 @@ onUnmounted(() => {
       <div class="result-card" @click="viewDetail">
         <div class="asset-header">
           <span class="asset-status">
-            {{ scannedStock.管理方式 === 'instance' ? '实例管理' : '数量管理' }}
+            {{ MANAGEMENT_TYPE_LABELS[scannedStock.管理方式 ?? ''] || scannedStock.管理方式 }}
           </span>
         </div>
         <div class="asset-info">

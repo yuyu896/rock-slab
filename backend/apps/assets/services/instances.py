@@ -56,7 +56,7 @@ def check_line_instances(transfer, line, instances):
         return
     if not is_instance_item:
         raise _err(
-            f'明细行 {line.行号}（{line.item.asset_code}）：数量管理品目无需选择实例'
+            f'明细行 {line.行号}（{line.item.asset_code}）：非实例管理品目无需选择实例'
         )
     if transfer.action_type == 'purchase':
         raise _err(

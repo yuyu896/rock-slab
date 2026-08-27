@@ -220,6 +220,9 @@ defineExpose({ validate, validateMessage })
         <div class="cell item-cell">
           <ItemPicker :model-value="draft.item?.id ?? ''" @change="(item) => onItemPicked(index, item)" />
           <div v-if="draft.item" class="picked-meta">{{ draft.item.asset_name }}{{ draft.item.specification ? ` · ${draft.item.specification}` : '' }}{{ draft.item.unit ? ` · ${draft.item.unit}` : '' }}</div>
+          <div v-if="draft.item?.managementType === 'consumable'" class="picked-meta consumable-meta">
+            消耗品{{ type === 'assign' ? '：领出即耗用（在库扣减、总量降），不进在用、不可回收' : '' }}
+          </div>
         </div>
         <div class="cell">
           <input
@@ -288,6 +291,7 @@ defineExpose({ validate, validateMessage })
 .instance-cell { display: flex; flex-direction: column; gap: 4px; }
 .instance-none { color: var(--color-text-tertiary); text-align: center; }
 .picked-meta { font-size: 12px; color: var(--color-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumable-meta { color: var(--color-warning, #b8860b); white-space: normal; }
 .row-input { width: 100%; height: 36px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 6px; font-size: 13px; background: var(--color-bg-page); outline: none; box-sizing: border-box; }
 .row-input:disabled { opacity: 0.7; cursor: not-allowed; background: var(--color-bg-elevated); }
 .row-input.qty, .row-input.num { text-align: center; }

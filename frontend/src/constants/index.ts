@@ -44,6 +44,14 @@ export const ASSET_STATUS_OPTIONS: { value: AssetStatusType; label: string }[] =
   { value: '报废', label: '报废' },
 ]
 
+// ============ 管理方式（设计书 #2 三档：数量/实例/消耗品） ============
+
+export const MANAGEMENT_TYPE_LABELS: Record<string, string> = {
+  quantity: '数量管理',
+  instance: '实例管理',
+  consumable: '消耗品',
+}
+
 // ============ 实例状态（固定资产一物一档，P2 第二刀） ============
 
 export const INSTANCE_STATUS_OPTIONS = [

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MANAGEMENT_TYPE_LABELS } from '@/constants'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getAssetStocks, getFixedAssets } from '@/api/assets'
@@ -98,7 +99,7 @@ onMounted(() => {
         <div class="info-grid">
           <div class="info-item"><span class="info-label">资产类目</span><span class="info-value">{{ stock.资产类目 || '-' }}</span></div>
           <div class="info-item"><span class="info-label">规格</span><span class="info-value">{{ stock.规格 || '-' }}</span></div>
-          <div class="info-item"><span class="info-label">管理方式</span><span class="info-value">{{ stock.管理方式 === 'instance' ? '实例管理' : '数量管理' }}</span></div>
+          <div class="info-item"><span class="info-label">管理方式</span><span class="info-value">{{ MANAGEMENT_TYPE_LABELS[stock.管理方式 ?? ''] || stock.管理方式 }}</span></div>
           <div class="info-item"><span class="info-label">警戒线</span><span class="info-value">{{ stock.生效警戒线 ?? '—' }}</span></div>
         </div>
       </div>

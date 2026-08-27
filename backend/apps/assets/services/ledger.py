@@ -107,6 +107,9 @@ def _line_plan(transfer, line):
         branch = to_branch or from_branch
         return [(branch, item, COLUMN_STOCK, qty)]
     if action == 'assign':
+        # 消耗品行：领用即耗用发放——在库−N（总量降），不进在用（设计书 #2 三档）
+        if item.management_type == 'consumable':
+            return [(from_branch, item, COLUMN_STOCK, -qty)]
         # 领用来源：新品库扣在库，回收库扣回收库（设计书决策 #10）
         source_col = (
             COLUMN_RECYCLE

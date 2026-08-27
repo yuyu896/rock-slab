@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MANAGEMENT_TYPE_LABELS } from '@/constants'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getCategories, deleteCategory as deleteCategoryApi, exportCategories } from '@/api/categories'
@@ -360,7 +361,7 @@ onMounted(() => {
               <span class="asset-code">{{ item.资产编号 }}</span>
             </td>
             <td>{{ item.规格 || '—' }}</td>
-            <td>{{ item.管理方式 === 'instance' ? '实例管理' : '数量管理' }}</td>
+            <td>{{ MANAGEMENT_TYPE_LABELS[item.管理方式 ?? ''] || item.管理方式 }}</td>
             <td>{{ item.是否租用 ? '是' : '否' }}</td>
             <td>{{ item.默认供应商 || '—' }}</td>
             <td>{{ item.计量单位 }}</td>

@@ -63,6 +63,14 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
             if entry.get('单价') is not None and entry.get('金额') is None:
                 entry['金额'] = (Decimal(str(entry['单价'])) * entry['数量']).quantize(Decimal('0.01'))
             continue
+        # 消耗品单据约束：无回收（领出已耗用出账）、无可归还（不进在用）、无回收库可领
+        if item.management_type == 'consumable':
+            if action_type == 'recovery':
+                err(row_no, item.asset_code, '消耗品无回收：领出时已按耗用发放出账，如需修正走台账调整单')
+            if action_type == 'return':
+                err(row_no, item.asset_code, '消耗品无可归还：领用时不进在用')
+            if action_type == 'assign' and assign_source == 'recycle_bin':
+                err(row_no, item.asset_code, '消耗品无回收库存可领（领用来源仅支持新品库）')
         if action_type == 'assign':
             if not (entry.get('使用人') or '').strip():
                 err(row_no, item.asset_code, '领用行必须填写使用人')
@@ -70,7 +78,7 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
                 err(row_no, item.asset_code, '领用行必须选择领用部门')
         if item.management_type != 'instance':
             if insts:
-                err(row_no, item.asset_code, '数量管理品目无需选择实例')
+                err(row_no, item.asset_code, '非实例管理品目无需选择实例')
             continue
         if action_type not in instance_service.BINDING_ACTIONS:
             if insts:

@@ -81,6 +81,9 @@ async function submit() {
         <select v-model="form.领用来源" class="form-select">
           <option v-for="opt in ASSIGN_SOURCE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
         </select>
+        <div v-if="form.领用来源 === 'recycle_bin'" class="source-hint">
+          回收库来源仅适用于数量/实例管理品目；消耗品行须走新品库（领出即耗用）。
+        </div>
       </div>
     </div>
 
@@ -99,4 +102,5 @@ async function submit() {
 
 <style scoped>
 .remark-item { margin-top: var(--space-4); }
+.source-hint { font-size: 12px; color: var(--color-text-secondary); margin-top: 4px; line-height: 1.5; }
 </style>

@@ -123,7 +123,7 @@ export interface Category {
   资产名称: string
   资产编号: string
   规格?: string
-  管理方式?: 'quantity' | 'instance'
+  管理方式?: 'quantity' | 'instance' | 'consumable'
   是否租用?: boolean
   默认供应商?: string
   计量单位: string
@@ -142,7 +142,7 @@ export interface CategoryRequest {
   asset_name: string
   asset_code: string
   specification?: string
-  management_type?: 'quantity' | 'instance'
+  management_type?: 'quantity' | 'instance' | 'consumable'
   is_rental?: boolean
   default_supplier?: string
   unit: string
@@ -163,7 +163,7 @@ export interface AssetStock {
   资产类目?: string
   物品分类?: string
   计量单位?: string
-  管理方式?: 'quantity' | 'instance'
+  管理方式?: 'quantity' | 'instance' | 'consumable'
   在库数量: number
   在用数量: number
   回收库数量: number
@@ -263,7 +263,7 @@ export interface TransferLine {
   unit?: string
   assetCategory?: string
   itemCategory?: string
-  managementType?: 'quantity' | 'instance'
+  managementType?: 'quantity' | 'instance' | 'consumable'
   数量: number
   本批规格?: string
   单价?: number | null
@@ -430,7 +430,7 @@ export interface FixedAsset {
   itemSpec?: string
   assetCategory?: string
   itemCategory?: string
-  managementType?: 'quantity' | 'instance'
+  managementType?: 'quantity' | 'instance' | 'consumable'
   入库日期?: string | null
   供应商?: string
   单价?: number | string | null

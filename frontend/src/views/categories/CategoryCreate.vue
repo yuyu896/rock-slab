@@ -47,9 +47,13 @@
           >
             <option value="quantity">数量管理</option>
             <option value="instance">实例管理</option>
+            <option value="consumable">消耗品</option>
           </select>
+          <div v-if="form.管理方式 === 'consumable'" class="split-hint">
+            消耗品：领用即耗用发放（在库扣减、总量下降，记领用人签字/部门），不进在用、不可回收。
+          </div>
           <div v-if="isEdit && managementLocked" class="split-hint">
-            该品目存在存量（实例档案或台账数量），管理方式不可切换；数量→实例请先清零台账，实例→数量因档案永久保留不可切换。
+            该品目存在存量（实例档案或台账数量），管理方式不可切换；数量→实例请先清零台账，实例→数量因档案永久保留不可切换；存量品目转消耗品走 migrate_consumables 迁移命令。
           </div>
         </div>
         <div class="form-item">
@@ -113,7 +117,7 @@ const form = reactive({
   资产名称: '',
   资产编号: '',
   规格: '',
-  管理方式: 'quantity' as 'quantity' | 'instance',
+  管理方式: 'quantity' as 'quantity' | 'instance' | 'consumable',
   是否租用: false,
   默认供应商: '',
   计量单位: '',

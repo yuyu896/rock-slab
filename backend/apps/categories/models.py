@@ -6,9 +6,11 @@ class Category(UUIDModel, TimestampedModel):
     """品目字典（物品户口本）：编号唯一，管理方式为品目固有属性"""
     MANAGEMENT_QUANTITY = 'quantity'
     MANAGEMENT_INSTANCE = 'instance'
+    MANAGEMENT_CONSUMABLE = 'consumable'
     MANAGEMENT_CHOICES = [
         (MANAGEMENT_QUANTITY, '数量管理'),
         (MANAGEMENT_INSTANCE, '实例管理'),
+        (MANAGEMENT_CONSUMABLE, '消耗品'),
     ]
 
     asset_category = models.CharField('资产类目', max_length=100)

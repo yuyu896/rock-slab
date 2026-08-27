@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MANAGEMENT_TYPE_LABELS } from '@/constants'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getAssetStocks, exportAssetStocks, getFixedAssets } from '@/api/assets'
@@ -286,7 +287,7 @@ onMounted(() => {
             <td class="asset-name">{{ stock.资产名称 || '-' }}</td>
             <td>{{ stock.规格 || '-' }}</td>
             <td>{{ stock.资产类目 || '-' }}</td>
-            <td>{{ stock.管理方式 === 'instance' ? '实例管理' : '数量管理' }}</td>
+            <td>{{ MANAGEMENT_TYPE_LABELS[stock.管理方式 ?? ''] || stock.管理方式 }}</td>
             <td class="col-qty">{{ stock.在库数量 }}</td>
             <td class="col-qty">{{ stock.在用数量 }}</td>
             <td class="col-qty">{{ stock.回收库数量 }}</td>
