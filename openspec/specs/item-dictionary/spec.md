@@ -4,7 +4,7 @@
 TBD - created by archiving change asset-v2-p1-contract. Update Purpose after archive.
 ## Requirements
 ### Requirement: 品目字典数据模型
-`Category` SHALL 升级为品目字典（物品户口本），字段 MUST 包含：资产编号（唯一，既有）、资产名称、规格（定义性，可空）、资产类目、物品分类、管理方式（quantity=数量管理 / instance=实例管理，默认 quantity）、图片、是否租用（默认否）、默认警戒线、默认供应商（仅预填便利，非事实）、计量单位。品目字典 MUST NOT 存放库存数量、单价、购入日期等任何事实性数据（它们分别属台账与单据层）。
+`Category` SHALL 升级为品目字典（物品户口本），字段 MUST 包含：资产编号（唯一，既有）、资产名称、规格（定义性，可空）、资产类目、物品分类、管理方式（quantity=数量管理 / instance=实例管理 / consumable=消耗品，默认 quantity）、图片、是否租用（默认否）、默认警戒线、默认供应商（仅预填便利，非事实）、计量单位。品目字典 MUST NOT 存放库存数量、单价、购入日期等任何事实性数据（它们分别属台账与单据层）。消耗品语义：领用即耗用发放（在库−N、总量降，记领用人签字/部门），不进在用、无回收、无实例。
 
 #### Scenario: 创建数量管理品目
 - **WHEN** 管理员创建品目「NB-001 笔记本」且未指定管理方式
@@ -13,6 +13,10 @@ TBD - created by archiving change asset-v2-p1-contract. Update Purpose after arc
 #### Scenario: 创建实例管理品目
 - **WHEN** 管理员创建品目时选择管理方式为「实例管理」
 - **THEN** 保存成功，该品目后续领用需绑定具体实例（实例行为 P2 接入，字典先承载属性）
+
+#### Scenario: 创建消耗品品目
+- **WHEN** 管理员创建品目时选择管理方式为「消耗品」
+- **THEN** 保存成功，该品目领用即耗用发放（不进在用、不可回收）
 
 #### Scenario: 编号重复被唯一约束拒绝
 - **WHEN** 创建品目时使用的资产编号已存在
@@ -57,3 +61,18 @@ TBD - created by archiving change asset-v2-p1-contract. Update Purpose after arc
 #### Scenario: 无存量品目可切换管理方式
 - **WHEN** 管理员编辑品目 Z（无实例档案、台账三列均为 0），切换管理方式
 - **THEN** 保存成功，`management_locked` 为 false
+
+### Requirement: 存量消耗品迁移命令
+系统 SHALL 提供 `migrate_consumables` 管理命令（默认 dry-run 预览清单）：把「资产类目=低值易耗品类 × 管理方式=数量管理 × 台账在用=0 且 回收库=0」的品目迁移为消耗品（`--apply` 直改字典属性，不触碰台账数量）；在用或回收库非零的品目 MUST 跳过并列出（附处理指引：先经调整单归零/清空再迁移）；实例管理的 B 类品目 MUST 仅列出供人工决断（不改）。迁移 MUST NOT 产生任何台账数量变动（铁律 2），且迁移前后台账对账 MUST 等价（在用=0 时新旧联动矩阵重放一致）。
+
+#### Scenario: dry-run 输出预览清单
+- **WHEN** 运行 `migrate_consumables`（不带参数）
+- **THEN** 输出可迁移、需先归零（在用/回收库非零）、实例管理三类清单与计数，不写库
+
+#### Scenario: apply 只迁双零品目
+- **WHEN** 运行 `--apply`，B 类品目 X（在库 5、在用 0、回收库 0）与品目 Y（在用 6）
+- **THEN** X 迁移为消耗品（在库 5 保留），Y 跳过并列入需先归零清单
+
+#### Scenario: 迁移不改台账
+- **WHEN** `--apply` 迁移品目 X 后运行台账对账
+- **THEN** 对账零差异（迁移零数量变动）
