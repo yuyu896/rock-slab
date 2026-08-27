@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getInventoryTask, getInventoryProgress, checkInventoryItem, getInventoryChecks, submitInventory } from '@/api/inventories'
+import { getInventoryTask, getInventoryProgress, checkInventoryItem, checkInventoryInstance, getInventoryChecks, getInventoryReport, submitInventory } from '@/api/inventories'
 import { getAssetStocks } from '@/api/assets'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
@@ -114,6 +114,10 @@ const taskInfo = ref<{
 const scanInput = ref('')
 const isScanning = ref(false)
 
+// 实例盘任务状态（inventoryKind=instance：扫码=按内部编号/序列号逐台打钩）
+const isInstanceTask = ref(false)
+const instanceItems = ref<any[]>([])
+
 // 最近扫描记录
 const recentScans = ref<any[]>([])
 
@@ -135,6 +139,7 @@ async function fetchTaskData() {
       getInventoryTask(taskId),
       getInventoryProgress(taskId)
     ])
+    isInstanceTask.value = taskRes.data.inventoryKind === 'instance'
     taskInfo.value = {
       id: taskId,
       name: taskRes.data.name,
@@ -144,13 +149,34 @@ async function fetchTaskData() {
       surplusCount: progressRes.data.surplusCount,
       missingCount: progressRes.data.missingCount
     }
+    if (isInstanceTask.value) await fetchInstanceItems()
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }
 }
 
+/** 实例盘：拉清单（最近扫描按核对时间倒序展示） */
+async function fetchInstanceItems() {
+  try {
+    const { data } = await getInventoryReport(taskId)
+    instanceItems.value = data.items ?? []
+    recentScans.value = [...instanceItems.value]
+      .filter((i: any) => i.checkedAt)
+      .sort((a: any, b: any) => b.checkedAt.localeCompare(a.checkedAt))
+      .slice(0, 10)
+      .map((i: any) => ({
+        id: i.id, assetCode: i.instanceCode, assetName: i.assetName,
+        qty: i.result === 'matched' ? '✓ 已找到' : '✗ 未找到',
+        checkedByName: i.holder ? `持有人 ${i.holder}` : '', checkedAt: i.checkedAt,
+      }))
+  } catch (error) {
+    console.error('Failed to fetch instance items:', error)
+  }
+}
+
 // 获取最近盘点记录
 async function fetchRecentChecks() {
+  if (isInstanceTask.value) return
   try {
     const { data } = await getInventoryChecks(taskId, { pageSize: 10 })
     recentScans.value = data.results
@@ -159,9 +185,14 @@ async function fetchRecentChecks() {
   }
 }
 
-// 扫码处理 — 查找资产并弹出确认
+// 扫码处理 — 台账盘：查台账行弹数量确认；实例盘：按内部编号/序列号直接打钩
 const handleScan = async () => {
   if (!scanInput.value.trim()) return
+
+  if (isInstanceTask.value) {
+    await handleInstanceScan()
+    return
+  }
 
   isScanning.value = true
   try {
@@ -184,6 +215,34 @@ const handleScan = async () => {
     }
     actualQty.value = stock.在库数量
     showResultModal.value = true
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    isScanning.value = false
+  }
+}
+
+/** 实例盘扫码：清单内精确匹配内部编号或序列号，找到即打钩 */
+const handleInstanceScan = async () => {
+  const code = scanInput.value.trim()
+  isScanning.value = true
+  try {
+    const target = instanceItems.value.find((x: any) =>
+      x.instanceCode === code || (x.serialNumber && x.serialNumber === code))
+    if (!target) {
+      ElMessage.warning(`清单中未找到「${code}」`)
+      return
+    }
+    if (target.result === 'matched') {
+      ElMessage.info(`「${target.instanceCode}」已核对过`)
+      scanInput.value = ''
+      return
+    }
+    await checkInventoryInstance(taskId, { instanceId: target.instance, found: true })
+    target.result = 'matched'
+    ElMessage.success(`已核对：${target.instanceCode}（${target.assetName}${target.holder ? ' · ' + target.holder : ''}）`)
+    scanInput.value = ''
+    await fetchTaskData()
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -302,11 +361,11 @@ onUnmounted(() => {
       <div class="progress-stats">
         <div class="progress-stat">
           <span class="stat-value">{{ taskInfo.checkedItems }}</span>
-          <span class="stat-label">已盘点</span>
+          <span class="stat-label">{{ isInstanceTask ? '已核对（台）' : '已盘点' }}</span>
         </div>
         <div class="progress-stat">
           <span class="stat-value">{{ taskInfo.totalItems - taskInfo.checkedItems }}</span>
-          <span class="stat-label">未盘点</span>
+          <span class="stat-label">{{ isInstanceTask ? '未核对（台）' : '未盘点' }}</span>
         </div>
       </div>
     </div>
@@ -324,7 +383,7 @@ onUnmounted(() => {
           ref="scanInputRef"
           v-model="scanInput"
           type="text"
-          placeholder="扫描或输入资产编号..."
+          :placeholder="isInstanceTask ? '扫描/输入内部编号或序列号，回车打钩' : '扫描或输入资产编号...'"
           class="scan-input"
           @keyup.enter="handleScan"
         />

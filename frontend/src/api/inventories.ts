@@ -3,6 +3,7 @@ import request from '@/utils/request'
 import type {
   InventoryTask,
   InventoryItem,
+  InventoryInstanceItem,
   InventoryCheck,
   InventoryProgress,
   InventoryReport,
@@ -41,6 +42,11 @@ export function startInventory(id: string) {
 /** 盘点单项 */
 export function checkInventoryItem(id: string, data: { stockId: string; qty: number; remarks?: string }) {
   return request.post<InventoryCheck>(`/api/inventories/${id}/check`, data)
+}
+
+/** 实例盘逐台核对（found=true 已找到 / false 未找到） */
+export function checkInventoryInstance(id: string, data: { instanceId: string; found: boolean; remarks?: string }) {
+  return request.post<InventoryInstanceItem>(`/api/inventories/${id}/check-instance`, data)
 }
 
 /** 提交审核 */

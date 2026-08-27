@@ -8,17 +8,19 @@ from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
-from .models import InventoryTask, InventoryItem, InventoryCheck
+from .models import InventoryTask, InventoryItem, InventoryInstanceItem, InventoryCheck
 from .serializers import (
     InventoryTaskSerializer,
     InventoryItemSerializer,
+    InventoryInstanceItemSerializer,
     InventoryCheckSerializer,
     CheckItemSerializer,
+    CheckInstanceSerializer,
     RejectSerializer,
     RecountSerializer,
 )
 from .filters import InventoryTaskFilterSet
-from .services import generate_variance_adjustments
+from .services import generate_variance_adjustments, task_target_column
 
 
 class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
@@ -95,14 +97,22 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         )
         if err:
             return err
-        # Create inventory items from ledger rows in scope
-        self._generate_items(task)
+        # 按任务类型生成清单：实例盘=部门在用实例快照；台账盘=范围内台账行
+        if task.is_instance_inventory:
+            self._generate_instance_items(task)
+        else:
+            self._generate_items(task)
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
     def check(self, request, pk=None):
         """盘点单项"""
         task = self.get_object()
+        if task.is_instance_inventory:
+            return Response(
+                {'detail': '实例盘任务请使用逐台核对（check-instance）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if task.status != 'in_progress':
             return Response(
                 {'detail': '只有盘点中的任务可以盘点'},
@@ -122,10 +132,11 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Get or create the inventory item（应盘数量=台账在库）
+        # Get or create the inventory item（应盘数量=任务库别对应列）
+        column = task_target_column(task)
         item, _ = InventoryItem.objects.get_or_create(
             task=task, stock=stock,
-            defaults={'expected_qty': stock.在库数量},
+            defaults={'expected_qty': getattr(stock, column)},
         )
 
         qty = serializer.validated_data['qty']
@@ -157,6 +168,47 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             checked_by=request.user,
         )
         return Response(InventoryCheckSerializer(check_record).data)
+
+    @action(detail=True, methods=['post'], url_path='check-instance')
+    def check_instance(self, request, pk=None):
+        """实例盘逐台核对：found=true→已找到 / false→未找到（重复核对以最后一次为准）"""
+        task = self.get_object()
+        if not task.is_instance_inventory:
+            return Response(
+                {'detail': '该任务不是部门实例盘点'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if task.status != 'in_progress':
+            return Response(
+                {'detail': '只有盘点中的任务可以核对'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = CheckInstanceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        entry = (
+            task.instance_items
+            .select_related('instance__item', 'instance__department')
+            .filter(instance_id=serializer.validated_data['instance_id'])
+            .first()
+        )
+        if not entry:
+            return Response(
+                {'detail': '实例不在本盘点任务清单内'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        found = serializer.validated_data['found']
+        entry.result = 'matched' if found else 'missing'
+        entry.check_count += 1
+        entry.checked_by = request.user
+        entry.checked_at = timezone.now()
+        remarks = serializer.validated_data.get('remarks', '')
+        if remarks:
+            entry.remarks = remarks
+        entry.save()
+        return Response(InventoryInstanceItemSerializer(entry).data)
 
     @action(detail=True, methods=['post'])
     @audit_log(action='submit', resource_type='InventoryTask', description_template='提交盘点审核')
@@ -193,9 +245,11 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         def _adjust(t):
-            # 差异自动生成调整单（P3）：锁内事务逐差异项经唯一写入口修账，
-            # 任一行致负数抛错整笔回滚（任务留 pending_review），差异不吞
-            generate_variance_adjustments(t, request.user)
+            # 差异自动生成调整单（P3，仅台账盘）：锁内事务逐差异项经唯一写入口修账，
+            # 任一行致负数抛错整笔回滚（任务留 pending_review），差异不吞。
+            # 实例盘不自动改账（盘亏报告待跟进，人工决定后续）
+            if not t.is_instance_inventory:
+                generate_variance_adjustments(t, request.user)
             t.completed_at = timezone.now()
 
         task, err = self._transition(
@@ -245,6 +299,15 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         reset_scope = serializer.validated_data.get('reset_scope', 'all')
 
         def _reset(t):
+            if t.is_instance_inventory:
+                qs = t.instance_items.all() if reset_scope == 'all' else (
+                    t.instance_items.filter(result__in=['missing', 'unchecked'])
+                )
+                qs.update(
+                    result='unchecked', check_count=0,
+                    checked_by=None, checked_at=None,
+                )
+                return
             if reset_scope == 'abnormal_only':
                 # Only reset abnormal items (surplus, missing, unchecked)
                 t.items.filter(result__in=['surplus', 'missing', 'unchecked']).update(
@@ -283,7 +346,26 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     # ---- Read-only endpoints ----
 
     def _build_progress_data(self, task, items=None):
-        """Build progress stats dict with rates."""
+        """Build progress stats dict with rates（台账盘/实例盘同口径，实例盘单位为台）."""
+        if task.is_instance_inventory:
+            if items is None:
+                items = task.instance_items.all()
+            total = items.count()
+            matched = items.filter(result='matched').count()
+            missing = items.filter(result='missing').count()
+            unchecked = items.filter(result='unchecked').count()
+            checked = matched + missing
+            return {
+                'totalItems': total,
+                'checkedItems': checked,
+                'matchedCount': matched,
+                'surplusCount': 0,
+                'missingCount': missing,
+                'uncheckedCount': unchecked,
+                'matchRate': round(matched / checked * 100, 1) if checked else 0,
+                'surplusRate': 0,
+                'missingRate': round(missing / checked * 100, 1) if checked else 0,
+            }
         if items is None:
             items = task.items.all()
         total = items.count()
@@ -312,8 +394,18 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def report(self, request, pk=None):
-        """盘点报告（完成后含差异生成的调整单汇总）"""
+        """盘点报告（台账盘含差异调整单汇总；实例盘为实例清单与缺失明细）"""
         task = self.get_object()
+        if task.is_instance_inventory:
+            items = task.instance_items.select_related(
+                'instance__item', 'instance__department', 'checked_by',
+            ).all()
+            return Response({
+                'task': InventoryTaskSerializer(task).data,
+                'progress': self._build_progress_data(task, items),
+                'items': InventoryInstanceItemSerializer(items, many=True).data,
+                'adjustments': {'total': 0, 'surplus': 0, 'missing': 0},
+            })
         items = task.items.select_related('stock__item', 'stock__branch').all()
         adjustments = task.adjustments.all()
         data = {
@@ -360,17 +452,12 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='export-report')
     def export_report(self, request, pk=None):
-        """导出盘点报告 Excel：基本信息 + 统计 + 调整单清单 + 物品明细（双 sheet，任意状态可导）"""
+        """导出盘点报告 Excel：基本信息 + 统计 + 调整单清单 + 明细（双 sheet，任意状态可导）"""
         import io
         import openpyxl
         from django.http import HttpResponse
 
         task = self.get_object()
-        items = task.items.select_related(
-            'stock__item', 'stock__branch', 'checked_by',
-        ).order_by('created_at')
-        adjustments = task.adjustments.select_related('经办人').order_by('created_at')
-        progress = self._build_progress_data(task, items)
 
         def _dt(value):
             return value.strftime('%Y-%m-%d %H:%M') if value else ''
@@ -382,10 +469,16 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.append(['盘点报告'])
         ws.append([])
         ws.append(['基本信息'])
-        for label, value in [
+        base_info = [
             ('任务名称', task.name),
             ('分公司', task.branch.name if task.branch else '全部分公司'),
             ('资产类目', task.category.asset_category if task.category else '全部类目'),
+        ]
+        if task.is_instance_inventory:
+            base_info.append(('盘点部门', task.department.name if task.department else ''))
+        else:
+            base_info.append(('库别', task.get_stock_bin_display()))
+        base_info += [
             ('状态', task.get_status_display()),
             ('创建人', task.created_by.name if task.created_by else ''),
             ('创建时间', _dt(task.created_at)),
@@ -393,65 +486,111 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             ('提交时间', _dt(task.submitted_at)),
             ('完成时间', _dt(task.completed_at)),
             ('漏盘规则', task.get_missed_rule_display()),
-            ('重复盘点规则', task.get_repeat_rule_display()),
-        ]:
+        ]
+        if not task.is_instance_inventory:
+            base_info.append(('重复盘点规则', task.get_repeat_rule_display()))
+        for label, value in base_info:
             ws.append([label, value])
 
         ws.append([])
         ws.append(['盘点统计'])
-        for label, value in [
-            ('应盘品目数', progress['totalItems']),
-            ('已盘品目数', progress['checkedItems']),
-            ('正常', progress['matchedCount']),
-            ('盘盈', progress['surplusCount']),
-            ('盘亏', progress['missingCount']),
-            ('未盘', progress['uncheckedCount']),
-            ('正常率', f"{progress['matchRate']}%"),
-            ('盘盈率', f"{progress['surplusRate']}%"),
-            ('盘亏率', f"{progress['missingRate']}%"),
-        ]:
-            ws.append([label, value])
+        if task.is_instance_inventory:
+            items = task.instance_items.select_related(
+                'instance__item', 'instance__department', 'checked_by',
+            ).order_by('created_at')
+            progress = self._build_progress_data(task, items)
+            for label, value in [
+                ('应到（台）', progress['totalItems']),
+                ('实到（台）', progress['matchedCount']),
+                ('缺失（台）', progress['missingCount']),
+                ('未核对（台）', progress['uncheckedCount']),
+                ('实到率', f"{progress['matchRate']}%"),
+            ]:
+                ws.append([label, value])
+        else:
+            items = task.items.select_related(
+                'stock__item', 'stock__branch', 'checked_by',
+            ).order_by('created_at')
+            progress = self._build_progress_data(task, items)
+            for label, value in [
+                ('应盘品目数', progress['totalItems']),
+                ('已盘品目数', progress['checkedItems']),
+                ('正常', progress['matchedCount']),
+                ('盘盈', progress['surplusCount']),
+                ('盘亏', progress['missingCount']),
+                ('未盘', progress['uncheckedCount']),
+                ('正常率', f"{progress['matchRate']}%"),
+                ('盘盈率', f"{progress['surplusRate']}%"),
+                ('盘亏率', f"{progress['missingRate']}%"),
+            ]:
+                ws.append([label, value])
 
         ws.append([])
         ws.append(['差异调整单'])
-        if adjustments:
-            ws.append(['单据编号', '目标列', '变动量', '事由', '经办人', '创建时间'])
-            for adj in adjustments:
-                ws.append([
-                    adj.单据编号 or '',
-                    adj.目标列,
-                    adj.变动量,
-                    adj.事由,
-                    adj.经办人.name if adj.经办人 else '',
-                    _dt(adj.created_at),
-                ])
-        elif task.status == 'completed':
-            ws.append(['无差异调整单'])
+        if task.is_instance_inventory:
+            ws.append(['无（实例盘不改账）'])
         else:
-            ws.append(['无（任务未完成）'])
+            adjustments = task.adjustments.select_related('经办人').order_by('created_at')
+            if adjustments:
+                ws.append(['单据编号', '目标列', '变动量', '事由', '经办人', '创建时间'])
+                for adj in adjustments:
+                    ws.append([
+                        adj.单据编号 or '',
+                        adj.目标列,
+                        adj.变动量,
+                        adj.事由,
+                        adj.经办人.name if adj.经办人 else '',
+                        _dt(adj.created_at),
+                    ])
+            elif task.status == 'completed':
+                ws.append(['无差异调整单'])
+            else:
+                ws.append(['无（任务未完成）'])
 
         ws_detail = wb.create_sheet('盘点明细')
-        ws_detail.append([
-            '序号', '资产编号', '资产名称', '资产类目',
-            '应盘', '实盘', '差异', '结果', '盘点人', '盘点时间', '备注',
-        ])
-        for idx, entry in enumerate(items, start=1):
-            stock = entry.stock
-            actual = entry.actual_qty
-            diff = None if actual is None else actual - entry.expected_qty
+        if task.is_instance_inventory:
+            RESULT_LABELS = {'matched': '已找到', 'missing': '未找到（待跟进）', 'unchecked': '未核对'}
             ws_detail.append([
-                idx,
-                stock.item.asset_code,
-                stock.item.asset_name,
-                stock.item.asset_category,
-                entry.expected_qty,
-                actual if actual is not None else '',
-                f'+{diff}' if diff is not None and diff > 0 else (str(diff) if diff is not None else ''),
-                entry.get_result_display(),
-                entry.checked_by.name if entry.checked_by else '',
-                _dt(entry.checked_at),
-                entry.remarks or '',
+                '序号', '内部编号', '资产编号', '资产名称', '序列号',
+                '使用人', '部门', '核对结果', '核对人', '核对时间', '备注',
             ])
+            for idx, entry in enumerate(items, start=1):
+                inst = entry.instance
+                ws_detail.append([
+                    idx,
+                    inst.内部编号,
+                    inst.item.asset_code,
+                    inst.item.asset_name,
+                    inst.序列号 or '（待补录）',
+                    inst.使用人,
+                    inst.department.name if inst.department else '',
+                    RESULT_LABELS.get(entry.result, entry.result),
+                    entry.checked_by.name if entry.checked_by else '',
+                    _dt(entry.checked_at),
+                    entry.remarks or '',
+                ])
+        else:
+            ws_detail.append([
+                '序号', '资产编号', '资产名称', '资产类目',
+                '应盘', '实盘', '差异', '结果', '盘点人', '盘点时间', '备注',
+            ])
+            for idx, entry in enumerate(items, start=1):
+                stock = entry.stock
+                actual = entry.actual_qty
+                diff = None if actual is None else actual - entry.expected_qty
+                ws_detail.append([
+                    idx,
+                    stock.item.asset_code,
+                    stock.item.asset_name,
+                    stock.item.asset_category,
+                    entry.expected_qty,
+                    actual if actual is not None else '',
+                    f'+{diff}' if diff is not None and diff > 0 else (str(diff) if diff is not None else ''),
+                    entry.get_result_display(),
+                    entry.checked_by.name if entry.checked_by else '',
+                    _dt(entry.checked_at),
+                    entry.remarks or '',
+                ])
 
         output = io.BytesIO()
         wb.save(output)
@@ -473,6 +612,11 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.http import HttpResponse
 
         task = self.get_object()
+        if task.is_instance_inventory:
+            return Response(
+                {'detail': '实例盘任务请逐台核对（点选/扫码），不提供 Excel 导入模板'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         items = task.items.select_related('stock__item').order_by('created_at')
 
         wb = openpyxl.Workbook()
@@ -509,6 +653,11 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def import_result(self, request, pk=None):
         """导入盘点结果 Excel"""
         task = self.get_object()
+        if task.is_instance_inventory:
+            return Response(
+                {'detail': '实例盘任务请逐台核对（点选/扫码），不支持 Excel 导入'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if task.status != 'in_progress':
             return Response(
                 {'detail': '只有盘点中的任务可以导入'},
@@ -608,11 +757,11 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     # ---- Helpers ----
 
     def _generate_items(self, task):
-        """从任务范围内台账行生成盘点项（跳过三列全零空行，应盘=在库数量）。"""
+        """台账盘：从任务范围内台账行生成盘点项（目标库别列>0，应盘=该列）。"""
         from apps.assets.models import AssetStock
-        from django.db.models import Q
+        column = task_target_column(task)
         qs = AssetStock.objects.select_related('item').filter(
-            Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
+            **{f'{column}__gt': 0},
         )
         if task.branch:
             qs = qs.filter(branch=task.branch)
@@ -621,11 +770,29 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         for stock in qs:
             InventoryItem.objects.get_or_create(
                 task=task, stock=stock,
-                defaults={'expected_qty': stock.在库数量},
+                defaults={'expected_qty': getattr(stock, column)},
             )
+
+    def _generate_instance_items(self, task):
+        """实例盘：生成部门名下在用实例快照（一台一行；仅实例管理品目有实例）。"""
+        from apps.assets.models import FixedAsset
+        qs = FixedAsset.objects.select_related('item', 'department').filter(
+            当前状态=FixedAsset.STATUS_IN_USE,
+            branch=task.branch,
+            department=task.department,
+        )
+        if task.category:
+            qs = qs.filter(item__asset_category=task.category.asset_category)
+        for instance in qs:
+            InventoryInstanceItem.objects.get_or_create(task=task, instance=instance)
 
     def _apply_missed_rule(self, task):
         """Apply missed rule to unchecked items before submission."""
+        if task.is_instance_inventory:
+            # 实例盘：zero→未核对记缺失（进报告待跟进）；keep→保持未核对
+            if task.missed_rule == 'zero':
+                task.instance_items.filter(result='unchecked').update(result='missing')
+            return
         unchecked_items = task.items.filter(result='unchecked')
         if task.missed_rule == 'zero':
             # Zero out: set actual_qty to 0 and result to 'missing'

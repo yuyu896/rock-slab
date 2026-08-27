@@ -1,16 +1,26 @@
 """盘点领域服务：差异项 → 台账调整单（P3 盘点差异自动生成调整单）。"""
 from apps.assets.services import ledger as ledger_service
-from .models import InventoryItem
+from .models import InventoryItem, InventoryTask
+
+
+def task_target_column(task):
+    """台账盘目标列：库别 stock→在库数量 / recycle→回收库数量。"""
+    if task.stock_bin == InventoryTask.BIN_RECYCLE:
+        return ledger_service.COLUMN_RECYCLE
+    return ledger_service.COLUMN_STOCK
 
 
 def generate_variance_adjustments(task, approver):
     """审批通过钩子（_transition 锁内事务）中调用：逐差异项经唯一写入口开单修账。
 
-    目标列=在库数量（盘点只盘在库列，expected 取自在库）；漏盘归零规则(zero)
+    目标列=任务库别对应列（应盘取自该列）；漏盘归零规则(zero)
     已把漏盘项写成 actual=0/missing，keep 规则的未盘项保持 unchecked 不开单；
     任一行致负数由 apply_adjustment 抛 LEDGER_INSUFFICIENT，外层事务整笔回滚。
+    实例盘任务（department 非空）差异不自动改账，调用方不应传入。
     """
     adjustments = []
+    column = task_target_column(task)
+    bin_label = task.get_stock_bin_display()
     items = (
         InventoryItem.objects
         .filter(task=task, result__in=['surplus', 'missing'])
@@ -27,10 +37,10 @@ def generate_variance_adjustments(task, approver):
         adjustments.append(ledger_service.apply_adjustment(
             branch=stock.branch,
             item=stock.item,
-            column=ledger_service.COLUMN_STOCK,
+            column=column,
             delta=delta,
             reason=(
-                f'盘点差异「{task.name}」：在库 {entry.expected_qty} → '
+                f'盘点差异「{task.name}」：{bin_label} {entry.expected_qty} → '
                 f'{entry.actual_qty}（{label}{abs(delta)}）'
             ),
             operator=approver,

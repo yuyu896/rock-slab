@@ -73,6 +73,20 @@ export const RepeatRule = {
 } as const
 export type RepeatRuleType = (typeof RepeatRule)[keyof typeof RepeatRule]
 
+/** 盘点库别（台账盘目标列；实例盘固定盘在用实例） */
+export const StockBin = {
+  STOCK: 'stock',
+  RECYCLE: 'recycle',
+} as const
+export type StockBinType = (typeof StockBin)[keyof typeof StockBin]
+
+/** 盘点方式：台账盘（数量）/ 实例盘（部门逐台） */
+export const InventoryKind = {
+  STOCK: 'stock',
+  INSTANCE: 'instance',
+} as const
+export type InventoryKindType = (typeof InventoryKind)[keyof typeof InventoryKind]
+
 // ============ 数据接口 ============
 
 /** 区域 */
@@ -341,6 +355,9 @@ export interface InventoryTask {
   branchId?: string
   branch?: string
   categoryId?: string
+  stockBin?: StockBinType
+  department?: string
+  inventoryKind?: InventoryKindType
   status: InventoryTaskStatusType
   missedRule: MissedRuleType
   repeatRule: RepeatRuleType
@@ -366,6 +383,26 @@ export interface InventoryItem {
   expectedQty: number
   actualQty?: number
   result: InventoryItemResultType
+  checkCount: number
+  checkedBy?: string
+  checkedAt?: string
+  remarks?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 实例盘项（部门维度逐台核对，一台一行） */
+export interface InventoryInstanceItem {
+  id: string
+  taskId: string
+  instance: string
+  instanceCode: string
+  serialNumber: string
+  assetCode: string
+  assetName: string
+  holder: string
+  department: string
+  result: 'matched' | 'missing' | 'unchecked'
   checkCount: number
   checkedBy?: string
   checkedAt?: string

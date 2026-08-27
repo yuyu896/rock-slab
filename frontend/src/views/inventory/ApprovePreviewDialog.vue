@@ -11,6 +11,7 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'confirm'): void }>()
 const loading = ref(false)
 const submitting = ref(false)
 const items = ref<InventoryItem[]>([])
+const isInstance = ref(false)
 
 const varianceRows = computed(() =>
   items.value.filter(
@@ -19,6 +20,8 @@ const varianceRows = computed(() =>
 )
 const surplusCount = computed(() => varianceRows.value.filter((it) => (it.actualQty ?? 0) > (it.expectedQty ?? 0)).length)
 const missingCount = computed(() => varianceRows.value.length - surplusCount.value)
+const instanceMissing = computed(() =>
+  isInstance.value ? (items.value as any[]).filter(it => it.result === 'missing') : [])
 
 watch(() => props.visible, async (v) => {
   if (!v) return
@@ -26,6 +29,7 @@ watch(() => props.visible, async (v) => {
   loading.value = true
   try {
     const { data } = await getInventoryReport(props.taskId)
+    isInstance.value = data.task?.inventoryKind === 'instance'
     items.value = data.items || []
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -57,13 +61,37 @@ defineExpose({ done: () => { submitting.value = false } })
 
       <div class="modal-body">
         <div v-if="loading" class="empty-cell">加载差异中...</div>
+        <template v-else-if="isInstance">
+          <p v-if="instanceMissing.length === 0" class="hint">
+            实例盘全部核对一致，审批通过后任务完成（实例盘不自动改账）。
+          </p>
+          <template v-else>
+            <p class="hint">
+              实例盘<b>不自动改账</b>：以下 <strong>{{ instanceMissing.length }}</strong> 台缺失实例
+              审批通过后报告标记「待跟进」，请人工决定后续（重新查找 / 发起回收处置单）：
+            </p>
+            <table class="data-table">
+              <thead>
+                <tr><th>内部编号</th><th>名称</th><th>序列号</th><th>使用人</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="it in instanceMissing" :key="it.id">
+                  <td><span class="asset-code">{{ it.instanceCode || '-' }}</span></td>
+                  <td>{{ it.assetName || '-' }}</td>
+                  <td>{{ it.serialNumber || '（待补录）' }}</td>
+                  <td>{{ it.holder || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+        </template>
         <template v-else>
           <p v-if="varianceRows.length === 0" class="hint">
             无差异项，审批通过不生成调整单、台账不变动。
           </p>
           <template v-else>
             <p class="hint">
-              审批通过后将生成 <strong>{{ varianceRows.length }}</strong> 条调整单修正台账（在库列）：
+              审批通过后将生成 <strong>{{ varianceRows.length }}</strong> 条调整单修正台账（任务库别对应列）：
               盘盈 {{ surplusCount }} / 盘亏 {{ missingCount }}
             </p>
             <table class="data-table">
@@ -89,7 +117,7 @@ defineExpose({ done: () => { submitting.value = false } })
       <div class="modal-footer">
         <button class="btn-secondary" :disabled="submitting" @click="emit('close')">取消</button>
         <button class="btn-primary" :disabled="loading || submitting" @click="onConfirm">
-          {{ submitting ? '审批中...' : '通过并生成调整单' }}
+          {{ submitting ? '审批中...' : isInstance ? '通过（实例盘不改账）' : '通过并生成调整单' }}
         </button>
       </div>
     </div>

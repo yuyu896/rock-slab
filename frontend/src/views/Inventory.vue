@@ -15,11 +15,15 @@ import {
   submitInventory,
   downloadInventoryTemplate,
   importInventoryResult,
+  checkInventoryInstance,
 } from '@/api/inventories'
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
-import { MISSED_RULE_LABELS, REPEAT_RULE_LABELS, INVENTORY_RESULT_MAP } from '@/constants'
+import {
+  MISSED_RULE_LABELS, REPEAT_RULE_LABELS, INVENTORY_RESULT_MAP,
+  INSTANCE_RESULT_MAP, STOCK_BIN_LABELS, INVENTORY_KIND_LABELS,
+} from '@/constants'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { MissedRuleType, RepeatRuleType } from '@/types'
 
@@ -63,6 +67,69 @@ const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', labe
 const getMissedRuleLabel = (rule: string) => MISSED_RULE_LABELS[rule as MissedRuleType] || '-'
 const getRepeatRuleLabel = (rule: string) => REPEAT_RULE_LABELS[rule as RepeatRuleType] || '-'
 const getResultLabel = (result: string) => INVENTORY_RESULT_MAP[result as keyof typeof INVENTORY_RESULT_MAP] ?? result
+const getInstanceResultLabel = (result: string) =>
+  (result === 'missing' ? `${INSTANCE_RESULT_MAP[result]}（待跟进）` : INSTANCE_RESULT_MAP[result]) ?? result
+
+const isInstanceTask = (task: any) => task?.inventoryKind === 'instance'
+const isTaskInProgress = (task: any) => task?.status === 'in_progress'
+const stockBinLabel = (task: any) => STOCK_BIN_LABELS[(task?.stockBin ?? 'stock') as keyof typeof STOCK_BIN_LABELS] || '在库'
+
+// ========== 实例盘：按使用人分组逐台核对 ==========
+const instanceBusyId = ref('')
+const instanceScanInput = ref('')
+
+const holderGroups = computed(() => {
+  if (!selectedTask.value || !isInstanceTask(selectedTask.value)) return []
+  const groups = new Map<string, any[]>()
+  for (const item of detailItems.value) {
+    const key = item.holder || '（未填使用人）'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(item)
+  }
+  return [...groups.entries()].map(([holder, items]) => ({ holder, items }))
+})
+
+const markInstance = async (item: any, found: boolean) => {
+  if (!selectedTask.value || instanceBusyId.value) return
+  instanceBusyId.value = item.id
+  try {
+    const { data } = await checkInventoryInstance(selectedTask.value.id, {
+      instanceId: item.instance, found,
+    })
+    const idx = detailItems.value.findIndex((x: any) => x.id === item.id)
+    if (idx >= 0) detailItems.value[idx] = data
+    // 本地同步进度统计
+    const checked = detailItems.value.filter((x: any) => x.result === 'matched' || x.result === 'missing').length
+    const missing = detailItems.value.filter((x: any) => x.result === 'missing').length
+    selectedTask.value.checkedItems = checked
+    selectedTask.value.missingCount = missing
+    selectedTask.value.progress = detailItems.value.length
+      ? Math.round(checked / detailItems.value.length * 100) : 0
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    instanceBusyId.value = ''
+  }
+}
+
+/** 扫码/输入内部编号（或序列号）快速定位并打钩 */
+const submitInstanceScan = async () => {
+  const code = instanceScanInput.value.trim()
+  if (!code || !selectedTask.value) return
+  const target = detailItems.value.find((x: any) =>
+    x.instanceCode === code || (x.serialNumber && x.serialNumber === code))
+  if (!target) {
+    ElMessage.warning(`清单中未找到「${code}」（按内部编号或序列号精确匹配）`)
+    return
+  }
+  if (target.result === 'matched') {
+    ElMessage.info(`「${code}」已核对过`)
+    instanceScanInput.value = ''
+    return
+  }
+  await markInstance(target, true)
+  instanceScanInput.value = ''
+}
 
 // 明细差异：文本与着色（盘盈绿 / 盘亏红，沿用报告弹窗口径）
 const diffText = (item: any) => {
@@ -87,6 +154,7 @@ const submitFromScan = async (task: any) => {
     await submitInventory(task.id)
     ElMessage.success('已提交审核')
     backToList()
+    await fetchTasks()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(handleApiError(error))
@@ -540,7 +608,11 @@ onMounted(() => {
               <div class="info-list">
                 <div class="info-item">
                   <span class="info-label">盘点范围</span>
-                  <span class="info-value">{{ selectedTask.branchName || '全部分公司' }}</span>
+                  <span class="info-value">
+                    {{ selectedTask.branchName || '全部分公司' }}
+                    <template v-if="isInstanceTask(selectedTask)"> · {{ selectedTask.departmentName || '部门' }}（{{ INVENTORY_KIND_LABELS.instance }}）</template>
+                    <template v-else> · {{ stockBinLabel(selectedTask) }}</template>
+                  </span>
                 </div>
                 <div class="info-item">
                   <span class="info-label">创建时间</span>
@@ -563,19 +635,19 @@ onMounted(() => {
               <div class="stats-grid">
                 <div class="stat-box">
                   <span class="stat-number">{{ selectedTask.totalItems }}</span>
-                  <span class="stat-text">应盘数量</span>
+                  <span class="stat-text">{{ isInstanceTask(selectedTask) ? '应到（台）' : '应盘数量' }}</span>
                 </div>
                 <div class="stat-box success">
-                  <span class="stat-number">{{ selectedTask.checkedItems }}</span>
-                  <span class="stat-text">已盘点</span>
+                  <span class="stat-number">{{ isInstanceTask(selectedTask) ? (selectedTask.checkedItems ?? 0) - (selectedTask.missingCount ?? 0) : selectedTask.checkedItems }}</span>
+                  <span class="stat-text">{{ isInstanceTask(selectedTask) ? '实到（台）' : '已盘点' }}</span>
                 </div>
-                <div class="stat-box warning">
+                <div class="stat-box warning" v-if="!isInstanceTask(selectedTask)">
                   <span class="stat-number">{{ selectedTask.surplusCount }}</span>
                   <span class="stat-text">盘盈</span>
                 </div>
                 <div class="stat-box danger">
                   <span class="stat-number">{{ selectedTask.missingCount }}</span>
-                  <span class="stat-text">盘亏</span>
+                  <span class="stat-text">{{ isInstanceTask(selectedTask) ? '缺失（台）' : '盘亏' }}</span>
                 </div>
               </div>
               <div class="progress-info">
@@ -606,10 +678,76 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 物品明细 -->
+          <!-- 物品明细（台账盘：数量明细表 / 实例盘：按使用人分组逐台核对） -->
           <div class="checkers-card">
-            <h4 class="info-card-title">物品明细</h4>
-            <div v-if="detailItems.length" class="detail-table-wrapper">
+            <div v-if="isInstanceTask(selectedTask)" class="checks-card-header">
+              <h4 class="info-card-title">实例清单（按使用人分组，逐台核对）</h4>
+              <div v-if="isTaskInProgress(selectedTask)" class="scan-row">
+                <input
+                  v-model="instanceScanInput"
+                  class="scan-input"
+                  placeholder="扫码 / 输入内部编号或序列号，回车打钩"
+                  @keyup.enter="submitInstanceScan"
+                />
+                <button class="pager-btn" @click="submitInstanceScan">打钩</button>
+              </div>
+            </div>
+            <h4 v-else class="info-card-title">物品明细</h4>
+
+            <template v-if="isInstanceTask(selectedTask)">
+              <div v-if="holderGroups.length">
+                <div v-for="group in holderGroups" :key="group.holder" class="holder-group">
+                  <div class="holder-header">
+                    <strong>{{ group.holder }}</strong>
+                    <span class="holder-count">
+                      {{ group.items.filter(i => i.result === 'matched').length }}/{{ group.items.length }} 台已找到
+                    </span>
+                  </div>
+                  <div class="detail-table-wrapper">
+                    <table class="detail-table">
+                      <thead>
+                        <tr>
+                          <th>内部编号</th>
+                          <th>资产名称</th>
+                          <th>序列号</th>
+                          <th>核对结果</th>
+                          <th v-if="isTaskInProgress(selectedTask)">操作</th>
+                          <th>备注</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="item in group.items" :key="item.id">
+                          <td>{{ item.instanceCode ?? '-' }}</td>
+                          <td>{{ item.assetName ?? '-' }}</td>
+                          <td>{{ item.serialNumber || '（待补录）' }}</td>
+                          <td :style="{ color: item.result === 'missing' ? 'var(--color-danger)' : item.result === 'matched' ? 'var(--color-success)' : '' }">
+                            {{ getInstanceResultLabel(item.result) }}
+                          </td>
+                          <td v-if="isTaskInProgress(selectedTask)">
+                            <button
+                              class="pager-btn ok-btn"
+                              :disabled="instanceBusyId === item.id || item.result === 'matched'"
+                              @click="markInstance(item, true)"
+                            >已找到</button>
+                            <button
+                              class="pager-btn miss-btn"
+                              :disabled="instanceBusyId === item.id"
+                              @click="markInstance(item, false)"
+                            >未找到</button>
+                          </td>
+                          <td>{{ item.remarks || '-' }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="table-empty">
+                {{ selectedTask.status === 'pending' ? '盘点开始后生成实例清单（该部门名下在用实例）' : '该部门名下暂无在用实例' }}
+              </div>
+            </template>
+
+            <div v-else-if="detailItems.length" class="detail-table-wrapper">
               <table class="detail-table">
                 <thead>
                   <tr>
@@ -640,8 +778,8 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- 盘点流水（按人查看） -->
-          <div class="checkers-card">
+          <!-- 盘点流水（按人查看；实例盘无数量流水） -->
+          <div v-if="!isInstanceTask(selectedTask)" class="checkers-card">
             <div class="checks-card-header">
               <h4 class="info-card-title">盘点流水</h4>
               <select
@@ -765,6 +903,15 @@ onMounted(() => {
 .pager-btns { display: flex; gap: 8px; }
 .pager-btn { padding: 4px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--color-text-secondary); background: none; border: 1px solid var(--color-border); }
 .pager-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.scan-row { display: flex; gap: 8px; align-items: center; }
+.scan-input { width: 300px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-elevated); outline: none; }
+.scan-input:focus { border-color: var(--color-primary-400); }
+.holder-group { margin-bottom: 16px; }
+.holder-group:last-child { margin-bottom: 0; }
+.holder-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px; font-size: 14px; }
+.holder-count { font-size: 13px; color: var(--color-text-secondary); }
+.ok-btn { color: var(--color-success); border-color: var(--color-success); }
+.miss-btn { color: var(--color-danger); border-color: var(--color-danger); }
 
 /* 模态框 */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }

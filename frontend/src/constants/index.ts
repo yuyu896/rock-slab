@@ -8,6 +8,8 @@ import type {
   EntityStatusType,
   MissedRuleType,
   RepeatRuleType,
+  StockBinType,
+  InventoryKindType,
 } from '@/types'
 
 /** 资产所属部门预置选项（支持自定义输入） */
@@ -188,6 +190,36 @@ export const MISSED_RULE_LABELS: Record<MissedRuleType, string> = {
 export const REPEAT_RULE_LABELS: Record<RepeatRuleType, string> = {
   last: '以最后一次为准',
   accumulate: '累计数量',
+}
+
+/** 重复盘点规则场景提示（设计书十三节：创建页须附场景说明） */
+export const REPEAT_RULE_HINTS: Record<RepeatRuleType, string> = {
+  accumulate: '多人分区各数各的 / 逐台扫码逐次累加',
+  last: '单人数错重数覆盖',
+}
+
+// ============ 盘点库别 / 方式（设计书十三节） ============
+
+export const STOCK_BIN_OPTIONS: { value: StockBinType; label: string }[] = [
+  { value: 'stock', label: '在库' },
+  { value: 'recycle', label: '回收库' },
+]
+
+export const STOCK_BIN_LABELS: Record<StockBinType, string> = {
+  stock: '在库',
+  recycle: '回收库',
+}
+
+export const INVENTORY_KIND_LABELS: Record<InventoryKindType, string> = {
+  stock: '台账盘点',
+  instance: '部门实例盘点',
+}
+
+/** 实例盘核对结果（一台一勾） */
+export const INSTANCE_RESULT_MAP: Record<string, string> = {
+  matched: '已找到',
+  missing: '未找到',
+  unchecked: '未核对',
 }
 
 // ============ 分公司编号格式 ============

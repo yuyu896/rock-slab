@@ -32,6 +32,22 @@ class InventoryTask(UUIDModel, TimestampedModel):
         null=True, blank=True, related_name='inventory_tasks',
         verbose_name='资产类目',
     )
+    # 台账盘目标库别（department 为空的台账盘任务生效；实例盘固定盘在用实例）
+    BIN_STOCK = 'stock'
+    BIN_RECYCLE = 'recycle'
+    STOCK_BIN_CHOICES = [
+        (BIN_STOCK, '在库'),
+        (BIN_RECYCLE, '回收库'),
+    ]
+    stock_bin = models.CharField(
+        '库别', max_length=20, choices=STOCK_BIN_CHOICES, default=BIN_STOCK,
+    )
+    # 部门维度：设置即为实例盘（清单=该部门名下在用实例，逐台核对，差异不自动改账）
+    department = models.ForeignKey(
+        'organizations.Department', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='inventory_tasks',
+        verbose_name='盘点部门（实例盘）',
+    )
     status = models.CharField(
         '状态', max_length=20,
         choices=STATUS_CHOICES, default='pending',
@@ -85,6 +101,11 @@ class InventoryTask(UUIDModel, TimestampedModel):
     def can_transition(self, new_status):
         return new_status in self.TRANSITIONS.get(self.status, [])
 
+    @property
+    def is_instance_inventory(self):
+        """部门维度已设置 = 实例盘（逐台核对在用实例，差异不自动改账）。"""
+        return self.department_id is not None
+
 
 class InventoryItem(UUIDModel, TimestampedModel):
     """盘点项"""
@@ -129,6 +150,53 @@ class InventoryItem(UUIDModel, TimestampedModel):
 
     def __str__(self):
         return f'{self.task.name} - {self.stock.item.asset_name}'
+
+
+class InventoryInstanceItem(UUIDModel, TimestampedModel):
+    """实例盘项 —— 部门维度的在用实例快照（一台一行，逐台核对）。
+
+    仅实例盘任务（task.department 非空）生成；核对是布尔结果（found→matched /
+    未找到→missing），无数量语义；差异不自动改账（盘亏走报告待跟进 + 人工回收单）。
+    """
+
+    RESULT_CHOICES = [
+        ('matched', '已找到'),
+        ('missing', '未找到'),
+        ('unchecked', '未核对'),
+    ]
+
+    task = models.ForeignKey(
+        InventoryTask, on_delete=models.CASCADE,
+        related_name='instance_items', verbose_name='盘点任务',
+    )
+    instance = models.ForeignKey(
+        'assets.FixedAsset', on_delete=models.CASCADE,
+        related_name='inventory_items', verbose_name='实例',
+    )
+    result = models.CharField(
+        '核对结果', max_length=20,
+        choices=RESULT_CHOICES, default='unchecked',
+    )
+    check_count = models.IntegerField('核对次数', default=0)
+    checked_by = models.ForeignKey(
+        'users.User', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='checked_instance_items',
+        verbose_name='核对人',
+    )
+    checked_at = models.DateTimeField('核对时间', null=True, blank=True)
+    remarks = models.TextField('备注', blank=True, default='')
+
+    class Meta:
+        db_table = 'inventories_instance_item'
+        ordering = ['instance__内部编号']
+        verbose_name = '实例盘项'
+        verbose_name_plural = '实例盘项'
+        constraints = [
+            models.UniqueConstraint(fields=['task', 'instance'], name='uniq_inventory_task_instance'),
+        ]
+
+    def __str__(self):
+        return f'{self.task.name} - {self.instance.内部编号}'
 
 
 class InventoryCheck(UUIDModel, TimestampedModel):

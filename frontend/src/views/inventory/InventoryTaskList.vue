@@ -173,8 +173,8 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
               </template>
               <template v-else-if="task.status === 'in_progress'">
                 <button class="row-btn secondary" @click="emit('view', task)">查看进度</button>
-                <button class="row-btn accent" @click="emit('downloadTemplate', task)">下载模板</button>
-                <button class="row-btn accent" @click="emit('import', task)">导入盘点表</button>
+                <button v-if="task.inventoryKind !== 'instance'" class="row-btn accent" @click="emit('downloadTemplate', task)">下载模板</button>
+                <button v-if="task.inventoryKind !== 'instance'" class="row-btn accent" @click="emit('import', task)">导入盘点表</button>
                 <button class="row-btn secondary" @click="emit('cancel', task)">作废</button>
                 <button class="row-btn primary" @click="emit('submit', task)">提交审核</button>
               </template>

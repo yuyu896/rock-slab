@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import TransferCreateLayout from './components/TransferCreateLayout.vue'
 import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDrafts'
 import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { recoverAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
+import { getInventoryReport } from '@/api/inventories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
@@ -14,8 +15,9 @@ const RECOVERY_CATEGORIES = ['闲置回收', '报废回收', '捐赠回收', '�
 const DISPOSAL_METHODS = ['出售', '报废', '捐赠']
 
 const router = useRouter()
+const route = useRoute()
 const creating = ref(false)
-const branchOptions = ref<{ value: string; label: string }[]>([])
+const branchOptions = ref<{ value: string; label: string; id?: string }[]>([])
 const form = ref({
   调拨日期: '',
   回收分类: '',
@@ -32,12 +34,62 @@ const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 const fromBranchName = computed(() => form.value.调出分公司)
 
+/** 盘亏跟进预填：来自实例盘报告的缺失实例（按品目聚合成行，实例逐台带入） */
+async function prefillFromInventoryTask(taskId: string) {
+  try {
+    const { data: report } = await getInventoryReport(taskId)
+    // 实例盘报告的 items 为 InventoryInstanceItem（inventoryKind=instance 保证）
+    const missing = ((report.items ?? []) as any[]).filter((i: any) => i.result === 'missing')
+    if (!missing.length) {
+      ElMessage.warning('该盘点任务没有缺失实例，无需发起回收')
+      return
+    }
+    const byItem = new Map<string, { draft: LineDraft; item: any }>()
+    for (const entry of missing) {
+      let group = byItem.get(entry.itemId)
+      if (!group) {
+        const draft = emptyDraft()
+        draft.item = {
+          id: entry.itemId,
+          asset_code: entry.assetCode,
+          asset_name: entry.assetName,
+          specification: '',
+          unit: entry.unit,
+          assetCategory: '',
+          itemCategory: '',
+          managementType: 'instance',
+        }
+        draft.instances = []
+        group = { draft, item: entry }
+        byItem.set(entry.itemId, group)
+      }
+      group.draft.instances.push({ id: entry.instance, code: entry.instanceCode })
+    }
+    for (const g of byItem.values()) g.draft.数量 = g.draft.instances.length
+    lines.value = [...byItem.values()].map(g => g.draft)
+    const task = report.task as any
+    if (task.branch) {
+      const branchName = branchOptions.value.find(b => b.id === task.branch || b.value === task.branch)?.label
+        ?? branchOptions.value.find(b => b.id === task.branch)?.value
+      if (branchName) form.value.调出分公司 = branchName
+    }
+    form.value.备注 = `盘亏跟进：来自盘点任务「${task.name}」缺失 ${missing.length} 台`
+    ElMessage.success(`已预填 ${missing.length} 台缺失实例，请补全单头后提交`)
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  }
+}
+
 onMounted(async () => {
   try {
     const { data } = await getBranches()
-    branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
+    branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name, id: b.id }))
   } catch (error) {
     ElMessage.error(handleApiError(error))
+  }
+  const fromTask = route.query.fromInventoryTask
+  if (typeof fromTask === 'string' && fromTask) {
+    await prefillFromInventoryTask(fromTask)
   }
 })
 
