@@ -23,7 +23,7 @@ class TestRoleAccess:
             'phone': '13900000010',
             'name': 'New User',
             'password': 'test123456',
-            'role': 'staff',
+            'role': 'manager',
         })
         assert resp.status_code == status.HTTP_201_CREATED
 

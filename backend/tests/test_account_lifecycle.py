@@ -30,7 +30,7 @@ class TestAccountLifecycleSecurity:
         from apps.users.models import User
         client = _client_for(admin_user)
         resp = client.post('/api/users/', {
-            'phone': '13800007777', 'name': '默认密码', 'role': 'staff',
+            'phone': '13800007777', 'name': '默认密码', 'role': 'manager',
         }, format='json')
         assert resp.status_code == 201
         user = User.objects.get(phone='13800007777')
@@ -41,7 +41,7 @@ class TestAccountLifecycleSecurity:
         from apps.users.models import User
         client = _client_for(admin_user)
         resp = client.post('/api/users/', {
-            'phone': '13800007778', 'name': '弱密码', 'role': 'staff',
+            'phone': '13800007778', 'name': '弱密码', 'role': 'manager',
             'password': '123',
         }, format='json')
         assert resp.status_code == 201

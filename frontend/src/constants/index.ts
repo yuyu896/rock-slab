@@ -16,19 +16,20 @@ import type {
 export const ROLE_LABELS: Record<UserRoleType, string> = {
   admin: '系统管理员',
   director: '大区负责人',
-  manager: '分公司负责人',
+  manager: '分公司行政',
   leader: '行政组长',
-  staff: '分公司行政',
   // 已退役岗位：仅用于存量数据展示，不可再分配
   supervisor: '行政主管（已退役）',
+  staff: '分公司行政（已退役）',
 }
 
 export const ROLE_LEVELS: Record<UserRoleType, number> = {
   admin: 1,
   director: 2,
   manager: 3,
-  supervisor: 4,
-  leader: 5,
+  leader: 4,
+  // 已退役岗位：仅作存量排序展示
+  supervisor: 5,
   staff: 6,
 }
 

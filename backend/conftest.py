@@ -143,14 +143,16 @@ def second_branch(db, second_team):
 
 
 # ---------------------------------------------------------------------------
-# User fixtures — 5 roles
+# User fixtures — 岗位样本
 # ---------------------------------------------------------------------------
 # 注：解耦后权限由 ManagementScope / OperationGrant 决定，不再由 role 推导。
 # 各角色 fixture 按其"旧有效范围"种子授权，与生产数据迁移保持一致：
 #   - admin           → 不种子（走职位兜底）
 #   - manager         → 授权全部已知 region + 原 manager 隐含的操作
-#   - supervisor      → 授权其 region + 原 supervisor 隐含的操作
-#   - leader / staff  → 授权其 branch
+#   - supervisor      → 授权其 region + 原 supervisor 隐含的操作（存量退役岗位回归）
+#   - leader          → 授权其 branch
+#   - staff           → 授权其 branch（存量退役岗位回归：岗位合并后分公司行政=manager，
+#                        保留 staff 样本验证"存量未换岗用户按既有授权正常工作"）
 LEGACY_OPERATIONS = {
     'manager': [
         'manage_users', 'manage_dictionary', 'manage_assets',

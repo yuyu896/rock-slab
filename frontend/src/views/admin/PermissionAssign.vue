@@ -67,7 +67,10 @@
                 <code class="op-code">{{ op.code }}</code>
               </label>
             </div>
-            <button class="btn-primary" :disabled="saving || !roleDirty" @click="saveRole">
+            <p v-if="keptExtraCount > 0" class="keep-hint">
+              将保留岗位外的既有授权 {{ keptExtraCount }} 项（显式取消勾选才删除）
+            </p>
+            <button class="btn-primary" :disabled="saving || !canSave" @click="saveRole">
               {{ saving ? '保存中…' : '保存岗位' }}
             </button>
           </section>
@@ -225,7 +228,33 @@ const regionBranchCount = computed(() =>
     : 0,
 )
 
-const roleDirty = computed(() => selectedRole.value !== selectedUser.value?.role)
+const currentOps = computed(() => new Set(grants.value.map(g => g.code)))
+
+/** 操作码勾选集与既有授权存在差集（含增删两个方向） */
+const opsDirty = computed(() => {
+  if (isAdminUser.value) return false
+  if (draftOps.value.size !== currentOps.value.size) return true
+  for (const c of draftOps.value) {
+    if (!currentOps.value.has(c)) return true
+  }
+  return false
+})
+
+/** 保存可用：岗位变化 或 操作码差集 */
+const canSave = computed(() =>
+  selectedRole.value !== selectedUser.value?.role || opsDirty.value)
+
+/** 岗位外保留的既有授权数（当前勾选中不属于所选模板的项；取消勾选即从保留中移除） */
+const keptExtraCount = computed(() => {
+  if (isAdminUser.value) return 0
+  const tpl = activeTemplate.value
+  const tplOps = tpl && !tpl.allOperations ? new Set(tpl.operations) : new Set<string>()
+  let n = 0
+  for (const c of draftOps.value) {
+    if (!tplOps.has(c)) n++
+  }
+  return n
+})
 
 /** 若保存后的范围：当前生效范围 ∪ 待任命节点子树 */
 const previewScopeText = computed(() => {
@@ -266,7 +295,7 @@ function regionName(id: string) {
 
 function onSelectUser() {
   const u = selectedUser.value
-  selectedRole.value = u?.role || 'staff'
+  selectedRole.value = u?.role || 'manager'
   draftOps.value = new Set(grants.value.map(g => g.code))
   const tpl = templates.value.find(t => t.role === selectedRole.value)
   if (tpl && tpl.scopeType !== 'all' && tpl.scopeType !== 'region') {
@@ -281,7 +310,8 @@ function onPickRole(role: string) {
   selectedRole.value = role
   const tpl = templates.value.find(t => t.role === role)
   if (tpl && !tpl.allOperations && selectedUser.value?.role !== 'admin') {
-    draftOps.value = new Set(tpl.operations)
+    // 只补不删：模板 ∪ 既有授权 作为初始勾选（与 migrate_positions 命令原则一致）
+    draftOps.value = new Set([...tpl.operations, ...grants.value.map(g => g.code)])
   }
   if (tpl && tpl.scopeType !== 'all') {
     appointType.value = tpl.scopeType as 'region' | 'team' | 'branch'
@@ -487,6 +517,7 @@ onMounted(async () => {
 .appoint-list li:last-child, .scope-list li:last-child { border-bottom: none; }
 .empty { color: var(--color-text-tertiary); justify-content: center; border: none; }
 .region-hint { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-primary-50); border-radius: var(--radius-md); }
+.keep-hint { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-bg-page); border: 1px dashed var(--color-border); border-radius: var(--radius-md); }
 .btn-primary { padding: var(--space-2) var(--space-4); background: var(--color-primary-500); color: #fff; border: none; border-radius: var(--radius-md); cursor: pointer; font-size: var(--text-sm); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-link { background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: var(--text-sm); }

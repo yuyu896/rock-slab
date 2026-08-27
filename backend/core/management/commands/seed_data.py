@@ -43,8 +43,8 @@ class Command(BaseCommand):
             ('13800000001', '行政经理', 'manager', None, None),
             ('13800000002', '华东主管', 'supervisor', None, regions['HD'].pk),
             ('13800000003', '上海组长', 'leader', Branch.objects.get(code='SH001').pk, None),
-            ('13800000004', '上海专员', 'staff', Branch.objects.get(code='SH001').pk, None),
-            ('13800000005', '杭州专员', 'staff', Branch.objects.get(code='HZ001').pk, None),
+            ('13800000004', '上海专员', 'manager', Branch.objects.get(code='SH001').pk, None),
+            ('13800000005', '杭州专员', 'manager', Branch.objects.get(code='HZ001').pk, None),
         ]
         for phone, name, role, branch_id, region_id in users_data:
             user, created = User.objects.get_or_create(

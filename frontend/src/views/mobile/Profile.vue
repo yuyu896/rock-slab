@@ -6,6 +6,7 @@ import { useNotificationStore } from '@/store/notification'
 import { updatePassword } from '@/api/auth'
 import { TOKEN_KEY, handleApiError } from '@/utils/request'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { ROLE_LABELS } from '@/constants'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -14,14 +15,7 @@ const notificationStore = useNotificationStore()
 const userName = computed(() => userStore.profile?.name || '用户')
 const userPhone = computed(() => userStore.profile?.phone || '')
 const userRole = computed(() => userStore.profile?.role || '')
-
-const roleLabels: Record<string, string> = {
-  admin: '系统管理员',
-  manager: '分公司负责人',
-  supervisor: '行政主管（已退役）',
-  leader: '行政组长',
-  staff: '分公司行政',
-}
+const roleLabel = (role: string) => ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role
 
 const menuItems = [
   { key: 'my-assets', label: '我的资产', icon: 'box', path: '/mobile/my-assets' },
@@ -133,7 +127,7 @@ function getIcon(name: string): string {
       <div class="user-info">
         <div class="user-name">{{ userName }}</div>
         <div class="user-phone">{{ userPhone }}</div>
-        <div class="user-role">{{ roleLabels[userRole] || userRole }}</div>
+        <div class="user-role">{{ roleLabel(userRole) }}</div>
       </div>
       <button class="edit-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

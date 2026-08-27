@@ -29,7 +29,7 @@ POSITION_TEMPLATES = {
         ],
     },
     'manager': {
-        'label': '分公司负责人',
+        'label': '分公司行政',
         'scope_type': 'branch',
         'operations': [
             'manage_users',
@@ -37,6 +37,9 @@ POSITION_TEMPLATES = {
             'manage_assets',
             'approve_transfer',
             'approve_inventory',
+            'adjust_ledger',
+            'manage_instances',
+            'view_reports',
         ],
     },
     'leader': {
@@ -44,16 +47,12 @@ POSITION_TEMPLATES = {
         'scope_type': 'team',
         'operations': [],
     },
-    'staff': {
-        'label': '分公司行政',
-        'scope_type': 'branch',
-        'operations': [],
-    },
 }
 
-# 存量岗位 → 目标岗位映射（migrate_positions 用；supervisor 退役默认去向 manager）
+# 存量岗位 → 目标岗位映射（migrate_positions 用；supervisor/staff 退役默认去向 manager）
 LEGACY_POSITION_MAP = {
     'supervisor': 'manager',
+    'staff': 'manager',
 }
 
 

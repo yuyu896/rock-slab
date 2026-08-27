@@ -41,8 +41,8 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(f'[OK] {role} 用户 {user.phone} 操作授权齐全')
 
-        # leader/staff：有 branch 的应有 branch 授权
-        for role in ('leader', 'staff'):
+        # leader：有 branch 的应有 branch 授权
+        for role in ('leader',):
             user = User.objects.filter(role=role, branch__isnull=False).first()
             if not user:
                 self.stdout.write(f'跳过 {role}：无带 branch 的用户')
@@ -54,6 +54,14 @@ class Command(BaseCommand):
                 errors.append(f'{role} 用户 {user.phone} 有 branch 但未种子 branch 授权')
             else:
                 self.stdout.write(f'[OK] {role} 用户 {user.phone} 分公司授权存在')
+
+        # 存量退役岗位（supervisor/staff）：功能不受影响，提示换岗
+        for role in ('supervisor', 'staff'):
+            count = User.objects.filter(role=role, status='active').count()
+            if count:
+                self.stdout.write(self.style.WARNING(
+                    f'[WARN] {count} 个存量 {role} 用户待换岗（运行 python manage.py migrate_positions --apply）'
+                ))
 
         # admin 不应有授权（走职位兜底）
         admin_with_grant = User.objects.filter(role='admin').filter(

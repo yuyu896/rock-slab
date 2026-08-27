@@ -26,7 +26,6 @@ class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
         ('director', 'director'),
         ('manager', 'manager'),
         ('leader', 'leader'),
-        ('staff', 'staff'),
     ]
     STATUS_CHOICES = [
         ('active', 'active'),
@@ -36,7 +35,7 @@ class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
 
     phone = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=100)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='manager')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
     system_avatar = models.CharField(
         max_length=20, null=True, blank=True,

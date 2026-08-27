@@ -90,7 +90,7 @@ bash deploy.sh            # git pull → docker build → migrate → 对账 →
 - **模型字段**: Django 模型使用**中文字段名** (如 `分公司`、`资产名称`、`当前状态`)，这是有意为之的设计
 - **JSON 序列化**: 使用 `djangorestframework-camel-case`，后端 snake_case/中文 → 前端 camelCase
 - **URL 风格**: `trailing_slash=False`, `APPEND_SLASH = False`
-- **权限系统**: 6 级角色体系 admin(L1) > director(L2) > manager(L3) > supervisor(L4) > leader(L5) > staff(L6)
+- **权限系统**: 4 岗位体系 admin(L1) > director(L2) > manager(L3=分公司行政) > leader(L4)；supervisor/staff 已退役（存量展示，换岗走 migrate_positions）
 - **数据隔离**: `DataScopeMixin` 根据角色自动过滤查询集
 - **所有模型**: 继承 `UUIDModel` (UUID主键) + `TimestampedModel` (created_at, updated_at)
 - **认证**: 手机号+密码登录, 自定义 `ExpiringToken` (7天过期，`TOKEN_EXPIRATION_DAYS`)

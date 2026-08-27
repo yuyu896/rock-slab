@@ -100,19 +100,31 @@ class TestAppointmentScope:
 
 @pytest.mark.django_db
 class TestPositionTemplatesApi:
-    def test_catalog_contains_five_positions(self, authenticated_client):
+    def test_catalog_contains_four_positions(self, authenticated_client):
         resp = authenticated_client.get('/api/permissions/position-templates')
         assert resp.status_code == status.HTTP_200_OK
         roles = {t['role'] for t in resp.data}
-        assert roles == {'admin', 'director', 'manager', 'leader', 'staff'}
+        assert roles == {'admin', 'director', 'manager', 'leader'}
         by_role = {t['role']: t for t in resp.data}
-        assert 'approve_transfer' in by_role['manager']['operations']
+        assert by_role['manager']['label'] == '分公司行政'
+        assert by_role['manager']['operations'] == [
+            'manage_users', 'manage_dictionary', 'manage_assets',
+            'approve_transfer', 'approve_inventory',
+            'adjust_ledger', 'manage_instances', 'view_reports',
+        ]
         assert by_role['leader']['operations'] == []
         assert by_role['admin']['all_operations'] is True
 
     def test_create_user_supervisor_rejected(self, authenticated_client):
         resp = authenticated_client.post('/api/users/', {
             'phone': '13611112222', 'name': '退役岗位', 'role': 'supervisor',
+            'status': 'active', 'password': 'x123456',
+        })
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_user_staff_rejected(self, authenticated_client):
+        resp = authenticated_client.post('/api/users/', {
+            'phone': '13611112223', 'name': '退役行政', 'role': 'staff',
             'status': 'active', 'password': 'x123456',
         })
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
@@ -125,6 +137,18 @@ class TestPositionTemplatesApi:
         )
         OperationGrant.objects.create(user=user, code='approve_transfer')
         assert user.can('approve_transfer') is True
+
+    def test_legacy_staff_user_still_works(self, db, branch):
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13622223334', name='存量行政', password='x',
+            role='staff', status='active', branch=branch,
+        )
+        ManagementScope.objects.create(user=user, branch=branch)
+        OperationGrant.objects.create(user=user, code='manage_assets')
+        from apps.permissions.scope import resolve_user_scope
+        assert user.can('manage_assets') is True
+        assert branch.id in resolve_user_scope(user).branches
 
 
 # ---------------------------------------------------------------------------
@@ -271,3 +295,22 @@ class TestMigratePositionsCommand:
         self._run('--apply')
         assert OperationGrant.objects.filter(user=user).count() == count_after_first
         assert '无变化 1 人' in self._run()
+
+    def test_apply_migrates_staff_to_manager_without_deleting(self, db, branch):
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13677778888', name='存量行政', password='x',
+            role='staff', status='active', branch=branch,
+        )
+        ManagementScope.objects.create(user=user, branch=branch)
+        OperationGrant.objects.create(user=user, code='dispose_assets')  # 模板外特例
+
+        self._run('--apply')
+
+        user.refresh_from_db()
+        assert user.role == 'manager'
+        codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
+        template = set(POSITION_TEMPLATES['manager']['operations'])
+        assert template.issubset(codes)   # 8 操作码补齐
+        assert 'dispose_assets' in codes  # 特例保留
+        assert ManagementScope.objects.filter(user=user, branch=branch).exists()  # 范围保留

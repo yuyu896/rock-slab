@@ -7,6 +7,7 @@ import { getSystemAvatarSvg } from '@/utils/avatar'
 import SidebarNav from '@/components/layout/SidebarNav.vue'
 import UserPanel from '@/components/layout/UserPanel.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
+import { ROLE_LABELS } from '@/constants'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -15,14 +16,7 @@ const isCollapsed = ref(false)
 const showUserPanel = ref(false)
 const userPanelRef = ref<InstanceType<typeof UserPanel> | null>(null)
 
-const roleLabels: Record<string, string> = {
-  admin: '系统管理员',
-  director: '大区负责人',
-  manager: '分公司负责人',
-  leader: '行政组长',
-  staff: '分公司行政',
-  supervisor: '行政主管（已退役）',
-}
+const roleLabels: Record<string, string> = { ...ROLE_LABELS }
 
 const userInfo = computed(() => ({
   name: userStore.profile?.name || '用户',

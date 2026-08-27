@@ -9,7 +9,7 @@ def _user_payload(**overrides):
     defaults = dict(
         phone='13811112222',
         name='新建用户',
-        role='staff',
+        role='manager',
         status='active',
         password='test123456',
     )
@@ -140,7 +140,7 @@ class TestScopeValidation:
 class TestAutoAssignment:
     def test_manager_creates_user_without_org_fields(self, manager_user):
         client = _client_for(manager_user)
-        payload = _user_payload(role='staff')  # 未提供任何组织归属
+        payload = _user_payload(role='manager')  # 未提供任何组织归属
         resp = client.post('/api/users/', payload)
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['branch'] is None  # 不再自动填区域/组织字段

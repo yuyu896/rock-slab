@@ -84,6 +84,13 @@ const saving = ref(false)
 const editingItem = ref<Record<string, any> | null>(null)
 const editingEmployee = ref<Record<string, any> | null>(null)
 
+// 存量退役岗位（supervisor/staff）：编辑时下拉需能显示当前值，追加禁用选项
+const retiredRoleLabel = computed(() => {
+  const r: string | undefined = editingEmployee.value?.role
+  if (r !== 'supervisor' && r !== 'staff') return ''
+  return ROLE_LABELS[r] || r
+})
+
 // 选中节点对应的 region / team（用于新增下级时预填归属，均沿树派生）
 const currentRegionId = computed(() => {
   const n = selectedNode.value
@@ -110,7 +117,7 @@ function addItem(type: EditType) {
   if (type === 'user') {
     // 员工走右侧编辑页（不弹窗，防误触）；组织归属只写分公司
     editingEmployee.value = {
-      isNew: true, name: '', phone: '', role: 'staff',
+      isNew: true, name: '', phone: '', role: 'manager',
       branch: selectedNode.value?.type === 'branch' ? selectedNode.value.rawId : '',
       status: 'active',
     }
@@ -352,7 +359,8 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
           <div class="form-row"><label>手机号（登录账号） <span class="req">*</span></label><input v-model="editingEmployee.phone" class="form-input" maxlength="11" placeholder="11 位手机号" /></div>
           <div class="form-row"><label>职务</label>
             <select v-model="editingEmployee.role" class="form-input">
-              <option value="admin">系统管理员</option><option value="director">大区负责人</option><option value="manager">分公司负责人</option><option value="leader">行政组长</option><option value="staff">分公司行政</option>
+              <option value="admin">系统管理员</option><option value="director">大区负责人</option><option value="manager">分公司行政</option><option value="leader">行政组长</option>
+              <option v-if="retiredRoleLabel" :value="editingEmployee.role" disabled>{{ retiredRoleLabel }}（待换岗）</option>
             </select>
           </div>
           <div class="form-row"><label>所属分公司</label>
@@ -442,13 +450,13 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
     <div v-if="editingItem" class="modal-mask" @click.self="editingItem = null">
       <div class="modal">
         <div class="modal-header">
-          <h3>{{ editingItem.isNew ? '新增' : '编辑' }}{{ editingItem.type === 'region' ? '区域' : editingItem.type === 'team' ? '行政组' : editingItem.type === 'branch' ? '分公司' : '员工' }}</h3>
+          <h3>{{ editingItem.isNew ? '新增' : '编辑' }}{{ editingItem.type === 'region' ? '区域' : editingItem.type === 'team' ? '行政组' : '分公司' }}</h3>
           <button class="modal-close" @click="editingItem = null">×</button>
         </div>
         <div class="modal-body">
           <!-- 通用：名称 -->
           <div class="form-row">
-            <label>{{ editingItem.type === 'user' ? '姓名' : '名称' }} <span class="req">*</span></label>
+            <label>名称 <span class="req">*</span></label>
             <input v-model="editingItem.name" class="form-input" placeholder="请输入" />
           </div>
           <!-- 区域 / 分公司：编码 -->
@@ -459,30 +467,6 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
           <div v-if="editingItem.type === 'branch'" class="form-row">
             <label>分公司编码 <span class="req">*</span></label>
             <input v-model="editingItem.code" class="form-input" placeholder="如 SH001（2-4位字母+3位数字）" />
-          </div>
-          <!-- 员工：手机号 / 角色 -->
-          <div v-if="editingItem.type === 'user'" class="form-row">
-            <label>手机号（登录账号） <span class="req">*</span></label>
-            <input v-model="editingItem.phone" class="form-input" placeholder="11 位手机号" maxlength="11" />
-          </div>
-          <div v-if="editingItem.type === 'user'" class="form-row">
-            <label>职务 <span class="req">*</span></label>
-            <select v-model="editingItem.role" class="form-input">
-              <option value="admin">超级管理员</option>
-              <option value="director">行政总监</option>
-              <option value="manager">行政经理</option>
-              <option value="supervisor">行政主管</option>
-              <option value="leader">行政组长</option>
-              <option value="staff">行政专员</option>
-            </select>
-          </div>
-          <!-- 员工：分公司（唯一组织归属，区域/行政组沿树派生） -->
-          <div v-if="editingItem.type === 'user'" class="form-row">
-            <label>所属分公司</label>
-            <select v-model="editingItem.branch" class="form-input">
-              <option value="">请选择</option>
-              <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
-            </select>
           </div>
           <!-- 分公司：所属行政组（唯一父级，必填） -->
           <div v-if="editingItem.type === 'branch'" class="form-row">

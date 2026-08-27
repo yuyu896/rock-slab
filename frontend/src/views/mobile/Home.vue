@@ -5,6 +5,7 @@ import { useUserStore } from '@/store/user'
 import { useNotificationStore } from '@/store/notification'
 import { getPendingTransfers, getTransfers } from '@/api/transfers'
 import { getInventoryTasks } from '@/api/inventories'
+import { ROLE_LABELS } from '@/constants'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -16,15 +17,7 @@ const pendingInventories = ref(0)
 
 const userName = computed(() => userStore.profile?.name || '用户')
 const userRole = computed(() => userStore.profile?.role || '')
-
-const roleLabels: Record<string, string> = {
-  admin: '系统管理员',
-  director: '大区负责人',
-  manager: '分公司负责人',
-  supervisor: '行政主管（已退役）',
-  leader: '行政组长',
-  staff: '分公司行政',
-}
+const roleLabel = (role: string) => ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role
 
 const quickActions = [
   { key: 'scan', label: '扫码查询', icon: 'scan', path: '/mobile/scan' },
@@ -77,7 +70,7 @@ onMounted(() => {
       <div class="user-avatar">{{ userName.charAt(0) }}</div>
       <div class="user-info">
         <div class="user-name">{{ userName }}</div>
-        <div class="user-role">{{ roleLabels[userRole] || userRole }}</div>
+        <div class="user-role">{{ roleLabel(userRole) }}</div>
       </div>
       <div class="notification-badge" @click="navigateTo('/mobile/approval')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

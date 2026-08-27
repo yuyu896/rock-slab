@@ -14,12 +14,14 @@ class SetSystemAvatarSerializer(serializers.Serializer):
     system_avatar = serializers.CharField(required=True)
 
 
-# 岗位分配权线：各级岗位可分配的岗位（supervisor 已退役）
+# 岗位分配权线：各级岗位可分配的岗位（supervisor/staff 已退役）
+# manager 可建同岗（分公司行政互建账号，原"manager 建 staff"语义的合并后等价；
+# 新号无任何授权/范围，扩岗风险由权限分配页(admin)把关）
 MANAGEABLE_ROLES = {
-    'admin': ['admin', 'director', 'manager', 'leader', 'staff'],
-    'director': ['manager', 'leader', 'staff'],
-    'manager': ['leader', 'staff'],
-    'leader': ['staff'],
+    'admin': ['admin', 'director', 'manager', 'leader'],
+    'director': ['manager', 'leader'],
+    'manager': ['manager', 'leader'],
+    'leader': [],
 }
 
 
@@ -68,19 +70,9 @@ class UserViewSet(viewsets.ModelViewSet):
         """Validate that the creator can assign the given role."""
         creator = self.request.user
         data = serializer.validated_data
-        target_role = data.get('role', 'staff')
+        target_role = data.get('role', 'manager')
 
         self._validate_role_assignment(creator, target_role)
-
-        # Leader: auto-set branch to their own branch
-        if creator.role == 'leader':
-            if not data.get('branch'):
-                data['branch'] = creator.branch
-            # Leader can only create staff
-            if target_role != 'staff':
-                raise serializers.ValidationError(
-                    {'role': '行政组长只能创建行政专员账号'}
-                )
 
         serializer.save(created_by=creator)
 
