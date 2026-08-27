@@ -123,18 +123,21 @@ class TestPartialInsufficientRollback:
             )
 
     def test_one_line_insufficient_whole_doc_rolls_back(
-        self, authenticated_client, branch, item_id,
+        self, authenticated_client, branch, item_id, department,
     ):
         from apps.assets.models import AssetStock
         self._seed(branch, 'AST-TEST-001', stock=5)
         self._seed(branch, 'AST-TEST-002', stock=2)
 
+        def _assign_line(code, qty):
+            return _line(item_id, code, qty, 使用人='张三', department=str(department.id))
+
         payload = {
             '调拨日期': '2026-08-03',
             '调出分公司': branch.name,
             'items': [
-                _line(item_id, 'AST-TEST-001', 3),  # 充足
-                _line(item_id, 'AST-TEST-002', 4),  # 不足（在库 2）
+                _assign_line('AST-TEST-001', 3),  # 充足
+                _assign_line('AST-TEST-002', 4),  # 不足（在库 2）
             ],
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')

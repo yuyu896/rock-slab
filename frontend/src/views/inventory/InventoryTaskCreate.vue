@@ -121,12 +121,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.create-page { max-width: 640px; margin: 0 auto; padding: var(--space-6); }
+.create-page { min-width: 0; }
 .page-header { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-5); }
 .back-btn { display: flex; align-items: center; gap: 4px; background: none; border: none; color: var(--color-text-secondary); cursor: pointer; font-size: var(--text-sm); }
 .back-btn svg { width: 18px; height: 18px; }
 .page-header h1 { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-primary); margin: 0; }
-.card { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+.card { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-6); display: grid; grid-template-columns: repeat(2, minmax(0, 640px)); gap: var(--space-4); }
+.card .form-group:first-child { grid-column: 1 / -1; }
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-label { font-size: var(--text-sm); font-weight: 500; }
 .required { color: var(--color-danger); }
@@ -136,4 +137,5 @@ onMounted(async () => {
 .btn-secondary { padding: var(--space-2) var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-elevated); cursor: pointer; font-size: var(--text-sm); color: var(--color-text-primary); }
 .btn-primary { padding: var(--space-2) var(--space-5); border: none; border-radius: var(--radius-md); background: var(--color-primary-500); color: #fff; cursor: pointer; font-size: var(--text-sm); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+@media (max-width: 768px) { .card { grid-template-columns: 1fr; } .card .form-group:first-child { grid-column: auto; } }
 </style>

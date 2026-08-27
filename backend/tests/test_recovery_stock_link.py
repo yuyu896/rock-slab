@@ -78,9 +78,26 @@ class TestRecoveryToRecycleBin:
         assert resp.status_code == 201
         resp = _approve(authenticated_client, resp.data['id'])
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert '不足' in str(resp.data['detail'])
+        # 业务化文案（修订 1.3）：说人话 + 行号 × 品目定位
+        assert '回收只能回收' in str(resp.data['detail'])
+        assert '当前在用 2' in str(resp.data['detail'])
+        assert 'RC-2' in str(resp.data['detail'])
         row = _row(branch, 'RC-2')
         assert row.在用数量 == 2 and row.回收库数量 == 0  # 整体回滚
+
+    def test_return_insufficient_keeps_generic_error(self, authenticated_client, branch, item_id):
+        """归还的台账不足保持通用格式（业务化文案仅回收单）。"""
+        _ensure_item('RC-5')  # 无台账行 = 在用 0
+        payload = {
+            '调拨日期': '2026-08-23', '调入分公司': branch.name,
+            'items': [{'item': item_id('RC-5'), '数量': 1}],
+        }
+        resp = authenticated_client.post('/api/transfers/return', payload, format='json')
+        assert resp.status_code == 201
+        resp = _approve(authenticated_client, resp.data['id'])
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '在用数量不足' in str(resp.data['detail'])
+        assert '需变动 -1' in str(resp.data['detail'])
 
 
 @pytest.mark.django_db

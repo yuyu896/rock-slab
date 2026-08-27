@@ -24,13 +24,14 @@ def purchase_payload(item_id):
 
 
 @pytest.fixture
-def assign_payload(item_id):
+def assign_payload(item_id, department):
     return {
         '调拨日期': '2026-01-16',
         '调拨原因': '领用出库测试',
         '调出分公司': '测试分公司',
         '调入分公司': '测试分公司',
-        'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
+        'items': [{'item': item_id('AST-TEST-001'), '数量': 1,
+                   '使用人': '张三', 'department': str(department.id)}],
     }
 
 
@@ -68,6 +69,40 @@ class TestPurchaseFlow:
         results = resp.data.get('results', resp.data)
         assert len(results) >= 1
 
+    def test_purchase_autofills_amount_from_price(self, authenticated_client, branch, item_id):
+        """有单价无金额的采购行 → 落库金额 = 单价 × 数量（表单路径）。"""
+        payload = {
+            '调拨日期': '2026-01-15',
+            '调出分公司': branch.name,
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 4, '单价': '12.50'}],
+        }
+        resp = authenticated_client.post(_action_url('purchase'), payload, format='json')
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert str(resp.data['lines'][0]['金额']) == '50.00'
+
+    def test_purchase_manual_amount_wins(self, authenticated_client, branch, item_id):
+        """手填金额（整批折价）不被补算覆盖。"""
+        payload = {
+            '调拨日期': '2026-01-15',
+            '调出分公司': branch.name,
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 4,
+                       '单价': '12.50', '金额': '45.00'}],
+        }
+        resp = authenticated_client.post(_action_url('purchase'), payload, format='json')
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert str(resp.data['lines'][0]['金额']) == '45.00'
+
+    def test_purchase_no_price_no_autofill(self, authenticated_client, branch, item_id):
+        """无单价的行不补算，金额保持为空（不报错）。"""
+        payload = {
+            '调拨日期': '2026-01-15',
+            '调出分公司': branch.name,
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 2}],
+        }
+        resp = authenticated_client.post(_action_url('purchase'), payload, format='json')
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.data['lines'][0]['金额'] is None
+
 
 @pytest.mark.django_db
 class TestAssignFlow:
@@ -79,14 +114,39 @@ class TestAssignFlow:
         data = resp.data
         assert data['action_type'] == 'assign'
 
-    def test_assign_missing_to_branch(self, authenticated_client, branch, item_id):
+    def test_assign_missing_to_branch(self, authenticated_client, branch, item_id, department):
         payload = {
             '调拨日期': '2026-01-16',
             '调出分公司': '测试分公司',
-            'items': [{'item': item_id('AST-TEST-002'), '数量': 1}],
+            'items': [{'item': item_id('AST-TEST-002'), '数量': 1,
+                       '使用人': '张三', 'department': str(department.id)}],
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')
         assert resp.status_code == status.HTTP_201_CREATED
+
+    def test_assign_missing_user_rejected(self, authenticated_client, branch, item_id, department):
+        """领用行使用人必填（不分管理方式），错误带行号 × 品目定位。"""
+        payload = {
+            '调拨日期': '2026-01-16',
+            '调出分公司': branch.name,
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 1,
+                       'department': str(department.id)}],
+        }
+        resp = authenticated_client.post(_action_url('assign'), payload, format='json')
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '使用人' in str(resp.data['detail'])
+        assert 'AST-TEST-001' in str(resp.data['detail'])
+
+    def test_assign_missing_department_rejected(self, authenticated_client, branch, item_id):
+        payload = {
+            '调拨日期': '2026-01-16',
+            '调出分公司': branch.name,
+            'items': [{'item': item_id('AST-TEST-001'), '数量': 1, '使用人': '张三'}],
+        }
+        resp = authenticated_client.post(_action_url('assign'), payload, format='json')
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '领用部门' in str(resp.data['detail'])
+        assert '第 1 行' in str(resp.data['detail'])
 
 
 @pytest.mark.django_db
@@ -238,12 +298,13 @@ class TestApproveAssetSync:
         ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, stock, '测试造数')
         return item
 
-    def test_assign_approve_moves_ledger(self, authenticated_client, branch, item_id):
+    def test_assign_approve_moves_ledger(self, authenticated_client, branch, item_id, department):
         self._seed_ledger(branch, 'AST-SYNC-001')
         payload = {
             '调拨日期': '2026-02-01',
             '调出分公司': branch.name,
-            'items': [{'item': item_id('AST-SYNC-001'), '数量': 1}],
+            'items': [{'item': item_id('AST-SYNC-001'), '数量': 1,
+                       '使用人': '张三', 'department': str(department.id)}],
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')
         transfer_id = resp.data['id']
@@ -287,13 +348,14 @@ class TestApproveAssetSync:
         assert AssetStock.objects.get(branch=branch, item__asset_code='AST-SYNC-001').在库数量 == 3
         assert AssetStock.objects.get(branch=second_branch, item__asset_code='AST-SYNC-001').在库数量 == 2
 
-    def test_reject_does_not_touch_ledger(self, authenticated_client, branch, item_id):
+    def test_reject_does_not_touch_ledger(self, authenticated_client, branch, item_id, department):
         from apps.assets.models import AssetStock
         self._seed_ledger(branch, 'AST-SYNC-001')
         payload = {
             '调拨日期': '2026-02-04',
             '调出分公司': branch.name,
-            'items': [{'item': item_id('AST-SYNC-001'), '数量': 1}],
+            'items': [{'item': item_id('AST-SYNC-001'), '数量': 1,
+                       '使用人': '张三', 'department': str(department.id)}],
         }
         resp = authenticated_client.post(_action_url('assign'), payload, format='json')
         transfer_id = resp.data['id']

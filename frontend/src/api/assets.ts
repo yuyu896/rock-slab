@@ -7,6 +7,8 @@ import type { AssetStock, FixedAsset, LedgerAdjustment, PaginatedResponse, Pagin
 export function getAssetStocks(params?: PaginationParams & {
   branch?: string
   category?: string
+  /** 品目编号精确筛选（回收创建页在用预检取数） */
+  asset_code?: string
   keyword?: string
   /** '0' = 仅不足行（在库 < 生效警戒线） */
   sufficient?: string

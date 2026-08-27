@@ -373,7 +373,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             'filename': 'purchase_template.xlsx',
         },
         'assign': {
-            'headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '用途', '领用部门', '备注'],
+            'headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '使用人', '领用部门', '用途', '备注'],
             'sheet': '领用出库',
             'filename': 'assign_template.xlsx',
         },
@@ -534,7 +534,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.db import transaction
         from apps.categories.models import Category
         from apps.categories.views import suggest_similar_codes
-        from apps.organizations.models import Branch
+        from apps.organizations.models import Branch, Department
         from apps.organizations.utils import get_branch_name_set, branch_validation_error
 
         file = request.FILES.get('file')
@@ -573,6 +573,16 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         valid_branches = get_branch_name_set()
         branch_cache = {b.name: b for b in Branch.objects.all()}
         item_cache = {c.asset_code: c for c in Category.objects.all()}
+        dept_cache = {}
+
+        def _resolve_dept(branch_name, dept_name):
+            """领用部门按（分公司, 部门名）解析行级外键；缓存避免逐行查询。"""
+            key = (branch_name, dept_name)
+            if key not in dept_cache:
+                dept_cache[key] = Department.objects.filter(
+                    branch=branch_cache.get(branch_name), name=dept_name,
+                ).first()
+            return dept_cache[key]
 
         def _parse_date(val):
             if hasattr(val, 'strftime'):
@@ -647,11 +657,22 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         header = {
                             '调拨日期': _parse_date(row[1]),
                             '调出分公司': branch_name,
-                            '用途': _cell(row, 5),
+                            '用途': _cell(row, 7),
                             '调出部门': _cell(row, 6),
-                            '备注': _cell(row, 7),
+                            '备注': _cell(row, 8),
                         }
-                        line_kwargs = {'item': item, '数量': _qty(4)}
+                        # 领用部门：文本照写单头 + 按（分公司, 部门名）解析行级外键；留空由预检口报"必须选择领用部门"
+                        dept_name = _cell(row, 6)
+                        dept = _resolve_dept(branch_name, dept_name)
+                        if dept_name and dept is None:
+                            errors.append(f'第 {i} 行: 领用部门「{dept_name}」不存在于分公司「{branch_name}」的部门字典')
+                            continue
+                        line_kwargs = {
+                            'item': item,
+                            '数量': _qty(4),
+                            '使用人': _cell(row, 5),
+                            'department': dept,
+                        }
                         action = Transfer.ACTION_ASSIGN
 
                     elif template_type == 'recovery':
@@ -720,6 +741,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     TransferLine.objects.create(transfer=transfer, 行号=1, **line_kwargs)
                 _notify_created(transfer)
                 imported += 1
+            except ValidationError as e:
+                detail = e.detail
+                msg = detail.get('detail') if isinstance(detail, dict) else detail
+                errors.append(f'第 {i} 行: {msg}')
             except Exception as e:
                 errors.append(f'第 {i} 行: {str(e)}')
 

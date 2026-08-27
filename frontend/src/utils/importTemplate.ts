@@ -10,7 +10,7 @@ const PURCHASE_HEADERS = [
 ]
 
 const ASSIGN_HEADERS = [
-  '分公司', '日期', '领用物品', '领用数量', '用途', '领用部门', '备注',
+  '分公司', '日期', '资产编号', '领用物品', '领用数量', '使用人', '领用部门', '用途', '备注',
 ]
 
 const TRANSFER_HEADERS = [

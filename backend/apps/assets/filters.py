@@ -17,6 +17,7 @@ class AssetStockFilterSet(django_filters.FilterSet):
     category = django_filters.CharFilter(field_name='item__asset_category')
     物品分类 = django_filters.CharFilter(field_name='item__item_category')
     management_type = django_filters.CharFilter(field_name='item__management_type')
+    asset_code = django_filters.CharFilter(field_name='item__asset_code')
     keyword = django_filters.CharFilter(method='filter_keyword')
     sufficient = django_filters.CharFilter(method='filter_sufficient')
 

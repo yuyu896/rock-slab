@@ -48,9 +48,25 @@ def _apply_delta(row, column, delta):
                 f'当前 {getattr(row, column) or 0}，需变动 {delta:+d}'
             ),
             'code': 'LEDGER_INSUFFICIENT',
+            'current': getattr(row, column) or 0,
+            'delta': delta,
         })
     setattr(row, column, new_value)
     return new_value
+
+
+def _recovery_friendly(error):
+    """回收在用不足 → 业务语言（其余单据类型的通用格式不变）。"""
+    detail = getattr(error, 'detail', {})
+    current = int(detail.get('current', 0)) if isinstance(detail, dict) else 0
+    delta = int(detail.get('delta', 0)) if isinstance(detail, dict) else 0
+    return ValidationError({
+        'detail': (
+            f'回收只能回收『在用』中的资产：当前在用 {current}，需回收 {-delta}；'
+            f'请核对物品是否未领用、或调出分公司是否选错'
+        ),
+        'code': 'LEDGER_INSUFFICIENT',
+    })
 
 
 def apply_adjustment(branch, item, column, delta, reason, operator=None,
@@ -241,6 +257,11 @@ def apply_document(transfer):
                 else:
                     instance_service.apply_line_instances(transfer, line, insts)
             except ValidationError as error:
+                # 回收单的台账不足必然是"在用"列（回收库列只增不减）→ 报错说人话
+                detail = getattr(error, 'detail', None)
+                if action == 'recovery' and isinstance(detail, dict) \
+                        and detail.get('code') == 'LEDGER_INSUFFICIENT':
+                    error = _recovery_friendly(error)
                 raise _with_line_context(line, error)
 
         for key in sorted(touched):

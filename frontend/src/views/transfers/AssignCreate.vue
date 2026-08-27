@@ -42,7 +42,7 @@ async function submit() {
   }
   const items = draftsToItems(lines.value)
   if (items.length === 0 || !linesEditor.value?.validate()) {
-    ElMessage.warning('每行请选择品目并填写数量（≥1）；实例管理品目请选满实例并填写使用人')
+    ElMessage.warning('每行请选择品目并填写数量（≥1）、使用人与领用部门；实例管理品目请选满实例')
     return
   }
   creating.value = true

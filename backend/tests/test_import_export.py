@@ -178,10 +178,11 @@ TRANSFER_TYPE_TEMPLATES = {
         'item_check_fields': {},
     },
     'assign': {
-        'template_headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '用途', '领用部门', '备注'],
-        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', '领用物品B', 5, '办公用', '行政部', ''],
+        # 领用行使用人/部门必填（修订 2.2）：导入模板加"使用人"列，领用部门解析行级外键
+        'template_headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '使用人', '领用部门', '用途', '备注'],
+        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', '领用物品B', 5, '张三', '行政部', '办公用', ''],
         'check_fields': {'用途': '办公用'},
-        'line_check_fields': {'数量': 5},
+        'line_check_fields': {'数量': 5, '使用人': '张三'},
         'item_check_fields': {},
     },
     'transfer': {
@@ -236,10 +237,13 @@ class TestTransferImport:
     @pytest.mark.parametrize('ttype', ['purchase', 'assign', 'transfer', 'recovery'])
     def test_import_valid_data(self, admin_client, ttype, test_branch):
         from apps.transfers.models import Transfer
-        from apps.organizations.models import Branch
+        from apps.organizations.models import Branch, Department
         # transfer 类型引用 上海/杭州分公司，确保其存在于组织架构（导入现校验分公司存在性）
         Branch.objects.create(name='上海分公司', code='SH001', team=test_branch.team)
         Branch.objects.create(name='杭州分公司', code='HZ001', team=test_branch.team)
+        if ttype == 'assign':
+            # 领用部门按（分公司, 部门名）解析行级外键，样例行的"行政部"需在字典内
+            Department.objects.get_or_create(branch=test_branch, name='行政部')
         if ttype == 'recovery':
             _seed_recovery_dictionary()
         tpl = TRANSFER_TYPE_TEMPLATES[ttype]
@@ -297,6 +301,45 @@ class TestTransferImport:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['imported'] == 0
         assert any('不存在的分公司' in e for e in resp.data['errors'])
+
+    def test_assign_import_requires_user_and_department(self, admin_client, test_branch):
+        """领用导入行缺使用人/领用部门 → 逐行报错不建单（与表单路径同口径）。"""
+        from apps.organizations.models import Department
+        Department.objects.get_or_create(branch=test_branch, name='行政部')
+        tpl = TRANSFER_TYPE_TEMPLATES['assign']
+        row = list(tpl['sample_row'])
+        row[5] = ''  # 使用人留空
+        row[6] = ''  # 领用部门留空
+        buf = _make_xlsx(tpl['template_headers'], [row])
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 0
+        assert any('使用人' in e for e in resp.data['errors'])
+
+    def test_assign_import_department_not_found(self, admin_client, test_branch):
+        """领用部门不在该分公司部门字典 → 报错点名分公司与部门。"""
+        tpl = TRANSFER_TYPE_TEMPLATES['assign']
+        row = list(tpl['sample_row'])
+        row[6] = '不存在部'  # 领用部门
+        buf = _make_xlsx(tpl['template_headers'], [row])
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 0
+        assert any('不存在部' in e and '测试分公司' in e for e in resp.data['errors'])
+
+    def test_purchase_import_autofills_amount(self, admin_client, test_branch):
+        """采购导入行有单价无总金额 → 落库金额 = 单价 × 数量（与表单路径同口径）。"""
+        from apps.transfers.models import Transfer
+        tpl = TRANSFER_TYPE_TEMPLATES['purchase']
+        row = list(tpl['sample_row'])
+        row[9] = None  # 总金额留空
+        buf = _make_xlsx(tpl['template_headers'], [row])
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=purchase')
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        line = Transfer.objects.filter(action_type='purchase').last().lines.first()
+        assert float(line.单价) == 50.0
+        assert float(line.金额) == 500.0
 
     def test_import_rejects_empty_branch(self, admin_client):
         # transfer 类型：调出分公司为空 → 该行被拒

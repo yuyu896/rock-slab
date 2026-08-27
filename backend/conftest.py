@@ -115,6 +115,14 @@ def branch(db, team):
 
 
 @pytest.fixture
+def department(branch):
+    """领用行必填的部门外键（分公司 × 部门名字典）。"""
+    from apps.organizations.models import Department
+    dept, _ = Department.objects.get_or_create(branch=branch, name='测试部门')
+    return dept
+
+
+@pytest.fixture
 def second_region(db):
     from apps.organizations.models import Region
     return Region.objects.create(name='第二区域', code='REG2', status='active')

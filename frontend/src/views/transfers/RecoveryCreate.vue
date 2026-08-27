@@ -57,7 +57,7 @@ async function submit() {
   }
   const items = draftsToItems(lines.value)
   if (items.length === 0 || !linesEditor.value?.validate()) {
-    ElMessage.warning('每行请选择品目并填写数量（≥1）')
+    ElMessage.warning(linesEditor.value?.validateMessage || '每行请选择品目并填写数量（≥1）')
     return
   }
   creating.value = true

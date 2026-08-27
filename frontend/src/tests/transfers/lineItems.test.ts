@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 import {
-  emptyDraft, draftsToItems, draftsFromLines,
+  emptyDraft, draftsToItems, draftsFromLines, type LineDraft,
 } from '@/views/transfers/components/lineDrafts'
 import { transferDocSummary } from '@/types'
 import type { TransferLine } from '@/types'
@@ -104,5 +104,61 @@ describe('TransferLinesEditor 增删行与校验', () => {
     expect((wrapper.vm as any).validate()).toBe(true)
     drafts[0].数量 = 0
     expect((wrapper.vm as any).validate()).toBe(false)
+  })
+
+  it('采购行金额留空自动 = 单价 × 数量，手填不覆盖，清空回自动', async () => {
+    const wrapper = mountEditor()
+    const draft: LineDraft = { ...emptyDraft(), item: pickedItem, 数量: 4, 单价: null, 金额: null }
+    await wrapper.setProps({ modelValue: [draft] })
+    await nextTick()
+    const numInputs = wrapper.findAll('input.num') // [单价, 金额]
+
+    await numInputs[0].setValue('12.5')
+    await numInputs[0].trigger('change')
+    expect(draft.单价).toBe(12.5)
+    expect(draft.金额).toBe(50) // 留空自动算
+
+    draft.金额 = 45 // 手填（整批折价）
+    await numInputs[0].setValue('13')
+    await numInputs[0].trigger('change')
+    expect(draft.金额).toBe(45) // 手填优先不被覆盖
+
+    await numInputs[1].setValue('') // 清空金额 → 回到自动
+    await numInputs[1].trigger('change')
+    expect(draft.金额).toBeNull()
+    await numInputs[0].setValue('13')
+    await numInputs[0].trigger('change')
+    expect(draft.金额).toBe(52)
+  })
+
+  it('领用行使用人/部门必填（不分管理方式）', async () => {
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [], type: 'assign', branchId: 'b-1' },
+      global: {
+        stubs: { ItemPicker: { template: '<div class="picker-stub" />' } },
+      },
+    })
+    const draft: LineDraft = { ...emptyDraft(), item: pickedItem, 数量: 1 }
+    await wrapper.setProps({ modelValue: [draft] })
+    await nextTick()
+    expect((wrapper.vm as any).validate()).toBe(false) // 缺使用人与部门
+    draft.使用人 = '张三'
+    expect((wrapper.vm as any).validate()).toBe(false) // 仍缺部门
+    draft.department = 'dept-1'
+    expect((wrapper.vm as any).validate()).toBe(true)
+  })
+
+  it('回收行在用数量未知时预检放行（终检在后端台账行锁内）', async () => {
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [], type: 'recovery', branchName: '测试分公司' },
+      global: {
+        stubs: { ItemPicker: { template: '<div class="picker-stub" />' } },
+      },
+    })
+    const draft: LineDraft = { ...emptyDraft(), item: pickedItem, 数量: 99 }
+    await wrapper.setProps({ modelValue: [draft] })
+    await nextTick()
+    expect((wrapper.vm as any).validate()).toBe(true)
+    expect((wrapper.vm as any).validateMessage).toBe('')
   })
 })

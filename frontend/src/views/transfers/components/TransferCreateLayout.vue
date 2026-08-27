@@ -34,7 +34,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-.create-page { max-width: 960px; margin: 0 auto; min-width: 0; }
+.create-page { min-width: 0; }
 .page-header { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-6); }
 .back-btn { display: inline-flex; align-items: center; gap: var(--space-1); height: 36px; padding: 0 var(--space-3); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-secondary); cursor: pointer; }
 .back-btn:hover { color: var(--color-primary-500); border-color: var(--color-primary-300); }
@@ -48,7 +48,7 @@ const emit = defineEmits<{
 .btn-confirm { height: 40px; padding: 0 var(--space-5); background: var(--color-primary-500); border: none; border-radius: 8px; font-size: var(--text-sm); font-weight: 500; color: white; cursor: pointer; }
 .btn-confirm:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.form-body :deep(.form-grid) { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
+.form-body :deep(.form-grid) { display: grid; grid-template-columns: repeat(2, minmax(0, 640px)); gap: var(--space-4); }
 .form-body :deep(.form-item) { display: flex; flex-direction: column; gap: var(--space-2); }
 .form-body :deep(.form-item.full) { grid-column: span 2; }
 .form-body :deep(.form-label) { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-primary); }

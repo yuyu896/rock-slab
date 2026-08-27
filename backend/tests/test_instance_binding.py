@@ -64,6 +64,13 @@ def _line(item, instances, **extra):
     return line
 
 
+def _dept(branch):
+    """领用行必填的部门外键（分公司 × 部门名字典）。"""
+    from apps.organizations.models import Department
+    dept, _ = Department.objects.get_or_create(branch=branch, name='测试部门')
+    return dept
+
+
 def _approve(client, tid):
     return client.post(f'/api/transfers/{tid}/approve', {'approved': True}, format='json')
 
@@ -75,6 +82,8 @@ def _approve(client, tid):
 @pytest.mark.django_db
 class TestInstanceInputMatrix:
     def _assign(self, client, branch, item, line):
+        """领用单公共入口：行默认带部门（使用人留给专门的失败用例省略）。"""
+        line = {**{'department': str(_dept(branch).id)}, **line}
         return client.post('/api/transfers/assign', {
             '调拨日期': '2026-08-23', '调出分公司': branch.name, 'items': [line],
         }, format='json')
@@ -84,7 +93,7 @@ class TestInstanceInputMatrix:
         _seed(branch, item, stock=2)
         _make_instances(branch, item, '在库', 2)
         resp = self._assign(authenticated_client, branch, item,
-                            {'item': str(item.id), '数量': 2})
+                            {'item': str(item.id), '数量': 2, '使用人': '张三'})
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert '必须选择与数量等长的实例' in str(resp.data['detail'])
 
@@ -150,9 +159,11 @@ class TestInstanceInputMatrix:
         item = _item('IB-006')
         _seed(branch, item, stock=1)
         insts = _make_instances(branch, item, '在库', 1)
+        dept_id = str(_dept(branch).id)
         resp = authenticated_client.post('/api/transfers/assign', {
             '调拨日期': '2026-08-23', '调出分公司': branch.name,
-            'items': [_line(item, insts, 使用人='甲'), _line(item, insts, 使用人='乙')],
+            'items': [_line(item, insts, 使用人='甲', department=dept_id),
+                      _line(item, insts, 使用人='乙', department=dept_id)],
         }, format='json')
         assert resp.status_code == 400
         assert '重复引用' in str(resp.data['detail'])
@@ -230,7 +241,7 @@ class TestDocumentInstanceMatrix:
         resp = authenticated_client.post('/api/transfers/assign', {
             '调拨日期': '2026-08-23', '调出分公司': branch.name,
             '领用来源': 'recycle_bin',
-            'items': [_line(item, insts, 使用人='李四')],
+            'items': [_line(item, insts, 使用人='李四', department=str(_dept(branch).id))],
         }, format='json')
         assert resp.status_code == 201
         assert resp.data['领用来源'] == 'recycle_bin'
@@ -318,11 +329,11 @@ class TestDocumentInstanceMatrix:
 
         doc_b = authenticated_client.post('/api/transfers/assign', {
             '调拨日期': '2026-08-23', '调出分公司': branch.name,
-            'items': [_line(item, insts, 使用人='乙')],
+            'items': [_line(item, insts, 使用人='乙', department=str(_dept(branch).id))],
         }, format='json')
         doc_a = authenticated_client.post('/api/transfers/assign', {
             '调拨日期': '2026-08-23', '调出分公司': branch.name,
-            'items': [_line(item, insts, 使用人='甲')],
+            'items': [_line(item, insts, 使用人='甲', department=str(_dept(branch).id))],
         }, format='json')
         assert _approve(authenticated_client, doc_a.data['id']).status_code == 200
 

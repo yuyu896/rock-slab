@@ -41,6 +41,12 @@ def _create_doc(client, action, branch, code, qty, line=None, **header_extra):
     """建单：单头 + 单条明细行（line 追加行级字段如 单价/金额）。"""
     from apps.categories.models import Category
     item_line = {'item': str(Category.objects.get(asset_code=code).id), '数量': qty}
+    if action == 'assign':
+        # 领用行使用人/部门必填（修订 2.2）：默认注入，专用用例经 line 显式覆盖
+        from apps.organizations.models import Department
+        dept, _ = Department.objects.get_or_create(branch=branch, name='测试部门')
+        item_line.setdefault('使用人', '张三')
+        item_line.setdefault('department', str(dept.id))
     item_line.update(line or {})
     payload = {
         '调拨日期': '2026-08-23',

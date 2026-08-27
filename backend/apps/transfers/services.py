@@ -1,4 +1,6 @@
 """流转单领域服务：单据编号生成 + 明细行实例引用创建预检。"""
+from decimal import Decimal
+
 from django.db import IntegrityError, transaction
 from rest_framework.exceptions import ValidationError
 
@@ -36,9 +38,10 @@ def generate_document_number(action_type, doc_date):
 
 
 def validate_line_items_instances(action_type, from_branch, to_branch, assign_source, items):
-    """创建/编辑预检：品目管理方式 × 单据类型矩阵（生效时 ledger 另有行锁终检）。
+    """创建/编辑预检：品目管理方式 × 单据类型矩阵 + 类型专属行规则（生效时 ledger 另有行锁终检）。
 
     items 为序列化后的明细行字典（item 为品目实例、instances 为实例对象列表）。
+    purchase 行金额留空在此补算（就地写回，表单/编辑/导入三路径同口径）。
     """
     from apps.assets.services import instances as instance_service
 
@@ -56,7 +59,15 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
         if action_type == 'purchase':
             if insts:
                 err(row_no, item.asset_code, '采购实例由入库自动生成，不可携带')
+            # 金额留空自动 = 单价 × 数量（手填优先，无单价不补算）
+            if entry.get('单价') is not None and entry.get('金额') is None:
+                entry['金额'] = (Decimal(str(entry['单价'])) * entry['数量']).quantize(Decimal('0.01'))
             continue
+        if action_type == 'assign':
+            if not (entry.get('使用人') or '').strip():
+                err(row_no, item.asset_code, '领用行必须填写使用人')
+            if entry.get('department') is None:
+                err(row_no, item.asset_code, '领用行必须选择领用部门')
         if item.management_type != 'instance':
             if insts:
                 err(row_no, item.asset_code, '数量管理品目无需选择实例')
@@ -69,8 +80,6 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
             err(row_no, item.asset_code, '实例管理品目必须选择与数量等长的实例（请在页面单据中操作）')
         if len(insts) != entry['数量']:
             err(row_no, item.asset_code, f'实例数 {len(insts)} 与数量 {entry["数量"]} 不一致')
-        if action_type == 'assign' and not (entry.get('使用人') or '').strip():
-            err(row_no, item.asset_code, '领用实例管理品目必须填写使用人')
 
         want = instance_service.expected_state(action_type, assign_source)
         branch = from_branch if action_type != 'return' else (to_branch or from_branch)
