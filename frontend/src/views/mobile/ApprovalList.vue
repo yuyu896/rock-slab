@@ -155,7 +155,7 @@ onMounted(() => {
           <p class="submitter">提交人：{{ item.创建人 || '-' }}</p>
         </div>
 
-        <div v-if="canApprove" class="card-actions">
+        <div v-if="canApprove && item.canOperate !== false" class="card-actions">
           <button class="reject-btn" @click="handleReject(item)">驳回</button>
           <button class="approve-btn" @click="handleApprove(item)">通过</button>
         </div>

@@ -64,7 +64,7 @@ function branchText(doc: TransferDocument) {
 
       <div class="detail-footer">
         <slot name="footer" :doc="doc">
-          <template v-if="doc.审批状态 === '待审批'">
+          <template v-if="doc.审批状态 === '待审批' && doc.canOperate !== false">
             <button class="btn-approve" @click="emit('approve')">通过</button>
             <button class="btn-reject" @click="emit('reject')">驳回</button>
           </template>

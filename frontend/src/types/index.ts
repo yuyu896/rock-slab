@@ -306,6 +306,8 @@ export interface TransferDocument {
   审批时间?: string
   创建人: string
   action_type?: TransferActionType
+  /** 调拨单调入方只读（修订 3.1）：transfer 类型 = 范围含调出方；其余类型恒 true/缺省 */
+  canOperate?: boolean
   lines: TransferLine[]
   品项数?: number
   总数量?: number

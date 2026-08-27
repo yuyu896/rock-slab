@@ -92,6 +92,15 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 'code': 'INVENTORY_LOCKED',
             })
 
+    def _assert_transfer_operable(self, user, transfer):
+        """调拨单调入方只读（修订 3.1）：transfer 类型的写操作要求操作者范围含调出分公司。"""
+        if transfer.action_type != Transfer.ACTION_TRANSFER:
+            return
+        try:
+            validate_branches_in_scope(user, transfer.from_branch)
+        except ValidationError:
+            raise ValidationError({'detail': '调入方分公司对此调拨单只读，仅调出方分公司可操作'})
+
     def _resolve_branches(self, data):
         """外键优先、文字名称兜底解析分公司；解析失败即报错（导入路径依赖）。"""
         from apps.organizations.models import Branch
@@ -128,8 +137,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         from_branch, to_branch = self._resolve_branches(data)
 
-        # 写操作越权校验：调出 / 调入分公司必须在操作者授权范围内（admin 豁免）
-        validate_branches_in_scope(request.user, from_branch, to_branch)
+        # 写操作越权校验（admin 豁免）：调拨只校验调出方（修订 3.1 跨范围调拨单边发起，
+        # 调入方不要求授权、对单据只读）；其余类型维持双边校验
+        if action_type == Transfer.ACTION_TRANSFER:
+            validate_branches_in_scope(request.user, from_branch)
+        else:
+            validate_branches_in_scope(request.user, from_branch, to_branch)
 
         # 明细行实例引用预检（品目管理方式 × 类型矩阵；生效时 ledger 行锁终检）
         validate_line_items_instances(
@@ -217,6 +230,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.db import transaction
 
         transfer = self.get_object()
+        self._assert_transfer_operable(request.user, transfer)
         serializer = ApproveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -261,6 +275,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def submit(self, request, pk=None):
         """提交草稿：将「草稿」转为「待审批」进入审批流。"""
         transfer = self.get_object()
+        self._assert_transfer_operable(request.user, transfer)
         if transfer.审批状态 != '草稿':
             return Response({'detail': '仅草稿可提交'}, status=status.HTTP_400_BAD_REQUEST)
         transfer.审批状态 = '待审批'
@@ -273,6 +288,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def resubmit(self, request, pk=None):
         """重新提交：将「已驳回」转为「待审批」重新进入审批流。"""
         transfer = self.get_object()
+        self._assert_transfer_operable(request.user, transfer)
         if transfer.审批状态 != '已驳回':
             return Response({'detail': '仅已驳回的记录可重新提交'}, status=status.HTTP_400_BAD_REQUEST)
         transfer.审批状态 = '待审批'
@@ -317,12 +333,17 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # 越权校验：编辑后的调出 / 调入分公司必须在操作者授权范围内
-        validate_branches_in_scope(
-            request.user,
-            from_branch or instance.from_branch,
-            to_branch or instance.to_branch,
-        )
+        # 越权校验：编辑后的分公司必须在操作者授权范围内（调拨只校验调出方，同创建口径）
+        if instance.action_type == Transfer.ACTION_TRANSFER:
+            validate_branches_in_scope(
+                request.user, from_branch or instance.from_branch,
+            )
+        else:
+            validate_branches_in_scope(
+                request.user,
+                from_branch or instance.from_branch,
+                to_branch or instance.to_branch,
+            )
 
         # 明细整替的实例引用预检（分公司维度取编辑后单据现状）
         if items is not None:
@@ -709,13 +730,16 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         line_kwargs = {'item': item, '数量': _qty(8), '本批规格': _cell(row, 7)}
                         action = Transfer.ACTION_TRANSFER
 
-                    # 范围校验：调出/调入分公司必须在操作者授权范围内（与表单路径同源）
-                    try:
-                        validate_branches_in_scope(
-                            request.user,
+                    # 范围校验（与表单路径同源）：调拨只校验调出方（修订 3.1），其余双边
+                    if action == Transfer.ACTION_TRANSFER:
+                        branch_args = (branch_cache.get(header.get('调出分公司', '')),)
+                    else:
+                        branch_args = (
                             branch_cache.get(header.get('调出分公司', '')),
                             branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None,
                         )
+                    try:
+                        validate_branches_in_scope(request.user, *branch_args)
                     except ValidationError:
                         errors.append(f'第 {i} 行: 调出/调入分公司不在你的授权范围')
                         continue

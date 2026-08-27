@@ -43,6 +43,7 @@ class TransferSerializer(serializers.ModelSerializer):
     lines = TransferLineSerializer(many=True, read_only=True)
     品项数 = serializers.SerializerMethodField()
     总数量 = serializers.SerializerMethodField()
+    canOperate = serializers.SerializerMethodField()
 
     class Meta:
         model = Transfer
@@ -54,7 +55,7 @@ class TransferSerializer(serializers.ModelSerializer):
             '供应商', '需求部门', '采购经办人', '用途',
             '回收分类', '回收去向', '处置方式', '处置金额', '出库日期', '领用来源',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
-            'lines', '品项数', '总数量',
+            'lines', '品项数', '总数量', 'canOperate',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at', '单据编号']
@@ -64,6 +65,21 @@ class TransferSerializer(serializers.ModelSerializer):
 
     def get_总数量(self, obj):
         return sum(line.数量 for line in obj.lines.all())
+
+    def get_canOperate(self, obj):
+        """调拨单调入方只读（修订 3.1）：transfer 类型要求范围含调出方；
+        其余类型恒可操作；无请求上下文（离线序列化）默认 True。"""
+        if obj.action_type != Transfer.ACTION_TRANSFER:
+            return True
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user is None or not user.is_authenticated:
+            return True
+        from apps.permissions.scope import resolve_user_scope
+        scope = resolve_user_scope(user)
+        if scope.all:
+            return True
+        return obj.from_branch_id in scope.branches
 
 
 class TransferLineInputSerializer(serializers.Serializer):

@@ -292,3 +292,162 @@ class TestInventoryTaskHardening:
             '/api/inventories/', {'name': '范围内盘点', 'branch': branch.id}, format='json',
         )
         assert resp.status_code == 201
+
+@pytest.mark.django_db
+class TestTransferSingleSideScope:
+    """调拨权限单边化（修订 3.1）：创建/导入只校验调出方；调入方对调拨单只读。"""
+
+    def _transfer_payload(self, from_branch, to_branch, code):
+        item = _ensure_category(code)
+        return {
+            '调拨日期': '2026-01-15',
+            '调出分公司': from_branch.name,
+            '调入分公司': to_branch.name,
+            'items': [{'item': str(item.id), '数量': 1}],
+        }
+
+    def _create_transfer(self, client, from_branch, to_branch, code):
+        return client.post(
+            '/api/transfers/transfer',
+            self._transfer_payload(from_branch, to_branch, code),
+            format='json',
+        )
+
+    # ---- 创建：单边校验 ----
+
+    def test_create_to_branch_out_of_scope_allowed(self, staff_user, branch, second_branch):
+        """调入方越界不再阻断调拨（核心翻转：原双边 400 → 201）。"""
+        _ensure_category('SS-TB-001')
+        resp = self._create_transfer(_client_for(staff_user), branch, second_branch, 'SS-TB-001')
+        assert resp.status_code == 201
+        assert resp.data['审批状态'] == '待审批'
+
+    def test_create_from_branch_out_of_scope_rejected(self, staff_user, branch, second_branch):
+        """调出方越界仍拒（即使调入方在范围内）。"""
+        _ensure_category('SS-FB-001')
+        resp = self._create_transfer(_client_for(staff_user), second_branch, branch, 'SS-FB-001')
+        assert resp.status_code == 400
+
+    def test_create_non_transfer_dual_scope_kept(self, staff_user, branch, second_branch):
+        """非调拨类型（归还）双边校验不回归：调入越界仍 400。"""
+        item = _ensure_category('SS-RT-001')
+        resp = _client_for(staff_user).post('/api/transfers/return', {
+            '调拨日期': '2026-01-15',
+            '调出分公司': branch.name,
+            '调入分公司': second_branch.name,
+            'items': [{'item': str(item.id), '数量': 1}],
+        }, format='json')
+        assert resp.status_code == 400
+
+    def test_import_transfer_row_single_side(self, staff_user, branch, second_branch):
+        """导入调拨行同口径：调入越界照常建单，调出越界进 errors。"""
+        from datetime import date
+        _grant_operation(staff_user, 'manage_assets')
+        _ensure_category('SS-IMP-001')
+        _ensure_category('SS-IMP-002')
+        f = _xlsx_bytes(
+            ['调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
+             '资产编号', '单位', '规格', '数量'],
+            [
+                [date(2026, 1, 15), branch.name, '', second_branch.name, '',
+                 'SS-IMP-001', '件', '', 1],
+                [date(2026, 1, 15), second_branch.name, '', branch.name, '',
+                 'SS-IMP-002', '件', '', 1],
+            ],
+        )
+        resp = _client_for(staff_user).post(
+            '/api/transfers/import?type=transfer', {'file': f}, format='multipart',
+        )
+        assert resp.status_code == 200
+        assert resp.data['imported'] == 1
+        assert len(resp.data['errors']) == 1
+        from apps.transfers.models import Transfer
+        assert Transfer.objects.filter(
+            action_type='transfer', lines__item__asset_code='SS-IMP-001',
+        ).exists() is True
+        assert Transfer.objects.filter(
+            action_type='transfer', lines__item__asset_code='SS-IMP-002',
+        ).exists() is False
+
+    # ---- 调入方只读：写动作收紧 ----
+
+    def test_inbound_side_cannot_approve(self, supervisor_b, branch, second_branch, admin_user):
+        """调入方审批人（范围=second）批 from=branch to=second 调拨 → 400 只读拦截。"""
+        _ensure_category('SS-AP-001')
+        resp = self._create_transfer(_client_for(admin_user), branch, second_branch, 'SS-AP-001')
+        assert resp.status_code == 201
+        tid = resp.data['id']
+
+        resp = _client_for(supervisor_b).post(
+            f'/api/transfers/{tid}/approve', {'approved': True}, format='json',
+        )
+        assert resp.status_code == 400
+        assert '只读' in str(resp.data['detail'])
+        from apps.transfers.models import Transfer
+        assert Transfer.objects.get(pk=tid).审批状态 == '待审批'
+
+    def test_outbound_side_can_approve(self, supervisor_user, branch, second_branch, make_stock):
+        """调出方范围审批人正常审批，台账两边联动。"""
+        make_stock(code='SS-AP-002', qty=1)
+        resp = self._create_transfer(_client_for(supervisor_user), branch, second_branch, 'SS-AP-002')
+        assert resp.status_code == 201
+        tid = resp.data['id']
+
+        resp = _client_for(supervisor_user).post(
+            f'/api/transfers/{tid}/approve', {'approved': True}, format='json',
+        )
+        assert resp.status_code == 200
+        assert resp.data['审批状态'] == '已通过'
+
+    def test_inbound_side_cannot_submit_or_resubmit(self, supervisor_b, branch, second_branch, admin_user):
+        from apps.transfers.models import Transfer
+        _ensure_category('SS-SB-001')
+        client = _client_for(admin_user)
+        resp = client.post('/api/transfers/transfer', {
+            **self._transfer_payload(branch, second_branch, 'SS-SB-001'), 'draft': True,
+        }, format='json')
+        assert resp.status_code == 201
+        tid = resp.data['id']
+        assert Transfer.objects.get(pk=tid).审批状态 == '草稿'
+        resp = _client_for(supervisor_b).post(f'/api/transfers/{tid}/submit', format='json')
+        assert resp.status_code == 400
+
+        t = Transfer.objects.get(pk=tid)
+        t.审批状态 = '已驳回'
+        t.save(update_fields=['审批状态'])
+        resp = _client_for(supervisor_b).post(f'/api/transfers/{tid}/resubmit', format='json')
+        assert resp.status_code == 400
+        resp = _client_for(supervisor_b).patch(
+            f'/api/transfers/{tid}', {'备注': '调入方试图编辑'}, format='json',
+        )
+        assert resp.status_code == 400
+
+    # ---- canOperate 序列化字段 ----
+
+    def test_can_operate_field(self, supervisor_b, branch, second_branch, admin_user):
+        """调入方视角：调入单 canOperate=False 且可见；自己发起的单 True；非调拨 True。"""
+        _ensure_category('SS-CO-001')
+        _ensure_category('SS-CO-002')
+        _ensure_category('SS-CO-003')
+        client = _client_for(admin_user)
+        inbound = self._create_transfer(client, branch, second_branch, 'SS-CO-001')
+        assert inbound.status_code == 201
+        outbound = self._create_transfer(client, second_branch, branch, 'SS-CO-002')
+        assert outbound.status_code == 201
+        ret = client.post('/api/transfers/return', {
+            '调拨日期': '2026-01-15',
+            '调出分公司': second_branch.name,
+            '调入分公司': second_branch.name,
+            'items': [{'item': str(_ensure_category('SS-CO-003').id), '数量': 1}],
+        }, format='json')
+        assert ret.status_code == 201
+
+        resp = _client_for(supervisor_b).get('/api/transfers/', format='json')
+        assert resp.status_code == 200
+        by_number = {row['单据编号']: row for row in resp.data['results']}
+        row_inbound = by_number[inbound.data['单据编号']]
+        row_outbound = by_number[outbound.data['单据编号']]
+        row_return = by_number[ret.data['单据编号']]
+        assert row_inbound['canOperate'] is False
+        assert row_outbound['canOperate'] is True
+        assert row_return['canOperate'] is True
