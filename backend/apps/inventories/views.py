@@ -330,9 +330,21 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def checks(self, request, pk=None):
-        """盘点记录（多人协作）"""
+        """盘点记录（多人协作，可按盘点人 checkedBy 过滤）"""
         task = self.get_object()
         queryset = task.checks.select_related('stock__item', 'checked_by').all()
+
+        checked_by = request.query_params.get('checkedBy')
+        if checked_by:
+            import uuid as uuid_lib
+            try:
+                checked_by = str(uuid_lib.UUID(checked_by))
+            except (ValueError, AttributeError, TypeError):
+                return Response(
+                    {'detail': 'checkedBy 参数格式错误'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(checked_by=checked_by)
 
         # Paginate
         paginator = StandardPagination()
@@ -345,6 +357,113 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     # ---- Excel import/export ----
+
+    @action(detail=True, methods=['get'], url_path='export-report')
+    def export_report(self, request, pk=None):
+        """导出盘点报告 Excel：基本信息 + 统计 + 调整单清单 + 物品明细（双 sheet，任意状态可导）"""
+        import io
+        import openpyxl
+        from django.http import HttpResponse
+
+        task = self.get_object()
+        items = task.items.select_related(
+            'stock__item', 'stock__branch', 'checked_by',
+        ).order_by('created_at')
+        adjustments = task.adjustments.select_related('经办人').order_by('created_at')
+        progress = self._build_progress_data(task, items)
+
+        def _dt(value):
+            return value.strftime('%Y-%m-%d %H:%M') if value else ''
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '盘点报告'
+
+        ws.append(['盘点报告'])
+        ws.append([])
+        ws.append(['基本信息'])
+        for label, value in [
+            ('任务名称', task.name),
+            ('分公司', task.branch.name if task.branch else '全部分公司'),
+            ('资产类目', task.category.asset_category if task.category else '全部类目'),
+            ('状态', task.get_status_display()),
+            ('创建人', task.created_by.name if task.created_by else ''),
+            ('创建时间', _dt(task.created_at)),
+            ('开始时间', _dt(task.started_at)),
+            ('提交时间', _dt(task.submitted_at)),
+            ('完成时间', _dt(task.completed_at)),
+            ('漏盘规则', task.get_missed_rule_display()),
+            ('重复盘点规则', task.get_repeat_rule_display()),
+        ]:
+            ws.append([label, value])
+
+        ws.append([])
+        ws.append(['盘点统计'])
+        for label, value in [
+            ('应盘品目数', progress['totalItems']),
+            ('已盘品目数', progress['checkedItems']),
+            ('正常', progress['matchedCount']),
+            ('盘盈', progress['surplusCount']),
+            ('盘亏', progress['missingCount']),
+            ('未盘', progress['uncheckedCount']),
+            ('正常率', f"{progress['matchRate']}%"),
+            ('盘盈率', f"{progress['surplusRate']}%"),
+            ('盘亏率', f"{progress['missingRate']}%"),
+        ]:
+            ws.append([label, value])
+
+        ws.append([])
+        ws.append(['差异调整单'])
+        if adjustments:
+            ws.append(['单据编号', '目标列', '变动量', '事由', '经办人', '创建时间'])
+            for adj in adjustments:
+                ws.append([
+                    adj.单据编号 or '',
+                    adj.目标列,
+                    adj.变动量,
+                    adj.事由,
+                    adj.经办人.name if adj.经办人 else '',
+                    _dt(adj.created_at),
+                ])
+        elif task.status == 'completed':
+            ws.append(['无差异调整单'])
+        else:
+            ws.append(['无（任务未完成）'])
+
+        ws_detail = wb.create_sheet('盘点明细')
+        ws_detail.append([
+            '序号', '资产编号', '资产名称', '资产类目',
+            '应盘', '实盘', '差异', '结果', '盘点人', '盘点时间', '备注',
+        ])
+        for idx, entry in enumerate(items, start=1):
+            stock = entry.stock
+            actual = entry.actual_qty
+            diff = None if actual is None else actual - entry.expected_qty
+            ws_detail.append([
+                idx,
+                stock.item.asset_code,
+                stock.item.asset_name,
+                stock.item.asset_category,
+                entry.expected_qty,
+                actual if actual is not None else '',
+                f'+{diff}' if diff is not None and diff > 0 else (str(diff) if diff is not None else ''),
+                entry.get_result_display(),
+                entry.checked_by.name if entry.checked_by else '',
+                _dt(entry.checked_at),
+                entry.remarks or '',
+            ])
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        filename = f'盘点报告_{task.name}.xlsx'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=True, methods=['get'], url_path='import-template')
     def download_template(self, request, pk=None):

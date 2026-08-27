@@ -211,15 +211,8 @@ const confirmScan = async () => {
   }
 }
 
-// 获取结果样式
-const getResultStyle = (result: string) => {
-  const styles: Record<string, { bg: string; color: string; icon: string }> = {
-    'matched': { bg: 'var(--color-primary-100)', color: 'var(--color-success)', icon: '✓' },
-    'surplus': { bg: 'oklch(0.94 0.06 85)', color: 'oklch(0.55 0.14 85)', icon: '↑' },
-    'missing': { bg: 'oklch(0.92 0.10 25)', color: 'var(--color-danger)', icon: '↓' }
-  }
-  return styles[result] || styles['matched']
-}
+// 最近记录时间格式化（YYYY-MM-DD HH:mm）
+const formatCheckTime = (value: string) => value ? value.slice(0, 16).replace('T', ' ') : '-'
 
 // 完成盘点
 const finishInventory = async () => {
@@ -398,21 +391,16 @@ onUnmounted(() => {
           v-for="scan in recentScans"
           :key="scan.id"
           class="recent-item"
-          :class="scan.result"
         >
-          <div class="recent-icon" :style="{ background: getResultStyle(scan.result).bg, color: getResultStyle(scan.result).color }">
-            {{ getResultStyle(scan.result).icon }}
-          </div>
+          <div class="recent-icon">✓</div>
           <div class="recent-content">
-            <div class="recent-code">{{ scan.code }}</div>
-            <div class="recent-name">{{ scan.name }}</div>
+            <div class="recent-code">{{ scan.assetCode }}</div>
+            <div class="recent-name">{{ scan.assetName }}</div>
             <div class="recent-qty">
-              账面: {{ scan.expected }} / 实际: {{ scan.actual }}
-              <span v-if="scan.result === 'surplus'" class="qty-diff surplus">(+{{ scan.actual - scan.expected }})</span>
-              <span v-if="scan.result === 'missing'" class="qty-diff missing">({{ scan.actual - scan.expected }})</span>
+              数量: {{ scan.qty }}<span v-if="scan.checkedByName"> · {{ scan.checkedByName }}</span>
             </div>
           </div>
-          <span class="recent-time">{{ scan.time }}</span>
+          <span class="recent-time">{{ formatCheckTime(scan.checkedAt) }}</span>
         </div>
       </div>
     </div>
@@ -869,18 +857,6 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
 }
 
-.recent-item.matched {
-  border-left: 4px solid var(--color-success);
-}
-
-.recent-item.surplus {
-  border-left: 4px solid var(--color-warning);
-}
-
-.recent-item.missing {
-  border-left: 4px solid var(--color-danger);
-}
-
 .recent-icon {
   width: 36px;
   height: 36px;
@@ -891,6 +867,8 @@ onUnmounted(() => {
   font-weight: 700;
   font-size: var(--text-lg);
   flex-shrink: 0;
+  background: var(--color-primary-100);
+  color: var(--color-success);
 }
 
 .recent-content {
@@ -917,19 +895,6 @@ onUnmounted(() => {
 .recent-qty {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
-}
-
-.qty-diff {
-  margin-left: var(--space-2);
-  font-weight: 500;
-}
-
-.qty-diff.surplus {
-  color: var(--color-success);
-}
-
-.qty-diff.missing {
-  color: var(--color-danger);
 }
 
 .recent-time {

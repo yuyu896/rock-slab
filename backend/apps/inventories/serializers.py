@@ -20,11 +20,16 @@ class InventoryItemSerializer(serializers.ModelSerializer):
 
 
 class InventoryCheckSerializer(serializers.ModelSerializer):
+    checked_by_name = serializers.CharField(source='checked_by.name', read_only=True, default='')
+    asset_code = serializers.CharField(source='stock.item.asset_code', read_only=True)
+    asset_name = serializers.CharField(source='stock.item.asset_name', read_only=True)
+
     class Meta:
         model = InventoryCheck
         fields = [
             'id', 'task', 'item', 'stock', 'qty',
-            'checked_by', 'checked_at', 'device',
+            'checked_by', 'checked_by_name', 'checked_at', 'device',
+            'asset_code', 'asset_name',
         ]
         read_only_fields = ['checked_at']
 

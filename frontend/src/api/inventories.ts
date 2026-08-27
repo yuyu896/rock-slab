@@ -78,9 +78,14 @@ export function getInventoryProgress(id: string) {
   return request.get<InventoryProgress>(`/api/inventories/${id}/progress`)
 }
 
-/** 盘点记录（多人协作） */
-export function getInventoryChecks(id: string, params?: PaginationParams) {
+/** 盘点记录（多人协作，可按盘点人过滤） */
+export function getInventoryChecks(id: string, params?: PaginationParams & { checkedBy?: string }) {
   return request.get<PaginatedResponse<InventoryCheck>>(`/api/inventories/${id}/checks`, { params })
+}
+
+/** 导出盘点报告 Excel */
+export function exportInventoryReport(id: string) {
+  return request.get(`/api/inventories/${id}/export-report`, { responseType: 'blob' })
 }
 
 /** 下载盘点模板 */

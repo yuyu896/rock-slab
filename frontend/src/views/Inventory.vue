@@ -9,7 +9,9 @@ import {
   approveInventory,
   rejectInventory,
   recountInventory,
-  getInventoryProgress,
+  getInventoryReport,
+  getInventoryChecks,
+  exportInventoryReport,
   submitInventory,
   downloadInventoryTemplate,
   importInventoryResult,
@@ -17,7 +19,7 @@ import {
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
-import { MISSED_RULE_LABELS, REPEAT_RULE_LABELS } from '@/constants'
+import { MISSED_RULE_LABELS, REPEAT_RULE_LABELS, INVENTORY_RESULT_MAP } from '@/constants'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { MissedRuleType, RepeatRuleType } from '@/types'
 
@@ -60,6 +62,21 @@ const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', labe
 // 获取规则标签
 const getMissedRuleLabel = (rule: string) => MISSED_RULE_LABELS[rule as MissedRuleType] || '-'
 const getRepeatRuleLabel = (rule: string) => REPEAT_RULE_LABELS[rule as RepeatRuleType] || '-'
+const getResultLabel = (result: string) => INVENTORY_RESULT_MAP[result as keyof typeof INVENTORY_RESULT_MAP] ?? result
+
+// 明细差异：文本与着色（盘盈绿 / 盘亏红，沿用报告弹窗口径）
+const diffText = (item: any) => {
+  if (item.actualQty == null) return '-'
+  const diff = item.actualQty - item.expectedQty
+  return (diff > 0 ? '+' : '') + diff
+}
+const diffStyle = (item: any) => {
+  if (item.actualQty == null) return ''
+  const diff = item.actualQty - item.expectedQty
+  if (diff > 0) return 'var(--color-success)'
+  if (diff < 0) return 'var(--color-danger)'
+  return ''
+}
 
 // 从扫码视图提交审批
 const submitFromScan = async (task: any) => {
@@ -140,23 +157,96 @@ async function fetchStatusStats() {
   } catch { /* ignore */ }
 }
 
-// 查看任务详情
+// 查看任务详情（report 一次取全：进度 + 物品明细）
+const detailItems = ref<any[]>([])
+
 const viewTask = async (task: any) => {
   const enriched = { ...task }
+  detailItems.value = []
   try {
-    const { data: progress } = await getInventoryProgress(task.id)
+    const { data: report } = await getInventoryReport(task.id)
+    const progress = report.progress ?? {}
     enriched.totalItems = progress.totalItems
     enriched.checkedItems = progress.checkedItems
     enriched.surplusCount = progress.surplusCount
     enriched.missingCount = progress.missingCount
     enriched.uncheckedCount = progress.uncheckedCount
     enriched.progress = progress.totalItems ? Math.round(progress.checkedItems / progress.totalItems * 100) : 0
+    detailItems.value = report.items ?? []
   } catch { /* ignore */ }
   const branchOpt = branchOptions.value.find(b => b.value === task.branch)
   enriched.branchName = branchOpt?.label || task.branch || '全部分公司'
   enriched.creatorName = task.created_by_name || task.createdBy || '-'
   selectedTask.value = enriched
   currentView.value = 'detail'
+  checkPersonFilter.value = ''
+  checkPage.value = 1
+  personOptions.value = []
+  fetchChecks(task.id)
+}
+
+// ========== 盘点流水（按人查看） ==========
+const checkList = ref<any[]>([])
+const checkTotal = ref(0)
+const checkPage = ref(1)
+const checkPageSize = 100
+const checkLoading = ref(false)
+const checkPersonFilter = ref('')
+const personOptions = ref<{ value: string; label: string }[]>([])
+
+const checkTotalPages = computed(() => Math.max(1, Math.ceil(checkTotal.value / checkPageSize)))
+
+async function fetchChecks(taskId: string) {
+  checkLoading.value = true
+  try {
+    const { data } = await getInventoryChecks(taskId, {
+      page: checkPage.value,
+      pageSize: checkPageSize,
+      checkedBy: checkPersonFilter.value || undefined,
+    })
+    checkList.value = data.results
+    checkTotal.value = data.count
+    for (const record of data.results) {
+      if (record.checkedBy && !personOptions.value.some(p => p.value === record.checkedBy)) {
+        personOptions.value.push({ value: record.checkedBy, label: record.checkedByName || record.checkedBy })
+      }
+    }
+  } catch { /* ignore */ } finally {
+    checkLoading.value = false
+  }
+}
+
+const onCheckPersonChange = () => {
+  checkPage.value = 1
+  if (selectedTask.value) fetchChecks(selectedTask.value.id)
+}
+
+const changeCheckPage = (delta: number) => {
+  const next = checkPage.value + delta
+  if (next < 1 || next > checkTotalPages.value) return
+  checkPage.value = next
+  if (selectedTask.value) fetchChecks(selectedTask.value.id)
+}
+
+const formatCheckTime = (value: string) => value ? value.slice(0, 16).replace('T', ' ') : '-'
+
+// ========== 导出报告 ==========
+const exportingReport = ref(false)
+const exportReportAction = async (task: any) => {
+  exportingReport.value = true
+  try {
+    const { data } = await exportInventoryReport(task.id)
+    const url = window.URL.createObjectURL(new Blob([data as any]))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `盘点报告_${task.name}.xlsx`
+    link.click()
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    exportingReport.value = false
+  }
 }
 
 // 开始盘点
@@ -429,15 +519,14 @@ onMounted(() => {
             返回列表
           </button>
           <div class="header-actions">
-            <button class="btn-secondary">
+            <button class="btn-secondary" :disabled="exportingReport" @click="exportReportAction(selectedTask)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="7 10 12 15 17 10"/>
                 <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
-              导出报告
+              {{ exportingReport ? '导出中...' : '导出报告' }}
             </button>
-            <button class="btn-primary">继续盘点</button>
           </div>
         </div>
 
@@ -516,6 +605,92 @@ onMounted(() => {
               </div>
             </div>
           </div>
+
+          <!-- 物品明细 -->
+          <div class="checkers-card">
+            <h4 class="info-card-title">物品明细</h4>
+            <div v-if="detailItems.length" class="detail-table-wrapper">
+              <table class="detail-table">
+                <thead>
+                  <tr>
+                    <th>资产编号</th>
+                    <th>资产名称</th>
+                    <th>应盘</th>
+                    <th>实盘</th>
+                    <th>差异</th>
+                    <th>结果</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in detailItems" :key="item.id">
+                    <td>{{ item.assetCode ?? '-' }}</td>
+                    <td>{{ item.assetName ?? '-' }}</td>
+                    <td>{{ item.expectedQty }}</td>
+                    <td>{{ item.actualQty ?? '未盘' }}</td>
+                    <td :style="{ color: diffStyle(item) }">{{ diffText(item) }}</td>
+                    <td>{{ getResultLabel(item.result) }}</td>
+                    <td>{{ item.remarks || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="table-empty">
+              {{ selectedTask.status === 'pending' ? '盘点开始后生成物品清单' : '暂无盘点明细' }}
+            </div>
+          </div>
+
+          <!-- 盘点流水（按人查看） -->
+          <div class="checkers-card">
+            <div class="checks-card-header">
+              <h4 class="info-card-title">盘点流水</h4>
+              <select
+                v-model="checkPersonFilter"
+                class="filter-select"
+                aria-label="筛选盘点人"
+                @change="onCheckPersonChange"
+              >
+                <option value="">全部盘点人</option>
+                <option v-for="opt in personOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div v-if="checkList.length" class="detail-table-wrapper">
+              <table class="detail-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>盘点人</th>
+                    <th>资产编号</th>
+                    <th>资产名称</th>
+                    <th>数量</th>
+                    <th>设备</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="record in checkList" :key="record.id">
+                    <td>{{ formatCheckTime(record.checkedAt) }}</td>
+                    <td>{{ record.checkedByName || '-' }}</td>
+                    <td>{{ record.assetCode ?? '-' }}</td>
+                    <td>{{ record.assetName ?? '-' }}</td>
+                    <td>{{ record.qty }}</td>
+                    <td>{{ record.device || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="table-empty">
+              {{ checkLoading ? '加载中...' : '暂无盘点记录' }}
+            </div>
+            <div v-if="checkTotal > checkPageSize" class="checks-pager">
+              <span class="pager-text">共 {{ checkTotal }} 条 · 第 {{ checkPage }}/{{ checkTotalPages }} 页</span>
+              <div class="pager-btns">
+                <button class="pager-btn" :disabled="checkPage <= 1" @click="changeCheckPage(-1)">上一页</button>
+                <button class="pager-btn" :disabled="checkPage >= checkTotalPages" @click="changeCheckPage(1)">下一页</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -554,10 +729,9 @@ onMounted(() => {
 .back-btn { display: flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 16px; cursor: pointer; color: var(--color-text-secondary); font-size: 14px; }
 .back-btn svg { width: 16px; height: 16px; }
 .header-actions { display: flex; gap: 12px; }
-.btn-primary, .btn-secondary { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 20px; border-radius: 10px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; }
-.btn-primary { background: var(--color-primary); color: #fff; }
-.btn-secondary { background: var(--color-bg-elevated); color: var(--color-text-secondary); border: 1px solid var(--color-border); }
-.btn-primary svg, .btn-secondary svg { width: 16px; height: 16px; }
+.btn-secondary { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 20px; border-radius: 10px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; background: var(--color-bg-elevated); color: var(--color-text-secondary); border: 1px solid var(--color-border); }
+.btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-secondary svg { width: 16px; height: 16px; }
 .detail-title { font-size: 20px; font-weight: 600; margin: 0; }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .info-card { background: var(--color-bg-elevated); border-radius: 12px; padding: 20px; border: 1px solid var(--color-border); }
@@ -578,6 +752,19 @@ onMounted(() => {
 .progress-fill-lg { height: 100%; background: var(--color-primary); border-radius: 4px; transition: width 0.3s; }
 .progress-text { font-size: 13px; color: var(--color-text-secondary); white-space: nowrap; }
 .checkers-card { background: var(--color-bg-elevated); border-radius: 12px; padding: 20px; border: 1px solid var(--color-border); }
+.checks-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.checks-card-header .info-card-title { margin: 0; }
+.filter-select { padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-elevated); outline: none; min-width: 140px; }
+.detail-table-wrapper { overflow: auto; max-height: 420px; border: 1px solid var(--color-border); border-radius: 8px; }
+.detail-table { width: 100%; border-collapse: collapse; }
+.detail-table th { position: sticky; top: 0; z-index: 1; padding: 10px 12px; text-align: left; font-size: 13px; font-weight: 600; color: var(--color-text-secondary); background: var(--color-bg); border-bottom: 1px solid var(--color-border); }
+.detail-table td { padding: 10px 12px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--color-border); }
+.table-empty { text-align: center; color: var(--color-text-secondary); padding: 32px 0; font-size: 14px; }
+.checks-pager { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.pager-text { font-size: 13px; color: var(--color-text-secondary); }
+.pager-btns { display: flex; gap: 8px; }
+.pager-btn { padding: 4px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--color-text-secondary); background: none; border: 1px solid var(--color-border); }
+.pager-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 模态框 */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }

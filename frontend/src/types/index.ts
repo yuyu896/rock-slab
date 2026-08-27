@@ -435,8 +435,11 @@ export interface InventoryCheck {
   stockId: string
   qty: number
   checkedBy: string
+  checkedByName?: string
   checkedAt: string
   device?: string
+  assetCode?: string
+  assetName?: string
 }
 
 // ============ API 信封类型 ============
