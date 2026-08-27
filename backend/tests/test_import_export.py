@@ -225,12 +225,20 @@ class TestTransferTemplates:
             assert h in headers, f"[{ttype}] Missing header: {h}"
 
 
-def _seed_recovery_dictionary():
-    """预置 REC-001 字典展示值（单位/类目），与导入模板样例行一致——P2 起这些值取自字典而非行内。"""
+def _seed_recovery_dictionary(test_branch=None):
+    """预置 REC-001 字典展示值（单位/类目），与导入模板样例行一致——P2 起这些值取自字典而非行内。
+
+    回收导入受在用软预检（第 7 案修复）：样例行 数量2 需有台账在用底数。
+    """
     from apps.categories.models import Category
     Category.objects.filter(asset_code='REC-001').update(
         asset_category='电子设备', item_category='电脑', unit='台',
     )
+    if test_branch is not None:
+        from apps.assets.services import ledger
+        item = Category.objects.filter(asset_code='REC-001').first()
+        if item is not None:
+            ledger.apply_adjustment(test_branch, item, ledger.COLUMN_IN_USE, 5, '导入测试造数')
 
 
 class TestTransferImport:
@@ -245,7 +253,7 @@ class TestTransferImport:
             # 领用部门按（分公司, 部门名）解析行级外键，样例行的"行政部"需在字典内
             Department.objects.get_or_create(branch=test_branch, name='行政部')
         if ttype == 'recovery':
-            _seed_recovery_dictionary()
+            _seed_recovery_dictionary(test_branch)
         tpl = TRANSFER_TYPE_TEMPLATES[ttype]
         buf = _make_xlsx(tpl['template_headers'], [tpl['sample_row']])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params=f'type={ttype}')
@@ -274,7 +282,7 @@ class TestTransferImport:
     def test_recovery_import_all_fields(self, admin_client, test_branch):
         """Verify all recovery-specific fields survive import (单头 + 明细行 + 字典联查)."""
         from apps.transfers.models import Transfer
-        _seed_recovery_dictionary()
+        _seed_recovery_dictionary(test_branch)
         tpl = TRANSFER_TYPE_TEMPLATES['recovery']
         buf = _make_xlsx(tpl['template_headers'], [tpl['sample_row']])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=recovery')

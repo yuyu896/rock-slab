@@ -93,3 +93,40 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
             if inst.pk in seen:
                 err(row_no, item.asset_code, f'实例 {inst.内部编号} 与第 {seen[inst.pk]} 行重复引用')
             seen[inst.pk] = row_no
+
+    _validate_recovery_in_use(action_type, from_branch, items)
+
+
+def _validate_recovery_in_use(action_type, from_branch, items):
+    """回收在用软预检：数量管理品目按（调出分公司×品目）合并计量，超当前在用即拒。
+
+    软预检不持锁（创建后账面仍可能变动，生效时行锁终检兜底），与前端新建页
+    预检、审批端终检三层同口径；台账行缺失视为在用 0。实例管理品目不在其内
+    （实例"在用"状态校验在上方矩阵）。
+    """
+    if action_type != 'recovery' or from_branch is None:
+        return
+    from apps.assets.models import AssetStock
+
+    totals = {}
+    for entry in items:
+        item = entry['item']
+        if item.management_type != 'instance':
+            totals.setdefault(item.pk, [item, 0])[1] += entry['数量']
+    if not totals:
+        return
+    stocks = {
+        s.item_id: s.在用数量
+        for s in AssetStock.objects.filter(branch=from_branch, item_id__in=totals)
+    }
+    for _pk, (item, total) in sorted(totals.items()):
+        in_use = stocks.get(item.pk, 0)
+        if total > in_use:
+            raise ValidationError({
+                'detail': (
+                    f'回收只能回收『在用』中的资产：当前在用 {in_use}，需回收 {total}'
+                    f'（{item.asset_code} {item.asset_name}）；'
+                    f'请核对物品是否未领用、或调出分公司是否选错'
+                ),
+                'code': 'LEDGER_INSUFFICIENT',
+            })
