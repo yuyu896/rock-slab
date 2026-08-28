@@ -128,6 +128,16 @@ watch(
 
 const hasInstanceColumn = computed(() => BINDING_TYPES.includes(props.type))
 
+/** 品目点选扣数列收口：领用按来源、调拨在库、回收在用；采购生成制不收口（全量字典） */
+const itemStockColumn = computed<'在库数量' | '在用数量' | '回收库数量' | undefined>(() => {
+  if (props.type === 'assign') return props.assignSource === 'recycle_bin' ? '回收库数量' : '在库数量'
+  if (props.type === 'transfer') return '在库数量'
+  if (props.type === 'recovery') return '在用数量'
+  return undefined
+})
+/** 回收库来源剔除消耗品（领出即耗用品目不得走回收库，与提交校验口径一致） */
+const excludeConsumable = computed(() => itemStockColumn.value === '回收库数量')
+
 /** 回收在用数量缓存（品目编号 → 在用）：品目点选逐条拉取，切换调出分公司整体失效重拉 */
 const inUseMap = ref(new Map<string, number>())
 
@@ -218,7 +228,13 @@ defineExpose({ validate, validateMessage })
       </div>
       <div v-for="(draft, index) in drafts" :key="draft.key" class="lines-row" :data-type="type">
         <div class="cell item-cell">
-          <ItemPicker :model-value="draft.item?.id ?? ''" @change="(item) => onItemPicked(index, item)" />
+          <ItemPicker
+            :model-value="draft.item?.id ?? ''"
+            :branch="branchName"
+            :stock-column="itemStockColumn"
+            :exclude-consumable="excludeConsumable"
+            @change="(item) => onItemPicked(index, item)"
+          />
           <div v-if="draft.item" class="picked-meta">{{ draft.item.asset_name }}{{ draft.item.specification ? ` · ${draft.item.specification}` : '' }}{{ draft.item.unit ? ` · ${draft.item.unit}` : '' }}</div>
           <div v-if="draft.item?.managementType === 'consumable'" class="picked-meta consumable-meta">
             消耗品{{ type === 'assign' ? '：领出即耗用（在库扣减、总量降），不进在用、不可回收' : '' }}

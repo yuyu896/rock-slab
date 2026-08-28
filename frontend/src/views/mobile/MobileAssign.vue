@@ -35,7 +35,7 @@ async function fetchOptions() {
   try {
     const [catRes, branchRes] = await Promise.all([
       getCategories().catch(() => ({ data: [] as Category[] })),
-      getBranches().catch(() => ({ data: [] as Branch[] })),
+      getBranches({ scope: 'write' }).catch(() => ({ data: [] as Branch[] })),
     ])
     categories.value = Array.isArray(catRes.data) ? catRes.data : (catRes.data as any).results || []
     branches.value = Array.isArray(branchRes.data) ? branchRes.data : (branchRes.data as any).results || []

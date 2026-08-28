@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db.models import ProtectedError
 from apps.permissions.permissions import OperationPermission
+from apps.permissions.scope import resolve_user_scope
 from .models import Region, Branch, Team, Company
 from .serializers import RegionSerializer, BranchSerializer, TeamSerializer, CompanySerializer
 from .filters import RegionFilterSet, BranchFilterSet
@@ -47,6 +48,19 @@ class BranchViewSet(viewsets.ModelViewSet):
         'partial_update': 'manage_organizations',
         'destroy': 'manage_organizations',
     }
+
+    def get_queryset(self):
+        """无参全量下发；scope=write 仅列授权范围内分公司（写单页下拉收口）。
+
+        admin / 「全部数据」授权豁免；无授权用户返回空集——与提交端
+        validate_branches_in_scope 口径一致（本来就无法对任何分公司写单）。
+        """
+        qs = super().get_queryset()
+        if self.request.query_params.get('scope') == 'write':
+            scope = resolve_user_scope(self.request.user)
+            if not scope.all:
+                qs = qs.filter(id__in=scope.branches)
+        return qs
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

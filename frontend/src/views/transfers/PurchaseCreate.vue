@@ -19,7 +19,8 @@ const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 
 onMounted(async () => {
   try {
-    const { data } = await getBranches()
+    // 入库分公司收口到授权范围（无参全量的防线在提交端校验，见 scope=write 语义）
+    const { data } = await getBranches({ scope: 'write' })
     branchOptions.value = data.map((b: any) => ({ value: b.id, label: b.name }))
   } catch (error) {
     ElMessage.error(handleApiError(error))

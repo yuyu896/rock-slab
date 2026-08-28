@@ -82,7 +82,8 @@ async function prefillFromInventoryTask(taskId: string) {
 
 onMounted(async () => {
   try {
-    const { data } = await getBranches()
+    // 调出分公司（扣数方）收口到授权范围
+    const { data } = await getBranches({ scope: 'write' })
     branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name, id: b.id }))
   } catch (error) {
     ElMessage.error(handleApiError(error))

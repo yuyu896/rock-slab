@@ -12,7 +12,9 @@ import DepartmentSelect from '@/components/DepartmentSelect.vue'
 
 const router = useRouter()
 const creating = ref(false)
-const branchOptions = ref<{ value: string; label: string }[]>([])
+/** 调出=授权范围（扣数方收口）；调入=全量（单边化设计，调入方不要求授权） */
+const fromBranchOptions = ref<{ value: string; label: string }[]>([])
+const toBranchOptions = ref<{ value: string; label: string }[]>([])
 const form = ref({
   调拨日期: '',
   fromBranch: '', toBranch: '',
@@ -22,13 +24,17 @@ const form = ref({
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 const fromBranchName = computed(
-  () => branchOptions.value.find((b: any) => b.value === form.value.fromBranch)?.label || '',
+  () => fromBranchOptions.value.find((b: any) => b.value === form.value.fromBranch)?.label || '',
 )
 
 onMounted(async () => {
   try {
-    const { data } = await getBranches()
-    branchOptions.value = data.map((b: any) => ({ value: b.id, label: b.name }))
+    const [scoped, all] = await Promise.all([
+      getBranches({ scope: 'write' }),
+      getBranches(),
+    ])
+    fromBranchOptions.value = scoped.data.map((b: any) => ({ value: b.id, label: b.name }))
+    toBranchOptions.value = all.data.map((b: any) => ({ value: b.id, label: b.name }))
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }
@@ -85,14 +91,14 @@ async function submit() {
         <label class="form-label">调出分公司 <span class="required">*</span></label>
         <select v-model="form.fromBranch" class="form-select">
           <option value="">请选择</option>
-          <option v-for="b in branchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
+          <option v-for="b in fromBranchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
         </select>
       </div>
       <div class="form-item">
         <label class="form-label">调入分公司 <span class="required">*</span></label>
         <select v-model="form.toBranch" class="form-select">
           <option value="">请选择</option>
-          <option v-for="b in branchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
+          <option v-for="b in toBranchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
         </select>
       </div>
       <div class="form-item"><label class="form-label">调出负责人</label><input v-model="form.调出负责人" type="text" class="form-input" /></div>

@@ -20,6 +20,11 @@ class AssetStockFilterSet(django_filters.FilterSet):
     asset_code = django_filters.CharFilter(field_name='item__asset_code')
     keyword = django_filters.CharFilter(method='filter_keyword')
     sufficient = django_filters.CharFilter(method='filter_sufficient')
+    # 指定列>0（写单页品目点选按扣数列收口：在库/在用/回收库有数才可选）
+    positive_column = django_filters.ChoiceFilter(
+        method='filter_positive_column',
+        choices=[(c, c) for c in ('在库数量', '在用数量', '回收库数量')],
+    )
 
     class Meta:
         model = AssetStock
@@ -31,6 +36,9 @@ class AssetStockFilterSet(django_filters.FilterSet):
         if value in ('1', 'true', 'True'):
             return queryset.exclude(insufficient_stock_q())
         return queryset
+
+    def filter_positive_column(self, queryset, name, value):
+        return queryset.filter(**{f'{value}__gt': 0})
 
     def filter_keyword(self, queryset, name, value):
         from django.db.models import Q

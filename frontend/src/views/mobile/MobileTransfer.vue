@@ -25,7 +25,9 @@ const form = ref({
 })
 
 const categories = ref<Category[]>([])
-const branches = ref<Branch[]>([])
+/** 调出=授权范围（扣数方收口）；调入=全量（单边化设计，调入方不要求授权） */
+const fromBranches = ref<Branch[]>([])
+const toBranches = ref<Branch[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 
@@ -35,12 +37,14 @@ const currentBranch = computed(() => userStore.profile?.branch || '')
 async function fetchOptions() {
   loading.value = true
   try {
-    const [catRes, branchRes] = await Promise.all([
+    const [catRes, scopedRes, allRes] = await Promise.all([
       getCategories().catch(() => ({ data: [] as Category[] })),
+      getBranches({ scope: 'write' }).catch(() => ({ data: [] as Branch[] })),
       getBranches().catch(() => ({ data: [] as Branch[] })),
     ])
     categories.value = Array.isArray(catRes.data) ? catRes.data : (catRes.data as any).results || []
-    branches.value = Array.isArray(branchRes.data) ? branchRes.data : (branchRes.data as any).results || []
+    fromBranches.value = Array.isArray(scopedRes.data) ? scopedRes.data : (scopedRes.data as any).results || []
+    toBranches.value = Array.isArray(allRes.data) ? allRes.data : (allRes.data as any).results || []
     // 默认调出分公司为当前用户所属分公司
     if (currentBranch.value) {
       form.value.fromBranch = currentBranch.value
@@ -135,7 +139,7 @@ onMounted(() => {
         <label class="form-label">调出分公司</label>
         <select v-model="form.fromBranch" class="form-select">
           <option value="">请选择调出分公司</option>
-          <option v-for="branch in branches" :key="branch.id" :value="branch.id">
+          <option v-for="branch in fromBranches" :key="branch.id" :value="branch.id">
             {{ branch.name }}
           </option>
         </select>
@@ -145,7 +149,7 @@ onMounted(() => {
         <label class="form-label">调入分公司 <span class="required">*</span></label>
         <select v-model="form.toBranch" class="form-select">
           <option value="">请选择调入分公司</option>
-          <option v-for="branch in branches" :key="branch.id" :value="branch.id">
+          <option v-for="branch in toBranches" :key="branch.id" :value="branch.id">
             {{ branch.name }}
           </option>
         </select>
