@@ -4,7 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.assets.models import AssetStock
-from apps.transfers.models import Transfer
+from apps.transfers.models import Transfer, TransferLine
 from apps.permissions.scope import resolve_user_scope
 
 
@@ -283,6 +283,86 @@ def by_category(request):
         }
         for s in stats
     ])
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def consumables(request):
+    """部门消耗统计：已生效领用单中消耗品行，部门×品目分组、按月展开（现算聚合，不落表）。
+
+    数量口径 = 明细行数量求和（金额折算不做，待真实需求另立）；
+    月份列取单头调拨日期（TruncMonth）；空部门归「未归属」；
+    分支归属 = from_branch（发放方），数据范围遵循统一授权过滤。
+    """
+    from django.db.models.functions import TruncMonth
+
+    selected = _parse_selected_branches(request.query_params)
+    lines = TransferLine.objects.filter(
+        transfer__action_type=Transfer.ACTION_ASSIGN,
+        transfer__审批状态='已通过',
+        item__management_type='consumable',
+    )
+    lines = _scope_queryset(
+        request.user, lines,
+        transfer_fields=('transfer__from_branch',), selected_branches=selected,
+    )
+
+    date_range = request.query_params.get('dateRange')
+    if date_range:
+        try:
+            start_str, end_str = date_range.split(',')
+            lines = lines.filter(
+                transfer__调拨日期__gte=start_str.strip(),
+                transfer__调拨日期__lte=end_str.strip(),
+            )
+        except (ValueError, AttributeError):
+            pass
+
+    stats = (
+        lines
+        .annotate(month=TruncMonth('transfer__调拨日期'))
+        .values(
+            'department', 'department__name',
+            'item', 'item__asset_code', 'item__asset_name', 'item__unit',
+            'month',
+        )
+        .annotate(qty=Sum('数量'))
+    )
+
+    months = set()
+    rows_by_key = {}
+    for s in stats:
+        month = s['month'].strftime('%Y-%m') if s['month'] else '未知'
+        months.add(month)
+        # 分组键含品目 FK；部门按 id（跨分公司同名部门分行可辨），空部门并组
+        key = (s['department'] or '', s['item'])
+        row = rows_by_key.get(key)
+        if row is None:
+            row = {
+                'department': s['department__name'] or '未归属',
+                'itemId': str(s['item']),
+                'code': s['item__asset_code'],
+                'name': s['item__asset_name'],
+                'unit': s['item__unit'] or '',
+                'quantities': {},
+                'total': 0,
+            }
+            rows_by_key[key] = row
+        qty = s['qty'] or 0
+        row['quantities'][month] = row['quantities'].get(month, 0) + qty
+        row['total'] += qty
+
+    month_list = sorted(months)
+    rows = sorted(rows_by_key.values(), key=lambda r: (r['department'], -r['total']))
+    grand_total = {
+        m: sum(r['quantities'].get(m, 0) for r in rows) for m in month_list
+    }
+    grand_total['total'] = sum(grand_total.values())
+    return Response({
+        'months': month_list,
+        'rows': rows,
+        'grandTotal': grand_total,
+    })
 
 
 @api_view(['GET'])

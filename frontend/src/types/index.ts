@@ -560,6 +560,24 @@ export interface CategoryStat {
   percentage: number
 }
 
+/** 消耗统计行（部门×品目，按月展开数量；quantities 键=月份 'YYYY-MM'） */
+export interface ConsumptionRow {
+  department: string
+  itemId: string
+  code: string
+  name: string
+  unit: string
+  quantities: Record<string, number>
+  total: number
+}
+
+/** 消耗统计响应（months 为有序月份键，供表头渲染） */
+export interface ConsumptionReport {
+  months: string[]
+  rows: ConsumptionRow[]
+  grandTotal: Record<string, number>
+}
+
 /** 调拨流水报表行（按明细行展开，字段与后端一一对应） */
 export interface TransferReportRow {
   id: string

@@ -7,5 +7,6 @@ urlpatterns = [
     path('by-branch/', views.by_branch, name='report-by-branch'),
     path('by-status/', views.by_status, name='report-by-status'),
     path('by-category/', views.by_category, name='report-by-category'),
+    path('consumables/', views.consumables, name='report-consumables'),
     path('transfers/', views.transfers, name='report-transfers'),
 ]

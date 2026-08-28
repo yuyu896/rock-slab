@@ -15,11 +15,12 @@ vi.mock('@/api/reports', () => ({
   getByStatus: vi.fn(),
   getByCategory: vi.fn(),
   getTransferReport: vi.fn(),
+  getConsumptionReport: vi.fn(),
   getReportBranches: vi.fn().mockResolvedValue({ data: [] }),
 }))
 
 import Reports from '@/views/Reports.vue'
-import { getOverview, getByBranch, getByStatus, getByCategory, getTransferReport } from '@/api/reports'
+import { getOverview, getByBranch, getByStatus, getByCategory, getTransferReport, getConsumptionReport } from '@/api/reports'
 
 function _mockAll(overrides: Record<string, any> = {}) {
   vi.mocked(getOverview).mockResolvedValue({
@@ -44,6 +45,18 @@ function _mockAll(overrides: Record<string, any> = {}) {
   } as any)
   vi.mocked(getTransferReport).mockResolvedValue({
     data: overrides.transfers ?? [],
+  } as any)
+  vi.mocked(getConsumptionReport).mockResolvedValue({
+    data: overrides.consumption ?? {
+      months: ['2026-07', '2026-08'],
+      rows: [
+        {
+          department: '行政部', itemId: 'i1', code: 'B-b00001', name: '打印纸', unit: '包',
+          quantities: { '2026-07': 2, '2026-08': 8 }, total: 10,
+        },
+      ],
+      grandTotal: { '2026-07': 2, '2026-08': 8, total: 10 },
+    },
   } as any)
 }
 
@@ -132,5 +145,36 @@ describe('Reports 报表页真实数据契约（P3 刀二）', () => {
     expect(cells).toEqual([
       '1', 'CG20260820-001', '2026-08-20', '采购入库', 'NB-1', '笔记本', '-', '杭州', '4', '已通过', '张三',
     ])
+  })
+
+  it('消耗统计表按月份列展开并渲染总计行', async () => {
+    const wrapper = await mountReports()
+    const tab = wrapper.findAll('.tab-btn').find(b => b.text() === '消耗统计')
+    await tab!.trigger('click')
+
+    // 表头：固定四列 + 两个月份 + 合计
+    const headers = wrapper.findAll('.data-table thead th').map(th => th.text())
+    expect(headers).toEqual(['部门', '品目编号', '品目名称', '单位', '2026-07', '2026-08', '合计'])
+
+    // 数据行：缺月补 0（该行两月都有值）
+    const row = wrapper.find('.data-table tbody tr')
+    expect(row.findAll('td').map(td => td.text())).toEqual([
+      '行政部', 'B-b00001', '打印纸', '包', '2', '8', '10',
+    ])
+
+    // 总计行置底
+    const foot = wrapper.find('.data-table tfoot tr')
+    expect(foot.findAll('td').map(td => td.text())).toEqual([
+      '总计', '', '', '', '2', '8', '10',
+    ])
+  })
+
+  it('消耗统计无流水时空态提示', async () => {
+    _mockAll({ consumption: { months: [], rows: [], grandTotal: {} } })
+    const wrapper = await mountReports()
+    const tab = wrapper.findAll('.tab-btn').find(b => b.text() === '消耗统计')
+    await tab!.trigger('click')
+    expect(wrapper.text()).toContain('暂无消耗品发放流水')
+    expect(wrapper.find('.data-table tfoot').exists()).toBe(false)
   })
 })

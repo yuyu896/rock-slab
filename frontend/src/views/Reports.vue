@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getOverview, getByBranch, getByStatus, getByCategory, getTransferReport, getReportBranches } from '@/api/reports'
+import { getOverview, getByBranch, getByStatus, getByCategory, getTransferReport, getConsumptionReport, getReportBranches } from '@/api/reports'
 import { handleApiError } from '@/utils/request'
 import { formatMoney } from '@/utils/format'
 import { ElMessage } from 'element-plus'
 import { TRANSFER_TYPES } from '@/constants'
-import type { ReportOverview, BranchStat, StatusStat, CategoryStat, TransferReportRow } from '@/types'
+import type { ReportOverview, BranchStat, StatusStat, CategoryStat, TransferReportRow, ConsumptionReport } from '@/types'
 
 const router = useRouter()
 
@@ -18,7 +18,7 @@ const branchOptions = ref<{ id: string; name: string }[]>([])
 const selectedBranches = ref<string[]>([])
 
 // 报表类型
-const reportType = ref<'overview' | 'branch' | 'category' | 'changeDetails'>('overview')
+const reportType = ref<'overview' | 'branch' | 'category' | 'changeDetails' | 'consumables'>('overview')
 
 // 时间范围（仅作用于单据层指标/流水；台账数量为时点快照）
 const dateRange = ref('month')
@@ -45,6 +45,29 @@ const monthlyTrend = ref<{ month: string; inbound: number; outbound: number; tra
 // 变动明细数据
 const transferDetails = ref<TransferReportRow[]>([])
 
+// 消耗统计（部门×品目，按月展开）
+const consumptionData = ref<ConsumptionReport | null>(null)
+const consumptionHeaders = computed(() => [
+  '部门', '品目编号', '品目名称', '单位',
+  ...(consumptionData.value?.months ?? []),
+  '合计',
+])
+
+/** 页顶时间预设换算为具体区间（后端只解析 YYYY-MM-DD,YYYY-MM-DD）；custom 不限 */
+function consumptionDateRange(): string | undefined {
+  const now = new Date()
+  const y = now.getFullYear()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const today = `${y}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  if (dateRange.value === 'month') return `${y}-${pad(now.getMonth() + 1)}-01,${today}`
+  if (dateRange.value === 'quarter') {
+    const qStart = Math.floor(now.getMonth() / 3) * 3 + 1
+    return `${y}-${pad(qStart)}-01,${today}`
+  }
+  if (dateRange.value === 'year') return `${y}-01-01,${today}`
+  return undefined
+}
+
 // 拉取当前用户数据范围内的分公司列表（下拉选项）
 async function fetchBranches() {
   try {
@@ -63,18 +86,24 @@ async function fetchReportData() {
     if (selectedBranches.value.length) {
       params.branches = selectedBranches.value.join(',')
     }
-    const [overviewRes, branchRes, statusRes, transferRes, categoryRes] = await Promise.all([
+    // 消耗统计的时间筛选需具体区间（预设词后端不解析）
+    const consumptionParams = { ...params }
+    const consumptionRange = consumptionDateRange()
+    if (consumptionRange) consumptionParams.dateRange = consumptionRange
+    const [overviewRes, branchRes, statusRes, transferRes, categoryRes, consumptionRes] = await Promise.all([
       getOverview(params),
       getByBranch(params),
       getByStatus(params),
       getTransferReport(params),
       getByCategory(params),
+      getConsumptionReport(consumptionParams),
     ])
     overviewData.value = overviewRes.data
     branchStats.value = branchRes.data
     categoryStats.value = categoryRes.data.filter(c => c.count > 0)
     statusStats.value = statusRes.data
     transferDetails.value = transferRes.data ?? []
+    consumptionData.value = consumptionRes.data
     buildMonthlyTrend(transferDetails.value)
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -112,7 +141,27 @@ const exportReport = async () => {
     const XLSX = await import('xlsx')
     const wb = XLSX.utils.book_new()
 
-    if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
+    if (reportType.value === 'consumables' && (consumptionData.value?.rows.length ?? 0) > 0) {
+      // 导出消耗统计（列与页面表格一致：部门/品目/各月/合计 + 总计行）
+      const months = consumptionData.value!.months
+      const rows: Record<string, string | number>[] = consumptionData.value!.rows.map((r, i) => {
+        const rec: Record<string, string | number> = {
+          '序号': i + 1, '部门': r.department, '品目编号': r.code,
+          '品目名称': r.name, '单位': r.unit,
+        }
+        months.forEach(m => { rec[m] = r.quantities[m] ?? 0 })
+        rec['合计'] = r.total
+        return rec
+      })
+      const grand: Record<string, string | number> = {
+        '序号': '', '部门': '总计', '品目编号': '', '品目名称': '', '单位': '',
+      }
+      months.forEach(m => { grand[m] = consumptionData.value!.grandTotal[m] ?? 0 })
+      grand['合计'] = consumptionData.value!.grandTotal.total ?? 0
+      rows.push(grand)
+      const ws = XLSX.utils.json_to_sheet(rows)
+      XLSX.utils.book_append_sheet(wb, ws, '消耗统计')
+    } else if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
       // 导出变动明细
       const rows = transferDetails.value.map((d, i) => ({
         '序号': i + 1,
@@ -151,7 +200,14 @@ const exportReport = async () => {
     // 如果 xlsx 不可用，则回退到 CSV
     const BOM = '\uFEFF'
     let csv = ''
-    if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
+    if (reportType.value === 'consumables' && (consumptionData.value?.rows.length ?? 0) > 0) {
+      const months = consumptionData.value!.months
+      csv = `\u5E8F\u53F7,\u90E8\u95E8,\u54C1\u76EE\u7F16\u53F7,\u54C1\u76EE\u540D\u79F0,\u5355\u4F4D,${months.join(',')},\u5408\u8BA1\n`
+      consumptionData.value!.rows.forEach((r, i) => {
+        csv += `${i + 1},${r.department},${r.code},${r.name},${r.unit},${months.map(m => r.quantities[m] ?? 0).join(',')},${r.total}\n`
+      })
+      csv += `,\u603B\u8BA1,,,,${months.map(m => consumptionData.value!.grandTotal[m] ?? 0).join(',')},${consumptionData.value!.grandTotal.total ?? 0}\n`
+    } else if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
       csv = '序号,单据编号,日期,操作类型,资产编号,资产名称,调出分公司,调入分公司,数量,审批状态,经办人\n'
       transferDetails.value.forEach((d, i) => {
         csv += `${i + 1},${d.docNumber || ''},${d.date},${actionLabel(d.actionType)},${d.assetCode},${d.assetName},${d.fromBranch || ''},${d.toBranch || ''},${d.quantity},${d.status},${d.operator || ''}\n`
@@ -521,6 +577,13 @@ onMounted(() => {
         >
           变动明细
         </button>
+        <button
+          class="tab-btn"
+          :class="{ active: reportType === 'consumables' }"
+          @click="reportType = 'consumables'"
+        >
+          消耗统计
+        </button>
       </div>
 
       <!-- 变动明细表格 -->
@@ -551,6 +614,38 @@ onMounted(() => {
               <td>{{ item.operator || '-' }}</td>
             </tr>
           </tbody>
+        </table>
+      </div>
+
+      <!-- 消耗统计表格（部门×品目，按月展开；Excel 式朴素表） -->
+      <div v-else-if="reportType === 'consumables'" class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th v-for="header in consumptionHeaders" :key="header">{{ header }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!consumptionData || consumptionData.rows.length === 0">
+              <td :colspan="consumptionHeaders.length" class="empty-cell">暂无消耗品发放流水</td>
+            </tr>
+            <tr v-for="row in consumptionData?.rows ?? []" :key="`${row.department}-${row.itemId}`">
+              <td>{{ row.department }}</td>
+              <td>{{ row.code }}</td>
+              <td>{{ row.name }}</td>
+              <td>{{ row.unit }}</td>
+              <td v-for="m in consumptionData?.months ?? []" :key="m">{{ row.quantities[m] ?? 0 }}</td>
+              <td>{{ row.total }}</td>
+            </tr>
+          </tbody>
+          <tfoot v-if="consumptionData && consumptionData.rows.length > 0">
+            <tr>
+              <td>总计</td>
+              <td v-for="i in 3" :key="i"></td>
+              <td v-for="m in consumptionData.months" :key="m">{{ consumptionData.grandTotal[m] ?? 0 }}</td>
+              <td>{{ consumptionData.grandTotal.total ?? 0 }}</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
 
@@ -1209,6 +1304,17 @@ onMounted(() => {
 
 .data-table tbody tr:hover {
   background: var(--color-bg-elevated);
+}
+
+.data-table tfoot td {
+  font-weight: 600;
+  background: var(--color-bg-elevated);
+  border-top: 1px solid var(--color-border);
+}
+
+.data-table td.empty-cell {
+  text-align: center;
+  color: var(--color-text-tertiary);
 }
 
 .percent-bar {
