@@ -108,6 +108,56 @@ class TestRoleAssignment:
 
 
 # ---------------------------------------------------------------------------
+# 「全部数据」授权（is_all_data）——列表与管理范围必须全量放行
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def all_data_manager(db, branch):
+    from django.contrib.auth import get_user_model
+    from apps.permissions.models import ManagementScope, OperationGrant
+    user = get_user_model().objects.create_user(
+        phone='13900000007', name='全量授权经理', password='test123456',
+        role='manager', status='active', branch=branch,
+    )
+    ManagementScope.objects.create(user=user, is_all_data=True)
+    OperationGrant.objects.create(user=user, code='manage_users')
+    return user
+
+
+@pytest.mark.django_db
+class TestAllDataGrantScope:
+    def test_list_users_with_all_data_grant(self, all_data_manager, staff_user, staff_b):
+        client = _client_for(all_data_manager)
+        resp = client.get('/api/users/')
+        assert resp.status_code == status.HTTP_200_OK
+        ids = {str(u['id']) for u in resp.data}
+        assert str(all_data_manager.id) in ids
+        assert str(staff_user.id) in ids
+        assert str(staff_b.id) in ids  # 跨区域用户同样可见
+
+    def test_all_data_grant_edits_user_in_other_region(self, all_data_manager, staff_b):
+        client = _client_for(all_data_manager)
+        resp = client.patch(f'/api/users/{staff_b.id}', {'name': '全量授权编辑'})
+        assert resp.status_code == status.HTTP_200_OK
+        staff_b.refresh_from_db()
+        assert staff_b.name == '全量授权编辑'
+
+    def test_all_data_grant_without_appointments_still_lists_all(self, db, staff_b):
+        # 无任何任命、仅持「全部数据」授权：is_empty 路径不得吞掉全量语义
+        from django.contrib.auth import get_user_model
+        from apps.permissions.models import ManagementScope
+        user = get_user_model().objects.create_user(
+            phone='13900000008', name='纯全量授权', password='test123456',
+            role='manager', status='active',
+        )
+        ManagementScope.objects.create(user=user, is_all_data=True)
+        client = _client_for(user)
+        resp = client.get('/api/users/')
+        ids = {str(u['id']) for u in resp.data}
+        assert str(staff_b.id) in ids
+
+
+# ---------------------------------------------------------------------------
 # Scope validation (_validate_in_scope)
 # ---------------------------------------------------------------------------
 

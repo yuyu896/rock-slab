@@ -28,7 +28,8 @@ MANAGEABLE_ROLES = {
 def _get_user_queryset(user):
     """Return the queryset of users that the requesting user can see/manage.
 
-    范围由管理授权决定：admin 全部；其余为授权组织节点（沿树展开为分公司）内 + 自己。
+    范围由管理授权决定：admin 或「全部数据」授权为全部；其余为授权组织节点
+    （沿树展开为分公司）内 + 自己。
     """
     qs = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'created_by')
 
@@ -37,6 +38,8 @@ def _get_user_queryset(user):
 
     from apps.permissions.scope import resolve_user_scope
     scope = resolve_user_scope(user)
+    if scope.all:
+        return qs  # 「全部数据」授权：全部用户（须先于 is_empty 判断）
     if scope.is_empty:
         return qs.filter(id=user.id)  # 无授权仅见自己
 
@@ -116,6 +119,8 @@ class UserViewSet(viewsets.ModelViewSet):
             return
         from apps.permissions.scope import resolve_user_scope
         scope = resolve_user_scope(operator)
+        if scope.all:
+            return  # 「全部数据」授权可管理任何用户
         in_branch = bool(target_user.branch_id and target_user.branch_id in scope.branches)
         if not in_branch:
             raise serializers.ValidationError(
