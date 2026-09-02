@@ -158,6 +158,43 @@ class TestAllDataGrantScope:
 
 
 # ---------------------------------------------------------------------------
+# 员工名单只读放开：任何登录用户 list/retrieve 全量可见；写路径隔离不变
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def plain_user(db):
+    """无任何授权、无任命的普通账号。"""
+    from django.contrib.auth import get_user_model
+    return get_user_model().objects.create_user(
+        phone='13900000009', name='无授权员工', password='test123456',
+        role='manager', status='active',
+    )
+
+
+@pytest.mark.django_db
+class TestReadOnlyDirectory:
+    def test_no_grant_user_lists_all_users(self, plain_user, admin_user, staff_user, staff_b):
+        client = _client_for(plain_user)
+        resp = client.get('/api/users/')
+        assert resp.status_code == status.HTTP_200_OK
+        ids = {str(u['id']) for u in resp.data}
+        assert {str(admin_user.id), str(staff_user.id), str(staff_b.id)} <= ids
+
+    def test_no_grant_user_retrieves_other_user(self, plain_user, staff_b):
+        client = _client_for(plain_user)
+        resp = client.get(f'/api/users/{staff_b.id}')
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['phone'] == staff_b.phone
+
+    def test_no_grant_user_write_still_forbidden(self, plain_user, staff_b):
+        # 无 manage_users 授权：写操作在权限层即被拒（403）；
+        # 持 manage_users 但目标越权的 404 隔离由 TestScopeValidation 覆盖
+        client = _client_for(plain_user)
+        resp = client.patch(f'/api/users/{staff_b.id}', {'name': '越权改名'})
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ---------------------------------------------------------------------------
 # Scope validation (_validate_in_scope)
 # ---------------------------------------------------------------------------
 

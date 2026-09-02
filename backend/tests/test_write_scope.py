@@ -89,21 +89,27 @@ class TestWritePermissionBaseline:
 
 @pytest.mark.django_db
 class TestUserDirectoryScoping:
-    """用户列表 / 详情按数据范围隔离（write-authorization-scoping R4）。"""
+    """用户名单只读放开：list/retrieve 全量（组织架构通讯录）。
 
-    def test_non_admin_list_users_excludes_out_of_scope(self, staff_user, staff_b):
-        # staff_user 仅见授权范围内 + 本人，看不到另一区域的 staff_b
+    原 write-authorization-scoping R4 的 list/retrieve 隔离已按产品决策推翻；
+    写路径隔离（scope 外 get_object 404 + manage_users 权限层）不变，
+    见 test_users.py TestReadOnlyDirectory / TestScopeValidation。
+    """
+
+    def test_non_admin_list_users_full_directory(self, staff_user, staff_b):
+        # 任何登录用户均可见全员名单（含另一区域的 staff_b）
         client = _client_for(staff_user)
         resp = client.get('/api/users/')
         assert resp.status_code == 200
         ids = {str(u['id']) for u in resp.data}
         assert str(staff_user.id) in ids
-        assert str(staff_b.id) not in ids
+        assert str(staff_b.id) in ids
 
-    def test_non_admin_retrieve_out_of_scope_user_404(self, staff_user, staff_b):
+    def test_non_admin_retrieve_out_of_scope_user(self, staff_user, staff_b):
         client = _client_for(staff_user)
         resp = client.get(f'/api/users/{staff_b.id}')
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.data['phone'] == staff_b.phone
 
 
 def _grant_operation(user, code):

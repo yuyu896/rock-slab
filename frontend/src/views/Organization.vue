@@ -426,7 +426,7 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
           </thead>
           <tbody>
             <tr v-for="emp in employees" :key="emp.id">
-              <td class="clickable" @click="editUser(emp)">{{ emp.name }}</td>
+              <td :class="{ clickable: canManageUsers }" @click="canManageUsers && editUser(emp)">{{ emp.name }}</td>
               <td>{{ ROLE_LABELS[emp.role] || emp.role }}</td>
               <td>{{ getTeamName(branches.find(b => b.id === emp.branch)?.team) }}</td>
               <td>{{ emp.phone }}</td>

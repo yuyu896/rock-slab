@@ -64,8 +64,12 @@ class UserViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        # 用户列表 / 详情 / 头像等均遵循数据范围隔离（admin 全量；其余为授权范围内 + 本人），
-        # 不再对 list/retrieve 全量放行，避免手机号（登录账号）向无权用户泄露。
+        # 员工名单只读放开：list/retrieve 对全体登录用户全量下发（组织架构通讯录）。
+        # 写路径不在此列——仍按授权范围隔离（scope 外目标 get_object 404 + perform_* 二次校验）。
+        if self.action in ('list', 'retrieve'):
+            return User.objects.select_related(
+                'branch', 'branch__team', 'branch__team__region', 'created_by',
+            ).all()
         return _get_user_queryset(self.request.user)
 
     @audit_log(action='create', resource_type='User', description_template='创建用户')
