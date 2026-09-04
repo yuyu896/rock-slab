@@ -20,6 +20,10 @@ const loading = ref(false)
 const filterCategory = ref('')
 const filterKeyword = ref('')
 const filterItemCategory = ref('')
+const filterManagementType = ref('')
+
+// 管理方式筛选选项（封闭枚举，value 为后端枚举键）
+const managementTypeOptions = Object.entries(MANAGEMENT_TYPE_LABELS).map(([value, label]) => ({ value, label }))
 
 // 分类数据
 const categories = ref<Category[]>([])
@@ -80,6 +84,7 @@ async function fetchCategories() {
       pageSize: pagination.value.pageSize,
       资产类目: filterCategory.value || undefined,
       物品分类: filterItemCategory.value || undefined,
+      管理方式: filterManagementType.value || undefined,
       keyword: filterKeyword.value || undefined,
     })
     categories.value = data.results
@@ -123,7 +128,7 @@ const handlePageSizeChange = (e: Event) => {
 }
 
 // 筛选条件变更时重置分页
-watch([filterCategory, filterKeyword, filterItemCategory], () => {
+watch([filterCategory, filterKeyword, filterItemCategory, filterManagementType], () => {
   pagination.value.page = 1
   fetchCategories()
 })
@@ -189,7 +194,7 @@ onMounted(() => {
         <p class="page-desc">品目字典——编号户籍与管理方式。分编号判定：领用会挑规格吗？警戒线需分开吗？价格需分开核算吗？任一「是」即拆分编号</p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="exportCategories({ 资产类目: filterCategory || undefined, keyword: filterKeyword || undefined })">
+        <button class="btn-secondary" @click="exportCategories({ 资产类目: filterCategory || undefined, 物品分类: filterItemCategory || undefined, 管理方式: filterManagementType || undefined, keyword: filterKeyword || undefined })">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -298,6 +303,13 @@ onMounted(() => {
           </select>
         </div>
 
+        <div class="filter-item">
+          <select v-model="filterManagementType" class="filter-select">
+            <option value="">全部管理方式</option>
+            <option v-for="opt in managementTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+        </div>
+
         <div class="view-toggle">
           <button
             class="toggle-btn"
@@ -334,6 +346,7 @@ onMounted(() => {
       <table class="data-table">
         <thead>
           <tr>
+            <th class="col-index">序号</th>
             <th>资产类目</th>
             <th>物品分类</th>
             <th>资产名称</th>
@@ -348,7 +361,8 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in filteredCategories" :key="item.id">
+          <tr v-for="(item, index) in filteredCategories" :key="item.id">
+            <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td>
               <span class="category-tag primary">{{ item.资产类目 }}</span>
             </td>
@@ -390,11 +404,12 @@ onMounted(() => {
     <!-- 卡片视图 -->
     <div v-else class="card-grid">
       <div
-        v-for="item in filteredCategories"
+        v-for="(item, index) in filteredCategories"
         :key="item.id"
         class="category-card"
       >
         <div class="card-header">
+          <span class="card-seq">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</span>
           <span class="card-code">{{ item.资产编号 }}</span>
           <span class="stock-indicator" />
         </div>
@@ -406,7 +421,7 @@ onMounted(() => {
         </div>
         <div class="card-stats">
           <div class="stat-item">
-            <span class="stat-num">{{ item.管理方式 === 'instance' ? '实例' : '数量' }}</span>
+            <span class="stat-num">{{ MANAGEMENT_TYPE_LABELS[item.管理方式 ?? ''] || item.管理方式 }}</span>
             <span class="stat-label">管理方式</span>
           </div>
           <div class="stat-divider" />
@@ -724,6 +739,14 @@ onMounted(() => {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* 序号窄列（分页连续序号，同台账页口径） */
+.col-index {
+  width: 56px;
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 .data-table td {
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-sm);
@@ -857,6 +880,12 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-3);
+}
+
+.card-seq {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 
 .card-code {

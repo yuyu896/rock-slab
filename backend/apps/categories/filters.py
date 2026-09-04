@@ -8,6 +8,7 @@ class CategoryFilterSet(django_filters.FilterSet):
     # Accept the Chinese field name as a filter param from the frontend
     资产类目 = django_filters.CharFilter(field_name='asset_category')
     物品分类 = django_filters.CharFilter(field_name='item_category')
+    管理方式 = django_filters.CharFilter(field_name='management_type')
 
     class Meta:
         model = Category

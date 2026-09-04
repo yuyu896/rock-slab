@@ -213,6 +213,36 @@ class TestCategoryFiltering:
         assert data['count'] == 1
         assert data['results'][0]['资产编号'] == 'FITM-001'
 
+    def test_filter_by_management_type(self, admin_user):
+        from apps.categories.models import Category
+        Category.objects.create(
+            asset_category='电子设备', item_category='手机',
+            asset_name='iPhone', asset_code='FMT-001', unit='台',
+        )
+        Category.objects.create(
+            asset_category='电子设备', item_category='打印机',
+            asset_name='打印机', asset_code='FMT-002', unit='台',
+            management_type='instance',
+        )
+        Category.objects.create(
+            asset_category='低值易耗品类', item_category='办公耗材',
+            asset_name='签字笔', asset_code='FMT-003', unit='支',
+            management_type='consumable',
+        )
+        client = _client_for(admin_user)
+        # 消耗品档命中
+        resp = client.get(CATEGORY_URL, {'管理方式': 'consumable'})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data['count'] == 1
+        assert data['results'][0]['资产编号'] == 'FMT-003'
+        # 与资产类目组合筛选
+        resp = client.get(CATEGORY_URL, {'管理方式': 'instance', '资产类目': '电子设备'})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data['count'] == 1
+        assert data['results'][0]['资产编号'] == 'FMT-002'
+
 
 # ---------------------------------------------------------------------------
 # Lookup by asset_code（新增表单按编号反查名称/类目/分类）

@@ -2,7 +2,7 @@
 import request from '@/utils/request'
 import type { Category, CategoryRequest } from '@/types'
 
-export function getCategories(params?: { 资产类目?: string; 物品分类?: string; keyword?: string; page?: number; pageSize?: number }) {
+export function getCategories(params?: { 资产类目?: string; 物品分类?: string; 管理方式?: string; keyword?: string; page?: number; pageSize?: number }) {
   return request.get<{ count: number; results: Category[] }>('/api/categories/', { params })
 }
 
@@ -45,7 +45,7 @@ export function downloadCategoryTemplate() {
 }
 
 /** 导出分类数据为 Excel（走统一请求实例，401/400 由拦截器处理） */
-export async function exportCategories(params?: { 资产类目?: string; keyword?: string }) {
+export async function exportCategories(params?: { 资产类目?: string; 物品分类?: string; 管理方式?: string; keyword?: string }) {
   const { data: blob } = await request.get<Blob>('/api/categories/export', {
     params,
     responseType: 'blob',
