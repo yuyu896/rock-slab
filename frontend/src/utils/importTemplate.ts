@@ -64,6 +64,38 @@ function getWidth(text: string): number {
   return Math.ceil(width) + 2
 }
 
+async function buildMultiSheetTemplate(headers: string[], sheetNames: string[], filename: string) {
+  const ExcelJS = await import('exceljs')
+  const wb = new ExcelJS.Workbook()
+  for (const name of sheetNames) {
+    const ws = wb.addWorksheet(name)
+    const headerRow = ws.addRow(headers)
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F0E8' } }
+      cell.alignment = { horizontal: 'center', vertical: 'middle' }
+      cell.border = {
+        top: { style: 'thin' }, bottom: { style: 'thin' },
+        left: { style: 'thin' }, right: { style: 'thin' },
+      }
+    })
+    headerRow.height = 15
+    headers.forEach((h, i) => {
+      ws.getColumn(i + 1).width = Math.max(getWidth(h), 10)
+    })
+    ws.views = [{ state: 'frozen', ySplit: 1 }]
+  }
+
+  const buf = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function generateAssetTemplate() {
   return buildTemplate(ASSET_HEADERS, '资产列表', '资产导入模板')
 }
@@ -91,5 +123,10 @@ export function generateTransferTemplate(filename: string, type: string) {
 }
 
 export function generateCategoryTemplate() {
-  return buildTemplate(CATEGORY_HEADERS, '资产分类', '分类导入模板')
+  // 三 sheet：sheet 名即管理方式（与后端导入识别规则同源）
+  return buildMultiSheetTemplate(
+    CATEGORY_HEADERS,
+    ['数量管理', '实例管理', '消耗品'],
+    '分类导入模板',
+  )
 }

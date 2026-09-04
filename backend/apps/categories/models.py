@@ -12,6 +12,9 @@ class Category(UUIDModel, TimestampedModel):
         (MANAGEMENT_INSTANCE, '实例管理'),
         (MANAGEMENT_CONSUMABLE, '消耗品'),
     ]
+    # 枚举键 ↔ 中文标签双向映射（导入按 sheet 名定管理方式等处复用，与 choices 同源）
+    MANAGEMENT_LABELS = dict(MANAGEMENT_CHOICES)
+    MANAGEMENT_CHOICES_LABELS = {label: value for value, label in MANAGEMENT_CHOICES}
 
     asset_category = models.CharField('资产类目', max_length=100)
     item_category = models.CharField('物品分类', max_length=100)

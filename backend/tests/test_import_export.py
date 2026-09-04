@@ -153,6 +153,93 @@ class TestCategoryImport:
         assert test_category.unit == '套'
 
 
+def _make_xlsx_multi(sheets):
+    """Build an in-memory Excel with multiple named sheets: {name: [rows]}."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for name, rows in sheets.items():
+        ws = wb.create_sheet(title=name)
+        ws.append(CATEGORY_TEMPLATE_HEADERS)
+        for row in rows:
+            ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    buf.name = 'test.xlsx'
+    return buf
+
+
+class TestCategoryImportBySheet:
+    """sheet 名定管理方式（category-import-by-sheet）。"""
+
+    def test_three_sheets_in_one_file(self, admin_client):
+        buf = _make_xlsx_multi({
+            '数量管理': [['固定资产类', '办公设备', '打印机', 'A-a00002', '个', 1, '']],
+            '实例管理': [['固定资产类', '办公设备', '平板电脑', 'A-a00001', '个', 1, '']],
+            '消耗品': [['低值易耗品类', '办公耗材', '打印纸', 'B-b00001', '包', 1, '']],
+        })
+        resp = _upload_url(admin_client, '/api/categories/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 3
+        assert resp.data['fallback'] is False
+        assert resp.data['skipped_sheets'] == []
+        from apps.categories.models import Category
+        assert Category.objects.get(asset_code='A-a00002').management_type == 'quantity'
+        assert Category.objects.get(asset_code='A-a00001').management_type == 'instance'
+        assert Category.objects.get(asset_code='B-b00001').management_type == 'consumable'
+        by_name = {s['name']: s for s in resp.data['sheets']}
+        assert by_name['消耗品']['management_type'] == 'consumable'
+        assert by_name['消耗品']['imported'] == 1
+
+    def test_unmatched_sheet_listed_in_skipped(self, admin_client):
+        buf = _make_xlsx_multi({
+            '消耗品': [['低值易耗品类', '办公耗材', '笔', 'B-b00002', '支', 20, '']],
+            'Sheet1': [['x', 'x', 'x', 'SKIP-001', 'x', '', '']],
+        })
+        resp = _upload_url(admin_client, '/api/categories/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        assert resp.data['skipped_sheets'] == ['Sheet1']
+        from apps.categories.models import Category
+        assert not Category.objects.filter(asset_code='SKIP-001').exists()
+
+    def test_no_matched_sheet_falls_back_to_active(self, admin_client):
+        rows = [['办公类', '电子设备', '投影仪', 'CAT-F001', '台', '', '']]
+        buf = _make_xlsx(CATEGORY_TEMPLATE_HEADERS, rows)  # 默认 sheet 名 "Sheet"
+        resp = _upload_url(admin_client, '/api/categories/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        assert resp.data['fallback'] is True
+        from apps.categories.models import Category
+        assert Category.objects.get(asset_code='CAT-F001').management_type == 'quantity'
+
+    def test_stock_guard_blocks_management_change(self, admin_client, branch, make_stock):
+        """已有台账存量的品目，导入改管理方式必须被跳过。"""
+        from apps.assets.services import ledger
+        stock = make_stock('GUA-001', qty=5, column=ledger.COLUMN_IN_USE)
+        target = stock.item
+        buf = _make_xlsx_multi({
+            '消耗品': [['低值易耗品类', '办公耗材', target.asset_name, target.asset_code, '支', '', '']],
+        })
+        resp = _upload_url(admin_client, '/api/categories/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 0
+        assert '存量' in resp.data['errors'][0]
+        target.refresh_from_db()
+        assert target.management_type == 'quantity'
+
+    def test_no_stock_change_allowed(self, admin_client, test_category):
+        """无存量的品目，导入可改管理方式。"""
+        buf = _make_xlsx_multi({
+            '实例管理': [['固定资产类', '办公设备', test_category.asset_name, test_category.asset_code, '台', '', '']],
+        })
+        resp = _upload_url(admin_client, '/api/categories/import', buf)
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data['imported'] == 1
+        test_category.refresh_from_db()
+        assert test_category.management_type == 'instance'
+
+
 class TestCategoryExport:
     def test_export_with_data(self, admin_client, test_category):
         resp = admin_client.get('/api/categories/export')

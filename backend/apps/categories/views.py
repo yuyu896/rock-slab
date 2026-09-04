@@ -187,13 +187,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
     def import_excel(self, request):
-        """Excel 批量导入分类"""
+        """Excel 批量导入分类：sheet 名定管理方式。
+
+        表名精确匹配 数量管理/实例管理/消耗品 之一的，整表按对应管理方式导入；
+        全簿无命中表名时回退 active sheet 按数量管理导入（兼容旧单表文件）。
+        更新已存在品目且管理方式变化时受存量守卫约束（见 management_stock_status）。
+        """
         file = request.FILES.get('file')
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
 
         from core.upload_validation import (
-            validate_excel_upload, validate_row_count, UploadValidationError,
+            validate_excel_upload, DEFAULT_MAX_ROWS, UploadValidationError,
         )
         try:
             validate_excel_upload(file)
@@ -203,49 +208,95 @@ class CategoryViewSet(viewsets.ModelViewSet):
         try:
             import openpyxl
             wb = openpyxl.load_workbook(file, read_only=True)
-            ws = wb.active
         except Exception as e:
             return Response(
                 {'detail': f'文件解析失败: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            validate_row_count(ws)
-        except UploadValidationError as e:
+        sheet_mgmt_map = dict(Category.MANAGEMENT_CHOICES_LABELS)
+        matched = [(ws, sheet_mgmt_map[ws.title]) for ws in wb.worksheets if ws.title in sheet_mgmt_map]
+        if matched:
+            targets = matched
+            skipped_sheets = [ws.title for ws in wb.worksheets if ws.title not in sheet_mgmt_map]
+            fallback = False
+        else:
+            targets = [(wb.active, 'quantity')]
+            skipped_sheets = []
+            fallback = True
+
+        # 行数上限按命中表合计（防拆表绕限）；回退路径单表合计 = 原口径
+        total_rows = sum(
+            max(0, (getattr(ws, 'max_row', None) or 0) - 1) for ws, _ in targets
+        )
+        if total_rows > DEFAULT_MAX_ROWS:
             wb.close()
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'detail': f'数据行数过多（{total_rows} 行），最大支持 {DEFAULT_MAX_ROWS} 行'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        rows = list(ws.iter_rows(min_row=2, values_only=True))
-        imported = 0
-        errors = []
+        from .serializers import management_stock_status
+        total_imported = 0
+        all_errors = []
+        sheet_stats = []
 
-        for i, row in enumerate(rows, start=2):
-            try:
-                asset_category = str(row[0] or '').strip()
-                item_category = str(row[1] or '').strip()
-                asset_name = str(row[2] or '').strip()
-                asset_code = str(row[3] or '').strip()
-                unit = str(row[4] or '').strip()
+        for ws, management_type in targets:
+            imported = 0
+            errors = []
+            for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                try:
+                    asset_category = str(row[0] or '').strip()
+                    item_category = str(row[1] or '').strip()
+                    asset_name = str(row[2] or '').strip()
+                    asset_code = str(row[3] or '').strip()
+                    unit = str(row[4] or '').strip()
 
-                if not all([asset_category, item_category, asset_name, asset_code, unit]):
-                    errors.append(f'第 {i} 行: 必填字段不能为空')
-                    continue
+                    if not all([asset_category, item_category, asset_name, asset_code, unit]):
+                        errors.append(f'第 {i} 行: 必填字段不能为空')
+                        continue
 
-                Category.objects.update_or_create(
-                    asset_code=asset_code,
-                    defaults={
-                        'asset_category': asset_category,
-                        'item_category': item_category,
-                        'asset_name': asset_name,
-                        'unit': unit,
-                        'warning_line': int(row[5]) if row[5] else None,
-                        'remarks': str(row[6] or ''),
-                    },
-                )
-                imported += 1
-            except Exception as e:
-                errors.append(f'第 {i} 行: {str(e)}')
+                    existing = Category.objects.filter(asset_code=asset_code).first()
+                    if existing and existing.management_type != management_type:
+                        locked, reason = management_stock_status(existing)
+                        if locked:
+                            label = Category.MANAGEMENT_LABELS.get(management_type, management_type)
+                            errors.append(
+                                f'第 {i} 行: {asset_code} 已有存量（{reason}），'
+                                f'管理方式不可改为「{label}」，已跳过'
+                            )
+                            continue
+
+                    Category.objects.update_or_create(
+                        asset_code=asset_code,
+                        defaults={
+                            'asset_category': asset_category,
+                            'item_category': item_category,
+                            'asset_name': asset_name,
+                            'unit': unit,
+                            'management_type': management_type,
+                            'warning_line': int(row[5]) if row[5] else None,
+                            'remarks': str(row[6] or ''),
+                        },
+                    )
+                    imported += 1
+                except Exception as e:
+                    errors.append(f'第 {i} 行: {str(e)}')
+
+            sheet_stats.append({
+                'name': ws.title,
+                'management_type': management_type,
+                'imported': imported,
+                'errors': errors,
+            })
+            total_imported += imported
+            all_errors.extend(errors)
 
         wb.close()
-        return Response({'imported': imported, 'errors': errors})
+        return Response({
+            'imported': total_imported,
+            'errors': all_errors,
+            'sheets': sheet_stats,
+            'skipped_sheets': skipped_sheets,
+            'fallback': fallback,
+        })

@@ -13,7 +13,21 @@ const emit = defineEmits<{
 }>()
 
 const importLoading = ref(false)
-const importResult = ref<{ imported: number; errors: string[] } | null>(null)
+
+interface ImportSheetStat { name: string; managementType: string; imported: number; errors: string[] }
+const importResult = ref<{
+  imported: number
+  errors: string[]
+  sheets?: ImportSheetStat[]
+  skippedSheets?: string[]
+  fallback?: boolean
+} | null>(null)
+
+const MANAGEMENT_TYPE_TEXT: Record<string, string> = {
+  quantity: '数量管理',
+  instance: '实例管理',
+  consumable: '消耗品',
+}
 
 function handleDownloadTemplate() {
   generateCategoryTemplate()
@@ -55,7 +69,9 @@ async function handleImportFile(event: Event) {
             <span class="import-step-num">1</span>
             <span class="import-step-title">下载导入模板</span>
           </div>
-          <p class="import-step-desc">请先下载模板文件，按格式填写分类数据后上传</p>
+          <p class="import-step-desc">
+            模板含三张工作表（数量管理 / 实例管理 / 消耗品），<strong>工作表名即管理方式</strong>——按格式填写后整文件一次上传
+          </p>
           <button class="btn-secondary import-template-btn" @click="handleDownloadTemplate">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -96,6 +112,17 @@ async function handleImportFile(event: Event) {
               失败 {{ importResult.errors.length }} 条
             </span>
           </div>
+          <p v-if="importResult.fallback" class="import-fallback-hint">
+            未识别到命名为「数量管理 / 实例管理 / 消耗品」的工作表，已按数量管理导入首个工作表
+          </p>
+          <ul v-if="importResult.sheets?.length" class="import-sheet-stats">
+            <li v-for="s in importResult.sheets" :key="s.name">
+              {{ s.name }}（{{ MANAGEMENT_TYPE_TEXT[s.managementType] || s.managementType }}）：导入 {{ s.imported }} 条<template v-if="s.errors.length">，失败 {{ s.errors.length }} 条</template>
+            </li>
+          </ul>
+          <p v-if="importResult.skippedSheets?.length" class="import-fallback-hint">
+            未识别的工作表（已跳过）：{{ importResult.skippedSheets.join('、') }}
+          </p>
           <div v-if="importResult.errors.length > 0" class="import-errors">
             <div v-for="(err, idx) in importResult.errors" :key="idx" class="import-error-item">
               {{ err }}
@@ -118,6 +145,9 @@ async function handleImportFile(event: Event) {
 .modal-close { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; font-size: 20px; color: var(--color-text-tertiary); cursor: pointer; border-radius: 6px; }
 .modal-close:hover { background: var(--color-bg-elevated); }
 .modal-body { padding: 20px; }
+.import-fallback-hint { margin: 6px 0 0; font-size: var(--text-xs); color: var(--color-warning, #b8860b); }
+.import-sheet-stats { margin: 8px 0 0; padding-left: 18px; font-size: var(--text-xs); color: var(--color-text-secondary); }
+.import-sheet-stats li { margin-bottom: 2px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: 12px 20px; border-top: 1px solid var(--color-border); }
 .import-step { margin-bottom: 16px; }
 .import-step-header { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
