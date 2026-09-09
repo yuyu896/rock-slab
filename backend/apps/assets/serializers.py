@@ -70,6 +70,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         read_only=True,
     )
     待补录 = serializers.SerializerMethodField()
+    图片 = serializers.ImageField(source='image', read_only=True)
     供应商 = serializers.SerializerMethodField()
     单价 = serializers.SerializerMethodField()
     采购日期 = serializers.SerializerMethodField()
@@ -82,7 +83,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             'item', 'item_code', 'item_name', 'item_spec',
             'asset_category', 'item_category', 'management_type',
             '入库日期', '供应商', '单价', '采购日期',
-            '备注', 'created_at', 'updated_at',
+            '备注', '图片', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 

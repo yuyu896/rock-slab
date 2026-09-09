@@ -153,6 +153,119 @@ class TestSupplement:
         assert resp.status_code == 403
 
 
+def _image_file(name='photo.jpg', content_type='image/jpeg', size_kb=1):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    return SimpleUploadedFile(
+        name, b'\xff' * (size_kb * 1024), content_type=content_type,
+    )
+
+
+@pytest.mark.django_db
+class TestInstanceImage:
+    def test_upload_image_success(self, supervisor_user, inst):
+        from django.core.files.storage import default_storage
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file()},
+        )
+        assert resp.status_code == 200
+        assert '/media/fixed_assets/' in resp.data['图片']
+        inst.refresh_from_db()
+        assert inst.image.name.startswith('fixed_assets/')
+        assert default_storage.exists(inst.image.name)
+
+    def test_upload_rejects_bad_content_type(self, supervisor_user, inst):
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('photo.gif', content_type='image/gif')},
+        )
+        assert resp.status_code == 400
+        assert 'JPG、PNG、WebP' in resp.data['detail']
+        inst.refresh_from_db()
+        assert not inst.image
+
+    def test_upload_rejects_oversize(self, supervisor_user, inst):
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file(size_kb=3 * 1024)},
+        )
+        assert resp.status_code == 400
+        assert '2MB' in resp.data['detail']
+        inst.refresh_from_db()
+        assert not inst.image
+
+    def test_upload_missing_file(self, supervisor_user, inst):
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(f'/api/assets/fixed-assets/{inst.pk}/image')
+        assert resp.status_code == 400
+
+    def test_overwrite_cleans_old_file(self, supervisor_user, inst):
+        from django.core.files.storage import default_storage
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('a.jpg')},
+        )
+        old_name = resp.data['图片'].split('/media/')[-1]
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('b.jpg')},
+        )
+        assert resp.status_code == 200
+        assert not default_storage.exists(old_name)
+        inst.refresh_from_db()
+        assert default_storage.exists(inst.image.name)
+
+    def test_delete_image(self, supervisor_user, inst):
+        from django.core.files.storage import default_storage
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file()},
+        )
+        inst.refresh_from_db()
+        name = inst.image.name
+        resp = client.delete(f'/api/assets/fixed-assets/{inst.pk}/image')
+        assert resp.status_code == 200
+        assert resp.data['图片'] is None
+        inst.refresh_from_db()
+        assert not inst.image
+        assert not default_storage.exists(name)
+
+    def test_image_endpoints_denied_without_operation(self, supervisor_user, inst):
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file()},
+        )
+        assert resp.status_code == 403
+        resp = client.delete(f'/api/assets/fixed-assets/{inst.pk}/image')
+        assert resp.status_code == 403
+        inst.refresh_from_db()
+        assert not inst.image
+
+    def test_upload_ignores_state_fields(self, supervisor_user, inst):
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file(), '当前状态': '在用', '使用人': '张三'},
+        )
+        assert resp.status_code == 200
+        inst.refresh_from_db()
+        assert inst.当前状态 == '在库'
+        assert inst.使用人 == ''
+
+
 @pytest.mark.django_db
 class TestTimeline:
     def test_timeline_covers_birth_and_flows(self, supervisor_user, branch, inst):

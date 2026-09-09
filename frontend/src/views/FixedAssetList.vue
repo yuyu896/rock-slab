@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getFixedAssets, exportFixedAssets, supplementFixedAsset, getFixedAssetTimeline } from '@/api/assets'
+import { getFixedAssets, exportFixedAssets, supplementFixedAsset, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage } from '@/api/assets'
 import type { FixedAsset, FixedAssetTimeline } from '@/types'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -82,6 +82,80 @@ async function handleSupplement() {
   } finally {
     supplementSaving.value = false
   }
+}
+
+// ── 物品图片（上传/更换/删除，manage_instances，覆盖即清旧图） ──
+const imaging = ref<FixedAsset | null>(null)
+const imagePreview = ref('')
+const imageSaving = ref(false)
+const imageInput = ref<HTMLInputElement | null>(null)
+const imagingVisibleProxy = computed({
+  get: () => imaging.value !== null,
+  set: (v: boolean) => { if (!v) imaging.value = null },
+})
+
+function openImageDialog(asset: FixedAsset) {
+  imaging.value = asset
+  imagePreview.value = asset.图片 || ''
+}
+
+function handleImageSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const allowed = ['image/jpeg', 'image/png', 'image/webp']
+  if (!allowed.includes(file.type)) {
+    ElMessage.error('仅支持 JPG、PNG、WebP 格式')
+    input.value = ''
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    ElMessage.error('图片大小不能超过 2MB')
+    input.value = ''
+    return
+  }
+  uploadImage(file)
+  input.value = ''
+}
+
+async function uploadImage(file: File) {
+  if (!imaging.value) return
+  imageSaving.value = true
+  try {
+    const { data } = await uploadFixedAssetImage(imaging.value.id, file)
+    applyImageUpdate(data)
+    imagePreview.value = data.图片 || ''
+    ElMessage.success('图片已更新')
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    imageSaving.value = false
+  }
+}
+
+async function handleDeleteImage() {
+  if (!imaging.value?.图片) return
+  try {
+    await ElMessageBox.confirm('确定删除该物品图片？', '删除图片', { type: 'warning' })
+  } catch { return }
+  imageSaving.value = true
+  try {
+    const { data } = await deleteFixedAssetImage(imaging.value.id)
+    applyImageUpdate(data)
+    imagePreview.value = ''
+    ElMessage.success('图片已删除')
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    imageSaving.value = false
+  }
+}
+
+/** 响应即最新档案：就地更新列表行，免整页刷新 */
+function applyImageUpdate(updated: FixedAsset) {
+  const row = assets.value.find(a => a.id === updated.id)
+  if (row) row.图片 = updated.图片
+  if (imaging.value) imaging.value = { ...imaging.value, 图片: updated.图片 }
 }
 
 // ── 生平（出生信息 + 关联全部明细行倒序） ──
@@ -223,6 +297,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
       <table class="data-table">
         <thead>
           <tr>
+            <th>图片</th>
             <th>序号</th>
             <th>分公司</th>
             <th>内部编号</th>
@@ -240,9 +315,20 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="14" class="empty-cell">加载中...</td></tr>
-          <tr v-else-if="assets.length === 0"><td colspan="14" class="empty-cell">暂无实例数据</td></tr>
+          <tr v-if="loading"><td colspan="15" class="empty-cell">加载中...</td></tr>
+          <tr v-else-if="assets.length === 0"><td colspan="15" class="empty-cell">暂无实例数据</td></tr>
           <tr v-for="(item, index) in assets" :key="item.id" v-else>
+            <td class="image-cell">
+              <el-image
+                v-if="item.图片"
+                :src="item.图片"
+                :preview-src-list="[item.图片]"
+                preview-teleported
+                fit="cover"
+                class="row-thumb"
+              />
+              <span v-else class="thumb-empty">—</span>
+            </td>
             <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td>{{ item.branchName || '-' }}</td>
             <td><span class="asset-code">{{ item.内部编号 }}</span></td>
@@ -260,6 +346,12 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <td>{{ item.供应商 || '-' }}</td>
             <td><span class="date-text">{{ item.采购日期 || '-' }}</span></td>
             <td class="action-col">
+              <button v-if="canSupplement" class="action-btn" title="物品图片" @click="openImageDialog(item)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </button>
               <button v-if="canSupplement" class="action-btn" title="补录序列号" @click="openSupplement(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -296,6 +388,30 @@ onMounted(() => { fetchAssets(); fetchBranches() })
       <template #footer>
         <el-button @click="supplementing = null">取消</el-button>
         <el-button type="primary" :loading="supplementSaving" @click="handleSupplement">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 物品图片弹窗（上传/更换/删除） -->
+    <el-dialog v-model="imagingVisibleProxy" title="物品图片" width="420px" :close-on-click-modal="false">
+      <div v-if="imaging" class="image-dialog-body">
+        <div class="image-view">
+          <el-image v-if="imagePreview" :src="imagePreview" fit="contain" class="image-full" />
+          <div v-else class="image-empty">暂无图片</div>
+        </div>
+        <div class="image-meta"><span class="asset-code">{{ imaging.内部编号 }}</span> {{ imaging.itemName || '' }}</div>
+        <input
+          ref="imageInput"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          style="display:none"
+          @change="handleImageSelect"
+        />
+      </div>
+      <template #footer>
+        <el-button v-if="imagePreview" :loading="imageSaving" @click="handleDeleteImage">删除</el-button>
+        <el-button type="primary" :loading="imageSaving" @click="imageInput?.click()">
+          {{ imagePreview ? '更换图片' : '上传图片' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -371,6 +487,13 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .asset-code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-primary-600); background: var(--color-primary-50); padding: 2px 8px; border-radius: 4px; }
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; }
 .pending-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: var(--text-xs); color: var(--color-warning, #b45309); background: var(--color-warning-bg, #fef3c7); }
+.image-cell { width: 56px; }
+.row-thumb { width: 40px; height: 40px; border-radius: 4px; display: block; }
+.thumb-empty { color: var(--color-text-tertiary); }
+.image-view { display: flex; align-items: center; justify-content: center; height: 220px; background: var(--color-bg-page); border-radius: 8px; overflow: hidden; }
+.image-full { width: 100%; height: 100%; }
+.image-empty { color: var(--color-text-tertiary); font-size: var(--text-sm); }
+.image-meta { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); font-size: var(--text-sm); color: var(--color-text-secondary); }
 .action-col { display: flex; gap: var(--space-1); }
 .action-btn { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; color: var(--color-text-secondary); }
 .action-btn:hover { border-color: var(--color-primary-300); color: var(--color-primary-600); }

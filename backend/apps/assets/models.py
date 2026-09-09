@@ -166,6 +166,7 @@ class FixedAsset(UUIDModel, TimestampedModel):
     )
     入库日期 = models.DateField('入库日期', null=True, blank=True)
     备注 = models.TextField('备注', blank=True, default='')
+    image = models.ImageField('物品图片', upload_to='fixed_assets/', blank=True, null=True)
 
     class Meta:
         db_table = 'assets_fixedasset'

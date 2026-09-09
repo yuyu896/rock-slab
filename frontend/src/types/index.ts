@@ -437,6 +437,8 @@ export interface FixedAsset {
   单价?: number | string | null
   采购日期?: string | null
   备注?: string
+  /** 物品图片 URL（未上传为空） */
+  图片?: string | null
   createdAt: string
   updatedAt: string
 }

@@ -376,6 +376,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     scope_branch_field = 'branch'
     required_operations = {
         'supplement': 'manage_instances',
+        'image': 'manage_instances',
     }
 
     def get_queryset(self):
@@ -462,6 +463,39 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         instance.备注 = serializer.validated_data.get('备注', '')
         instance.save(update_fields=['序列号', '备注', 'updated_at'])
         return Response(FixedAssetSerializer(instance).data)
+
+    # 同 url_path 双 action 会被 DRF 按方法名排序注册成两条 pattern，先注册者
+    # 遮蔽后者的方法（users 头像 POST 405 即此坑），故合一个 action 内分流。
+    @action(detail=True, methods=['post', 'delete'], parser_classes=[MultiPartParser], url_path='image')
+    def image(self, request, pk=None):
+        """物品图片维护：POST 上传/覆盖、DELETE 删除。
+
+        档案属性非数量变动（铁律 2 不管图片），manage_instances 权限；
+        覆盖/删除即清旧存储文件，退役实例图片随档案永久保留。
+        """
+        from core.upload_validation import validate_image_upload, UploadValidationError
+
+        instance = self.get_object()
+        if request.method == 'DELETE':
+            if instance.image:
+                instance.image.delete(save=False)
+                instance.image = None
+                instance.save(update_fields=['image', 'updated_at'])
+            return Response(FixedAssetSerializer(instance, context={'request': request}).data)
+
+        if 'image' not in request.FILES:
+            return Response({'detail': '请上传图片文件'}, status=status.HTTP_400_BAD_REQUEST)
+        upload = request.FILES['image']
+        try:
+            validate_image_upload(upload)
+        except UploadValidationError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if instance.image:
+            instance.image.delete(save=False)
+        instance.image = upload
+        instance.save(update_fields=['image', 'updated_at'])
+        return Response(FixedAssetSerializer(instance, context={'request': request}).data)
 
     @action(detail=True, methods=['get'], url_path='timeline')
     def timeline(self, request, pk=None):
