@@ -27,7 +27,7 @@
 
 ## 5. 前端列表页
 
-- [x] 5.1 `FixedAssetList.vue`：表头与行首插「图片」列（序号列前）；已挂图 `el-image` 缩略图（~40px，cover，点击放大），未挂图占位标识；colspan 同步 +1
+- [x] 5.1 `FixedAssetList.vue`：表头与行内插「图片」列（序号列后）；已挂图 `el-image` 缩略图（~40px，cover，点击放大），未挂图占位标识；colspan 同步 +1
 - [x] 5.2 操作列加「图片」按钮（相机 icon，`canSupplement` 同权限可见）→ 弹窗：当前图预览 + 上传/更换（前端先校验类型/大小，同 UserPanel）+ 删除（确认框）
 - [x] 5.3 成功后就地更新该行 `图片` 字段并提示；失败走 `handleApiError`
 - [x] 5.4 `npm run build` 类型检查通过；补 vitest（列序/权限可见性至少一条）

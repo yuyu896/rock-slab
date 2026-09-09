@@ -45,11 +45,11 @@ MEDIA 基础设施全链路就绪：`MEDIA_ROOT/MEDIA_URL`、开发 Vite 代理 
 
 `instance.image.delete(save=False)` 后赋新值/置空再 `save(update_fields=[...])`，与 users.avatar 同法，杜绝孤儿文件。退役实例图片随档案永久保留（不物理删除实例，铁律）。
 
-### D5：前端第一列图片，el-image 朴素缩略图
+### D5：前端图片列居序号后，el-image 朴素缩略图
 
 - `types`：`FixedAsset` 加 `图片?: string | null`
 - `api/assets.ts`：`uploadFixedAssetImage(id, file)`（FormData multipart）、`deleteFixedAssetImage(id)`
-- `FixedAssetList.vue`：表头/行首插图片列（序号前）；已挂图 `el-image`（~40px，`object-fit: cover`，`preview-src-list` 点击放大）；未挂图灰色占位（相机图标或「暂无」）；操作列加「图片」按钮（相机 icon，`manage_instances` 可见）→ `el-dialog` 弹窗：当前图预览 + 隐藏 file input 上传（前端先校验类型/大小，同 UserPanel）+ 删除（ElMessageBox 确认）
+- `FixedAssetList.vue`：图片列置于序号列后（第二列）；已挂图 `el-image`（~40px，`object-fit: cover`，`preview-src-list` 点击放大）；未挂图灰色占位（相机图标或「暂无」）；操作列加「图片」按钮（相机 icon，`manage_instances` 可见）→ `el-dialog` 弹窗：当前图预览 + 隐藏 file input 上传（前端先校验类型/大小，同 UserPanel）+ 删除（ElMessageBox 确认）
 - 上传/删除成功后就地更新该行 `图片` 字段（或整页刷新，取简）
 
 ### D6：架构测试天然放行 image 端点（无需改白名单）
