@@ -16,4 +16,4 @@
 - [x] 3.1 单测 +8：dry-run 不写库 / manager 补码+节点+特例保留 / leader 只节点 / 总监补码不建节点 / admin 清理 / 幂等 / 轮空人工清单 / 种子后 check_seed_grants 通过
 - [x] 3.2 本地 134 账号实数据：dry-run 计划核对（928 码 + 121 节点 + 4 总监任命 + 3 轮空）→ --apply → 复跑全 0 → check 转绿
 - [x] 3.3 后端全量 pytest 627 passed
-- [ ] 3.4 生产执行：部署新镜像 → dry-run 复核 → --apply → `check_seed_grants` 转绿 → deploy.sh 全流程复通
+- [x] 3.4 生产执行：部署新镜像 → dry-run 复核（799 码 + 107 节点 + 清理 admin 冗余 1 节点/9 码）→ --apply → 复跑全 0 → `check_seed_grants` 以 deploy.sh 同款调用（`docker compose run --rm backend`）exit=0 转绿
