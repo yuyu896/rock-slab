@@ -19,6 +19,8 @@ class Scope:
 
     @property
     def is_empty(self) -> bool:
+        if self.all:
+            return False  # 全部数据授权 = 最广范围，绝非空
         return not (self.regions or self.branches or self.teams
                     or self.appointed_regions or self.appointed_teams or self.appointed_branches)
 

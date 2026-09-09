@@ -93,6 +93,17 @@ class TestAppointmentScope:
         fresh = User.objects.get(pk=user.pk)
         assert resolve_user_scope(fresh).is_empty is False
 
+    def test_is_empty_treats_all_data_as_non_empty(self, db):
+        from apps.users.models import User
+        from apps.permissions.scope import resolve_user_scope
+        user = User.objects.create_user(
+            phone='13500000007', name='全数据', password='x', role='manager', status='active',
+        )
+        ManagementScope.objects.create(user=user, is_all_data=True)
+        scope = resolve_user_scope(User.objects.get(pk=user.pk))
+        assert scope.all is True
+        assert scope.is_empty is False  # 全部数据授权 = 最广范围，不得误报为空
+
 
 # ---------------------------------------------------------------------------
 # 岗位目录接口 / supervisor 退役
@@ -408,6 +419,16 @@ class TestSeedPositionGrantsCommand:
         assert not ManagementScope.objects.filter(user=user).exists()  # 不猜节点
         assert '⚠范围待人工' in out
         assert '待人工 1 人' in out
+
+    def test_all_data_manager_not_listed_for_manual(self, db):
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13611112278', name='全数据行政', password='x',
+            role='manager', status='active',  # 无 branch，但持「全部数据」授权
+        )
+        ManagementScope.objects.create(user=user, is_all_data=True)
+        out = self._run('--apply')
+        assert '待人工 0 人' in out  # 全部数据授权 = 范围非空，不进人工清单
 
     def test_check_seed_grants_passes_after_seeding(self, db, region, branch, admin_user):
         from io import StringIO

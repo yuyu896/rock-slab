@@ -34,6 +34,11 @@
 - **WHEN** 某分公司行政未挂任何分公司、也无负责人任命
 - **THEN** 种子不为其创建节点授权，将其列入人工处理清单
 
+#### Scenario: 全部数据授权不误报为空范围
+
+- **WHEN** 某用户仅持 `is_all_data=True` 授权（无任何具体节点与任命）
+- **THEN** 其范围解析 MUST 视为非空（等价全部数据），不出现在种子人工清单与部署范围预警中
+
 #### Scenario: admin 冗余授权被清理
 
 - **WHEN** 某账号岗位为 admin 且持有 ManagementScope/OperationGrant 记录

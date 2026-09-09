@@ -10,6 +10,7 @@
 
 - [x] 2.1 `check_seed_grants`：manager/director 抽样按 `POSITION_TEMPLATES`（supervisor 退役存量保留 legacy 口径）
 - [x] 2.2 unscoped 预警排除任命已覆盖者（按 `resolve_user_scope().is_empty` 判真待人工）
+- [x] 2.3 修 `Scope.is_empty` 漏判 `all=True`（生产实测：2 位持「全部数据」授权的行政被误报范围为空、误列人工清单；users 视图层当年绕过的同款坑修根）+ 测试 2 例
 
 ## 3. 测试与验证
 
