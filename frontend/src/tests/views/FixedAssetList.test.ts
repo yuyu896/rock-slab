@@ -30,7 +30,8 @@ vi.mock('@/api/branches', () => ({
 }))
 
 import FixedAssetList from '@/views/FixedAssetList.vue'
-import { getFixedAssets } from '@/api/assets'
+import fixedAssetListSource from '@/views/FixedAssetList.vue?raw'
+import { getFixedAssets, uploadFixedAssetImage } from '@/api/assets'
 import type { FixedAsset } from '@/types'
 
 function _inst(overrides: Partial<FixedAsset>): FixedAsset {
@@ -109,5 +110,34 @@ describe('FixedAssetList 物品图片', () => {
     expect(buttons.filter(b => b.attributes('title') === '物品图片').length).toBe(0)
     expect(buttons.filter(b => b.attributes('title') === '补录序列号').length).toBe(0)
     expect(buttons.filter(b => b.attributes('title') === '生平').length).toBe(1)
+  })
+
+  it('操作列单元格不得用 flex 破坏表格行布局（行分割线同高对齐）', () => {
+    expect(fixedAssetListSource).toMatch(/\.action-col\s*\{[^}]*white-space:\s*nowrap/)
+    expect(fixedAssetListSource).not.toMatch(/\.action-col\s*\{[^}]*display:\s*flex/)
+  })
+
+  it('上传成功后图片弹窗自动关闭', async () => {
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 1, results: [_inst({})] },
+    } as any)
+    vi.mocked(uploadFixedAssetImage).mockResolvedValue({
+      data: _inst({ 图片: '/media/fixed_assets/new.jpg' }),
+    } as any)
+    const wrapper = await _mount()
+    await wrapper.findAll('.action-btn').find(b => b.attributes('title') === '物品图片')!.trigger('click')
+    expect(wrapper.find('.image-dialog-body').exists()).toBe(true)
+
+    const input = wrapper.find('input[type=file]')
+    const file = new File([new Uint8Array(64)], 'photo.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(uploadFixedAssetImage).toHaveBeenCalledWith('fa-1', file)
+    expect(wrapper.find('.image-dialog-body').exists()).toBe(false)
+    const thumb = wrapper.find('.data-table tbody img')
+    expect(thumb.exists()).toBe(true)
+    expect(thumb.attributes('src')).toBe('/media/fixed_assets/new.jpg')
   })
 })

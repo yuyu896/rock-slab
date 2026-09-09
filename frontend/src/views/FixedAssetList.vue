@@ -124,8 +124,8 @@ async function uploadImage(file: File) {
   try {
     const { data } = await uploadFixedAssetImage(imaging.value.id, file)
     applyImageUpdate(data)
-    imagePreview.value = data.图片 || ''
     ElMessage.success('图片已更新')
+    imaging.value = null
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -142,8 +142,8 @@ async function handleDeleteImage() {
   try {
     const { data } = await deleteFixedAssetImage(imaging.value.id)
     applyImageUpdate(data)
-    imagePreview.value = ''
     ElMessage.success('图片已删除')
+    imaging.value = null
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -494,8 +494,8 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .image-full { width: 100%; height: 100%; }
 .image-empty { color: var(--color-text-tertiary); font-size: var(--text-sm); }
 .image-meta { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); font-size: var(--text-sm); color: var(--color-text-secondary); }
-.action-col { display: flex; gap: var(--space-1); }
-.action-btn { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; color: var(--color-text-secondary); }
+.action-col { white-space: nowrap; }
+.action-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-right: var(--space-1); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; color: var(--color-text-secondary); }
 .action-btn:hover { border-color: var(--color-primary-300); color: var(--color-primary-600); }
 .action-btn svg { width: 15px; height: 15px; }
 .timeline-head { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4); }
