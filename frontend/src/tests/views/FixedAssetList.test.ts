@@ -73,14 +73,14 @@ describe('FixedAssetList 物品图片', () => {
     mockCan.mockReturnValue(true)
   })
 
-  it('图片列置于序号列前', async () => {
+  it('图片列置于序号列后', async () => {
     vi.mocked(getFixedAssets).mockResolvedValue({
       data: { count: 1, results: [_inst({ 图片: '/media/fixed_assets/a.jpg' })] },
     } as any)
     const wrapper = await _mount()
     const headers = wrapper.findAll('.data-table thead th').map(th => th.text())
-    expect(headers[0]).toBe('图片')
-    expect(headers[1]).toBe('序号')
+    expect(headers[0]).toBe('序号')
+    expect(headers[1]).toBe('图片')
   })
 
   it('已挂图显示缩略图、未挂图显示占位', async () => {

@@ -297,8 +297,8 @@ onMounted(() => { fetchAssets(); fetchBranches() })
       <table class="data-table">
         <thead>
           <tr>
-            <th>图片</th>
             <th>序号</th>
+            <th>图片</th>
             <th>分公司</th>
             <th>内部编号</th>
             <th>品目编号</th>
@@ -318,6 +318,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           <tr v-if="loading"><td colspan="15" class="empty-cell">加载中...</td></tr>
           <tr v-else-if="assets.length === 0"><td colspan="15" class="empty-cell">暂无实例数据</td></tr>
           <tr v-for="(item, index) in assets" :key="item.id" v-else>
+            <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td class="image-cell">
               <el-image
                 v-if="item.图片"
@@ -329,7 +330,6 @@ onMounted(() => { fetchAssets(); fetchBranches() })
               />
               <span v-else class="thumb-empty">—</span>
             </td>
-            <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td>{{ item.branchName || '-' }}</td>
             <td><span class="asset-code">{{ item.内部编号 }}</span></td>
             <td>{{ item.itemCode }}</td>
