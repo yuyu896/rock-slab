@@ -69,6 +69,17 @@ function pickerStatus(): string {
   return '在用' // return / recovery
 }
 
+/** 本单全部行已选实例 id：跨行去重下传（本行已选在组件内保留勾选回显） */
+const pickedInstanceIds = computed(() =>
+  drafts.value.reduce<string[]>((acc, d) => acc.concat(d.instances.map((i) => i.id)), []),
+)
+
+/** 同屏互斥：当前展开面板的行 key（null = 全收起） */
+const expandedRow = ref<number | null>(null)
+function onRowExpand(key: number, value: boolean) {
+  expandedRow.value = value ? key : null
+}
+
 function onInstancesChange(index: number, selected: FixedAsset[]) {
   drafts.value[index].instances = selected.map((s) => ({ id: s.id, code: s.内部编号 }))
   // 实例行数量 = 选中台数（锁定联动）
@@ -270,10 +281,13 @@ defineExpose({ validate, validateMessage })
         <div v-if="hasInstanceColumn" class="cell instance-cell">
           <template v-if="isInstanceRow(draft) && draft.item">
             <InstancePicker
+              :expanded="expandedRow === draft.key"
               :model-value="draft.instances.map((i) => i.id)"
               :item-code="draft.item.asset_code"
               :status="pickerStatus()"
               :branch-name="branchName"
+              :excluded-ids="pickedInstanceIds"
+              @update:expanded="(v) => onRowExpand(draft.key, v)"
               @change="(selected) => onInstancesChange(index, selected)"
             />
             <div v-if="draft.instances.length" class="picked-meta">

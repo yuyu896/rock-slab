@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 import {
@@ -8,6 +8,15 @@ import {
 import { transferDocSummary } from '@/types'
 import type { TransferLine } from '@/types'
 import TransferLinesEditor from '@/views/transfers/components/TransferLinesEditor.vue'
+
+vi.mock('@/api/assets', () => ({
+  getFixedAssets: vi.fn(),
+  getAssetStocks: vi.fn(),
+}))
+vi.mock('@/api/departments', () => ({
+  getDepartmentOptions: vi.fn().mockResolvedValue({ data: [] }),
+}))
+import { getFixedAssets } from '@/api/assets'
 
 const pickedItem = {
   id: 'item-1',
@@ -160,5 +169,86 @@ describe('TransferLinesEditor 增删行与校验', () => {
     await nextTick()
     expect((wrapper.vm as any).validate()).toBe(true)
     expect((wrapper.vm as any).validateMessage).toBe('')
+  })
+})
+
+describe('实例点选跨行去重与面板收口', () => {
+  const instItem = { ...pickedItem, managementType: 'instance' as const }
+  function inst(i: number) {
+    return {
+      id: `fa-${i}`, 内部编号: `NB-001-${i}`, 序列号: '', 当前状态: '在库' as const,
+      item: 'item-1', itemCode: 'NB-001', itemName: '笔记本', createdAt: '', updatedAt: '',
+    }
+  }
+
+  function mountAssign(d1: LineDraft, d2: LineDraft) {
+    return mount(TransferLinesEditor, {
+      props: {
+        modelValue: [d1, d2], type: 'assign' as const,
+        branchId: 'b-1', branchName: '北京分公司',
+      },
+      global: { stubs: { ItemPicker: { template: '<div class="picker-stub" />' } } },
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 3, results: [inst(1), inst(2), inst(3)] },
+    } as any)
+  })
+
+  async function openPicker(wrapper: ReturnType<typeof mountAssign>, rowIndex: number) {
+    await wrapper.findAll('.picker-toggle')[rowIndex].trigger('click')
+    await flushPromises()
+  }
+
+  it('他行已选实例不再出现在候选；取消勾选后回到候选', async () => {
+    const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '张三', department: 'd' }
+    const d2: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '李四', department: 'd' }
+    const wrapper = mountAssign(d1, d2)
+
+    await openPicker(wrapper, 0)
+    const row1Checks = wrapper.findAll('.picker-panel .picker-row input')
+    await row1Checks[0].setValue(true) // 行 1 勾 fa-1
+    expect(d1.instances.map((i) => i.id)).toEqual(['fa-1'])
+
+    await openPicker(wrapper, 1) // 展开行 2（同时验证互斥收起行 1）
+    const codes2 = wrapper.findAll('.picker-panel .picker-row .row-code').map((c) => c.text())
+    expect(codes2).toEqual(['NB-001-2', 'NB-001-3']) // fa-1 被他行排除
+
+    // 行 1 取消勾选（经 UI）→ 行 2 候选恢复 fa-1
+    await openPicker(wrapper, 0)
+    await wrapper.findAll('.picker-panel .picker-row input')[0].setValue(false)
+    await openPicker(wrapper, 1)
+    const codes2After = wrapper.findAll('.picker-panel .picker-row .row-code').map((c) => c.text())
+    expect(codes2After).toEqual(['NB-001-1', 'NB-001-2', 'NB-001-3'])
+  })
+
+  it('本行已选保留勾选回显；完成按钮收起面板；同屏互斥', async () => {
+    const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '张三', department: 'd' }
+    const d2: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '李四', department: 'd' }
+    const wrapper = mountAssign(d1, d2)
+
+    await openPicker(wrapper, 0)
+    const checks1 = wrapper.findAll('.picker-panel .picker-row input')
+    await checks1[0].setValue(true)
+    await checks1[1].setValue(true)
+    expect(d1.数量).toBe(2) // 数量=勾选台数联动
+
+    // 本行已选保留：重开面板仍勾选
+    await wrapper.findAll('.picker-toggle')[0].trigger('click') // 收起
+    await openPicker(wrapper, 0)
+    const checked = wrapper.findAll('.picker-panel .picker-row input').filter((c) => (c.element as HTMLInputElement).checked)
+    expect(checked).toHaveLength(2)
+
+    // 同屏互斥：展开行 2 → 行 1 面板收起
+    await openPicker(wrapper, 1)
+    expect(wrapper.findAll('.picker-panel')).toHaveLength(1)
+
+    // 完成按钮收起
+    await wrapper.find('.picker-panel .picker-done').trigger('click')
+    expect(wrapper.findAll('.picker-panel')).toHaveLength(0)
+    expect(wrapper.findAll('.picker-toggle')[1].text()).toContain('选择实例')
   })
 })

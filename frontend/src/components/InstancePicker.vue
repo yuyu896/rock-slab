@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { getFixedAssets } from '@/api/assets'
 import type { FixedAsset } from '@/types'
 
 /**
  * 实例点选器：按 分公司×品目×状态 拉可选实例，勾选集经 v-model（uuid 数组）上行。
  * 用于实例管理品目的领用/归还/调拨/回收明细行（P2 第二刀）；已选回显由父组件承担。
+ * excludedIds 剔除本单他行已选（跨行去重）；展开态受控（v-model:expanded，编辑器做同屏互斥）。
  */
 const props = defineProps<{
   itemCode: string
@@ -14,15 +15,24 @@ const props = defineProps<{
   /** 分公司名（为空则不限） */
   branchName?: string
   modelValue: string[]
+  /** 本单其他行已选实例 id（候选剔除；本行已选保留勾选回显） */
+  excludedIds?: string[]
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string[]): void
   (e: 'change', selected: FixedAsset[]): void
 }>()
 
+const expanded = defineModel<boolean>('expanded', { default: false })
+
 const options = ref<FixedAsset[]>([])
 const loading = ref(false)
-const expanded = ref(false)
+
+/** 候选 = 拉取结果 − 他行已选 ∪ 本行已选（勾选回显） */
+const candidates = computed(() => {
+  const excluded = new Set(props.excludedIds || [])
+  return options.value.filter(o => !excluded.has(o.id) || props.modelValue.includes(o.id))
+})
 
 async function load() {
   loading.value = true
@@ -64,13 +74,16 @@ defineExpose({ reload: load })
     </button>
     <div v-if="expanded" class="picker-panel">
       <div v-if="loading" class="picker-empty">加载中...</div>
-      <div v-else-if="options.length === 0" class="picker-empty">无可选实例（{{ status }}态为空）</div>
-      <label v-for="opt in options" :key="opt.id" class="picker-row">
+      <div v-else-if="candidates.length === 0" class="picker-empty">无可选实例（{{ status }}态为空或已被其他行选中）</div>
+      <label v-for="opt in candidates" :key="opt.id" class="picker-row">
         <input type="checkbox" :checked="modelValue.includes(opt.id)" @change="toggle(opt.id)" />
         <span class="row-code">{{ opt.内部编号 }}</span>
         <span class="row-serial">{{ opt.序列号 || '待补录' }}</span>
         <span class="row-branch">{{ opt.branchName }}</span>
       </label>
+      <button type="button" class="picker-done" @click="expanded = false">
+        完成{{ modelValue.length > 0 ? `（${modelValue.length} 台）` : '' }}
+      </button>
     </div>
   </div>
 </template>
@@ -86,6 +99,8 @@ defineExpose({ reload: load })
 .picker-row:last-child { border-bottom: none; }
 .picker-row:hover { background: var(--color-bg-elevated); }
 .picker-row input { width: 14px; height: 14px; }
+.picker-done { display: block; width: 100%; padding: 8px; background: var(--color-primary-50); border: none; border-top: 1px solid var(--color-border); color: var(--color-primary-600); font-size: 13px; font-weight: 500; cursor: pointer; }
+.picker-done:hover { background: var(--color-primary-100); }
 .row-code { font-family: var(--font-mono); color: var(--color-primary-600); min-width: 110px; }
 .row-serial { color: var(--color-text-secondary); flex: 1; }
 .row-branch { color: var(--color-text-tertiary); }
