@@ -36,8 +36,7 @@ class TestLogin:
         User = get_user_model()
         User.objects.create_user(phone='13900000099', name='Inactive', password='test123456', status='inactive')
         resp = api_client.post('/api/auth/login/', {'phone': '13900000099', 'password': 'test123456'})
-        # May return 403 (inactive) or 429 (rate limited by previous tests)
-        assert resp.status_code in (status.HTTP_403_FORBIDDEN, 429)
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.django_db
@@ -82,7 +81,7 @@ class TestSessionPolicy:
 
     def test_new_login_invalidates_previous_session(self, api_client, admin_user):
         from django.core.cache import cache
-        cache.clear()  # 重置登录限流计数，避免跨测试累积触发 429
+        cache.clear()  # 重置限流/锁定计数，隔离跨测试影响
         resp1 = api_client.post('/api/auth/login/', {'phone': '13900000000', 'password': 'test123456'})
         token1 = resp1.data['token']
 

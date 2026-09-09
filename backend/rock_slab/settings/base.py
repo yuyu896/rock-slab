@@ -102,13 +102,17 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
     ],
+    # 额度以"正常使用永不触发"标定：login 120/min（同一出口 IP 全员同时登录也够，
+    # 只挡机器行速爆破——暴力破解由按账号锁定兜底）；user 10000/hour（盘点等
+    # 高频会话不设阻）。
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
-        'user': '1000/hour',
-        'login': '5/minute',
+        'user': '10000/hour',
+        'login': '120/minute',
     },
-    # 反向代理层数（单层 Nginx 为 1）：使登录限流按 X-Forwarded-For 中的
-    # 真实客户端 IP 计数，而非所有请求共享的容器内部地址。线上可经环境变量覆盖。
+    # 反向代理层数：使登录限流按 X-Forwarded-For 中的真实客户端 IP 计数，而非
+    # 所有请求共享的容器内部地址。取倒数第 N 个地址（N=代理层数）：单层代理为 1；
+    # 生产两层链路（root-nginx → rock-slab-nginx）在 production.py 固化为 2。
     'NUM_PROXIES': int(os.environ.get('NUM_PROXIES', '1')),
 }
 
