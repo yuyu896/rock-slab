@@ -314,3 +314,122 @@ class TestMigratePositionsCommand:
         assert template.issubset(codes)   # 8 操作码补齐
         assert 'dispose_assets' in codes  # 特例保留
         assert ManagementScope.objects.filter(user=user, branch=branch).exists()  # 范围保留
+
+
+# ---------------------------------------------------------------------------
+# seed_position_grants：批量种子岗位授权（2026-09-08 建号导入补授）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestSeedPositionGrantsCommand:
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('seed_position_grants', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_does_not_write(self, db, branch):
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13611112222', name='预演行政', password='x',
+            role='manager', status='active', branch=branch,
+        )
+        out = self._run()
+        assert not OperationGrant.objects.filter(user=user).exists()
+        assert not ManagementScope.objects.filter(user=user).exists()
+        assert 'dry-run' in out
+
+    def test_apply_seeds_manager_ops_and_branch_scope(self, db, branch):
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13611112233', name='在职行政', password='x',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='view_audit')  # 模板外特例
+        self._run('--apply')
+        codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
+        assert set(POSITION_TEMPLATES['manager']['operations']).issubset(codes)  # 模板补齐
+        assert 'view_audit' in codes  # 特例保留（只补不删）
+        assert ManagementScope.objects.filter(user=user, branch=branch).exists()
+
+    def test_apply_leader_gets_branch_scope_without_ops(self, db, branch):
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13611112244', name='在职组长', password='x',
+            role='leader', status='active', branch=branch,
+        )
+        self._run('--apply')
+        assert not OperationGrant.objects.filter(user=user).exists()  # 组长模板无操作码
+        assert ManagementScope.objects.filter(user=user, branch=branch).exists()
+
+    def test_apply_director_ops_by_template_scope_by_appointment(self, db, region):
+        from apps.users.models import User
+        from apps.permissions.scope import resolve_user_scope
+        user = User.objects.create_user(
+            phone='13611112255', name='在职总监', password='x',
+            role='director', status='active',
+        )
+        region.manager = user
+        region.save(update_fields=['manager'])
+        self._run('--apply')
+        assert set(POSITION_TEMPLATES['director']['operations']) == set(
+            OperationGrant.objects.filter(user=user).values_list('code', flat=True)
+        )
+        # 任命即授权：不建节点记录，范围来自任命
+        assert not ManagementScope.objects.filter(user=user).exists()
+        assert not resolve_user_scope(user).is_empty
+
+    def test_apply_cleans_admin_records(self, db, admin_user, branch):
+        ManagementScope.objects.create(user=admin_user, branch=branch)
+        OperationGrant.objects.create(user=admin_user, code='manage_users')
+        self._run('--apply')
+        assert not ManagementScope.objects.filter(user=admin_user).exists()
+        assert not OperationGrant.objects.filter(user=admin_user).exists()
+
+    def test_apply_idempotent(self, db, branch):
+        from apps.users.models import User
+        User.objects.create_user(
+            phone='13611112266', name='幂等行政', password='x',
+            role='manager', status='active', branch=branch,
+        )
+        self._run('--apply')
+        out = self._run('--apply')
+        assert '待人工 0 人' in out
+        assert '补授 0 项操作码、新增 0 项分公司节点授权' in out
+
+    def test_branchless_manager_listed_for_manual(self, db):
+        from apps.users.models import User
+        user = User.objects.create_user(
+            phone='13611112277', name='轮空行政', password='x',
+            role='manager', status='active',  # 无 branch 无任命
+        )
+        out = self._run('--apply')
+        assert not ManagementScope.objects.filter(user=user).exists()  # 不猜节点
+        assert '⚠范围待人工' in out
+        assert '待人工 1 人' in out
+
+    def test_check_seed_grants_passes_after_seeding(self, db, region, branch, admin_user):
+        from io import StringIO
+        from django.core.management import call_command
+        from apps.users.models import User
+        # 复现生产 2026-09-08 导入形态：行政挂分公司、组长挂分公司、总监任大区负责人
+        User.objects.create_user(
+            phone='13611112288', name='种子行政', password='x',
+            role='manager', status='active', branch=branch,
+        )
+        User.objects.create_user(
+            phone='13611112299', name='种子组长', password='x',
+            role='leader', status='active', branch=branch,
+        )
+        director = User.objects.create_user(
+            phone='13611112300', name='种子总监', password='x',
+            role='director', status='active',
+        )
+        region.manager = director
+        region.save(update_fields=['manager'])
+
+        self._run('--apply')
+        out = StringIO()
+        call_command('check_seed_grants', stdout=out)  # 不抛 SystemExit 即通过
+        assert '校验通过' in out.getvalue()

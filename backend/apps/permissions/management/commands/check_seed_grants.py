@@ -1,12 +1,14 @@
-"""校验 permissions 0002 种子授权结果。
+"""校验岗位授权种子结果。
 
-部署后（migrate 之后）执行，确认种子授权与旧 role 隐含一致；
+部署后（migrate 之后）执行，确认操作授权与岗位模板一致；
 异常时以非零状态退出，供 deploy.sh 中止部署。
 """
 from django.core.management.base import BaseCommand
 from apps.users.models import User
 from apps.permissions.models import ManagementScope, OperationGrant
-from apps.permissions.legacy_seed import SUPERVISOR_OPERATIONS, MANAGER_OPERATIONS
+from apps.permissions.legacy_seed import SUPERVISOR_OPERATIONS
+from apps.permissions.positions import template_operations
+from apps.permissions.scope import resolve_user_scope
 
 
 class Command(BaseCommand):
@@ -25,10 +27,11 @@ class Command(BaseCommand):
             if non_admin > 0:
                 errors.append('存在非 admin 用户但种子授权为空，0002 种子可能未执行或失败')
 
-        # 抽样：每个 role 取一用户核对
+        # 抽样：每个岗位取一用户核对模板操作码（supervisor 为退役存量，按 legacy 口径）
         for role, expected_ops in [
+            ('director', template_operations('director')),
+            ('manager', template_operations('manager')),
             ('supervisor', SUPERVISOR_OPERATIONS),
-            ('manager', MANAGER_OPERATIONS),
         ]:
             user = User.objects.filter(role=role).first()
             if not user:
@@ -72,13 +75,15 @@ class Command(BaseCommand):
         if admin_with_grant:
             errors.append('admin 用户存在授权记录（应为空，走职位兜底）')
 
-        # 无 region/branch 的非 admin 用户（供人工补授）
-        unscoped = User.objects.exclude(role='admin').filter(
-            management_scopes__isnull=True
-        )
-        if unscoped.exists():
+        # 范围真正为空的非 admin 用户（无节点授权且无任命覆盖，供人工补授）
+        unscoped = [
+            u for u in User.objects.exclude(role='admin')
+            .filter(management_scopes__isnull=True).distinct()
+            if resolve_user_scope(u).is_empty
+        ]
+        if unscoped:
             self.stdout.write(self.style.WARNING(
-                f'[WARN] {unscoped.count()} 个非 admin 用户无组织节点授权（需人工在权限分配页面补授）:'
+                f'[WARN] {len(unscoped)} 个非 admin 用户管理范围为空（无节点授权且无任命，需人工补授）:'
             ))
             for u in unscoped[:20]:
                 self.stdout.write(f'    {u.role} | {u.phone} | {u.name}')
