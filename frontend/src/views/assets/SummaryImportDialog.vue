@@ -97,6 +97,7 @@ async function handleConfirm() {
         <p class="hint">
           增量语义：模板 3 列（分公司 / 资产编号 / 在库数量）。系统比对现值生成差异，
           确认后每处差异生成一条调整单入账（事由=导入调整）。
+          实例管理品目不支持台账导入（其数量经采购入库单/流转单变动）。
           <a class="tpl-link" @click="handleDownloadTemplate">下载模板</a>
         </p>
 

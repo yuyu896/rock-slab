@@ -141,6 +141,13 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 hint = f'，是否想找：{"、".join(similar)}' if similar else ''
                 errors.append(f'第 {i} 行: 资产编号 {asset_code} 未在品目字典登记{hint}')
                 continue
+            if item.management_type == 'instance':
+                # 实例品目在库列=实例镜像（铁律 2：数量只经单据变动），导入直改即账实分裂
+                errors.append(
+                    f'第 {i} 行: {asset_code} 为实例管理品目，不可台账导入'
+                    '（数量经采购入库单/流转单变动）'
+                )
+                continue
             branch = branch_map.get(branch_name)
             if branch is None:
                 errors.append(f'第 {i} 行: 分公司「{branch_name}」不存在')

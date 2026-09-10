@@ -237,6 +237,38 @@ class TestAssetStockIncrementalImport:
         assert any('未在品目字典登记' in e for e in resp.data['errors'])
         assert resp.data['diffs'] == []
 
+    def test_instance_item_rejected_in_preview_and_confirm(self, supervisor_user, branch):
+        """实例管理品目行级拒绝：不进差异预览、confirm 无调整单（镜像列只经单据变动）。"""
+        from apps.categories.models import Category
+        from apps.assets.models import AssetStock, LedgerAdjustment
+        Category.objects.update_or_create(
+            asset_code='SUM-I-INST', defaults={
+                'asset_category': '测试类目', 'item_category': '测试分类',
+                'asset_name': '实例品目', 'unit': '台', 'management_type': 'instance',
+            },
+        )
+        _make_stock(branch, 'SUM-I-006', stock=10)
+        client = _client_for(supervisor_user)
+
+        resp = self._upload(client, [
+            [branch.name, 'SUM-I-INST', 99],
+            [branch.name, 'SUM-I-006', 12],
+        ])
+        assert resp.status_code == 200
+        assert [d['资产编号'] for d in resp.data['diffs']] == ['SUM-I-006']
+        assert any('实例管理品目' in e and 'SUM-I-INST' in e for e in resp.data['errors'])
+
+        resp = self._upload(client, [
+            [branch.name, 'SUM-I-INST', 99],
+            [branch.name, 'SUM-I-006', 15],
+        ], confirm=True)
+        assert resp.status_code == 200
+        assert resp.data['applied'] == 1
+        assert any('实例管理品目' in e for e in resp.data['errors'])
+        assert not LedgerAdjustment.objects.filter(item__asset_code='SUM-I-INST').exists()
+        assert AssetStock.objects.get(
+            branch=branch, item__asset_code='SUM-I-006').在库数量 == 15
+
     def test_import_requires_permission(self, staff_user, branch):
         client = _client_for(staff_user)
         resp = self._upload(client, [[branch.name, 'SUM-I-006', 1]])
