@@ -28,8 +28,9 @@ export const ROLE_LABELS: Record<UserRoleType, string> = {
 export const ROLE_LEVELS: Record<UserRoleType, number> = {
   admin: 1,
   director: 2,
-  manager: 3,
-  leader: 4,
+  // 行政组长管一个组（多家分公司），职级高于管单家分公司的分公司行政
+  leader: 3,
+  manager: 4,
   // 已退役岗位：仅作存量排序展示
   supervisor: 5,
   staff: 6,

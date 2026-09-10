@@ -75,12 +75,12 @@ describe('filterEmployeesByNode（沿树派生 + 负责人并入）', () => {
 })
 
 describe('sortEmployeesByRole', () => {
-  it('高职级在前，同职级按姓名', () => {
+  it('高职级在前，同职级按姓名；行政组长排在分公司行政前', () => {
     const sorted = sortEmployeesByRole([
       makeUser({ id: 'b', role: 'staff' }),
       makeUser({ id: 'a', role: 'manager' }),
       makeUser({ id: 'c', role: 'leader' }),
     ])
-    expect(sorted.map(u => u.id)).toEqual(['a', 'c', 'b'])
+    expect(sorted.map(u => u.id)).toEqual(['c', 'a', 'b'])
   })
 })
