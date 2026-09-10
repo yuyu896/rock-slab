@@ -175,7 +175,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         task = self.get_object()
         if not task.is_instance_inventory:
             return Response(
-                {'detail': '该任务不是部门实例盘点'},
+                {'detail': '该任务不是实例盘点'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if task.status != 'in_progress':
@@ -774,12 +774,11 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
     def _generate_instance_items(self, task):
-        """实例盘：生成部门名下在用实例快照（一台一行；仅实例管理品目有实例）。"""
+        """实例盘：生成全分公司在用实例快照（一台一行；仅实例管理品目有实例）。"""
         from apps.assets.models import FixedAsset
         qs = FixedAsset.objects.select_related('item', 'department').filter(
             当前状态=FixedAsset.STATUS_IN_USE,
             branch=task.branch,
-            department=task.department,
         )
         if task.category:
             qs = qs.filter(item__asset_category=task.category.asset_category)

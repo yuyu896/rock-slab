@@ -42,11 +42,21 @@ class InventoryTask(UUIDModel, TimestampedModel):
     stock_bin = models.CharField(
         '库别', max_length=20, choices=STOCK_BIN_CHOICES, default=BIN_STOCK,
     )
-    # 部门维度：设置即为实例盘（清单=该部门名下在用实例，逐台核对，差异不自动改账）
+    # 盘点方式显式化：stock=台账盘点 / instance=实例盘点（全分公司在用实例，逐台核对，差异不自动改账）
+    KIND_STOCK = 'stock'
+    KIND_INSTANCE = 'instance'
+    KIND_CHOICES = [
+        (KIND_STOCK, '台账盘点'),
+        (KIND_INSTANCE, '实例盘点'),
+    ]
+    kind = models.CharField(
+        '盘点方式', max_length=20, choices=KIND_CHOICES, default=KIND_STOCK,
+    )
+    # 部门维度已退役（存量实例盘任务的档案字段，仅展示，不参与任何逻辑）
     department = models.ForeignKey(
         'organizations.Department', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='inventory_tasks',
-        verbose_name='盘点部门（实例盘）',
+        verbose_name='盘点部门（存量档案）',
     )
     status = models.CharField(
         '状态', max_length=20,
@@ -103,8 +113,8 @@ class InventoryTask(UUIDModel, TimestampedModel):
 
     @property
     def is_instance_inventory(self):
-        """部门维度已设置 = 实例盘（逐台核对在用实例，差异不自动改账）。"""
-        return self.department_id is not None
+        """kind=instance 即实例盘（逐台核对全分公司在用实例，差异不自动改账）。"""
+        return self.kind == self.KIND_INSTANCE
 
 
 class InventoryItem(UUIDModel, TimestampedModel):

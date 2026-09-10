@@ -62,35 +62,25 @@ class InventoryTaskSerializer(serializers.ModelSerializer):
     branch = serializers.PrimaryKeyRelatedField(
         queryset=Branch.objects.all(), required=True, allow_null=False,
     )
-    inventory_kind = serializers.SerializerMethodField()
+    inventory_kind = serializers.CharField(source='kind', read_only=True)
+    # 部门维度已退役：存量任务的档案字段，只读展示
     department_name = serializers.CharField(source='department.name', read_only=True, default='')
-
-    def get_inventory_kind(self, obj):
-        return 'instance' if obj.is_instance_inventory else 'stock'
 
     class Meta:
         model = InventoryTask
         fields = [
-            'id', 'name', 'branch', 'category', 'stock_bin', 'department', 'department_name',
+            'id', 'name', 'branch', 'category', 'stock_bin', 'kind',
+            'department', 'department_name',
             'status', 'missed_rule', 'repeat_rule', 'created_by', 'inventory_kind',
             'started_at', 'submitted_at', 'completed_at',
             'rejected_at', 'rejected_by', 'reject_reason',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'department']
         extra_kwargs = {
             # 状态只经状态机动作流转，不接受 API 直改
             'status': {'read_only': True},
         }
-
-    def validate(self, attrs):
-        branch = attrs.get('branch') or getattr(self.instance, 'branch', None)
-        department = attrs.get('department', getattr(self.instance, 'department', None))
-        if department is not None and branch is not None and department.branch_id != branch.id:
-            raise serializers.ValidationError(
-                {'department': '盘点部门必须属于所选分公司'}
-            )
-        return attrs
 
     def update(self, instance, validated_data):
         validated_data.pop('branch', None)
@@ -100,21 +90,18 @@ class InventoryTaskSerializer(serializers.ModelSerializer):
 class InventoryTaskListSerializer(serializers.ModelSerializer):
     """Lighter serializer for list views."""
 
-    inventory_kind = serializers.SerializerMethodField()
+    inventory_kind = serializers.CharField(source='kind', read_only=True)
 
     class Meta:
         model = InventoryTask
         fields = [
-            'id', 'name', 'branch', 'category', 'stock_bin', 'department', 'status',
+            'id', 'name', 'branch', 'category', 'stock_bin', 'kind', 'department', 'status',
             'missed_rule', 'repeat_rule', 'created_by', 'inventory_kind',
             'started_at', 'submitted_at', 'completed_at',
             'rejected_at', 'rejected_by', 'reject_reason',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
-
-    def get_inventory_kind(self, obj):
-        return 'instance' if obj.is_instance_inventory else 'stock'
 
 
 class CheckItemSerializer(serializers.Serializer):

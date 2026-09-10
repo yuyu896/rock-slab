@@ -607,7 +607,7 @@ onMounted(() => {
                   <span class="info-label">盘点范围</span>
                   <span class="info-value">
                     {{ selectedTask.branchName || '全部分公司' }}
-                    <template v-if="isInstanceTask(selectedTask)"> · {{ selectedTask.departmentName || '部门' }}（{{ INVENTORY_KIND_LABELS.instance }}）</template>
+                    <template v-if="isInstanceTask(selectedTask)">{{ selectedTask.departmentName ? ` · ${selectedTask.departmentName}` : '' }}（{{ INVENTORY_KIND_LABELS.instance }}）</template>
                     <template v-else> · {{ stockBinLabel(selectedTask) }}</template>
                   </span>
                 </div>

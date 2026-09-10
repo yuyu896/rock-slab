@@ -357,6 +357,7 @@ export interface InventoryTask {
   branch?: string
   categoryId?: string
   stockBin?: StockBinType
+  kind?: InventoryKindType
   department?: string
   inventoryKind?: InventoryKindType
   status: InventoryTaskStatusType

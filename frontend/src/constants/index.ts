@@ -220,7 +220,7 @@ export const STOCK_BIN_LABELS: Record<StockBinType, string> = {
 
 export const INVENTORY_KIND_LABELS: Record<InventoryKindType, string> = {
   stock: '台账盘点',
-  instance: '部门实例盘点',
+  instance: '实例盘点',
 }
 
 /** 实例盘核对结果（一台一勾） */

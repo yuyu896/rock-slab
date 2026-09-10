@@ -104,20 +104,37 @@ class TestStockBinInventory:
         assert adj.变动量 == -2
         assert '回收库' in adj.事由
 
-    def test_serializer_rejects_department_outside_branch(
-        self, authenticated_client, branch, other_branch_department,
-    ):
+    def test_create_ignores_department(self, authenticated_client, branch, other_branch_department):
+        """部门维度退役：入参 department 被忽略（只读档案字段），创建成功且为空。"""
         resp = authenticated_client.post(INVENTORY_LIST_URL, {
-            'name': '跨部门', 'branch': str(branch.id),
+            'name': '实例盘-全公司', 'branch': str(branch.id), 'kind': 'instance',
             'department': str(other_branch_department.id),
         }, format='json')
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert 'department' in resp.json()
+        assert resp.status_code == status.HTTP_201_CREATED
+        task = InventoryTask.objects.get(name='实例盘-全公司')
+        assert task.kind == 'instance'
+        assert task.department is None
+        assert task.is_instance_inventory is True
+
+    def test_create_instance_kind_without_department(self, authenticated_client, branch):
+        """kind=instance 即实例盘，无需部门。"""
+        resp = authenticated_client.post(INVENTORY_LIST_URL, {
+            'name': '实例盘-无部门', 'branch': str(branch.id), 'kind': 'instance',
+        }, format='json')
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert InventoryTask.objects.get(name='实例盘-无部门').is_instance_inventory is True
+
+    def test_backfill_kind_from_department(self, branch, department):
+        """存量回填口径：department 非空的老任务 is_instance 判定随 kind 迁移成立。"""
+        legacy = InventoryTask.objects.create(
+            name='老任务', branch=branch, department=department, kind='instance',
+        )
+        assert legacy.is_instance_inventory is True
 
 
 @pytest.mark.django_db
 class TestInstanceInventory:
-    """部门实例盘：快照清单、逐台核对、漏盘规则、审批不改账。"""
+    """实例盘（全分公司）：快照清单、逐台核对、漏盘规则、审批不改账。"""
 
     def _seed_instances(self, branch, item, department):
         from apps.assets.models import FixedAsset
@@ -129,19 +146,19 @@ class TestInstanceInventory:
                 item=item, 内部编号=code, 当前状态='在用',
                 使用人=holder, department=department, branch=branch,
             ))
-        # 干扰项：在库实例 / 其他部门实例 / 数量品目台账（均不应入清单）
+        # 干扰项：在库实例不入清单；无部门在用实例 SI-001-8 属全公司口径应入清单
         FixedAsset.objects.create(
             item=item, 内部编号='SI-001-9', 当前状态='在库', branch=branch,
         )
-        FixedAsset.objects.create(
+        made.append(FixedAsset.objects.create(
             item=item, 内部编号='SI-001-8', 当前状态='在用',
-            使用人='王五', branch=branch,  # 无部门
-        )
+            使用人='王五', branch=branch,
+        ))
         return made
 
-    def _make_task(self, branch, department, item=None, **kw):
+    def _make_task(self, branch, department=None, item=None, **kw):
         return InventoryTask.objects.create(
-            name='部门实例盘', branch=branch, department=department,
+            name='实例盘', branch=branch, kind='instance',
             missed_rule=kw.pop('missed_rule', 'keep'), **kw,
         )
 
@@ -156,7 +173,7 @@ class TestInstanceInventory:
         assert resp.status_code == status.HTTP_200_OK
         assert task.is_instance_inventory is True
         entries = task.instance_items.all()
-        assert entries.count() == 3  # 仅部门内在用实例
+        assert entries.count() == 4  # 全分公司在用实例（含无部门归属）
         assert set(entries.values_list('instance_id', flat=True)) == {
             i.id for i in instances
         }
@@ -188,13 +205,13 @@ class TestInstanceInventory:
         assert r3.json()['checkCount'] == 2
 
     def test_check_instance_rejects_foreign_instance(
-        self, authenticated_client, branch, inst_item, department,
+        self, authenticated_client, branch, second_branch, inst_item, department,
     ):
         from apps.assets.models import FixedAsset
         self._seed_instances(branch, inst_item, department)
         outsider = FixedAsset.objects.create(
             item=inst_item, 内部编号='SI-002-1', 当前状态='在用',
-            使用人='赵六', branch=branch,  # 无部门 → 不在清单
+            使用人='赵六', branch=second_branch,  # 外分公司 → 不在清单
         )
         task = self._make_task(branch, department)
         authenticated_client.post(_action('start', task.id))
@@ -239,7 +256,7 @@ class TestInstanceInventory:
         stock = AssetStock.objects.get(branch=branch, item=inst_item)
         assert stock.在用数量 == 3                       # 台账零变化
         missing = task.instance_items.filter(result='missing').count()
-        assert missing == 1                              # 报告缺失明细来源
+        assert missing == 2                              # 报告缺失明细来源（含无部门归属台）
 
     def test_report_returns_instance_items(
         self, authenticated_client, branch, inst_item, department,
@@ -253,10 +270,10 @@ class TestInstanceInventory:
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
         assert data['task']['inventoryKind'] == 'instance'
-        assert len(data['items']) == 3
+        assert len(data['items']) == 4
         first = data['items'][0]
         assert {'instanceCode', 'assetName', 'holder', 'result'} <= set(first)
-        assert data['progress']['totalItems'] == 3
+        assert data['progress']['totalItems'] == 4
         assert data['adjustments'] == {'total': 0, 'surplus': 0, 'missing': 0}
 
     def test_stock_actions_rejected_on_instance_task(

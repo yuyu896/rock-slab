@@ -15,7 +15,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">分公司 <span class="required">*</span></label>
-        <select v-model="form.branchId" class="form-input" @change="onBranchChange">
+        <select v-model="form.branchId" class="form-input">
           <option value="">请选择分公司</option>
           <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
         </select>
@@ -29,7 +29,7 @@
           </label>
           <label class="kind-item" :class="{ active: form.kind === 'instance' }">
             <input type="radio" value="instance" v-model="form.kind" />
-            <span>部门实例盘点（按人逐台核对在用资产）</span>
+            <span>实例盘点（逐台核对全公司在用资产）</span>
           </label>
         </div>
       </div>
@@ -37,13 +37,6 @@
         <label class="form-label">库别</label>
         <select v-model="form.stockBin" class="form-input">
           <option v-for="opt in stockBinOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-        </select>
-      </div>
-      <div v-if="form.kind === 'instance'" class="form-group">
-        <label class="form-label">盘点部门 <span class="required">*</span></label>
-        <select v-model="form.departmentId" class="form-input">
-          <option value="">请选择部门（需先选分公司）</option>
-          <option v-for="d in departmentOptions" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </div>
       <div class="form-group">
@@ -73,7 +66,7 @@
       <div v-if="form.kind === 'instance'" class="form-group full">
         <label class="form-label">实例盘说明</label>
         <p class="field-hint instance-hint">
-          清单为该部门名下「在用」实例（仅实例管理品目，一台一行），逐台核对（点选/扫码）；
+          清单为全公司「在用」实例（仅实例管理品目，一台一行，含各使用人名下），逐台核对（点选/扫码）；
           未核对项按漏盘规则处理（{{ form.missedRule === 'zero' ? '清零处理：未核对记缺失' : '保持不变：未核对单列' }}）。
           实例盘差异<b>不自动改账</b>：盘亏实例报告标记待跟进，人工决定后续（重新查找 / 发起回收处置单）。
         </p>
@@ -101,7 +94,6 @@ import { useRouter } from 'vue-router'
 import { createInventoryTask } from '@/api/inventories'
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
-import { getDepartmentOptions, type Department } from '@/api/departments'
 import { handleApiError } from '@/utils/request'
 import {
   MISSED_RULE_LABELS, REPEAT_RULE_LABELS, REPEAT_RULE_HINTS, STOCK_BIN_OPTIONS,
@@ -118,14 +110,12 @@ const form = reactive({
   categoryId: '',
   kind: 'stock' as 'stock' | 'instance',
   stockBin: 'stock' as StockBinType,
-  departmentId: '',
   missedRule: 'keep' as MissedRuleType,
   repeatRule: 'last' as RepeatRuleType,
 })
 
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const categoryOptions = ref<{ value: string; label: string }[]>([])
-const departmentOptions = ref<Department[]>([])
 const stockBinOptions = STOCK_BIN_OPTIONS
 const missedRuleOptions = Object.entries(MISSED_RULE_LABELS).map(([value, label]) => ({ value, label }))
 const repeatRuleOptions = Object.entries(REPEAT_RULE_LABELS).map(([value, label]) => ({ value, label }))
@@ -137,23 +127,6 @@ function goBack() {
   router.replace('/inventory')
 }
 
-async function fetchDepartments(branchId: string) {
-  if (!branchId) {
-    departmentOptions.value = []
-    return
-  }
-  try {
-    const { data } = await getDepartmentOptions({ branch_id: branchId })
-    departmentOptions.value = Array.isArray(data) ? data : (data as any).results ?? []
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  }
-}
-
-function onBranchChange() {
-  form.departmentId = ''
-  void fetchDepartments(form.branchId)
-}
 
 async function submit() {
   if (!form.name.trim()) {
@@ -164,10 +137,6 @@ async function submit() {
     ElMessage.warning('请选择分公司')
     return
   }
-  if (form.kind === 'instance' && !form.departmentId) {
-    ElMessage.warning('部门实例盘点需选择盘点部门')
-    return
-  }
   creating.value = true
   try {
     await createInventoryTask({
@@ -175,7 +144,7 @@ async function submit() {
       branch: form.branchId,
       category: form.categoryId || undefined,
       stock_bin: form.kind === 'stock' ? form.stockBin : undefined,
-      department: form.kind === 'instance' ? form.departmentId : undefined,
+      kind: form.kind,
       missed_rule: form.missedRule,
       repeat_rule: form.repeatRule,
     } as any)
