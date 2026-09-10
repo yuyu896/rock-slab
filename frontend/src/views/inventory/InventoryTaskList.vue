@@ -8,6 +8,7 @@ import {
   REPEAT_RULE_LABELS,
 } from '@/constants'
 import type { MissedRuleType, RepeatRuleType } from '@/types'
+import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 
 const props = defineProps<{
   loading: boolean
@@ -119,16 +120,11 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
           </select>
         </div>
         <div class="filter-item">
-          <select
-            :value="filters.branch"
-            @change="emit('update:filters', { ...filters, branch: ($event.target as HTMLSelectElement).value })"
-            class="filter-select"
-            aria-label="筛选分公司"
-          >
-            <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
+          <BranchFilterSelect
+            :model-value="filters.branch"
+            :options="branchOptions"
+            @update:model-value="(v) => emit('update:filters', { ...filters, branch: v })"
+          />
         </div>
       </div>
     </div>

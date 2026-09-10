@@ -5,6 +5,8 @@ import { computed, defineComponent } from 'vue'
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: vi.fn() },
+  ElSelect: { name: 'ElSelect', props: ['modelValue', 'filterable', 'clearable', 'placeholder'], emits: ['update:modelValue', 'clear'], template: '<div class="el-select-stub" />' },
+  ElOption: { name: 'ElOption', props: ['value', 'label'], template: '<div class="el-option-stub" />' },
 }))
 
 vi.mock('vue-router', () => ({
@@ -117,9 +119,11 @@ describe('固定资产实例导出透传全部筛选', () => {
     await flushPromises()
 
     await wrapper.find('input[placeholder^="搜索内部编号"]').setValue('NB-1')
+    // 分公司筛选已收敛为 BranchFilterSelect（shallow 下为 stub），经组件事件设值
+    const branchFilter = wrapper.findComponent({ name: 'BranchFilterSelect' })
+    await branchFilter.vm.$emit('update:modelValue', '杭州分公司')
     const selects = wrapper.findAll('select')
-    await selects[0].setValue('杭州分公司')
-    await selects[1].setValue('在库')
+    await selects[0].setValue('在库')
     await wrapper.find('input[type="checkbox"]').setValue(true)
     await findButtonByText(wrapper, '导出').trigger('click')
     await flushPromises()

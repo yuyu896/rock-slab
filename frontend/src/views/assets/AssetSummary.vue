@@ -7,6 +7,7 @@ import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import { usePermission } from '@/hooks/usePermission'
 import type { AssetStock } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
@@ -98,11 +99,7 @@ async function fetchStocks() {
 async function fetchBranches() {
   try {
     const { data } = await getBranches()
-    branchOptions.value = [
-      { value: '', label: '全部分司' },
-      ...data.map((b: any) => ({ value: b.name, label: b.name })),
-    ]
-    branchOptions.value[0] = { value: '', label: '全部分公司' }
+    branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
   } catch (error) {
     console.error('Failed to fetch branches:', error)
   }
@@ -231,9 +228,7 @@ onMounted(() => {
           />
         </div>
         <div class="filter-item">
-          <select v-model="filters.branch" class="filter-select" aria-label="筛选分公司">
-            <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
         </div>
         <div class="filter-item">
           <select v-model="filters.category" class="filter-select" aria-label="筛选类目">

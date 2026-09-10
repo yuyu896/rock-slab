@@ -8,6 +8,7 @@ import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
+import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
 import { INSTANCE_STATUS_OPTIONS } from '@/constants'
@@ -222,10 +223,7 @@ async function fetchAssets() {
 async function fetchBranches() {
   try {
     const { data } = await getBranches()
-    branchOptions.value = [
-      { value: '', label: '全部分公司' },
-      ...data.map((b: any) => ({ value: b.name, label: b.name })),
-    ]
+    branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
   } catch { /* 静默 */ }
 }
 
@@ -275,9 +273,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           <input v-model="filters.keyword" type="text" placeholder="搜索内部编号、品目、序列号、使用人..." class="filter-input" />
         </div>
         <div class="filter-item">
-          <select v-model="filters.branch" class="filter-select">
-            <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
         </div>
         <div class="filter-item">
           <select v-model="filters.status" class="filter-select">

@@ -6,6 +6,7 @@ import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
+import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 
 const { canManageOrganizations } = usePermission()
 
@@ -103,10 +104,11 @@ onMounted(async () => {
     </div>
 
     <div class="filter-row">
-      <select v-model="filterBranch" class="filter-select" aria-label="筛选分公司" @change="pagination.page = 1; fetchDepartments()">
-        <option value="">全部分公司</option>
-        <option v-for="b in branches" :key="b.id" :value="b.name">{{ b.name }}</option>
-      </select>
+      <BranchFilterSelect
+        v-model="filterBranch"
+        :options="branches.map((b) => ({ value: b.name, label: b.name }))"
+        @update:model-value="pagination.page = 1; fetchDepartments()"
+      />
     </div>
 
     <div class="table-container">

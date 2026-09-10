@@ -185,10 +185,7 @@ async function fetchTasks() {
 async function fetchBranches() {
   try {
     const { data } = await getBranches()
-    branchOptions.value = [
-      { value: '', label: '全部分公司' },
-      ...data.map(b => ({ value: b.id, label: b.name }))
-    ]
+    branchOptions.value = data.map(b => ({ value: b.id, label: b.name }))
   } catch (error) {
     console.error('Failed to fetch branches:', error)
   }

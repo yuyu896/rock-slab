@@ -6,6 +6,7 @@ import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { LedgerAdjustment } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
+import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -25,13 +26,10 @@ watch(() => props.visible, (v) => {
 }, { immediate: true })
 
 async function fetchBranches() {
-  if (branchOptions.value.length > 1) return
+  if (branchOptions.value.length > 0) return
   try {
     const { data } = await getBranches()
-    branchOptions.value = [
-      { value: '', label: '全部分公司' },
-      ...data.map((b: any) => ({ value: String(b.id), label: b.name })),
-    ]
+    branchOptions.value = data.map((b: any) => ({ value: String(b.id), label: b.name }))
   } catch (error) {
     console.error('Failed to fetch branches:', error)
   }
@@ -92,9 +90,7 @@ function fmtColumn(value: string) {
 
       <div class="modal-body">
         <div class="filter-row">
-          <select v-model="filters.branch" class="filter-select" aria-label="筛选分公司">
-            <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
           <input v-model="filters.assetCode" type="text" class="filter-input" placeholder="资产编号" @keyup.enter="applyFilters" />
           <input v-model="filters.dateFrom" type="date" class="filter-input date" aria-label="开始日期" />
           <span class="date-sep">至</span>

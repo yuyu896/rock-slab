@@ -31,7 +31,7 @@ export function useTransferList(type: TransferType) {
   const pagination = ref({ page: 1, pageSize: 50, total: 0 })
   const loading = ref(false)
   const transfers = ref<Transfer[]>([])
-  const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部分公司' }])
+  const branchOptions = ref<{ value: string; label: string }[]>([])
   const statusOptions = APPROVAL_STATUS_OPTIONS
 
   const getStatusStyle = (status: string) => {
@@ -73,10 +73,7 @@ export function useTransferList(type: TransferType) {
   async function fetchBranches() {
     try {
       const { data } = await getBranches()
-      branchOptions.value = [
-        { value: '', label: '全部分公司' },
-        ...data.map((b: any) => ({ value: b.name, label: b.name }))
-      ]
+      branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
     } catch (error) {
       ElMessage.error(handleApiError(error))
     }

@@ -59,9 +59,7 @@ function openCreatePage() {
           <input v-model="filters.keyword" type="text" placeholder="搜索单号、品目编号、名称..." class="filter-input" />
         </div>
         <div class="filter-item">
-          <select v-model="filters.fromBranch" class="filter-select">
-            <option v-for="opt in branchOptions" :key="opt.value" :value="opt.value">{{ opt.value ? opt.label : '全部分公司' }}</option>
-          </select>
+          <BranchFilterSelect v-model="filters.fromBranch" :options="branchOptions" />
         </div>
         <div class="filter-item">
           <select v-model="filters.status" class="filter-select">
