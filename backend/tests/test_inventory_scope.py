@@ -301,6 +301,79 @@ class TestInstanceInventory:
         }, format='json')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
+    @staticmethod
+    def _xlsx(headers, rows):
+        import io
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(headers)
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        buf.name = 'instance.xlsx'
+        return buf
+
+    def test_instance_template_and_import(
+        self, authenticated_client, branch, inst_item, department,
+    ):
+        """实例盘 Excel 闭环：模板含清单快照；导入按内部编号回写 matched/missing。"""
+        instances = self._seed_instances(branch, inst_item, department)
+        task = self._make_task(branch, department)
+        authenticated_client.post(_action('start', task.id))
+
+        # 模板：表头含核对结果列，快照含跨部门/无部门全部在用实例
+        resp = authenticated_client.get(_action('import-template', task.id))
+        assert resp.status_code == status.HTTP_200_OK
+        import openpyxl
+        from io import BytesIO
+        ws = openpyxl.load_workbook(BytesIO(resp.content)).active
+        head = [c.value for c in ws[1]]
+        assert head[:2] == ['序号', '内部编号'] and '核对结果' in head
+        codes = {ws.cell(row=r, column=2).value for r in range(2, ws.max_row + 1)}
+        assert codes == {i.内部编号 for i in instances}
+
+        # 导入：2 已找到 / 1 未找到 / 1 非法值 / 1 不在清单
+        headers = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注']
+        rows = [
+            [1, instances[0].内部编号, '', 'SCOPE-INST', '笔记本', '张三', '', '已找到', '线上核对'],
+            [2, instances[1].内部编号, '', 'SCOPE-INST', '笔记本', '张三', '', '已找到', ''],
+            [3, instances[2].内部编号, '', 'SCOPE-INST', '笔记本', '李四', '', '未找到', ''],
+            [4, instances[3].内部编号, '', 'SCOPE-INST', '笔记本', '王五', '', '找到了', ''],
+            [5, 'SI-999-9', '', 'SCOPE-INST', '笔记本', '赵六', '', '已找到', ''],
+        ]
+        resp = authenticated_client.post(
+            _action('import-result', task.id), {'file': self._xlsx(headers, rows)}, format='multipart',
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()['imported'] == 3
+        errors = resp.json()['errors']
+        assert any('已找到/未找到' in e for e in errors)
+        assert any('不在盘点范围' in e for e in errors)
+
+        entries = {e.instance.内部编号: e for e in task.instance_items.select_related('instance')}
+        assert entries[instances[0].内部编号].result == 'matched'
+        assert entries[instances[0].内部编号].remarks == '线上核对'
+        assert entries[instances[0].内部编号].check_count == 1
+        assert entries[instances[0].内部编号].checked_by == entries[instances[0].内部编号].checked_by
+        assert entries[instances[2].内部编号].result == 'missing'
+        assert entries[instances[3].内部编号].result == 'unchecked'  # 非法值行未回写
+
+    def test_instance_import_pending_rejected(self, authenticated_client, branch, inst_item, department):
+        """pending 状态实例盘任务导入被拒。"""
+        self._seed_instances(branch, inst_item, department)
+        task = self._make_task(branch, department)
+        headers = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注']
+        resp = authenticated_client.post(
+            _action('import-result', task.id),
+            {'file': self._xlsx(headers, [[1, 'SI-001-1', '', '', '', '', '', '已找到', '']])},
+            format='multipart',
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '盘点中' in resp.json()['detail']
+
     def test_excel_endpoints_guarded_for_instance_task(
         self, authenticated_client, branch, inst_item, department,
     ):
@@ -308,6 +381,6 @@ class TestInstanceInventory:
         task = self._make_task(branch, department)
         authenticated_client.post(_action('start', task.id))
         assert authenticated_client.get(
-            _action('import-template', task.id)).status_code == status.HTTP_400_BAD_REQUEST
+            _action('import-template', task.id)).status_code == status.HTTP_200_OK
         assert authenticated_client.get(
             _action('export-report', task.id)).status_code == status.HTTP_200_OK

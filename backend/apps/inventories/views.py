@@ -606,35 +606,49 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='import-template')
     def download_template(self, request, pk=None):
-        """下载盘点模板 Excel"""
+        """下载盘点模板 Excel（台账盘=品目数量行；实例盘=清单快照行）"""
         import io
         import openpyxl
         from django.http import HttpResponse
 
         task = self.get_object()
-        if task.is_instance_inventory:
-            return Response(
-                {'detail': '实例盘任务请逐台核对（点选/扫码），不提供 Excel 导入模板'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        items = task.items.select_related('stock__item').order_by('created_at')
 
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = '盘点表'
-        ws.append(['序号', '资产编号', '资产名称', '资产类目', '账面数量', '实盘数量', '备注'])
 
-        for idx, item in enumerate(items, start=1):
-            stock = item.stock
-            ws.append([
-                idx,
-                stock.item.asset_code,
-                stock.item.asset_name,
-                stock.item.asset_category,
-                item.expected_qty,
-                '',  # 实盘数量 - 用户填写
-                '',  # 备注 - 用户填写
-            ])
+        if task.is_instance_inventory:
+            ws.append(['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注'])
+            entries = task.instance_items.select_related(
+                'instance__item', 'instance__department',
+            ).order_by('created_at')
+            for idx, entry in enumerate(entries, start=1):
+                inst = entry.instance
+                ws.append([
+                    idx,
+                    inst.内部编号,
+                    inst.序列号 or '',
+                    inst.item.asset_code,
+                    inst.item.asset_name,
+                    inst.使用人 or '',
+                    inst.department.name if inst.department else '',
+                    '',  # 核对结果 - 已找到 / 未找到
+                    '',  # 备注 - 用户填写
+                ])
+        else:
+            items = task.items.select_related('stock__item').order_by('created_at')
+            ws.append(['序号', '资产编号', '资产名称', '资产类目', '账面数量', '实盘数量', '备注'])
+            for idx, item in enumerate(items, start=1):
+                stock = item.stock
+                ws.append([
+                    idx,
+                    stock.item.asset_code,
+                    stock.item.asset_name,
+                    stock.item.asset_category,
+                    item.expected_qty,
+                    '',  # 实盘数量 - 用户填写
+                    '',  # 备注 - 用户填写
+                ])
 
         output = io.BytesIO()
         wb.save(output)
@@ -651,13 +665,8 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='import-result',
             parser_classes=[MultiPartParser])
     def import_result(self, request, pk=None):
-        """导入盘点结果 Excel"""
+        """导入盘点结果 Excel（台账盘=实盘数量；实例盘=核对结果，与点选/扫码同口径）"""
         task = self.get_object()
-        if task.is_instance_inventory:
-            return Response(
-                {'detail': '实例盘任务请逐台核对（点选/扫码），不支持 Excel 导入'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         if task.status != 'in_progress':
             return Response(
                 {'detail': '只有盘点中的任务可以导入'},
@@ -697,6 +706,43 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         imported = 0
         errors = []
+
+        if task.is_instance_inventory:
+            # 实例盘：内部编号匹配清单项，核对结果列回写（已找到/未找到）
+            RESULT_MAP = {'已找到': 'matched', '未找到': 'missing'}
+            for i, row in enumerate(rows, start=2):
+                if not row or not row[1]:
+                    continue
+                inner_code = str(row[1]).strip()
+                verdict_raw = row[7] if len(row) > 7 else None
+                remarks = str(row[8]).strip() if len(row) > 8 and row[8] else ''
+
+                if verdict_raw is None or not str(verdict_raw).strip():
+                    continue  # 未填结果 = 未盘项，交漏盘规则处理
+
+                verdict = RESULT_MAP.get(str(verdict_raw).strip())
+                if verdict is None:
+                    errors.append(f'第 {i} 行: 核对结果须为「已找到/未找到」，实际 "{verdict_raw}"')
+                    continue
+
+                try:
+                    entry = task.instance_items.select_related('instance__item').get(
+                        instance__内部编号=inner_code,
+                    )
+                except InventoryInstanceItem.DoesNotExist:
+                    errors.append(f'第 {i} 行: 内部编号 "{inner_code}" 不在盘点范围内')
+                    continue
+
+                entry.result = verdict
+                entry.check_count += 1
+                entry.checked_by = request.user
+                entry.checked_at = timezone.now()
+                if remarks:
+                    entry.remarks = remarks
+                entry.save()
+                imported += 1
+
+            return Response({'imported': imported, 'errors': errors})
 
         for i, row in enumerate(rows, start=2):
             if not row or not row[1]:
