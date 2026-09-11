@@ -12,4 +12,4 @@
 ## 3. 收尾
 
 - [x] 3.1 拆两 commit 提交：feat（代码+测试）与 openspec（提案四件套），push
-- [ ] 3.2 生产部署后复跑 `check_seed_grants` 确认转绿（部署随下次 deploy.sh 或单独执行）
+- [x] 3.2 生产部署后复跑 `check_seed_grants` 确认转绿（部署随下次 deploy.sh 或单独执行）
