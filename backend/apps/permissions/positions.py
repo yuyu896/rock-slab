@@ -32,14 +32,12 @@ POSITION_TEMPLATES = {
         'label': '分公司行政',
         'scope_type': 'branch',
         'operations': [
-            'manage_users',
-            'manage_dictionary',
             'manage_assets',
-            'approve_transfer',
-            'approve_inventory',
-            'adjust_ledger',
-            'manage_instances',
+            'view_audit',
+            'view_all_notifications',
             'view_reports',
+            'manage_instances',
+            'dispose_assets',
         ],
     },
     'leader': {

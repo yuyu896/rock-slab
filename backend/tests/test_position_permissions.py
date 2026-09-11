@@ -119,12 +119,18 @@ class TestPositionTemplatesApi:
         by_role = {t['role']: t for t in resp.data}
         assert by_role['manager']['label'] == '分公司行政'
         assert by_role['manager']['operations'] == [
-            'manage_users', 'manage_dictionary', 'manage_assets',
-            'approve_transfer', 'approve_inventory',
-            'adjust_ledger', 'manage_instances', 'view_reports',
+            'manage_assets', 'view_audit', 'view_all_notifications',
+            'view_reports', 'manage_instances', 'dispose_assets',
         ]
         assert by_role['leader']['operations'] == []
         assert by_role['admin']['all_operations'] is True
+
+    def test_manager_template_is_six_codes(self):
+        # 2026-09-11 口径：分公司行政收紧为 6 项（生产数据已先行收敛，模板追平）
+        assert POSITION_TEMPLATES['manager']['operations'] == [
+            'manage_assets', 'view_audit', 'view_all_notifications',
+            'view_reports', 'manage_instances', 'dispose_assets',
+        ]
 
     def test_create_user_supervisor_rejected(self, authenticated_client):
         resp = authenticated_client.post('/api/users/', {
@@ -283,7 +289,7 @@ class TestMigratePositionsCommand:
             role='supervisor', status='active', branch=branch,
         )
         # 既有额外授权（模板外）+ 部分模板授权
-        OperationGrant.objects.create(user=user, code='view_audit')
+        OperationGrant.objects.create(user=user, code='manage_users')
         OperationGrant.objects.create(user=user, code='approve_transfer')
 
         self._run('--apply')
@@ -293,7 +299,7 @@ class TestMigratePositionsCommand:
         codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
         template = set(POSITION_TEMPLATES['manager']['operations'])
         assert template.issubset(codes)  # 模板补齐
-        assert 'view_audit' in codes      # 额外授权保留（只补不删）
+        assert 'manage_users' in codes    # 额外授权保留（只补不删）
 
     def test_apply_idempotent(self, db, branch):
         from apps.users.models import User
@@ -314,7 +320,7 @@ class TestMigratePositionsCommand:
             role='staff', status='active', branch=branch,
         )
         ManagementScope.objects.create(user=user, branch=branch)
-        OperationGrant.objects.create(user=user, code='dispose_assets')  # 模板外特例
+        OperationGrant.objects.create(user=user, code='approve_inventory')  # 模板外特例
 
         self._run('--apply')
 
@@ -322,8 +328,8 @@ class TestMigratePositionsCommand:
         assert user.role == 'manager'
         codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
         template = set(POSITION_TEMPLATES['manager']['operations'])
-        assert template.issubset(codes)   # 8 操作码补齐
-        assert 'dispose_assets' in codes  # 特例保留
+        assert template.issubset(codes)        # 模板操作码补齐
+        assert 'approve_inventory' in codes    # 特例保留
         assert ManagementScope.objects.filter(user=user, branch=branch).exists()  # 范围保留
 
 
@@ -357,11 +363,11 @@ class TestSeedPositionGrantsCommand:
             phone='13611112233', name='在职行政', password='x',
             role='manager', status='active', branch=branch,
         )
-        OperationGrant.objects.create(user=user, code='view_audit')  # 模板外特例
+        OperationGrant.objects.create(user=user, code='approve_transfer')  # 模板外特例
         self._run('--apply')
         codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
         assert set(POSITION_TEMPLATES['manager']['operations']).issubset(codes)  # 模板补齐
-        assert 'view_audit' in codes  # 特例保留（只补不删）
+        assert 'approve_transfer' in codes  # 特例保留（只补不删）
         assert ManagementScope.objects.filter(user=user, branch=branch).exists()
 
     def test_apply_leader_gets_branch_scope_without_ops(self, db, branch):
