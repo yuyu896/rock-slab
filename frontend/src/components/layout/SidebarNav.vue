@@ -123,8 +123,22 @@ const navigateTo = (path: string) => {
   router.push(path)
 }
 
+/** 全部导航叶子路径（判断本路径是否被更深的兄弟导航项承接） */
+const navLeafPaths = computed(() => {
+  const paths: string[] = []
+  for (const item of navItems.value) {
+    if (item.path) paths.push(item.path)
+    for (const child of item.children || []) paths.push(child.path)
+  }
+  return paths
+})
+
 const isActive = (path: string) => {
-  return activeMenu.value === path || activeMenu.value.startsWith(path + '/')
+  if (activeMenu.value === path) return true
+  // 前缀匹配仅当无更深导航项承接（如回收台账是回收单子路径时，回收单不随台账亮）
+  const hasDeeperNav = navLeafPaths.value.some(p => p !== path && p.startsWith(path + '/'))
+  if (hasDeeperNav) return false
+  return activeMenu.value.startsWith(path + '/')
 }
 
 const isChildActive = (item: NavItem) => {
