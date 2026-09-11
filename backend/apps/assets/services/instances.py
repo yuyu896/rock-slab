@@ -93,14 +93,15 @@ def check_line_instances(transfer, line, instances):
             )
 
 
-def _next_seq(item):
-    row = InstanceSequence.objects.select_for_update().filter(item=item).first()
+def _next_seq(item, branch):
+    """品目 × 分公司锁行自增：每分公司每品目各自起号（编号带分公司代码保持全局唯一）。"""
+    row = InstanceSequence.objects.select_for_update().filter(item=item, branch=branch).first()
     if row is None:
         try:
             with transaction.atomic():
-                row = InstanceSequence.objects.create(item=item)
+                row = InstanceSequence.objects.create(item=item, branch=branch)
         except IntegrityError:
-            row = InstanceSequence.objects.select_for_update().get(item=item)
+            row = InstanceSequence.objects.select_for_update().get(item=item, branch=branch)
     row.last_no += 1
     row.save(update_fields=['last_no', 'updated_at'])
     return row.last_no
@@ -110,15 +111,16 @@ def generate_instances(line, branch):
     """采购行生效：按数量生成实例（在库、出生行=该行、编号锁行发号）并建行关联。
 
     仅实例管理品目展开档案（设计书四层架构 ③）；数量管理品目只动台账，不产实例。
+    编号 {品目编号}-{分公司代码}-{分公司内序号}。
     """
     if line.item.management_type != 'instance':
         return []
     created = []
     for _ in range(int(line.数量 or 0)):
-        seq = _next_seq(line.item)
+        seq = _next_seq(line.item, branch)
         instance = FixedAsset.objects.create(
             item=line.item,
-            内部编号=f'{line.item.asset_code}-{seq}',
+            内部编号=f'{line.item.asset_code}-{branch.code}-{seq}',
             当前状态=FixedAsset.STATUS_IN_STOCK,
             branch=branch,
             birth_line=line,
@@ -203,3 +205,16 @@ def normalize_legacy_status():
         (row['当前状态'], LEGACY_STATUS_MAP[row['当前状态']], row['n'])
         for row in stats
     ]
+
+def recycle_bin_to_stock(inst):
+    """回收库退役归一：单实例回收库→在库（清使用人/部门；一次性数据迁移用）。"""
+    inst.当前状态 = FixedAsset.STATUS_IN_STOCK
+    inst.使用人 = ''
+    inst.department = None
+    inst.save(update_fields=['当前状态', '使用人', 'department', 'updated_at'])
+    return inst
+
+
+def renumber_instance(inst, new_code):
+    """存量重编号（一次性数据迁移用）：仅改 内部编号 一列。"""
+    FixedAsset.objects.filter(pk=inst.pk).update(内部编号=new_code)

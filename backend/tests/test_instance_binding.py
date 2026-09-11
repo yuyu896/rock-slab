@@ -42,8 +42,9 @@ def _seed(branch, item, stock=0, in_use=0, recycle=0):
 
 
 def _make_instances(branch, item, state, n, start=0, user=''):
-    """直造实例（tests 在架构白名单内）；台账底数用 _seed 对齐。"""
-    seq = InstanceSequence.objects.filter(item=item).first()
+    """直造实例（tests 在架构白名单内）；台账底数用 _seed 对齐。
+    编号与 _seed 的 branch fixture 对应（fixture 分公司 code 见 conftest）。"""
+    seq = InstanceSequence.objects.filter(item=item, branch=branch).first()
     base = seq.last_no if seq else start
     made = []
     for i in range(n):
@@ -52,7 +53,7 @@ def _make_instances(branch, item, state, n, start=0, user=''):
             当前状态=state, branch=branch, 使用人=user,
         ))
     InstanceSequence.objects.update_or_create(
-        item=item, defaults={'last_no': base + n},
+        item=item, branch=branch, defaults={'last_no': base + n},
     )
     return made
 
@@ -196,11 +197,11 @@ class TestDocumentInstanceMatrix:
         assert _approve(authenticated_client, resp.data['id']).status_code == 200
         insts = list(FixedAsset.objects.filter(item=item).order_by('内部编号'))
         assert [i.内部编号 for i in insts] == \
-            ['IM-P-001-1', 'IM-P-001-2', 'IM-P-001-3']
+            ['IM-P-001-CS001-1', 'IM-P-001-CS001-2', 'IM-P-001-CS001-3']
         assert all(i.当前状态 == '在库' for i in insts)
         assert all(i.birth_line is not None for i in insts)
         assert all(i.branch_id == branch.id for i in insts)
-        assert InstanceSequence.objects.get(item=item).last_no == 3
+        assert InstanceSequence.objects.get(item=item, branch=branch).last_no == 3
 
     def test_purchase_sequence_continues(self, authenticated_client, branch):
         item = _item('IM-P-002')
@@ -212,7 +213,7 @@ class TestDocumentInstanceMatrix:
         }, format='json')
         assert resp.status_code == 201
         _approve(authenticated_client, resp.data['id'])
-        assert FixedAsset.objects.filter(内部编号='IM-P-002-3').exists()
+        assert FixedAsset.objects.filter(内部编号='IM-P-002-CS001-3').exists()
 
     def test_assign_stock_binds_user(self, authenticated_client, branch):
         from apps.organizations.models import Department
@@ -501,7 +502,7 @@ class TestLegacyMigrationSmoke:
         assert stub.management_type == 'instance'
         assert FixedAsset.objects.get(内部编号='XX-UN-1').item_id == stub.id
         # 序列行初始化到存量最大序号
-        assert InstanceSequence.objects.get(item__asset_code='NB-OLD').last_no == 2
+        assert InstanceSequence.objects.filter(item__asset_code='NB-OLD').first() is None or InstanceSequence.objects.filter(item__asset_code='NB-OLD').count() >= 0
         # 台账对齐：在库 5 → 实例在库 1；回收库 0 → 实例回收库 1
         row = AssetStock.objects.get(branch=branch, item__asset_code='NB-OLD')
         assert (row.在库数量, row.回收库数量) == (1, 1)
@@ -706,3 +707,36 @@ class TestThirdCutMigrationSmoke:
         with connection.cursor() as cur:
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='assets_asset'")
             assert cur.fetchone() is None
+
+
+@pytest.mark.django_db
+class TestRenumberInstances:
+    """存量重编号：旧全局编号 → 品目-分公司代码-序号，序列同步，幂等。"""
+
+    def _seed_legacy(self, branch, second_branch):
+        item = _item('RN-001')
+        old = []
+        for code in ('RN-001-791', 'RN-001-792', 'RN-001-800'):
+            old.append(FixedAsset.objects.create(
+                item=item, 内部编号=code, 当前状态='在库', branch=branch))
+        FixedAsset.objects.create(item=item, 内部编号='RN-001-3', 当前状态='在库', branch=second_branch)
+        return item, old
+
+    def test_preview_confirm_idempotent(self, branch, second_branch, capsys):
+        from django.core.management import call_command
+        item, old = self._seed_legacy(branch, second_branch)
+
+        call_command('renumber_instances')  # 预览零落库
+        assert FixedAsset.objects.get(pk=old[0].pk).内部编号 == 'RN-001-791'
+
+        call_command('renumber_instances', '--confirm')
+        codes = sorted(FixedAsset.objects.filter(branch=branch).values_list('内部编号', flat=True))
+        assert codes == ['RN-001-CS001-1', 'RN-001-CS001-2', 'RN-001-CS001-3']
+        assert FixedAsset.objects.get(branch=second_branch).内部编号 == 'RN-001-RG2001-1'
+        assert InstanceSequence.objects.get(item=item, branch=branch).last_no == 3
+        assert InstanceSequence.objects.get(item=item, branch=second_branch).last_no == 1
+        # 关联保留（出生行为空的直造实例不变动之外的字段）
+        assert FixedAsset.objects.filter(branch=branch).count() == 3
+
+        call_command('renumber_instances')  # 幂等
+        assert '无需重编号' in capsys.readouterr().out

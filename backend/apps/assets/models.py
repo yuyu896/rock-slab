@@ -179,18 +179,30 @@ class FixedAsset(UUIDModel, TimestampedModel):
 
 
 class InstanceSequence(UUIDModel, TimestampedModel):
-    """实例内部编号计数行：品目一行，锁行自增杜绝并发重号（同 DocumentSequence 模式）。"""
+    """实例内部编号计数行：品目 × 分公司一行，锁行自增杜绝并发重号（同 DocumentSequence 模式）。
 
-    item = models.OneToOneField(
+    编号格式 {品目编号}-{分公司代码}-{分公司内序号}，每分公司每品目各自从 1 起号。
+    """
+
+    item = models.ForeignKey(
         'categories.Category',
         on_delete=models.CASCADE,
-        related_name='instance_sequence',
+        related_name='instance_sequences',
         verbose_name='品目',
+    )
+    branch = models.ForeignKey(
+        'organizations.Branch',
+        on_delete=models.CASCADE,
+        related_name='instance_sequences',
+        verbose_name='分公司',
     )
     last_no = models.IntegerField('已发号数', default=0)
 
     class Meta:
         db_table = 'assets_instancesequence'
+        constraints = [
+            models.UniqueConstraint(fields=['item', 'branch'], name='uniq_instance_seq_item_branch'),
+        ]
         verbose_name = '实例编号序列'
         verbose_name_plural = '实例编号序列'
 

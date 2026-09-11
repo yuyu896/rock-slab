@@ -45,13 +45,11 @@ class Command(BaseCommand):
             return
 
         operator = User.objects.filter(role='admin', status='active').first()
+        from apps.assets.services.instances import recycle_bin_to_stock
         with transaction.atomic():
             moved = 0
             for inst in insts:
-                inst.当前状态 = FixedAsset.STATUS_IN_STOCK
-                inst.使用人 = ''
-                inst.department = None
-                inst.save(update_fields=['当前状态', '使用人', 'department', 'updated_at'])
+                recycle_bin_to_stock(inst)
                 moved += 1
             adjusted = 0
             for s in stocks:

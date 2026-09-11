@@ -17,6 +17,8 @@ const props = defineProps<{
   modelValue: string[]
   /** 本单其他行已选实例 id（候选剔除；本行已选保留勾选回显） */
   excludedIds?: string[]
+  /** 单台模式（领用行：一行一使用人一实例）——点选即定并收起，换选非追加 */
+  single?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string[]): void
@@ -63,20 +65,35 @@ function toggle(id: string) {
   emit('change', options.value.filter(o => next.includes(o.id)))
 }
 
+/** 单台模式：点选即定（换选覆盖）并收起面板 */
+function pickSingle(id: string) {
+  emit('update:modelValue', [id])
+  emit('change', options.value.filter(o => o.id === id))
+  expanded.value = false
+}
+
 defineExpose({ reload: load })
 </script>
 
 <template>
   <div class="instance-picker">
     <button type="button" class="picker-toggle" @click="expanded = !expanded">
-      {{ modelValue.length > 0 ? `已选 ${modelValue.length} 台` : '选择实例' }}
+      {{ modelValue.length > 0 ? (single ? `已选 ${modelValue[0] ? 1 : 0} 台` : `已选 ${modelValue.length} 台`) : (single ? '点选实例' : '选择实例') }}
       <span class="picker-count">（{{ status }}态 · {{ itemCode }}）</span>
     </button>
     <div v-if="expanded" class="picker-panel">
       <div v-if="loading" class="picker-empty">加载中...</div>
       <div v-else-if="candidates.length === 0" class="picker-empty">无可选实例（{{ status }}态为空或已被其他行选中）</div>
-      <label v-for="opt in candidates" :key="opt.id" class="picker-row">
-        <input type="checkbox" :checked="modelValue.includes(opt.id)" @change="toggle(opt.id)" />
+      <label
+        v-for="opt in candidates" :key="opt.id" class="picker-row"
+        :class="{ picked: single && modelValue.includes(opt.id) }"
+        @click="single && pickSingle(opt.id)"
+      >
+        <input
+          v-if="!single" type="checkbox"
+          :checked="modelValue.includes(opt.id)" @change="toggle(opt.id)" @click.stop
+        />
+        <span v-else class="row-dot" :class="{ on: modelValue.includes(opt.id) }"></span>
         <span class="row-code">{{ opt.内部编号 }}</span>
         <span class="row-serial">{{ opt.序列号 || '待补录' }}</span>
         <span class="row-branch">{{ opt.branchName }}</span>
@@ -99,6 +116,9 @@ defineExpose({ reload: load })
 .picker-row:last-child { border-bottom: none; }
 .picker-row:hover { background: var(--color-bg-elevated); }
 .picker-row input { width: 14px; height: 14px; }
+.row-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--color-border); background: var(--color-bg-card); flex-shrink: 0; }
+.row-dot.on { border-color: var(--color-primary-500); background: var(--color-primary-500); box-shadow: inset 0 0 0 3px var(--color-bg-card); }
+.picker-row.picked { background: var(--color-primary-50); }
 .picker-done { display: block; width: 100%; padding: 8px; background: var(--color-primary-50); border: none; border-top: 1px solid var(--color-border); color: var(--color-primary-600); font-size: 13px; font-weight: 500; cursor: pointer; }
 .picker-done:hover { background: var(--color-primary-100); }
 .row-code { font-family: var(--font-mono); color: var(--color-primary-600); min-width: 110px; }

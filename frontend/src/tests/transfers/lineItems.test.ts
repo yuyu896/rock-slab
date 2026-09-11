@@ -182,10 +182,11 @@ describe('实例点选跨行去重与面板收口', () => {
   }
 
   function mountAssign(d1: LineDraft, d2: LineDraft) {
+    // 多选形态（勾选/去重/互斥）在调拨场景测试；领用已改单台（见下组）
     return mount(TransferLinesEditor, {
       props: {
-        modelValue: [d1, d2], type: 'assign' as const,
-        branchId: 'b-1', branchName: '北京分公司',
+        modelValue: [d1, d2], type: 'transfer' as const,
+        branchName: '北京分公司',
       },
       global: { stubs: { ItemPicker: { template: '<div class="picker-stub" />' } } },
     })
@@ -250,5 +251,65 @@ describe('实例点选跨行去重与面板收口', () => {
     await wrapper.find('.picker-panel .picker-done').trigger('click')
     expect(wrapper.findAll('.picker-panel')).toHaveLength(0)
     expect(wrapper.findAll('.picker-toggle')[1].text()).toContain('选择实例')
+  })
+})
+
+describe('领用行实例单台选择', () => {
+  const instItem = { ...pickedItem, managementType: 'instance' as const }
+  function inst(i: number) {
+    return {
+      id: `fa-${i}`, 内部编号: `NB-001-${i}`, 序列号: '', 当前状态: '在库' as const,
+      item: 'item-1', itemCode: 'NB-001', itemName: '笔记本', createdAt: '', updatedAt: '',
+    }
+  }
+
+  it('领用行点选即定：换选覆盖非追加，数量恒 1，面板收起', async () => {
+    const { getFixedAssets } = await import('@/api/assets')
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 2, results: [inst(1), inst(2)] },
+    } as any)
+    const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '张三', department: 'd' }
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [d1], type: 'assign', branchId: 'b-1', branchName: '北京分公司' },
+      global: { stubs: { ItemPicker: { template: '<div class="picker-stub" />' } } },
+    })
+    await flushPromises()
+
+    await wrapper.find('.picker-toggle').trigger('click')
+    await flushPromises()
+    const rows = wrapper.findAll('.picker-row')
+    await rows[0].trigger('click') // 点选第 1 台
+    await flushPromises()
+    expect(d1.instances.map((i) => i.id)).toEqual(['fa-1'])
+    expect(d1.数量).toBe(1)
+    expect(wrapper.findAll('.picker-panel')).toHaveLength(0) // 收起
+
+    await wrapper.find('.picker-toggle').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.picker-row')[1].trigger('click') // 换选第 2 台
+    await flushPromises()
+    expect(d1.instances.map((i) => i.id)).toEqual(['fa-2']) // 覆盖非追加
+    expect(d1.数量).toBe(1)
+  })
+
+  it('调拨行保持多选（勾选追加）', async () => {
+    const { getFixedAssets } = await import('@/api/assets')
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 2, results: [inst(1), inst(2)] },
+    } as any)
+    const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 2 }
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [d1], type: 'transfer', branchName: '北京分公司' },
+      global: { stubs: { ItemPicker: { template: '<div class="picker-stub" />' } } },
+    })
+    await flushPromises()
+    await wrapper.find('.picker-toggle').trigger('click')
+    await flushPromises()
+    const checks = wrapper.findAll('.picker-row input[type=checkbox]')
+    expect(checks.length).toBeGreaterThan(0) // 多选 checkbox 仍在
+    await checks[0].setValue(true)
+    await checks[1].setValue(true)
+    expect(d1.instances.map((i) => i.id)).toEqual(['fa-1', 'fa-2'])
+    expect(d1.数量).toBe(2)
   })
 })

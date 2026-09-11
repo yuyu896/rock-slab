@@ -82,8 +82,8 @@ function onRowExpand(key: number, value: boolean) {
 
 function onInstancesChange(index: number, selected: FixedAsset[]) {
   drafts.value[index].instances = selected.map((s) => ({ id: s.id, code: s.内部编号 }))
-  // 实例行数量 = 选中台数（锁定联动）
-  drafts.value[index].数量 = selected.length || 1
+  // 实例行数量 = 选中台数（锁定联动）；领用单台模式恒 1（一行一使用人一实例）
+  drafts.value[index].数量 = props.type === 'assign' ? 1 : (selected.length || 1)
   touch()
 }
 
@@ -287,6 +287,7 @@ defineExpose({ validate, validateMessage })
               :status="pickerStatus()"
               :branch-name="branchName"
               :excluded-ids="pickedInstanceIds"
+              :single="type === 'assign'"
               @update:expanded="(v) => onRowExpand(draft.key, v)"
               @change="(selected) => onInstancesChange(index, selected)"
             />
