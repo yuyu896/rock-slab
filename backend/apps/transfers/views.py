@@ -540,6 +540,108 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         )
         return response
 
+    # ---- 回收台账（处置明细流水；单据派生只读，不新增存储，铁律 1）----
+
+    DISPOSAL_LEDGER_HEADERS = [
+        '日期', '单据编号', '分公司', '品目编号', '品目名称', '规格',
+        '数量', '内部编号', '处置方式', '处置金额', '经办人', '备注',
+    ]
+
+    def _disposal_rows(self, queryset):
+        """直接处置生效单据 → 物资明细行（实例品目逐台一行，数量品目按行一条）。"""
+        from apps.transfers.models import TransferLineInstance
+        rows = []
+        docs = queryset.filter(
+            action_type=Transfer.ACTION_RECOVERY,
+            回收去向=Transfer.DISPOSE,
+            审批状态__in=['已通过', '已入库'],
+        ).prefetch_related(
+            'lines__item', 'lines__instance_links__instance',
+        ).order_by('-调拨日期', '-created_at')
+        for t in docs:
+            base = {
+                '日期': str(t.调拨日期 or ''),
+                '单据编号': t.单据编号,
+                '分公司': t.调出分公司,
+                '处置方式': t.处置方式,
+                '处置金额': t.处置金额,
+                '经办人': t.创建人,
+                '备注': t.备注,
+            }
+            for line in t.lines.all():
+                spec = line.本批规格 or line.item.specification
+                common = {
+                    **base,
+                    '品目编号': line.item.asset_code,
+                    '品目名称': line.item.asset_name,
+                    '规格': spec,
+                }
+                links = list(line.instance_links.select_related('instance'))
+                if links:
+                    for link in links:
+                        rows.append({
+                            **common,
+                            '数量': 1,
+                            '内部编号': link.instance.内部编号,
+                        })
+                else:
+                    rows.append({**common, '数量': line.数量, '内部编号': ''})
+        return rows
+
+    @action(detail=False, methods=['get'], url_path='recovery-ledger')
+    def recovery_ledger(self, request):
+        """回收台账：直接处置的物资明细流水（管理层查账；筛选分公司/品目/日期）。"""
+        queryset = self.filter_queryset(self.get_queryset())
+        date_from = request.query_params.get('dateFrom')
+        date_to = request.query_params.get('dateTo')
+        if date_from:
+            queryset = queryset.filter(调拨日期__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(调拨日期__lte=date_to)
+
+        rows = self._disposal_rows(queryset)
+        page_size = min(int(request.query_params.get('pageSize', 20) or 20), 100)
+        page = int(request.query_params.get('page', 1) or 1)
+        start = (page - 1) * page_size
+        return Response({
+            'count': len(rows),
+            'results': rows[start:start + page_size],
+        })
+
+    @action(detail=False, methods=['get'], url_path='recovery-ledger/export')
+    def recovery_ledger_export(self, request):
+        """回收台账导出：列与界面表头一致（遵循筛选）。"""
+        import openpyxl
+        from django.http import HttpResponse
+
+        queryset = self.filter_queryset(self.get_queryset())
+        date_from = request.query_params.get('dateFrom')
+        date_to = request.query_params.get('dateTo')
+        if date_from:
+            queryset = queryset.filter(调拨日期__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(调拨日期__lte=date_to)
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '回收台账'
+        ws.append(self.DISPOSAL_LEDGER_HEADERS)
+        for row in self._disposal_rows(queryset):
+            ws.append([row[h] for h in self.DISPOSAL_LEDGER_HEADERS])
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = (
+            f'attachment; filename="recovery_ledger'
+            f'_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+        )
+        return response
+
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
     def import_excel(self, request):
         """批量导入：一行 = 一张单头 + 一条明细行（模板列与校验口径不变）。"""

@@ -86,6 +86,15 @@ class InventoryTaskSerializer(serializers.ModelSerializer):
         validated_data.pop('branch', None)
         return super().update(instance, validated_data)
 
+    def validate(self, attrs):
+        # 回收库库别已退役（现场管理无回收库概念）：新建/编辑均不可选
+        stock_bin = attrs.get('stock_bin') or getattr(self.instance, 'stock_bin', None)
+        if 'stock_bin' in attrs and attrs['stock_bin'] == 'recycle':
+            raise serializers.ValidationError(
+                {'stock_bin': '回收库库别已退役（盘点库别仅支持在库）'}
+            )
+        return attrs
+
 
 class InventoryTaskListSerializer(serializers.ModelSerializer):
     """Lighter serializer for list views."""

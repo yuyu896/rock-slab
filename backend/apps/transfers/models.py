@@ -33,16 +33,18 @@ class Transfer(UUIDModel, TimestampedModel):
     ]
 
     ASSIGN_SOURCE_STOCK = 'stock'
+    # 回收库来源已退役（现场管理无回收库概念）：choices 只收新品库；
+    # 常量保留给存量 recycle_bin 领用单的审批兼容（按其来源扣列）。
     ASSIGN_SOURCE_RECYCLE = 'recycle_bin'
     ASSIGN_SOURCE_CHOICES = [
         (ASSIGN_SOURCE_STOCK, '新品库'),
-        (ASSIGN_SOURCE_RECYCLE, '回收库'),
     ]
 
-    RECYCLE_BIN = 'recycle_bin'
+    RESTOCK = 'restock'
     DISPOSE = 'dispose'
+    # 存量 recycle_bin 值的回收单为历史档案（当时入过回收库），不回写
     RECOVERY_DESTINATION_CHOICES = [
-        (RECYCLE_BIN, '入回收库'),
+        (RESTOCK, '重新入库'),
         (DISPOSE, '直接处置'),
     ]
     DISPOSAL_METHOD_CHOICES = [
@@ -92,7 +94,7 @@ class Transfer(UUIDModel, TimestampedModel):
     回收分类 = models.CharField('回收分类', max_length=50, blank=True, default='', choices=RECOVERY_CATEGORY_CHOICES)
     回收去向 = models.CharField(
         '回收去向', max_length=20,
-        choices=RECOVERY_DESTINATION_CHOICES, default=RECYCLE_BIN,
+        choices=RECOVERY_DESTINATION_CHOICES, default=RESTOCK,
     )
     领用来源 = models.CharField(
         '领用来源', max_length=20,

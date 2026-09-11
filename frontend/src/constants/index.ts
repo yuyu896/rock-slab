@@ -62,11 +62,10 @@ export const INSTANCE_STATUS_OPTIONS = [
   { value: '退役', label: '退役' },
 ] as const
 
-// ============ 领用来源（设计书决策 #10：新品库 / 回收库） ============
+// ============ 领用来源（回收库已退役：仅新品库；存量单据标签保留显示） ============
 
 export const ASSIGN_SOURCE_OPTIONS = [
   { value: 'stock', label: '新品库' },
-  { value: 'recycle_bin', label: '回收库' },
 ] as const
 
 export const ASSIGN_SOURCE_LABELS: Record<string, string> = {
@@ -211,7 +210,6 @@ export const REPEAT_RULE_HINTS: Record<RepeatRuleType, string> = {
 
 export const STOCK_BIN_OPTIONS: { value: StockBinType; label: string }[] = [
   { value: 'stock', label: '在库' },
-  { value: 'recycle', label: '回收库' },
 ]
 
 export const STOCK_BIN_LABELS: Record<StockBinType, string> = {

@@ -97,3 +97,23 @@ export function importTransfers(file: File, type?: string) {
 export function exportTransfers(params?: Record<string, string>) {
   return request.get<Blob>('/api/transfers/export', { params, responseType: 'blob' })
 }
+
+/** 回收台账：直接处置的物资明细流水（只读，单据派生） */
+export function getRecoveryLedger(params?: {
+  page?: number
+  pageSize?: number
+  fromBranch?: string
+  assetCode?: string
+  keyword?: string
+  dateFrom?: string
+  dateTo?: string
+}) {
+  return request.get<{ count: number; results: Record<string, unknown>[] }>(
+    '/api/transfers/recovery-ledger', { params },
+  )
+}
+
+/** 回收台账导出（遵循筛选） */
+export function exportRecoveryLedger(params?: Record<string, string>) {
+  return request.get<Blob>('/api/transfers/recovery-ledger/export', { params, responseType: 'blob' })
+}

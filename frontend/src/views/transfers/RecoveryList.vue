@@ -17,6 +17,13 @@ const {
 
 const router = useRouter()
 
+/** 去向展示（存量 recycle_bin 为历史档案：当时入过回收库） */
+const DEST_LABELS: Record<string, string> = {
+  restock: '重新入库',
+  dispose: '直接处置',
+  recycle_bin: '入回收库',
+}
+
 function openCreatePage() {
   router.push('/transfers/recovery/create')
 }
@@ -86,7 +93,7 @@ function openCreatePage() {
             <td><span class="date-text">{{ item.调拨日期 || '-' }}</span></td>
             <td>{{ item.调出分公司 || '-' }}</td>
             <td>{{ item.回收分类 || '-' }}</td>
-            <td>{{ item.回收去向 === 'dispose' ? '直接处置' : '入回收库' }}</td>
+            <td>{{ DEST_LABELS[item.回收去向 ?? ''] || item.回收去向 || '-' }}</td>
             <td><span class="asset-name">{{ transferDocSummary(item).name }}</span></td>
             <td class="col-num">{{ item.品项数 ?? item.lines?.length ?? '-' }}</td>
             <td><span class="qty-value">{{ item.总数量 ?? '-' }}</span></td>

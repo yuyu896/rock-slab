@@ -36,6 +36,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'transfers/transfer/create', component: () => import('@/views/transfers/TransferCreate.vue'), meta: { title: '新建调拨' } },
       { path: 'transfers/transfer/:id', component: () => import('@/views/transfers/TransferDetail.vue'), meta: { title: '调拨详情' } },
       { path: 'transfers/recovery', component: () => import('@/views/transfers/RecoveryList.vue'), meta: { title: '回收' } },
+      { path: 'transfers/recovery/ledger', component: () => import('@/views/transfers/RecoveryLedger.vue'), meta: { title: '回收台账' } },
       { path: 'transfers/recovery/create', component: () => import('@/views/transfers/RecoveryCreate.vue'), meta: { title: '新建回收' } },
       { path: 'transfers/recovery/:id', component: () => import('@/views/transfers/RecoveryDetail.vue'), meta: { title: '回收详情' } },
       { path: 'inventory', component: () => import('@/views/Inventory.vue'), meta: { title: '盘点管理' } },

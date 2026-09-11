@@ -129,8 +129,8 @@ class TransferActionSerializer(serializers.Serializer):
     用途 = serializers.CharField(required=False, default='', allow_blank=True)
     # Recovery fields
     回收分类 = serializers.CharField(required=False, default='', allow_blank=True)
-    回收去向 = serializers.ChoiceField(choices=['recycle_bin', 'dispose'], required=False, default='recycle_bin')
-    领用来源 = serializers.ChoiceField(choices=['stock', 'recycle_bin'], required=False, default='stock')
+    回收去向 = serializers.ChoiceField(choices=['restock', 'dispose'], required=False, default='restock')
+    领用来源 = serializers.ChoiceField(choices=['stock'], required=False, default='stock')
     处置方式 = serializers.ChoiceField(choices=['', '出售', '报废', '捐赠'], required=False, default='', allow_blank=True)
     处置金额 = serializers.DecimalField(
         max_digits=14, decimal_places=2, required=False, allow_null=True,

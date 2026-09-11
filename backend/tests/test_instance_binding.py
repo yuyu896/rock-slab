@@ -234,7 +234,8 @@ class TestDocumentInstanceMatrix:
         row = AssetStock.objects.get(branch=branch, item=item)
         assert (row.在库数量, row.在用数量) == (0, 2)
 
-    def test_assign_from_recycle_bin(self, authenticated_client, branch):
+    def test_assign_from_recycle_bin_rejected(self, authenticated_client, branch):
+        """回收库来源已退役：携带 recycle_bin 创建即拒。"""
         item = _item('IM-A-002')
         _seed(branch, item, recycle=2)
         insts = _make_instances(branch, item, '回收库', 2)
@@ -243,13 +244,8 @@ class TestDocumentInstanceMatrix:
             '领用来源': 'recycle_bin',
             'items': [_line(item, insts, 使用人='李四', department=str(_dept(branch).id))],
         }, format='json')
-        assert resp.status_code == 201
-        assert resp.data['领用来源'] == 'recycle_bin'
-        assert _approve(authenticated_client, resp.data['id']).status_code == 200
-        insts[0].refresh_from_db()
-        assert insts[0].当前状态 == '在用'
-        row = AssetStock.objects.get(branch=branch, item=item)
-        assert (row.在库数量, row.回收库数量, row.在用数量) == (0, 0, 2)
+        assert resp.status_code == 400
+        assert '回收库' in str(resp.data) or 'recycle_bin' in str(resp.data)
 
     def test_assign_insufficient_recycle_stock_rejected(self, authenticated_client, branch):
         """来源=回收库但回收库列不足 → 终检按回收库列校验并整单回滚。"""
@@ -304,9 +300,10 @@ class TestDocumentInstanceMatrix:
             'items': [_line(item, [keep])],
         }, format='json')
         assert resp.status_code == 201
+        assert resp.data['回收去向'] == 'restock'  # 默认去向=重新入库
         assert _approve(authenticated_client, resp.data['id']).status_code == 200
         keep.refresh_from_db()
-        assert keep.当前状态 == '回收库' and keep.使用人 == ''
+        assert keep.当前状态 == '在库' and keep.使用人 == ''
 
         resp = authenticated_client.post('/api/transfers/recovery', {
             '调拨日期': '2026-08-23', '调出分公司': branch.name,
@@ -319,7 +316,7 @@ class TestDocumentInstanceMatrix:
         assert gone.当前状态 == '退役'
         assert FixedAsset.objects.filter(pk=gone.pk).exists()
         row = AssetStock.objects.get(branch=branch, item=item)
-        assert (row.在用数量, row.回收库数量) == (0, 1)
+        assert (row.在用数量, row.回收库数量, row.在库数量) == (0, 0, 1)
 
     def test_occupied_instance_rolls_back_whole_doc(self, authenticated_client, branch):
         """创建到生效之间实例被并发单据占用 → 终检失败，台账与实例均无变化。"""

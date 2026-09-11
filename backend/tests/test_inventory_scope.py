@@ -384,3 +384,15 @@ class TestInstanceInventory:
             _action('import-template', task.id)).status_code == status.HTTP_200_OK
         assert authenticated_client.get(
             _action('export-report', task.id)).status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+class TestStockBinRecycleRetired:
+    """回收库库别已退役：创建携带 recycle 即拒。"""
+
+    def test_create_with_recycle_bin_rejected(self, authenticated_client, branch):
+        resp = authenticated_client.post(INVENTORY_LIST_URL, {
+            'name': '回收库盘', 'branch': str(branch.id), 'stock_bin': 'recycle',
+        }, format='json')
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '回收库' in str(resp.data)

@@ -136,7 +136,7 @@ def _line_plan(transfer, line):
         if transfer.回收去向 == 'dispose':
             pass  # 直接处置：三存储列均不增加，总量随在用扣减下跌
         else:
-            plan.append((from_branch, item, COLUMN_RECYCLE, qty))
+            plan.append((from_branch, item, COLUMN_STOCK, qty))  # 重新入库：在用→在库
         return plan
     raise ValidationError({'detail': f'未知单据类型 {action}'})
 

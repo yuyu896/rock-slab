@@ -67,7 +67,8 @@ class TestRecoveryToRecycleBin:
         assert resp.status_code == 200
         row = _row(branch, 'RC-1')
         assert row.在用数量 == 7
-        assert row.回收库数量 == 3
+        assert row.在库数量 == 3  # 重新入库（回收库退役）
+        assert row.回收库数量 == 0
         assert row.总量 == 10
 
     def test_insufficient_in_use_rejected_at_create(self, authenticated_client, branch, item_id):
@@ -165,7 +166,7 @@ class TestRecoveryFixedAsset:
         assert resp.status_code == 201
         assert _approve(authenticated_client, resp.data['id']).status_code == 200
         inst.refresh_from_db()
-        assert inst.当前状态 == '回收库'
+        assert inst.当前状态 == '在库'  # 默认去向=重新入库（回收库退役）
         assert inst.使用人 == ''
         assert FixedAsset.objects.filter(pk=inst.pk).exists()  # 档案保留
 
@@ -314,3 +315,108 @@ class TestRecoveryCreateInUsePrecheck:
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert '当前在用 0' in str(resp.data['detail'])
+
+
+@pytest.mark.django_db
+class TestRecoveryDisposalLedger:
+    """回收台账：直接处置物资明细流水（单据派生只读）。"""
+
+    def _make_disposed(self, client, branch):
+        from apps.assets.models import FixedAsset
+        _seed_ledger(branch, 'DL-1', in_use=2, management_type='instance')
+        _seed_ledger(branch, 'DL-2', in_use=5)
+        item = _ensure_item('DL-1', 'instance')
+        a = FixedAsset.objects.create(
+            item=item, 内部编号='DL-1-1', 当前状态='在用', branch=branch, 使用人='张三')
+        b = FixedAsset.objects.create(
+            item=item, 内部编号='DL-1-2', 当前状态='在用', branch=branch, 使用人='李四')
+        # 实例盘处置单（2 台）+ 数量品目处置单（5 个）
+        for code, qty, insts, extra in [
+            ('DL-1', 2, [a.pk, b.pk], {'处置方式': '出售', '处置金额': 500}),
+            ('DL-2', 5, None, {'处置方式': '报废'}),
+        ]:
+            resp = client.post(
+                '/api/transfers/recovery',
+                _recovery_payload(lambda c: _ensure_item(c).id, branch, code, qty=qty, instances=insts, **{
+                    '回收去向': 'dispose', **extra}),
+                format='json',
+            )
+            assert resp.status_code == 201, resp.data
+            assert _approve(client, resp.data['id']).status_code == 200
+
+    def test_ledger_expands_instances_and_qty_rows(self, authenticated_client, branch):
+        self._make_disposed(authenticated_client, branch)
+        resp = authenticated_client.get('/api/transfers/recovery-ledger')
+        assert resp.status_code == 200
+        rows = resp.data['results']
+        assert resp.data['count'] == 3
+        inst_rows = [r for r in rows if r['品目编号'] == 'DL-1']
+        assert sorted(r['内部编号'] for r in inst_rows) == ['DL-1-1', 'DL-1-2']
+        assert all(r['数量'] == 1 and r['处置方式'] == '出售' and r['处置金额'] == 500 for r in inst_rows)
+        qty_row = next(r for r in rows if r['品目编号'] == 'DL-2')
+        assert qty_row['数量'] == 5 and qty_row['内部编号'] == '' and qty_row['处置方式'] == '报废'
+
+    def test_ledger_excludes_pending_and_filters(self, authenticated_client, branch):
+        from apps.assets.models import FixedAsset
+        _seed_ledger(branch, 'DL-3', in_use=1)
+        resp = authenticated_client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(lambda c: _ensure_item(c).id, branch, 'DL-3', qty=1,
+                              回收去向='dispose', 处置方式='报废'),
+            format='json',
+        )
+        assert resp.status_code == 201  # 未审批 → 不入台账
+        data = authenticated_client.get('/api/transfers/recovery-ledger').data
+        assert all(r['品目编号'] != 'DL-3' for r in data['results'])
+
+        self._make_disposed(authenticated_client, branch)
+        data = authenticated_client.get(
+            '/api/transfers/recovery-ledger?assetCode=DL-2').data
+        assert data['count'] == 1 and data['results'][0]['品目编号'] == 'DL-2'
+
+    def test_ledger_export(self, authenticated_client, branch):
+        import openpyxl
+        from io import BytesIO
+        self._make_disposed(authenticated_client, branch)
+        resp = authenticated_client.get('/api/transfers/recovery-ledger/export')
+        assert resp.status_code == 200
+        ws = openpyxl.load_workbook(BytesIO(resp.content)).active
+        head = [c.value for c in ws[1]]
+        assert head[0] == '日期' and '内部编号' in head
+        assert ws.max_row == 4  # 表头 + 3 行流水
+
+
+@pytest.mark.django_db
+class TestNormalizeRecycleBin:
+    """回收库退役归一命令：预览零落库、确认搬家留痕、幂等。"""
+
+    def _seed_recycle(self, branch):
+        from apps.assets.models import FixedAsset
+        _seed_ledger(branch, 'NB-1', in_use=3, management_type='instance')
+        item = _ensure_item('NB-1', 'instance')
+        for i in range(3):
+            FixedAsset.objects.create(
+                item=item, 内部编号=f'NB-1-{i + 1}', 当前状态='回收库', branch=branch)
+        # 台账回收库列经调整单抬高（模拟历史入回收库）
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_RECYCLE, 3, '造数')
+
+    def test_preview_then_confirm_idempotent(self, branch, capsys):
+        from django.core.management import call_command
+        from apps.assets.models import FixedAsset, AssetStock, LedgerAdjustment
+        self._seed_recycle(branch)
+
+        call_command('normalize_recycle_bin')  # 预览
+        assert FixedAsset.objects.filter(当前状态='回收库').count() == 3
+        row = AssetStock.objects.get(branch=branch, item__asset_code='NB-1')
+        assert row.回收库数量 == 3
+
+        call_command('normalize_recycle_bin', '--confirm')
+        assert FixedAsset.objects.filter(当前状态='回收库').count() == 0
+        assert FixedAsset.objects.filter(当前状态='在库').count() == 3
+        row.refresh_from_db()
+        assert (row.回收库数量, row.在库数量) == (0, 3)
+        assert LedgerAdjustment.objects.filter(事由__contains='回收库退役归一').count() == 2
+
+        call_command('normalize_recycle_bin')  # 幂等
+        out = capsys.readouterr().out
+        assert '无需归一' in out

@@ -87,6 +87,10 @@ const navItems = computed<NavItem[]>(() => [
     icon: 'recovery',
     label: '回收',
     path: '/transfers/recovery',
+    children: [
+      { icon: '', label: '回收单', path: '/transfers/recovery' },
+      { icon: '', label: '回收台账', path: '/transfers/recovery/ledger' },
+    ],
   },
   {
     icon: 'scan',

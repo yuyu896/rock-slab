@@ -9,7 +9,7 @@
     领用(回收库) 所选回收库实例 → 在用，写入使用人/部门
     归还         清空使用人/部门 → 在库
     调拨         branch → 调入分公司（状态不变）
-    回收入回收库 清空使用人/部门 → 回收库
+    回收重新入库 清空使用人/部门 → 在库
     回收直接处置 → 退役（终态，档案永久保留，绝不物理删除）
 """
 from django.db import IntegrityError, transaction
@@ -153,7 +153,7 @@ def apply_line_instances(transfer, line, instances):
         target = (
             FixedAsset.STATUS_RETIRED
             if transfer.回收去向 == Transfer.DISPOSE
-            else FixedAsset.STATUS_RECYCLE
+            else FixedAsset.STATUS_IN_STOCK  # 重新入库：回收库概念退役
         )
         for inst in instances:
             inst.当前状态 = target

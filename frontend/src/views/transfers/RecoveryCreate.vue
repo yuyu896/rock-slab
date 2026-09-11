@@ -21,7 +21,7 @@ const branchOptions = ref<{ value: string; label: string; id?: string }[]>([])
 const form = ref({
   调拨日期: '',
   回收分类: '',
-  回收去向: 'recycle_bin' as 'recycle_bin' | 'dispose',
+  回收去向: 'restock' as 'recycle_bin' | 'dispose',
   处置方式: '' as '' | '出售' | '报废' | '捐赠',
   处置金额: undefined as number | undefined,
   出库日期: '',
@@ -150,13 +150,13 @@ async function submit() {
         </select>
       </div>
 
-      <!-- 回收去向二选一（设计书 5.2：入回收库 / 直接处置） -->
+      <!-- 回收去向二选一：重新入库（在用→在库） / 直接处置（回收库概念退役） -->
       <div class="form-item full">
         <label class="form-label">回收去向 <span class="required">*</span></label>
         <div class="destination-row">
           <label class="radio-label">
-            <input v-model="form.回收去向" type="radio" value="recycle_bin" />
-            入回收库（可再领用）
+            <input v-model="form.回收去向" type="radio" value="restock" />
+            重新入库（可再领用）
           </label>
           <label class="radio-label">
             <input v-model="form.回收去向" type="radio" value="dispose" />
