@@ -7,6 +7,7 @@ import { ElMessage } from 'element-plus'
 import type { Transfer } from '@/types'
 import { transferDocSummary } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
+import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 
 function itemSummary(item: Transfer) {
   return transferDocSummary(item).name
@@ -73,6 +74,9 @@ async function handleSubmitDraft(item: Transfer) {
         <div class="filter-item search">
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input v-model="filters.keyword" type="text" placeholder="搜索单号、品目编号、名称..." class="filter-input" />
+        </div>
+        <div class="filter-item">
+          <BranchFilterSelect v-model="filters.toBranch" :options="branchOptions" all-label="入库分公司" />
         </div>
         <div class="filter-item">
           <select v-model="filters.status" class="filter-select">
@@ -145,7 +149,7 @@ async function handleSubmitDraft(item: Transfer) {
 </template>
 
 <style scoped>
-.transfer-page { max-width: 1400px; margin: 0 auto; min-width: 0; }
+.transfer-page { max-width: 1600px; margin: 0 auto; min-width: 0; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); flex-shrink: 0; }
 .header-info { display: flex; flex-direction: column; gap: var(--space-1); }
 .page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }
