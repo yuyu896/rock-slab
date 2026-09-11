@@ -86,6 +86,7 @@ function openCreatePage() {
             <th class="col-num">总数量</th>
             <th>所属分公司</th>
             <th>状态</th>
+            <th>经办人</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -98,6 +99,7 @@ function openCreatePage() {
             <td><span class="qty-value">{{ item.总数量 ?? '-' }}</span></td>
             <td><span class="flow-text">{{ item.fromBranchName || item.调出分公司 || '-' }}</span></td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
+            <td>{{ item.创建人 || '-' }}</td>
             <td>
               <div class="action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/assign/' + item.id)">详情</button>

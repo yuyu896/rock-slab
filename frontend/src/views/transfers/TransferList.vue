@@ -77,7 +77,8 @@ function openCreatePage() {
 
     <div class="table-container">
       <table class="data-table">
-        <thead><tr><th>单号</th><th>日期</th><th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th><th>调出→调入</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>单号</th><th>日期</th><th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th><th>调出→调入</th><th>状态</th>
+            <th>经办人</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="item in transfers" :key="item.id">
             <td><span class="doc-number">{{ item.单据编号 || item.id.slice(0, 8) }}</span></td>
@@ -87,6 +88,7 @@ function openCreatePage() {
             <td><span class="qty-value">{{ item.总数量 ?? '-' }}</span></td>
             <td><span v-if="item.调出分公司 || item.调入分公司" class="flow-text">{{ item.调出分公司 || '-' }} → {{ item.调入分公司 || '-' }}</span><span v-else>-</span></td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
+            <td>{{ item.创建人 || '-' }}</td>
             <td>
               <div class="action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/transfer/' + item.id)">详情</button>

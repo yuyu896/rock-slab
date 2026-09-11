@@ -90,15 +90,17 @@ async function handleSubmitDraft(item: Transfer) {
 
     <div class="table-container">
       <table class="data-table">
-        <thead><tr><th>单号</th><th>日期</th><th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>单号</th><th>日期</th><th>入库分公司</th><th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th><th>状态</th><th>经办人</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="item in transfers" :key="item.id">
             <td><span class="doc-number">{{ item.单据编号 || item.id.slice(0, 8) }}</span></td>
             <td><span class="date-text">{{ item.调拨日期 || item.createdAt?.slice(0, 10) }}</span></td>
+            <td>{{ item.toBranchName || item.调入分公司 || '-' }}</td>
             <td><span class="asset-name">{{ itemSummary(item) }}</span></td>
             <td class="col-num">{{ item.品项数 ?? item.lines?.length ?? '-' }}</td>
             <td><span class="qty-value">{{ item.总数量 ?? '-' }}</span></td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
+            <td>{{ item.采购经办人 || item.创建人 || '-' }}</td>
             <td>
               <div class="action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/purchase/' + item.id)">详情</button>
