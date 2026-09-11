@@ -122,7 +122,17 @@ class TestPositionTemplatesApi:
             'manage_assets', 'view_audit', 'view_all_notifications',
             'view_reports', 'manage_instances', 'dispose_assets',
         ]
-        assert by_role['leader']['operations'] == []
+        assert by_role['leader']['operations'] == [
+            'manage_assets', 'approve_transfer', 'approve_inventory',
+            'view_audit', 'view_all_notifications', 'view_reports',
+            'manage_instances', 'dispose_assets',
+        ]
+        assert by_role['director']['operations'] == [
+            'manage_users', 'manage_organizations', 'manage_assets',
+            'approve_transfer', 'approve_inventory',
+            'view_audit', 'view_all_notifications', 'view_reports',
+            'manage_instances', 'dispose_assets',
+        ]
         assert by_role['admin']['all_operations'] is True
 
     def test_manager_template_is_six_codes(self):
@@ -370,14 +380,16 @@ class TestSeedPositionGrantsCommand:
         assert 'approve_transfer' in codes  # 特例保留（只补不删）
         assert ManagementScope.objects.filter(user=user, branch=branch).exists()
 
-    def test_apply_leader_gets_branch_scope_without_ops(self, db, branch):
+    def test_apply_leader_gets_branch_scope_and_ops(self, db, branch):
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13611112244', name='在职组长', password='x',
             role='leader', status='active', branch=branch,
         )
         self._run('--apply')
-        assert not OperationGrant.objects.filter(user=user).exists()  # 组长模板无操作码
+        assert set(POSITION_TEMPLATES['leader']['operations']) == set(
+            OperationGrant.objects.filter(user=user).values_list('code', flat=True)
+        )
         assert ManagementScope.objects.filter(user=user, branch=branch).exists()
 
     def test_apply_director_ops_by_template_scope_by_appointment(self, db, region):

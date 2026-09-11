@@ -20,12 +20,14 @@ POSITION_TEMPLATES = {
         'operations': [
             'manage_users',
             'manage_organizations',
-            'manage_dictionary',
             'manage_assets',
             'approve_transfer',
             'approve_inventory',
+            'view_audit',
             'view_all_notifications',
             'view_reports',
+            'manage_instances',
+            'dispose_assets',
         ],
     },
     'manager': {
@@ -43,7 +45,16 @@ POSITION_TEMPLATES = {
     'leader': {
         'label': '行政组长',
         'scope_type': 'team',
-        'operations': [],
+        'operations': [
+            'manage_assets',
+            'approve_transfer',
+            'approve_inventory',
+            'view_audit',
+            'view_all_notifications',
+            'view_reports',
+            'manage_instances',
+            'dispose_assets',
+        ],
     },
 }
 
