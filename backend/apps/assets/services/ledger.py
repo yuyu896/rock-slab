@@ -135,6 +135,10 @@ def _line_plan(transfer, line):
         plan = [(from_branch, item, COLUMN_IN_USE, -qty)]
         if transfer.回收去向 == 'dispose':
             pass  # 直接处置：三存储列均不增加，总量随在用扣减下跌
+        elif transfer.回收去向 == 'recycle_bin':
+            # 历史档案单据：按当时语义重放入回收库（与归一调整单对冲）；
+            # 新单据入口已收口 restock，不再产生本分支
+            plan.append((from_branch, item, COLUMN_RECYCLE, qty))
         else:
             plan.append((from_branch, item, COLUMN_STOCK, qty))  # 重新入库：在用→在库
         return plan
