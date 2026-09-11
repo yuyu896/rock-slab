@@ -11,7 +11,6 @@ const {
   filters, pagination, loading, transfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
   handleApprove, handleReject,
-  showImportModal, importLoading, importResult, openImportModal, handleDownloadTemplate, handleImportFile,
   handleExport,
 } = useTransferList('recovery')
 
@@ -40,10 +39,6 @@ function openCreatePage() {
         <button class="btn-secondary" @click="handleExport">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           导出
-        </button>
-        <button class="btn-secondary" @click="openImportModal">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          批量导入
         </button>
         <button class="btn-primary" @click="openCreatePage">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -122,37 +117,11 @@ function openCreatePage() {
     />
 
 
-    <!-- 批量导入弹窗 -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
-      <div class="modal-content">
-        <div class="modal-header"><h3>批量导入回收记录</h3><button class="modal-close" @click="showImportModal = false">&times;</button></div>
-        <div class="modal-body">
-          <div class="import-step">
-            <div class="import-step-header"><span class="import-step-num">1</span><span class="import-step-title">下载导入模板</span></div>
-            <p class="import-step-desc">请先下载模板文件，按格式填写回收数据后上传</p>
-            <button class="btn-secondary import-template-btn" @click="handleDownloadTemplate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>下载模板</button>
-          </div>
-          <div class="import-step">
-            <div class="import-step-header"><span class="import-step-num">2</span><span class="import-step-title">上传填写好的 Excel 文件</span></div>
-            <label class="import-upload-area" :class="{ 'upload-loading': importLoading }">
-              <input type="file" accept=".xlsx,.xls" class="import-file-input" @change="handleImportFile" :disabled="importLoading" />
-              <template v-if="importLoading"><div class="import-spinner"></div><span>正在导入...</span></template>
-              <template v-else><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span>点击选择文件或拖拽到此处</span><span class="import-upload-hint">支持 .xlsx / .xls 格式</span></template>
-            </label>
-          </div>
-          <div v-if="importResult" class="import-result">
-            <div class="import-result-header"><span :class="importResult.errors.length === 0 ? 'result-success' : 'result-partial'">成功导入 {{ importResult.imported }} 条</span><span v-if="importResult.errors.length > 0" class="result-fail-count">失败 {{ importResult.errors.length }} 条</span></div>
-            <div v-if="importResult.errors.length > 0" class="import-errors"><div v-for="(err, idx) in importResult.errors" :key="idx" class="import-error-item">{{ err }}</div></div>
-          </div>
-        </div>
-        <div class="modal-footer"><button class="btn-cancel" @click="showImportModal = false">关闭</button></div>
-      </div>
-    </div>
   </div>
 </template>
 
 <style scoped>
-.transfer-page { max-width: 1600px; margin: 0 auto; min-width: 0; }
+.transfer-page { width: 100%; max-width: 1600px; margin: 0 auto; min-width: 0; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); flex-shrink: 0; }
 .header-info { display: flex; flex-direction: column; gap: var(--space-1); }
 .page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }
@@ -190,14 +159,6 @@ function openCreatePage() {
 .asset-name { font-weight: 500; }
 .qty-value { font-weight: 600; }
 .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: var(--text-xs); font-weight: 500; }
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { width: 640px; max-height: 90vh; overflow-y: auto; background: var(--color-bg-card); border-radius: 16px; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--color-border); }
-.modal-header h3 { font-size: var(--text-lg); font-weight: 600; margin: 0; }
-.modal-close { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; font-size: 20px; color: var(--color-text-tertiary); cursor: pointer; border-radius: 6px; }
-.modal-close:hover { background: var(--color-bg-elevated); }
-.modal-body { padding: 20px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: var(--space-3); padding: 12px 20px; border-top: 1px solid var(--color-border); }
 .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
 .detail-field { display: flex; flex-direction: column; gap: 4px; }
 .detail-label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
@@ -210,31 +171,9 @@ function openCreatePage() {
 .required { color: var(--color-danger); }
 .form-input, .form-select, .form-textarea { height: 40px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); }
 .form-textarea { height: auto; padding: var(--space-3); resize: vertical; }
-.btn-cancel { height: 40px; padding: 0 var(--space-5); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; }
 .btn-confirm { height: 40px; padding: 0 var(--space-5); background: var(--color-primary-500); border: none; border-radius: 8px; font-size: var(--text-sm); font-weight: 500; color: white; cursor: pointer; }
 .btn-reject { height: 40px; padding: 0 var(--space-5); background: oklch(0.92 0.10 25); border: none; border-radius: 8px; font-size: var(--text-sm); font-weight: 500; color: var(--color-danger); cursor: pointer; }
-.import-step { margin-bottom: 16px; }
-.import-step-header { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
-.import-step-num { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: var(--color-primary-500); color: white; border-radius: 50%; font-size: var(--text-xs); font-weight: 600; }
-.import-step-title { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
-.import-step-desc { font-size: var(--text-xs); color: var(--color-text-tertiary); margin: 0 0 var(--space-2); }
-.import-template-btn svg { width: 16px; height: 16px; }
-.import-upload-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px; border: 2px dashed var(--color-border); border-radius: 12px; cursor: pointer; color: var(--color-text-secondary); font-size: var(--text-sm); }
-.import-upload-area:hover { border-color: var(--color-primary-300); background: var(--color-primary-50); }
-.import-upload-area.upload-loading { cursor: not-allowed; opacity: 0.7; }
-.import-upload-area svg { width: 24px; height: 24px; }
-.import-upload-hint { font-size: var(--text-xs); color: var(--color-text-tertiary); }
-.import-file-input { display: none; }
-.import-spinner { width: 20px; height: 20px; border: 2px solid var(--color-border); border-top-color: var(--color-primary-500); border-radius: 50%; animation: import-spin 0.8s linear infinite; }
 @keyframes import-spin { to { transform: rotate(360deg); } }
-.import-result { padding: var(--space-3); background: var(--color-bg-page); border-radius: 8px; border: 1px solid var(--color-border); }
-.import-result-header { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); font-weight: 600; }
-.result-success { color: var(--color-primary-600); }
-.result-partial { color: var(--color-text-primary); }
-.result-fail-count { color: var(--color-danger); }
-.import-errors { margin-top: var(--space-3); max-height: 200px; overflow-y: auto; }
-.import-error-item { font-size: var(--text-xs); color: var(--color-danger); padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border-light); }
-.import-error-item:last-child { border-bottom: none; }
 @media (max-width: 1200px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 768px) { .page-header { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .stats-row { grid-template-columns: 1fr; } }
 </style>
