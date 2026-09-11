@@ -152,7 +152,7 @@ onMounted(() => { fetchRows(); fetchBranches() })
 </template>
 
 <style scoped>
-.transfer-page { max-width: 1600px; margin: 0 auto; }
+.transfer-page { width: 100%; max-width: 1600px; margin: 0 auto; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); flex-shrink: 0; }
 .header-info { display: flex; align-items: baseline; gap: var(--space-3); }
 .page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }

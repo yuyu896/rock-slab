@@ -856,7 +856,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.inventory-page { max-width: 1600px; margin: 0 auto; overflow-y: auto; }
+.inventory-page { width: 100%; max-width: 1600px; margin: 0 auto; overflow-y: auto; }
 
 /* 详情视图 */
 .detail-view { display: flex; flex-direction: column; gap: 24px; flex-shrink: 0; }
