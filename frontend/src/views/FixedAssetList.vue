@@ -180,12 +180,43 @@ async function openTimeline(asset: FixedAsset) {
   }
 }
 
-// ── 标签打印 ──
+// ── 标签打印（单行 + 勾选批量） ──
 const showPrintDialog = ref(false)
 const printItems = ref<any[]>([])
+const selectedIds = ref<Set<string>>(new Set())
 
 function printSingleLabel(item: FixedAsset) {
   printItems.value = [toPrintShape(item)]
+  showPrintDialog.value = true
+}
+
+const pageAllSelected = computed(() =>
+  assets.value.length > 0 && assets.value.every((a) => selectedIds.value.has(a.id)),
+)
+
+function toggleSelectAll() {
+  if (pageAllSelected.value) {
+    assets.value.forEach((a) => selectedIds.value.delete(a.id))
+  } else {
+    assets.value.forEach((a) => selectedIds.value.add(a.id))
+  }
+  selectedIds.value = new Set(selectedIds.value)
+}
+
+function toggleSelect(item: FixedAsset) {
+  if (selectedIds.value.has(item.id)) selectedIds.value.delete(item.id)
+  else selectedIds.value.add(item.id)
+  selectedIds.value = new Set(selectedIds.value)
+}
+
+/** 批量打印仅取勾选且仍在当前页的实例（翻页后失效项自动过滤） */
+function printSelected() {
+  const picked = assets.value.filter((a) => selectedIds.value.has(a.id))
+  if (!picked.length) {
+    ElMessage.warning('请先勾选要打印的实例')
+    return
+  }
+  printItems.value = picked.map(toPrintShape)
   showPrintDialog.value = true
 }
 
@@ -252,6 +283,14 @@ onMounted(() => { fetchAssets(); fetchBranches() })
         <p class="page-desc">一物一档 · 共{{ pagination.total }}台 · 变动经流转单</p>
       </div>
       <div class="header-actions">
+        <button class="btn-secondary" @click="printSelected">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 6 2 18 2 18 9"/>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+            <rect x="6" y="14" width="12" height="8"/>
+          </svg>
+          打印标签{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
+        </button>
         <button class="btn-secondary" @click="handleExport" :disabled="exporting">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -293,6 +332,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
       <table class="data-table">
         <thead>
           <tr>
+            <th class="check-col"><input type="checkbox" :checked="pageAllSelected" @change="toggleSelectAll" title="全选本页" /></th>
             <th>序号</th>
             <th>图片</th>
             <th>分公司</th>
@@ -311,9 +351,10 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="15" class="empty-cell">加载中...</td></tr>
-          <tr v-else-if="assets.length === 0"><td colspan="15" class="empty-cell">暂无实例数据</td></tr>
+          <tr v-if="loading"><td colspan="16" class="empty-cell">加载中...</td></tr>
+          <tr v-else-if="assets.length === 0"><td colspan="16" class="empty-cell">暂无实例数据</td></tr>
           <tr v-for="(item, index) in assets" :key="item.id" v-else>
+            <td class="check-col"><input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item)" /></td>
             <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td class="image-cell">
               <el-image
@@ -484,6 +525,8 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; }
 .pending-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: var(--text-xs); color: var(--color-warning, #b45309); background: var(--color-warning-bg, #fef3c7); }
 .image-cell { width: 56px; }
+.check-col { width: 36px; text-align: center; }
+.check-col input { width: 15px; height: 15px; cursor: pointer; }
 .row-thumb { width: 40px; height: 40px; border-radius: 4px; display: block; }
 .thumb-empty { color: var(--color-text-tertiary); }
 .image-view { display: flex; align-items: center; justify-content: center; height: 220px; background: var(--color-bg-page); border-radius: 8px; overflow: hidden; }

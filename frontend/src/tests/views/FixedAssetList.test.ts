@@ -54,7 +54,7 @@ function _inst(overrides: Partial<FixedAsset>): FixedAsset {
 const stubs = {
   BasePagination: { template: '<div />' },
   StatusBadge: { props: ['status'], template: '<span>{{ status }}</span>' },
-  AssetPrintDialog: { template: '<div />' },
+  AssetPrintDialog: { props: ['assets', 'visible'], template: '<div class="print-stub">{{ assets.length }}-{{ visible }}</div>' },
   'el-dialog': { props: ['modelValue'], template: '<div><slot /></div>' },
   'el-drawer': { props: ['modelValue'], template: '<div><slot /></div>' },
   'el-image': { props: ['src'], template: '<img class="el-image-stub" :src="src" />' },
@@ -82,8 +82,27 @@ describe('FixedAssetList 物品图片', () => {
     } as any)
     const wrapper = await _mount()
     const headers = wrapper.findAll('.data-table thead th').map(th => th.text())
-    expect(headers[0]).toBe('序号')
-    expect(headers[1]).toBe('图片')
+    expect(headers[0]).toBe('') // 勾选列
+    expect(headers[1]).toBe('序号')
+    expect(headers[2]).toBe('图片')
+  })
+
+  it('勾选实例后批量打印标签（弹窗收多项）', async () => {
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 2, results: [
+        _inst({ id: 'fa-1', 图片: null }),
+        _inst({ id: 'fa-2', 图片: null }),
+      ] },
+    } as any)
+    const wrapper = await _mount()
+    const checks = wrapper.findAll('tbody .check-col input[type=checkbox]')
+    expect(checks).toHaveLength(2)
+    await checks[0].setValue(true)
+    await checks[1].setValue(true)
+    const printBtn = wrapper.findAll('button').find(b => b.text().includes('打印标签（2）'))
+    expect(printBtn).toBeTruthy()
+    await printBtn!.trigger('click')
+    expect(wrapper.find('.print-stub').text()).toBe('2-true')
   })
 
   it('已挂图显示缩略图、未挂图显示占位', async () => {
