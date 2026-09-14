@@ -474,7 +474,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         elif template_type == 'assign':
             ws.title = '领用出库'
-            headers = ['分公司', '日期', '资产编号', '领用物品', '领用数量', '用途', '领用部门',
+            headers = ['分公司', '日期', '资产编号', '物品名称', '领用数量', '使用人', '领用部门', '用途',
                        '部门累计领用', '当前库存', '是否核对', '备注']
             ws.append(headers)
 
@@ -496,7 +496,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         t.调出分公司,
                         str(t.调拨日期) if t.调拨日期 else '',
                         line.item.asset_code, line.item.asset_name, line.数量,
-                        t.用途, t.调出部门,
+                        line.使用人, t.调出部门, t.用途,
                         dept_total, current_stock, '待核对', t.备注,
                     ])
 
