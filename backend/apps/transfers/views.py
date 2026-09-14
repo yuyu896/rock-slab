@@ -381,7 +381,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     TYPE_TEMPLATES = {
         'purchase': {
-            'headers': ['采购日期', '分公司', '资产编号', '物品名称', '规格型号', '图片',
+            'headers': ['采购日期', '分公司', '资产编号', '物品名称', '规格型号',
                         '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注'],
             'sheet': '采购入库',
             'filename': 'purchase_template.xlsx',
@@ -451,14 +451,14 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         if template_type == 'purchase':
             ws.title = '采购入库'
-            headers = ['采购日期', '分公司', '资产编号', '物品名称', '规格型号', '图片',
+            headers = ['采购日期', '分公司', '资产编号', '物品名称', '规格型号',
                        '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注']
             ws.append(headers)
             for t in queryset:
                 for line in t.lines.all():
                     ws.append([
                         str(t.调拨日期) if t.调拨日期 else '',
-                        t.调出分公司, line.item.asset_code, line.item.asset_name, _spec(line), '',
+                        t.调出分公司, line.item.asset_code, line.item.asset_name, _spec(line),
                         t.供应商, line.数量, line.单价 or '', line.金额 or '',
                         t.需求部门, t.采购经办人, t.备注,
                     ])
@@ -754,17 +754,17 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         header = {
                             '调拨日期': _parse_date(row[0]),
                             '调出分公司': branch_name,
-                            '供应商': _cell(row, 6),
-                            '需求部门': _cell(row, 10),
-                            '采购经办人': _cell(row, 11),
-                            '备注': _cell(row, 12),
+                            '供应商': _cell(row, 5),
+                            '需求部门': _cell(row, 9),
+                            '采购经办人': _cell(row, 10),
+                            '备注': _cell(row, 11),
                         }
                         line_kwargs = {
                             'item': item,
-                            '数量': _qty(7),
+                            '数量': _qty(6),
                             '本批规格': _cell(row, 4),
-                            '单价': row[8] if len(row) > 8 and row[8] is not None else None,
-                            '金额': row[9] if len(row) > 9 and row[9] is not None else None,
+                            '单价': row[7] if len(row) > 7 and row[7] is not None else None,
+                            '金额': row[8] if len(row) > 8 and row[8] is not None else None,
                         }
                         action = Transfer.ACTION_PURCHASE
 

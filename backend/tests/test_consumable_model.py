@@ -82,7 +82,8 @@ class TestConsumableAssign:
             {'item': item_id('CM-3'), '数量': 1, '使用人': '张三', 'department': None},
         ], source='recycle_bin'), format='json')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert '消耗品无回收库存可领' in str(resp.data['detail'])
+        # 回收库来源已退役：serializer 字段级拒绝（recycle_bin 不再是合法选项）
+        assert 'recycle_bin' in str(resp.data) or '回收库' in str(resp.data)
 
 
 @pytest.mark.django_db

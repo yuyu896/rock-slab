@@ -52,7 +52,7 @@ def _seed(branch, admin_user):
     Notification.objects.create(recipient=admin_user, notification_type='system', title='t', content='c')
     AuditLog.objects.create(action='create', resource_type='Transfer')
     DocumentSequence.objects.create(action_type='purchase', date='2026-08-01', last_no=9)
-    InstanceSequence.objects.create(item=item, last_no=9)
+    InstanceSequence.objects.create(item=item, branch=branch, last_no=9)
 
 
 @pytest.mark.django_db
