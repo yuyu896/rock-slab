@@ -134,7 +134,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         items = data.pop('items')
-        data['action_type'] = action_type
         if not data.get('创建人'):
             data['创建人'] = request.user.name or request.user.phone
 
@@ -163,12 +162,15 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         from django.db import transaction
         with transaction.atomic():
-            transfer = Transfer(
-                单据编号=generate_document_number(action_type, data['调拨日期']),
-                from_branch=from_branch,
-                to_branch=to_branch,
-                **data,
-            )
+            # 分公司语义化建单：from/to 落位由类型决定（映射唯一收口在模型 build）
+            if action_type == Transfer.ACTION_TRANSFER:
+                branch_kwargs = {'调出分公司': from_branch, '调入分公司': to_branch}
+            elif action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+                branch_kwargs = {'所属分公司': to_branch}  # 采购=入库方；归还=还入方
+            else:
+                branch_kwargs = {'所属分公司': from_branch}
+            data['单据编号'] = generate_document_number(action_type, data['调拨日期'])
+            transfer = Transfer.build(action_type, data, **branch_kwargs)
             transfer.save()
             _build_lines(transfer, items)
         _notify_created(transfer)
@@ -351,10 +353,17 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             for field, value in data.items():
                 setattr(instance, field, value)
-            if from_branch is not None:
-                instance.from_branch = from_branch
-            if to_branch is not None:
-                instance.to_branch = to_branch
+            # 分公司变更经语义化收口（模型内映射，禁直赋 from/to）
+            if from_branch is not None or to_branch is not None:
+                if instance.action_type == Transfer.ACTION_TRANSFER:
+                    instance.set_branches(
+                        调出分公司=from_branch or instance.from_branch,
+                        调入分公司=to_branch or instance.to_branch,
+                    )
+                elif instance.action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+                    instance.set_branches(所属分公司=to_branch or instance.to_branch)
+                else:
+                    instance.set_branches(所属分公司=from_branch or instance.from_branch)
             instance.save()
             if items is not None:
                 instance.lines.all().delete()
@@ -847,15 +856,19 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         [line_kwargs],
                     )
 
-                    transfer = Transfer(
-                        action_type=action,
-                        审批状态='待审批',
-                        创建人=creator,
-                        单据编号=generate_document_number(action, header['调拨日期']),
-                        from_branch=branch_cache.get(header.get('调出分公司', '')),
-                        to_branch=branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None,
-                        **header,
-                    )
+                    # 分公司语义化建单（导入路径）：单公司类型经 所属分公司，调拨经双参
+                    _from_b = branch_cache.get(header.get('调出分公司', ''))
+                    _to_b = branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None
+                    if action == Transfer.ACTION_TRANSFER:
+                        _branch_kwargs = {'调出分公司': _from_b, '调入分公司': _to_b}
+                    elif action in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+                        _branch_kwargs = {'所属分公司': _to_b}  # 采购=入库方；归还=还入方
+                    else:
+                        _branch_kwargs = {'所属分公司': _from_b}
+                    header['审批状态'] = '待审批'
+                    header['创建人'] = creator
+                    header['单据编号'] = generate_document_number(action, header['调拨日期'])
+                    transfer = Transfer.build(action, header, **_branch_kwargs)
                     transfer.save()
                     TransferLine.objects.create(transfer=transfer, 行号=1, **line_kwargs)
                 _notify_created(transfer)

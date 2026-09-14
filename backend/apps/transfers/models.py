@@ -113,6 +113,73 @@ class Transfer(UUIDModel, TimestampedModel):
     def __str__(self):
         return f'{self.单据编号 or self.pk} - {self.调拨日期}'
 
+    # ---- 分公司语义化（transfer-branch-semantics）：类型到 from/to 的映射唯一收口于此 ----
+
+    @classmethod
+    def build(cls, action_type, fields, *, 所属分公司=None, 调出分公司=None, 调入分公司=None):
+        """语义化建单：fields 为其余单头字段的 dict（与方向参数命名空间隔离）。
+
+        单公司类型（采购/领用/归还/回收）只收 所属分公司，调拨收 调出+调入；
+        from/to 落位由类型决定，调用方无从装反。非法参数组合（跨类型传参）直接
+        拒绝——参数即业务校验。注意 fields 内的 调出/调入分公司 为文本回显字段，
+        由本方法的 Branch 参数决定，不参与方向。
+        """
+        if action_type == cls.ACTION_PURCHASE:
+            if 调出分公司 is not None or 调入分公司 is not None:
+                raise ValueError('采购单只接受 所属分公司（调出/调入为调拨专属参数）')
+            from_b, to_b = None, 所属分公司
+        elif action_type == cls.ACTION_TRANSFER:
+            if 所属分公司 is not None:
+                raise ValueError('调拨单须分别传 调出分公司 与 调入分公司')
+            from_b, to_b = 调出分公司, 调入分公司
+        elif action_type == cls.ACTION_RETURN:
+            if 调出分公司 is not None or 调入分公司 is not None:
+                raise ValueError('归还单只接受 所属分公司（还入方）')
+            from_b, to_b = None, 所属分公司  # 归还=还入方（to），与 ledger 历史口径一致
+        else:
+            if 调出分公司 is not None or 调入分公司 is not None:
+                raise ValueError('该单据类型只接受 所属分公司（调出/调入为调拨专属参数）')
+            from_b, to_b = 所属分公司, None
+        return cls(action_type=action_type, from_branch=from_b, to_branch=to_b, **fields)
+
+    @property
+    def 业务分公司(self):
+        """单据的货账归属方：采购/归还→入库方（to_branch）；领用/回收/调拨→出账方（from_branch）。"""
+        if self.action_type in (self.ACTION_PURCHASE, self.ACTION_RETURN):
+            return self.to_branch
+        return self.from_branch
+
+    def set_branches(self, *, 所属分公司=None, 调出分公司=None, 调入分公司=None):
+        """语义化改派分公司（编辑路径）：与 build 同一套类型映射，禁直赋 from/to。"""
+        if self.action_type == self.ACTION_PURCHASE:
+            if 调出分公司 is not None or 调入分公司 is not None:
+                raise ValueError('采购单只接受 所属分公司')
+            self.to_branch = 所属分公司
+            self.from_branch = None
+        elif self.action_type == self.ACTION_TRANSFER:
+            if 所属分公司 is not None:
+                raise ValueError('调拨单须分别传 调出分公司 与 调入分公司')
+            self.from_branch = 调出分公司
+            self.to_branch = 调入分公司
+        elif self.action_type == self.ACTION_RETURN:
+            if 调出分公司 is not None or 调入分公司 is not None:
+                raise ValueError('归还单只接受 所属分公司（还入方）')
+            self.to_branch = 所属分公司
+            self.from_branch = None
+        else:
+            if 调出分公司 is not None or 调入分公司 is not None:
+                raise ValueError('该单据类型只接受 所属分公司')
+            self.from_branch = 所属分公司
+            self.to_branch = None
+        return self
+
+    @property
+    def 业务分公司名(self):
+        """文本版业务分公司（调入/调出文本按类型取）。"""
+        if self.action_type in (self.ACTION_PURCHASE, self.ACTION_RETURN):
+            return self.调入分公司
+        return self.调出分公司
+
 
 class TransferLine(UUIDModel, TimestampedModel):
     """流转单明细行：品目 × 数量 × 类型专属记录性字段（采购单价/金额、领用使用人/部门、回收存放位置）× 实例关联。"""

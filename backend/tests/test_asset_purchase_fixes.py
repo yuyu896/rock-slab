@@ -18,7 +18,7 @@ class TestPurchaseApproveStock:
 
     def _create_purchase(self, client, branch, code):
         resp = client.post(_action_url('purchase'), {
-            '调拨日期': '2026-07-14', '调拨原因': '采购', '调出分公司': branch.name,
+            '调拨日期': '2026-07-14', '调拨原因': '采购', '调入分公司': branch.name,
             'items': [{'item': _item_uuid(code), '数量': 5}],
         }, format='json')
         assert resp.status_code == 201

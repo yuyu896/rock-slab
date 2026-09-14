@@ -215,7 +215,7 @@ class TestApproveFlow:
         payload = {
             '调拨日期': '2026-01-15',
             '调拨原因': '审批测试',
-            '调出分公司': '测试分公司',
+            '调入分公司': '测试分公司',
             'items': [{'item': item_id('AST-APPROVE-001'), '数量': 1}],
         }
         resp = client.post(_action_url('purchase'), payload, format='json')

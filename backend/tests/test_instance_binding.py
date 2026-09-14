@@ -190,7 +190,7 @@ class TestDocumentInstanceMatrix:
     def test_purchase_generates_instances(self, authenticated_client, branch):
         item = _item('IM-P-001')
         resp = authenticated_client.post('/api/transfers/purchase', {
-            '调拨日期': '2026-08-23', '调出分公司': branch.name,
+            '调拨日期': '2026-08-23', '调入分公司': branch.name,
             'items': [{'item': str(item.id), '数量': 3}],
         }, format='json')
         assert resp.status_code == 201
@@ -208,7 +208,7 @@ class TestDocumentInstanceMatrix:
         _seed(branch, item, stock=1)
         _make_instances(branch, item, '在库', 2)  # 既有 IM-P-002-1/2
         resp = authenticated_client.post('/api/transfers/purchase', {
-            '调拨日期': '2026-08-23', '调出分公司': branch.name,
+            '调拨日期': '2026-08-23', '调入分公司': branch.name,
             'items': [{'item': str(item.id), '数量': 1}],
         }, format='json')
         assert resp.status_code == 201
@@ -268,7 +268,7 @@ class TestDocumentInstanceMatrix:
         _seed(branch, item, in_use=1)
         insts = _make_instances(branch, item, '在用', 1, user='张三')
         resp = authenticated_client.post('/api/transfers/return', {
-            '调拨日期': '2026-08-23', '调出分公司': branch.name,
+            '调拨日期': '2026-08-23', '调入分公司': branch.name,
             'items': [_line(item, insts)],
         }, format='json')
         assert resp.status_code == 201

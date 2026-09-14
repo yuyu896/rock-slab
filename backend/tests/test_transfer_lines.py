@@ -25,7 +25,7 @@ class TestMultiLineDocument:
     def test_multi_line_purchase_full_chain(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-08-01',
-            '调出分公司': branch.name,
+            '调入分公司': branch.name,
             '供应商': '测试供应商',
             'items': [
                 _line(item_id, 'AST-TEST-001', 10, 单价='99.00', 金额='990.00'),
@@ -61,7 +61,7 @@ class TestMultiLineDocument:
     def test_duplicate_item_lines_are_additive(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-08-01',
-            '调出分公司': branch.name,
+            '调入分公司': branch.name,
             'items': [
                 _line(item_id, 'AST-TEST-001', 2),
                 _line(item_id, 'AST-TEST-001', 3),
@@ -241,7 +241,7 @@ class TestDeleteAndUpdateContract:
     def _create_and_approve(self, client, branch, item_id):
         payload = {
             '调拨日期': '2026-08-06',
-            '调出分公司': branch.name,
+            '调入分公司': branch.name,
             'items': [_line(item_id, 'AST-TEST-001', 1)],
         }
         resp = client.post(_action_url('purchase'), payload, format='json')
@@ -258,7 +258,7 @@ class TestDeleteAndUpdateContract:
     def test_pending_doc_delete_allowed(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-08-06',
-            '调出分公司': branch.name,
+            '调入分公司': branch.name,
             'items': [_line(item_id, 'AST-TEST-001', 1)],
         }
         resp = authenticated_client.post(_action_url('purchase'), payload, format='json')
@@ -268,7 +268,7 @@ class TestDeleteAndUpdateContract:
     def test_rejected_doc_edit_replaces_items(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-08-06',
-            '调出分公司': branch.name,
+            '调入分公司': branch.name,
             'items': [
                 _line(item_id, 'AST-TEST-001', 1),
                 _line(item_id, 'AST-TEST-002', 2),

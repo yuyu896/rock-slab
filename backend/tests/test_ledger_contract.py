@@ -53,6 +53,9 @@ def _create_doc(client, action, branch, code, qty, line=None, **header_extra):
         '调出分公司': branch.name,
         'items': [item_line],
     }
+    if action in ('purchase', 'return'):
+        # 采购=入库方 / 归还=还入方（语义化口径：单公司类型走调入侧）
+        payload['调入分公司'] = payload.pop('调出分公司')
     payload.update(header_extra)
     resp = client.post(f'/api/transfers/{action}', payload, format='json')
     assert resp.status_code == 201, resp.data

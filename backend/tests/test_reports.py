@@ -42,7 +42,7 @@ def _seed_purchase(branch, code, qty, amount, when, client_user=None):
     token, _ = ExpiringToken.objects.get_or_create(user=client_user)
     client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
     resp = client.post('/api/transfers/purchase', {
-        '调拨日期': str(when), '调出分公司': branch.name,
+        '调拨日期': str(when), '调入分公司': branch.name,
         'items': [{'item': str(_item(code).id), '数量': qty, '金额': str(amount)}],
     }, format='json')
     assert resp.status_code == 201, resp.data
