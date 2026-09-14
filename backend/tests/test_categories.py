@@ -365,10 +365,10 @@ class TestItemDictionary:
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.append(['采购日期', '分公司', '资产编号', '物品名称', '规格型号', '图片',
-                   '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注'])
-        ws.append(['2026-08-23', branch.name, 'AST-TEST-002X', '未登记品目', '', '',
-                   '', 1, None, None, '', '', ''])
+        ws.append(['采购日期', '分公司', '资产编号', '规格型号',
+                   '供应商', '采购数量', '单价', '需求部门', '备注'])
+        ws.append(['2026-08-23', branch.name, 'AST-TEST-002X', '',
+                   '', 1, None, '', ''])
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)

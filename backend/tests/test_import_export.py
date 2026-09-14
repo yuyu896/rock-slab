@@ -293,7 +293,7 @@ TRANSFER_TYPE_TEMPLATES = {
         # row[12]=?(unused), row[13]=存放位置, row[14]=经办人(→采购经办人), row[15]=备注
         'sample_row': ['测试分公司', 'REC-001', '电子设备', '电脑', '回收电脑',
                        '闲置回收', '2026-03-01', 2, '台', '型号Z', '2026-03-05',
-                       '行政部', '', '仓库B', '张采购', '回收备注'],
+                       '行政部', '仓库B', '张采购', '回收备注'],
         'check_fields': {'回收分类': '闲置回收', '采购经办人': '张采购'},
         'line_check_fields': {'存放位置': '仓库B'},
         'item_check_fields': {'unit': '台', 'asset_category': '电子设备', 'item_category': '电脑'},
@@ -621,3 +621,43 @@ class TestImportMergeDocs:
         doc = Transfer.objects.filter(action_type='assign').order_by('-created_at').first()
         assert doc.lines.count() == 2
         assert sorted(doc.lines.values_list('使用人', flat=True)) == ['张三', '李四']
+
+
+@pytest.mark.django_db
+class TestImportHeaderGuard:
+    """导入表头守卫 + 按名取列 + 备注不拆单（第 27 案）。"""
+
+    def test_legacy_template_rejected(self, admin_client, test_branch):
+        """旧 12 列采购模板（含 物品名称/总金额/采购经办人）→ 整体 400 零入库。"""
+        from apps.transfers.models import Transfer
+        legacy = ['采购日期', '分公司', '资产编号', '物品名称', '规格型号', '图片',
+                  '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注']
+        row = ['2026-09-14', test_branch.name, 'PUR-001', 'x', '', '', 's', 1, 1, 1, '', '', '']
+        resp = _upload_url(admin_client, '/api/transfers/import', _make_xlsx(legacy, [row]), 'type=purchase')
+        assert resp.status_code == 400
+        assert '重新下载' in str(resp.data['detail'])
+        assert Transfer.objects.filter(action_type='purchase').count() == 0
+
+    def test_shuffled_columns_still_parse(self, admin_client, test_branch):
+        """列序打乱（集合一致）仍按名正确解析。"""
+        headers = ['供应商', '备注', '采购数量', '分公司', '采购日期', '单价', '资产编号', '需求部门', '规格型号']
+        row = ['供X', '备', 3, test_branch.name, '2026-09-14', 10, 'PUR-001', '', '规格S']
+        resp = _upload_url(admin_client, '/api/transfers/import', _make_xlsx(headers, [row]), 'type=purchase')
+        assert resp.status_code == 200 and resp.data['imported'] == 1
+        from apps.transfers.models import Transfer
+        doc = Transfer.objects.get(action_type='purchase')
+        line = doc.lines.first()
+        assert doc.供应商 == '供X' and line.数量 == 3 and float(line.单价) == 10.0 and line.本批规格 == '规格S'
+
+    def test_remark_difference_still_merges(self, admin_client, test_branch):
+        """两行备注不同（其余键同）→ 仍合一张单（备注取首行）。"""
+        from apps.transfers.models import Transfer
+        headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
+        rows = [
+            ['2026-09-14', test_branch.name, 'PUR-001', '', '供X', 10, 5.0, '', '备注A'],
+            ['2026-09-14', test_branch.name, 'APR-001', '', '供X', 5, 2.0, '', ''],
+        ]
+        resp = _upload_url(admin_client, '/api/transfers/import', _make_xlsx(headers, rows), 'type=purchase')
+        assert resp.data['imported'] == 1
+        doc = Transfer.objects.get(action_type='purchase')
+        assert doc.lines.count() == 2 and doc.备注 == '备注A'

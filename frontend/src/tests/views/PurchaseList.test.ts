@@ -44,3 +44,27 @@ describe('PurchaseList 入库分公司筛选', () => {
     expect(lastCall.toBranch).toBe('北京分公司')
   })
 })
+
+describe('PurchaseList 待审批置顶排序', () => {
+  it('待审批在最前，其余按分公司', async () => {
+    const { getTransfers } = await import('@/api/transfers')
+    vi.mocked(getTransfers).mockResolvedValue({
+      data: {
+        count: 3, next: null, previous: null,
+        results: [
+          { id: 'a', 审批状态: '已入库', 调入分公司: 'A公司', 调拨日期: '2026-09-14', lines: [] } as any,
+          { id: 'b', 审批状态: '待审批', 调入分公司: 'Z公司', 调拨日期: '2026-09-01', lines: [] } as any,
+          { id: 'c', 审批状态: '已入库', 调入分公司: 'B公司', 调拨日期: '2026-09-13', lines: [] } as any,
+        ],
+      },
+    } as any)
+    const wrapper = mount(PurchaseList, {
+      global: { stubs: { BranchFilterSelect: { template: '<div />' } } },
+    })
+    await flushPromises()
+    const codes = wrapper.findAll('tbody tr .doc-number').map(n => n.text())
+    expect(codes[0]).toBe('b')
+    expect(codes[1]).toBe('a')
+    expect(codes[2]).toBe('c')
+  })
+})
