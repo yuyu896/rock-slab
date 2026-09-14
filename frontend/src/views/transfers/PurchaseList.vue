@@ -73,7 +73,7 @@ async function handleSubmitDraft(item: Transfer) {
       <div class="filter-row">
         <div class="filter-item search">
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input v-model="filters.keyword" type="text" placeholder="搜索单号、品目编号、名称..." class="filter-input" />
+          <input v-model="filters.keyword" type="text" placeholder="搜索单号、品目、经办人..." class="filter-input" />
         </div>
         <div class="filter-item">
           <BranchFilterSelect v-model="filters.toBranch" :options="branchOptions" all-label="入库分公司" />

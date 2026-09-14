@@ -535,3 +535,25 @@ class TestImportEdgeCases:
 
 
 
+
+
+@pytest.mark.django_db
+class TestPurchaseImportBranchDirection:
+    """采购导入分公司方向（第 24 案）：分公司列 = 入库方（to_branch），不再误装调出。"""
+
+    def test_purchase_import_sets_to_branch(self, admin_client, item_id, branch):
+        from apps.organizations.models import Branch
+        from apps.transfers.models import Transfer
+        headers = ['采购日期', '分公司', '资产编号', '物品名称', '规格型号',
+                   '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注']
+        rows = [['2026-09-13', branch.name, 'PUR-001', '采购方向验证', '', '供应商X', 2, 10, 20, '', '李四', '']]
+        buf = _make_xlsx(headers, rows)
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=purchase')
+        assert resp.status_code == 200, resp.data
+        doc = Transfer.objects.filter(
+            action_type='purchase', 调入分公司=branch.name,
+        ).order_by('-created_at').first()
+        assert doc is not None, '导入应建出采购单'
+        assert doc.to_branch_id == branch.id, '分公司列必须落 to_branch（入库方）'
+        assert doc.from_branch is None, '采购单不得占用调出方'
+        assert doc.调出分公司 == ''

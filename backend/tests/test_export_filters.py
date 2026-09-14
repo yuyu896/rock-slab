@@ -75,3 +75,27 @@ class TestTransferExportFilters:
         rows = _xlsx_rows(resp.content)
         codes = [r[2] for r in rows[1:]]  # 回收模板：序号、分公司、资产编号（第 3 列）
         assert codes == ['TE-1']
+
+
+@pytest.mark.django_db
+class TestKeywordOperatorSearch:
+    """流转 keyword 搜经办人（第 24 案）：采购经办人/创建人 OR 匹配。"""
+
+    def test_keyword_matches_operator(self, authenticated_client, branch):
+        from apps.transfers.models import Transfer
+        import datetime
+        Transfer.objects.create(
+            单据编号='KW-OP-001', 调拨日期=datetime.date(2026, 9, 13),
+            action_type='assign', 审批状态='待审批',
+            from_branch=branch, 调出分公司=branch.name, 创建人='陈靖萱', 采购经办人='',
+        )
+        Transfer.objects.create(
+            单据编号='KW-OP-002', 调拨日期=datetime.date(2026, 9, 13),
+            action_type='purchase', 审批状态='待审批',
+            to_branch=branch, 调入分公司=branch.name, 创建人='别人', 采购经办人='潘梦洁',
+        )
+        r1 = authenticated_client.get('/api/transfers/?keyword=陈靖萱')
+        assert r1.data['count'] >= 1
+        assert any(t['单据编号'] == 'KW-OP-001' for t in r1.data['results'])
+        r2 = authenticated_client.get('/api/transfers/?keyword=潘梦洁')
+        assert any(t['单据编号'] == 'KW-OP-002' for t in r2.data['results'])

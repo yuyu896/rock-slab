@@ -712,7 +712,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             try:
                 # 分公司存在性校验（按类型取相关列）
                 if template_type == 'purchase':
-                    _branch_err = branch_validation_error(_cell(row, 1), '调出分公司', valid_branches)
+                    _branch_err = branch_validation_error(_cell(row, 1), '入库分公司', valid_branches)
                 elif template_type == 'assign':
                     _branch_err = branch_validation_error(_cell(row, 0), '调出分公司', valid_branches)
                 elif template_type == 'recovery':
@@ -753,7 +753,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         branch_name = _cell(row, 1)
                         header = {
                             '调拨日期': _parse_date(row[0]),
-                            '调出分公司': branch_name,
+                            '调入分公司': branch_name,
                             '供应商': _cell(row, 5),
                             '需求部门': _cell(row, 9),
                             '采购经办人': _cell(row, 10),
