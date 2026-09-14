@@ -390,13 +390,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     TYPE_TEMPLATES = {
         'purchase': {
-            'headers': ['采购日期', '分公司', '资产编号', '物品名称', '规格型号',
-                        '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注'],
+            'headers': ['采购日期', '分公司', '资产编号', '规格型号',
+                        '供应商', '采购数量', '单价', '需求部门', '备注'],
             'sheet': '采购入库',
             'filename': 'purchase_template.xlsx',
         },
         'assign': {
-            'headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '使用人', '领用部门', '用途', '备注'],
+            'headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '用途', '备注'],
             'sheet': '领用出库',
             'filename': 'assign_template.xlsx',
         },
@@ -653,7 +653,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
     def import_excel(self, request):
-        """批量导入：一行 = 一张单头 + 一条明细行（模板列与校验口径不变）。"""
+        """批量导入：采购/领用按单头键合并多行为一张单；调拨/回收一行一单。行级错误按行跳过。"""
         import openpyxl
         from datetime import datetime as dt
         from django.db import transaction
@@ -693,7 +693,9 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         imported = 0
+        imported_lines = 0
         errors = []
+        doc_groups = {}
         creator = request.user.name or request.user.phone
         valid_branches = get_branch_name_set()
         branch_cache = {b.name: b for b in Branch.objects.all()}
@@ -758,44 +760,49 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     return int(raw) if raw else default
 
                 with transaction.atomic():
+                    # 采购 9 列：日期|分公司|资产编号|规格型号|供应商|数量|单价|需求部门|备注
+                    # 名称经字典联查、金额=数量×单价自动、经办人=导入操作人
                     if template_type == 'purchase':
                         branch_name = _cell(row, 1)
                         header = {
                             '调拨日期': _parse_date(row[0]),
                             '调入分公司': branch_name,
-                            '供应商': _cell(row, 5),
-                            '需求部门': _cell(row, 9),
-                            '采购经办人': _cell(row, 10),
-                            '备注': _cell(row, 11),
+                            '供应商': _cell(row, 4),
+                            '需求部门': _cell(row, 7),
+                            '采购经办人': creator,
+                            '备注': _cell(row, 8),
                         }
+                        qty = _qty(5)
+                        price = row[6] if len(row) > 6 and row[6] is not None else None
                         line_kwargs = {
                             'item': item,
-                            '数量': _qty(6),
-                            '本批规格': _cell(row, 4),
-                            '单价': row[7] if len(row) > 7 and row[7] is not None else None,
-                            '金额': row[8] if len(row) > 8 and row[8] is not None else None,
+                            '数量': qty,
+                            '本批规格': _cell(row, 3),
+                            '单价': price,
+                            '金额': (round(float(price) * qty, 2) if price is not None else None),
                         }
                         action = Transfer.ACTION_PURCHASE
 
+                    # 领用 8 列：分公司|日期|资产编号|数量|使用人|领用部门|用途|备注
                     elif template_type == 'assign':
                         branch_name = _cell(row, 0)
                         header = {
                             '调拨日期': _parse_date(row[1]),
                             '调出分公司': branch_name,
-                            '用途': _cell(row, 7),
-                            '调出部门': _cell(row, 6),
-                            '备注': _cell(row, 8),
+                            '用途': _cell(row, 6),
+                            '调出部门': _cell(row, 5),
+                            '备注': _cell(row, 7),
                         }
                         # 领用部门：文本照写单头 + 按（分公司, 部门名）解析行级外键；留空由预检口报"必须选择领用部门"
-                        dept_name = _cell(row, 6)
+                        dept_name = _cell(row, 5)
                         dept = _resolve_dept(branch_name, dept_name)
                         if dept_name and dept is None:
                             errors.append(f'第 {i} 行: 领用部门「{dept_name}」不存在于分公司「{branch_name}」的部门字典')
                             continue
                         line_kwargs = {
                             'item': item,
-                            '数量': _qty(4),
-                            '使用人': _cell(row, 5),
+                            '数量': _qty(3),
+                            '使用人': _cell(row, 4),
                             'department': dept,
                         }
                         action = Transfer.ACTION_ASSIGN
@@ -856,6 +863,23 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         [line_kwargs],
                     )
 
+                    # ── 建单（采购/领用：单头键相同的行合并一张多明细单；调拨/回收：一行一单） ──
+                    if action in (Transfer.ACTION_PURCHASE, Transfer.ACTION_ASSIGN):
+                        if action == Transfer.ACTION_PURCHASE:
+                            group_key = (
+                                header['调拨日期'], header.get('调入分公司', ''),
+                                header.get('供应商', ''), header.get('需求部门', ''), header.get('备注', ''),
+                            )
+                        else:
+                            group_key = (
+                                header['调拨日期'], header.get('调出分公司', ''),
+                                header.get('用途', ''), header.get('备注', ''),
+                            )
+                        bucket = doc_groups.setdefault(group_key, {'action': action, 'header': header, 'lines': []})
+                        bucket['lines'].append(line_kwargs)
+                        imported_lines += 1
+                        continue  # 组建单延后到循环外（同组行级错误已 continue 不入组，天然隔离）
+
                     # 分公司语义化建单（导入路径）：单公司类型经 所属分公司，调拨经双参
                     _from_b = branch_cache.get(header.get('调出分公司', ''))
                     _to_b = branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None
@@ -880,5 +904,25 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             except Exception as e:
                 errors.append(f'第 {i} 行: {str(e)}')
 
+        # 采购/领用分组建单：一组 = 一张多明细行单（单头键内行全合法才入组）
+        for bucket in doc_groups.values():
+            action = bucket['action']
+            header = dict(bucket['header'])
+            with transaction.atomic():
+                _from_b = branch_cache.get(header.get('调出分公司', ''))
+                _to_b = branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None
+                if action == Transfer.ACTION_PURCHASE:
+                    _branch_kwargs = {'所属分公司': _to_b}
+                else:
+                    _branch_kwargs = {'所属分公司': _from_b}
+                header['审批状态'] = '待审批'
+                header['创建人'] = creator
+                header['单据编号'] = generate_document_number(action, header['调拨日期'])
+                transfer = Transfer.build(action, header, **_branch_kwargs)
+                transfer.save()
+                _build_lines(transfer, bucket['lines'])
+            _notify_created(transfer)
+            imported += 1
+
         wb.close()
-        return Response({'imported': imported, 'errors': errors})
+        return Response({'imported': imported, 'imported_lines': imported_lines, 'errors': errors})

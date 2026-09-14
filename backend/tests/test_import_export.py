@@ -256,18 +256,18 @@ class TestCategoryExport:
 # item_check_fields=字典联查回显字段（单位/类目等行内不存，取自品目字典）。
 TRANSFER_TYPE_TEMPLATES = {
     'purchase': {
-        'template_headers': ['采购日期', '分公司', '资产编号', '物品名称', '规格型号',
-                             '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注'],
-        'sample_row': ['2026-03-01', '测试分公司', 'PUR-001', '采购物品A', '规格X',
-                       '供应商A', 10, 50.0, 500.0, '研发部', '李四', '采购备注'],
-        'check_fields': {'供应商': '供应商A', '需求部门': '研发部', '采购经办人': '李四'},
-        'line_check_fields': {},
+        'template_headers': ['采购日期', '分公司', '资产编号', '规格型号',
+                             '供应商', '采购数量', '单价', '需求部门', '备注'],
+        'sample_row': ['2026-03-01', '测试分公司', 'PUR-001', '规格X',
+                       '供应商A', 10, 50.0, '研发部', '采购备注'],
+        'check_fields': {'供应商': '供应商A', '需求部门': '研发部'},
+        'line_check_fields': {'单价': 50.0},
         'item_check_fields': {},
     },
     'assign': {
         # 领用行使用人/部门必填（修订 2.2）：导入模板加"使用人"列，领用部门解析行级外键
-        'template_headers': ['分公司', '日期', '资产编号', '领用物品', '领用数量', '使用人', '领用部门', '用途', '备注'],
-        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', '领用物品B', 5, '张三', '行政部', '办公用', ''],
+        'template_headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '用途', '备注'],
+        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', 5, '张三', '行政部', '办公用', ''],
         'check_fields': {'用途': '办公用'},
         'line_check_fields': {'数量': 5, '使用人': '张三'},
         'item_check_fields': {},
@@ -403,8 +403,8 @@ class TestTransferImport:
         Department.objects.get_or_create(branch=test_branch, name='行政部')
         tpl = TRANSFER_TYPE_TEMPLATES['assign']
         row = list(tpl['sample_row'])
-        row[5] = ''  # 使用人留空
-        row[6] = ''  # 领用部门留空
+        row[4] = ''  # 使用人留空
+        row[5] = ''  # 领用部门留空
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
         assert resp.status_code == status.HTTP_200_OK
@@ -415,7 +415,7 @@ class TestTransferImport:
         """领用部门不在该分公司部门字典 → 报错点名分公司与部门。"""
         tpl = TRANSFER_TYPE_TEMPLATES['assign']
         row = list(tpl['sample_row'])
-        row[6] = '不存在部'  # 领用部门
+        row[5] = '不存在部'  # 领用部门
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
         assert resp.status_code == status.HTTP_200_OK
@@ -423,11 +423,10 @@ class TestTransferImport:
         assert any('不存在部' in e and '测试分公司' in e for e in resp.data['errors'])
 
     def test_purchase_import_autofills_amount(self, admin_client, test_branch):
-        """采购导入行有单价无总金额 → 落库金额 = 单价 × 数量（与表单路径同口径）。"""
+        """采购模板无金额列 → 落库金额 = 单价 × 数量自动计算。"""
         from apps.transfers.models import Transfer
         tpl = TRANSFER_TYPE_TEMPLATES['purchase']
         row = list(tpl['sample_row'])
-        row[9] = None  # 总金额留空
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=purchase')
         assert resp.status_code == status.HTTP_200_OK
@@ -544,9 +543,9 @@ class TestPurchaseImportBranchDirection:
     def test_purchase_import_sets_to_branch(self, admin_client, item_id, branch):
         from apps.organizations.models import Branch
         from apps.transfers.models import Transfer
-        headers = ['采购日期', '分公司', '资产编号', '物品名称', '规格型号',
-                   '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注']
-        rows = [['2026-09-13', branch.name, 'PUR-001', '采购方向验证', '', '供应商X', 2, 10, 20, '', '李四', '']]
+        headers = ['采购日期', '分公司', '资产编号', '规格型号',
+                   '供应商', '采购数量', '单价', '需求部门', '备注']
+        rows = [['2026-09-13', branch.name, 'PUR-001', '', '供应商X', 2, 10, '', '']]
         buf = _make_xlsx(headers, rows)
         resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=purchase')
         assert resp.status_code == 200, resp.data
@@ -557,3 +556,68 @@ class TestPurchaseImportBranchDirection:
         assert doc.to_branch_id == branch.id, '分公司列必须落 to_branch（入库方）'
         assert doc.from_branch is None, '采购单不得占用调出方'
         assert doc.调出分公司 == ''
+
+
+@pytest.mark.django_db
+class TestImportMergeDocs:
+    """采购/领用导入合单（第 26 案）：单头键相同的多行合并一张多明细单。"""
+
+    def test_purchase_two_rows_one_doc(self, admin_client, test_branch):
+        from apps.transfers.models import Transfer
+        headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
+        rows = [
+            ['2026-09-14', test_branch.name, 'PUR-001', '', '供应商A', 10, 50.0, '', '同批'],
+            ['2026-09-14', test_branch.name, 'APR-001', '', '供应商A', 5, 20.0, '', '同批'],
+        ]
+        buf = _make_xlsx(headers, rows)
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=purchase')
+        assert resp.status_code == 200
+        assert resp.data['imported'] == 1 and resp.data['imported_lines'] == 2
+        doc = Transfer.objects.filter(action_type='purchase').order_by('-created_at').first()
+        assert doc.lines.count() == 2
+        assert doc.采购经办人 == resp.data and False or doc.采购经办人  # 便于失败时查看
+        assert doc.采购经办人 != ''  # 操作人自动落
+        assert sorted(doc.lines.values_list('item__asset_code', flat=True)) == ['APR-001', 'PUR-001']
+
+    def test_purchase_different_keys_two_docs(self, admin_client, test_branch):
+        from apps.transfers.models import Transfer
+        headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
+        rows = [
+            ['2026-09-14', test_branch.name, 'PUR-001', '', '供应商A', 10, 50.0, '', '备注1'],
+            ['2026-09-14', test_branch.name, 'APR-001', '', '供应商B', 5, 20.0, '', '备注2'],
+        ]
+        buf = _make_xlsx(headers, rows)
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=purchase')
+        assert resp.data['imported'] == 2
+        assert Transfer.objects.filter(action_type='purchase', 审批状态='待审批').count() == 2
+
+    def test_purchase_row_error_keeps_group(self, admin_client, test_branch):
+        """组内一行编号不合法 → 该行报错，同组其余行仍合并建单。"""
+        from apps.transfers.models import Transfer
+        headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
+        rows = [
+            ['2026-09-14', test_branch.name, 'PUR-001', '', '供应商A', 10, 50.0, '', ''],
+            ['2026-09-14', test_branch.name, 'NOT-EXIST', '', '供应商A', 5, 20.0, '', ''],
+        ]
+        buf = _make_xlsx(headers, rows)
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=purchase')
+        assert resp.data['imported'] == 1 and resp.data['imported_lines'] == 1
+        assert any('NOT-EXIST' in e for e in resp.data['errors'])
+        doc = Transfer.objects.filter(action_type='purchase').order_by('-created_at').first()
+        assert doc.lines.count() == 1 and doc.lines.first().item.asset_code == 'PUR-001'
+
+    def test_assign_two_rows_one_doc(self, admin_client, test_branch):
+        from apps.organizations.models import Department
+        from apps.transfers.models import Transfer
+        Department.objects.get_or_create(branch=test_branch, name='行政部')
+        headers = TRANSFER_TYPE_TEMPLATES['assign']['template_headers']
+        rows = [
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', 2, '张三', '行政部', '办公', ''],
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', 3, '李四', '行政部', '办公', ''],
+        ]
+        buf = _make_xlsx(headers, rows)
+        resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=assign')
+        assert resp.data['imported'] == 1 and resp.data['imported_lines'] == 2
+        doc = Transfer.objects.filter(action_type='assign').order_by('-created_at').first()
+        assert doc.lines.count() == 2
+        assert sorted(doc.lines.values_list('使用人', flat=True)) == ['张三', '李四']
