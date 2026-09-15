@@ -187,7 +187,7 @@ const growthDisplay = computed(() => {
 
 // 导航函数
 function goToPendingApprovals() {
-  router.push('/assets/transfer')
+  router.push({ path: '/transfers/purchase', query: { status: '待审批' } })
 }
 
 function goToTransferList() {

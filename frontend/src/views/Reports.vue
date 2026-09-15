@@ -918,6 +918,9 @@ onMounted(() => {
   border-radius: 12px;
   border: 1px solid var(--color-border);
   overflow: hidden;
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
 }
 
 .chart-header {
@@ -926,6 +929,7 @@ onMounted(() => {
   align-items: center;
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
 }
 
 .chart-title {
@@ -983,6 +987,8 @@ onMounted(() => {
 
 .chart-body {
   padding: var(--space-5);
+  overflow-y: auto;
+  min-height: 0;
 }
 
 /* 柱状图 */

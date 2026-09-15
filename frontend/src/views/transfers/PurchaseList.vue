@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTransferList } from '@/composables/useTransferList'
 import { submitTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
@@ -22,6 +22,11 @@ const {
   showImportModal, importLoading, importResult, openImportModal, handleDownloadTemplate, handleImportFile,
   handleExport,
 } = useTransferList('purchase')
+
+const route = useRoute()
+if (route.query.status) {
+  filters.value.status = String(route.query.status)
+}
 
 const router = useRouter()
 
