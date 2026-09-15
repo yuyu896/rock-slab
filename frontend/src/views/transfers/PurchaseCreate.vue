@@ -13,7 +13,7 @@ import DepartmentSelect from '@/components/DepartmentSelect.vue'
 const router = useRouter()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
-const form = ref({ 调拨日期: '', toBranch: '', 供应商: '', 需求部门: '', 采购经办人: '', 备注: '' })
+const form = ref({ 调拨日期: '', toBranch: '', 需求部门: '', 采购经办人: '', 备注: '' })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 
@@ -47,7 +47,6 @@ async function submit() {
     await purchaseAsset({
       调拨日期: f.调拨日期,
       toBranch: f.toBranch,
-      供应商: f.供应商,
       需求部门: f.需求部门,
       采购经办人: f.采购经办人,
       备注: f.备注,
@@ -74,7 +73,6 @@ async function submit() {
           <option v-for="b in branchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
         </select>
       </div>
-      <div class="form-item"><label class="form-label">供应商</label><input v-model="form.供应商" type="text" class="form-input" placeholder="选填" /></div>
       <div class="form-item"><label class="form-label">需求部门</label><DepartmentSelect v-model="form.需求部门" :branch-id="form.toBranch" placeholder="选填" /></div>
       <div class="form-item"><label class="form-label">采购经办人</label><input v-model="form.采购经办人" type="text" class="form-input" placeholder="选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>

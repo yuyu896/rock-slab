@@ -808,7 +808,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         header = {
                             '调拨日期': _parse_date(_num(row, '采购日期')),
                             '调入分公司': branch_name,
-                            '供应商': _cell(row, '供应商'),
+                            '供应商': '',  # 单头退役（第 33 案后）：供应商由明细行承载
                             '需求部门': _cell(row, '需求部门'),
                             '采购经办人': creator,
                             '备注': _cell(row, '备注'),
@@ -909,9 +909,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     if action in (Transfer.ACTION_PURCHASE, Transfer.ACTION_ASSIGN):
                         # 分组键不含备注（行间备注差异不拆单，备注取组内首行）
                         if action == Transfer.ACTION_PURCHASE:
+                            # 供应商行级承载（单头退役）：同日期+公司+部门合单，行各带供应商
                             group_key = (
                                 header['调拨日期'], header.get('调入分公司', ''),
-                                header.get('供应商', ''), header.get('需求部门', ''),
+                                header.get('需求部门', ''),
                             )
                         else:
                             group_key = (

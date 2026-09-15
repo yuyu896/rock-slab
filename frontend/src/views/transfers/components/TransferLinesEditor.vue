@@ -229,7 +229,7 @@ defineExpose({ validate, validateMessage })
         <span>品目 <span class="req">*</span></span>
         <span>数量 <span class="req">*</span></span>
         <span v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'">本批规格</span>
-        <span v-if="type === 'purchase'">行供应商</span>
+        <span v-if="type === 'purchase'">供应商</span>
         <span v-if="type === 'purchase'">单价</span>
         <span v-if="type === 'purchase'">金额</span>
         <span v-if="type === 'assign'">使用人 <span class="req">*</span></span>
@@ -269,7 +269,7 @@ defineExpose({ validate, validateMessage })
           >在用 {{ inUseOf(draft.item.asset_code) }}</div>
         </div>
         <div v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'" class="cell"><input v-model="draft.本批规格" type="text" class="row-input" placeholder="记录性" @change="touch" /></div>
-        <div v-if="type === 'purchase'" class="cell"><input v-model="draft.行供应商" type="text" class="row-input" placeholder="留空用单头" @change="touch" /></div>
+        <div v-if="type === 'purchase'" class="cell"><input v-model="draft.行供应商" type="text" class="row-input" placeholder="各行自填" @change="touch" /></div>
         <div v-if="type === 'purchase'" class="cell"><input v-model.number="draft.单价" type="number" class="row-input num" min="0" step="0.01" @change="onPriceChange(index)" /></div>
         <div v-if="type === 'purchase'" class="cell"><input v-model.number="draft.金额" type="number" class="row-input num" min="0" step="0.01" @change="onAmountChange(index)" /></div>
         <div v-if="type === 'assign'" class="cell"><input v-model="draft.使用人" type="text" class="row-input" placeholder="使用人姓名" @change="touch" /></div>

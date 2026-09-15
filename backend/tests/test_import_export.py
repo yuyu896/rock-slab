@@ -260,7 +260,8 @@ TRANSFER_TYPE_TEMPLATES = {
                              '供应商', '采购数量', '单价', '需求部门', '备注'],
         'sample_row': ['2026-03-01', '测试分公司', 'PUR-001', '规格X',
                        '供应商A', 10, 50.0, '研发部', '采购备注'],
-        'check_fields': {'供应商': '供应商A', '需求部门': '研发部'},
+        'check_fields': {'需求部门': '研发部'},
+        'line_supplier': '供应商A',
         'line_check_fields': {'单价': 50.0},
         'item_check_fields': {},
     },
@@ -355,6 +356,8 @@ class TestTransferImport:
             else:
                 assert actual == expected, f"[{ttype}] {field}: '{actual}' != '{expected}'"
         line = t.lines.select_related('item').first()
+        if tpl.get('line_supplier'):
+            assert line.供应商 == tpl['line_supplier'], f"[{ttype}] line supplier mismatch: '{line.供应商}'"
         assert line is not None, f"[{ttype}] No transfer line found"
         for field, expected in tpl['line_check_fields'].items():
             actual = getattr(line, field)
@@ -583,8 +586,8 @@ class TestImportMergeDocs:
         from apps.transfers.models import Transfer
         headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
         rows = [
-            ['2026-09-14', test_branch.name, 'PUR-001', '', '供应商A', 10, 50.0, '', '备注1'],
-            ['2026-09-14', test_branch.name, 'APR-001', '', '供应商B', 5, 20.0, '', '备注2'],
+            ['2026-09-14', test_branch.name, 'PUR-001', '', '供应商A', 10, 50.0, '研发部', '备注1'],
+            ['2026-09-14', test_branch.name, 'APR-001', '', '供应商B', 5, 20.0, '行政部', '备注2'],
         ]
         buf = _make_xlsx(headers, rows)
         resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=purchase')
@@ -647,7 +650,7 @@ class TestImportHeaderGuard:
         from apps.transfers.models import Transfer
         doc = Transfer.objects.get(action_type='purchase')
         line = doc.lines.first()
-        assert doc.供应商 == '供X' and line.数量 == 3 and float(line.单价) == 10.0 and line.本批规格 == '规格S'
+        assert line.供应商 == '供X' and line.数量 == 3 and float(line.单价) == 10.0 and line.本批规格 == '规格S'
 
     def test_remark_difference_still_merges(self, admin_client, test_branch):
         """两行备注不同（其余键同）→ 仍合一张单（备注取首行）。"""
