@@ -314,6 +314,33 @@ class TestNaturalOrder:
         codes = [r['内部编号'] for r in resp.data['results']]
         assert codes == [f'NB-001-BJX01-{i}' for i in range(1, 13)], codes
 
+    def test_branch_item_code_order(self, supervisor_user, branch, item_instance):
+        """排序：分公司 → 品目编号 → 序号自然序。"""
+        from apps.assets.models import FixedAsset
+        from apps.categories.models import Category
+        from apps.organizations.models import Branch
+        team = branch.team
+        bj = Branch.objects.get_or_create(name='北京排序分公司', code='BJX01', team=team)[0]
+        aa = Branch.objects.get_or_create(name='安庆排序分公司', code='AQX01', team=team)[0]
+        z_item = Category.objects.create(
+            asset_category='固定', item_category='办公', asset_name='Z品目',
+            asset_code='ZB-999', unit='台', management_type='instance')
+        for i in [2, 10, 1]:
+            FixedAsset.objects.create(item=z_item, 内部编号=f'ZB-999-BJX01-{i}', 当前状态='在库', branch=bj)
+        for i in [9, 1]:
+            FixedAsset.objects.create(item=item_instance, 内部编号=f'NB-001-BJX01-{i}', 当前状态='在库', branch=bj)
+        # 安庆（字母序在北京前）一品目一实例
+        FixedAsset.objects.create(item=item_instance, 内部编号='NB-001-AQX01-1', 当前状态='在库', branch=aa)
+        client = _client_for(supervisor_user)
+        resp = client.get('/api/assets/fixed-assets?pageSize=20')
+        codes = [r['内部编号'] for r in resp.data['results']]
+        # 分公司名按 DB 默认序（UTF-8 字节序：北<安），同司内品目→序号自然序
+        assert codes == [
+            'NB-001-BJX01-1', 'NB-001-BJX01-9',
+            'ZB-999-BJX01-1', 'ZB-999-BJX01-2', 'ZB-999-BJX01-10',
+            'NB-001-AQX01-1',
+        ], codes
+
     def test_export_natural_order(self, supervisor_user, branch, item_instance):
         import openpyxl
         from io import BytesIO
