@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getFixedAssets, exportFixedAssets, supplementFixedAsset, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage } from '@/api/assets'
+import { getFixedAssets, exportFixedAssets, supplementFixedAsset, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets } from '@/api/assets'
 import type { FixedAsset, FixedAssetTimeline } from '@/types'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
@@ -220,6 +220,61 @@ function printSelected() {
   showPrintDialog.value = true
 }
 
+// ── 批量操作（manage_instances）：供应商/备注/序列号 ──
+const batchMenuOpen = ref(false)
+const batchDialog = ref<'supplier' | 'remark' | 'serial' | null>(null)
+const batchValue = ref('')
+const batchSerials = ref<string[]>([])
+const batchSaving = ref(false)
+
+function openBatch(dialog: 'supplier' | 'remark' | 'serial') {
+  batchMenuOpen.value = false
+  batchDialog.value = dialog
+  batchValue.value = ''
+  batchSerials.value = selectedIds.value.size ? Array.from({ length: countSelected() }, () => '') : []
+}
+
+const countSelected = () => assets.value.filter((a) => selectedIds.value.has(a.id)).length
+const selectedIdList = () => assets.value.filter((a) => selectedIds.value.has(a.id)).map((a) => a.id)
+
+async function submitBatch() {
+  const ids = selectedIdList()
+  if (!ids.length) return
+  const payload: { ids: string[]; 供应商?: string; 备注?: string; 序列号列表?: string[] } = { ids }
+  if (batchDialog.value === 'supplier') payload.供应商 = batchValue.value.trim()
+  if (batchDialog.value === 'remark') payload.备注 = batchValue.value.trim()
+  if (batchDialog.value === 'serial') payload.序列号列表 = batchSerials.value.map((s) => s.trim())
+  batchSaving.value = true
+  try {
+    const { data } = await batchUpdateFixedAssets(payload)
+    const errs = data.errors || []
+    if (errs.length) {
+      ElMessage.warning(`成功 ${data.updated} 台，失败 ${errs.length} 台：${errs[0]}${errs.length > 1 ? ' 等' : ''}`)
+    } else {
+      ElMessage.success(`已更新 ${data.updated} 台`)
+    }
+    batchDialog.value = null
+    await fetchAssets()
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    batchSaving.value = false
+  }
+}
+
+const batchVisibleProxy = computed({
+  get: () => batchDialog.value !== null,
+  set: (v: boolean) => { if (!v) batchDialog.value = null },
+})
+const batchTitle = computed(() =>
+  batchDialog.value === 'supplier' ? '批量修改供应商' : batchDialog.value === 'remark' ? '批量修改备注' : '批量补录序列号',
+)
+const selectedRows = computed(() => assets.value.filter((a) => selectedIds.value.has(a.id)))
+function focusNextSerial(i: number) {
+  const els = document.querySelectorAll<HTMLInputElement>('.serial-input')
+  els[i + 1]?.focus()
+}
+
 /** 打印弹窗沿用旧字段形状（品目信息自联字典列映射） */
 function toPrintShape(item: FixedAsset) {
   return {
@@ -283,14 +338,17 @@ onMounted(() => { fetchAssets(); fetchBranches() })
         <p class="page-desc">一物一档 · 共{{ pagination.total }}台 · 变动经流转单</p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="printSelected">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="6 9 6 2 18 2 18 9"/>
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-            <rect x="6" y="14" width="12" height="8"/>
-          </svg>
-          打印标签{{ selectedIds.size ? `（${selectedIds.size}）` : '' }}
-        </button>
+        <div v-if="canSupplement" class="batch-wrap">
+          <button class="btn-secondary" @click="batchMenuOpen = !batchMenuOpen">
+            批量操作{{ selectedIds.size ? `（${selectedIds.size}）` : '' }} ▾
+          </button>
+          <div v-if="batchMenuOpen" class="batch-menu" @mouseleave="batchMenuOpen = false">
+            <button :disabled="!selectedIds.size" @click="printSelected">打印标签</button>
+            <button :disabled="!selectedIds.size" @click="openBatch('supplier')">修改供应商</button>
+            <button :disabled="!selectedIds.size" @click="openBatch('remark')">修改备注</button>
+            <button :disabled="!selectedIds.size" @click="openBatch('serial')">补录序列号</button>
+          </div>
+        </div>
         <button class="btn-secondary" @click="handleExport" :disabled="exporting">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -486,6 +544,28 @@ onMounted(() => { fetchAssets(); fetchBranches() })
       </template>
     </el-drawer>
 
+    <!-- 批量操作弹窗 -->
+    <el-dialog v-model="batchVisibleProxy" :title="batchTitle" width="460px" :close-on-click-modal="false">
+      <div v-if="batchDialog === 'serial'" class="serial-list">
+        <p class="serial-hint">逐台输入序列号（扫码后回车自动跳下一行），与勾选顺序一一对应：</p>
+        <div v-for="(a, i) in selectedRows" :key="a.id" class="serial-row">
+          <span class="serial-code">{{ a.内部编号 }}</span>
+          <input
+            v-model="batchSerials[i]"
+            type="text"
+            class="serial-input"
+            placeholder="扫码或输入"
+            @keydown.enter.prevent="focusNextSerial(i)"
+          />
+        </div>
+      </div>
+      <el-input v-else v-model="batchValue" :placeholder="batchDialog === 'supplier' ? '统一设置的供应商名称' : '统一设置的备注内容'" />
+      <template #footer>
+        <el-button @click="batchDialog = null">取消</el-button>
+        <el-button type="primary" :loading="batchSaving" @click="submitBatch">应用（{{ countSelected() }} 台）</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 标签打印弹窗 -->
     <AssetPrintDialog :visible="showPrintDialog" :assets="printItems" @close="showPrintDialog = false" />
   </div>
@@ -526,6 +606,16 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .pending-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: var(--text-xs); color: var(--color-warning, #b45309); background: var(--color-warning-bg, #fef3c7); }
 .image-cell { width: 56px; }
 .check-col { width: 36px; text-align: center; }
+.batch-wrap { position: relative; }
+.batch-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; min-width: 148px; }
+.batch-menu button { display: block; width: 100%; text-align: left; padding: 9px 12px; background: transparent; border: none; border-radius: 6px; font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; }
+.batch-menu button:hover { background: var(--color-primary-50); }
+.batch-menu button:disabled { color: var(--color-text-tertiary); cursor: not-allowed; }
+.serial-list { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+.serial-hint { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: 0 0 4px; }
+.serial-row { display: flex; align-items: center; gap: 10px; }
+.serial-code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-primary-600); min-width: 150px; }
+.serial-input { flex: 1; height: 34px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-page); font-size: var(--text-sm); color: var(--color-text-primary); }
 .check-col input { width: 15px; height: 15px; cursor: pointer; }
 .row-thumb { width: 40px; height: 40px; border-radius: 4px; display: block; }
 .thumb-empty { color: var(--color-text-tertiary); }

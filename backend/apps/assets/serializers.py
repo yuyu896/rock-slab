@@ -99,7 +99,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
     def get_供应商(self, obj):
         if obj.birth_line is None:
             return ''
-        return obj.birth_line.transfer.供应商 or ''
+        return obj.birth_line.供应商 or obj.birth_line.transfer.供应商 or ''
 
     def get_单价(self, obj):
         if obj.birth_line is None:

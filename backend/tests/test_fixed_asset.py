@@ -386,3 +386,79 @@ class TestItemSpecFromBirthLine:
         client = _client_for(supervisor_user)
         resp = client.get(f'/api/assets/fixed-assets/{inst.pk}')
         assert resp.data['item_spec'] == '存量规格'
+
+
+@pytest.mark.django_db
+class TestBatchUpdate:
+    """实例批量维护（第 31 案）：白名单 供应商/备注/序列号。"""
+
+    def _two(self, branch, item_instance):
+        from apps.assets.models import FixedAsset
+        import datetime
+        from apps.transfers.models import Transfer, TransferLine
+        t = Transfer.objects.create(
+            单据编号='BU20260915-001', 调拨日期=datetime.date(2026, 9, 15),
+            调入分公司=branch.name, to_branch=branch,
+            action_type='purchase', 审批状态='已入库',
+        )
+        l1 = TransferLine.objects.create(transfer=t, item=item_instance, 行号=1, 数量=1)
+        l2 = TransferLine.objects.create(transfer=t, item=item_instance, 行号=2, 数量=1)
+        a = FixedAsset.objects.create(item=item_instance, 内部编号='BU-1', 当前状态='在库', branch=branch, birth_line=l1)
+        b = FixedAsset.objects.create(item=item_instance, 内部编号='BU-2', 当前状态='在库', branch=branch, birth_line=l2)
+        return a, b
+
+    def test_batch_supplier_and_remark(self, supervisor_user, branch, item_instance):
+        _grant(supervisor_user, 'manage_instances')
+        a, b = self._two(branch, item_instance)
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(a.pk), str(b.pk)], '供应商': '联想', '备注': '首批',
+        }, format='json')
+        assert resp.status_code == 200 and resp.data['updated'] == 2
+        a.birth_line.refresh_from_db()
+        assert a.birth_line.供应商 == '联想'
+        b.refresh_from_db()
+        assert b.备注 == '首批'
+
+    def test_batch_serials_pairing(self, supervisor_user, branch, item_instance):
+        _grant(supervisor_user, 'manage_instances')
+        a, b = self._two(branch, item_instance)
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(a.pk), str(b.pk)], '序列号列表': ['SN-A', ''],
+        }, format='json')
+        assert resp.data['updated'] == 1
+        assert any('序列号为空' in e for e in resp.data['errors'])
+        a.refresh_from_db()
+        assert a.序列号 == 'SN-A'
+
+    def test_rejects_unknown_fields(self, supervisor_user, branch, inst):
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(inst.pk)], '当前状态': '在用',
+        }, format='json')
+        assert resp.status_code == 400
+        assert '多余字段' in resp.data['detail']
+
+    def test_requires_permission(self, supervisor_user, inst):
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(inst.pk)], '备注': 'x',
+        }, format='json')
+        assert resp.status_code == 403
+
+    def test_birth_line_supplier_preferred_on_instance(self, supervisor_user, branch, item_instance):
+        a, _ = self._two(branch, item_instance)
+        from rest_framework.test import APIRequestFactory
+        from rest_framework.request import Request
+        from apps.assets.serializers import FixedAssetSerializer
+        a.birth_line.供应商 = '华为'
+        a.birth_line.transfer.供应商 = '单头供应商'
+        a.birth_line.save(update_fields=['供应商'])
+        data = FixedAssetSerializer(a).data
+        assert data['供应商'] == '华为'  # 行级优先
+        a.birth_line.供应商 = ''
+        a.birth_line.save(update_fields=['供应商'])
+        data = FixedAssetSerializer(a).data
+        assert data['供应商'] == '单头供应商'  # 回退单头

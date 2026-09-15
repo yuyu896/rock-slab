@@ -819,6 +819,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             'item': item,
                             '数量': qty,
                             '本批规格': _cell(row, '规格型号'),
+                            '供应商': _cell(row, '供应商'),  # 行级：一单多供应商
                             '单价': price,
                             '金额': (round(float(price) * qty, 2) if price is not None else None),
                         }

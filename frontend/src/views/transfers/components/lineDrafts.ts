@@ -7,6 +7,7 @@ export interface LineDraft {
   item: ItemSummary | null
   数量: number
   本批规格: string
+  行供应商: string
   单价: number | null
   金额: number | null
   使用人: string
@@ -24,6 +25,7 @@ export function emptyDraft(): LineDraft {
     item: null,
     数量: 1,
     本批规格: '',
+    行供应商: '',
     单价: null,
     金额: null,
     使用人: '',
@@ -41,6 +43,7 @@ export function draftsToItems(drafts: LineDraft[]): TransferLineInput[] {
       item: d.item!.id,
       数量: d.数量,
       本批规格: d.本批规格 || undefined,
+      供应商: d.行供应商 || undefined,
       单价: d.单价 ?? undefined,
       金额: d.金额 ?? undefined,
       使用人: d.使用人 || undefined,
@@ -67,6 +70,7 @@ export function draftsFromLines(lines: TransferLine[]): LineDraft[] {
     }
     draft.数量 = line.数量
     draft.本批规格 = line.本批规格 || ''
+    draft.行供应商 = (line as any).供应商 || ''
     draft.单价 = line.单价 ?? null
     draft.金额 = line.金额 ?? null
     draft.使用人 = line.使用人 || ''

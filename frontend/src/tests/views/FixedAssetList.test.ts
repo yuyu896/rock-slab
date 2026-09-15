@@ -25,6 +25,7 @@ vi.mock('@/api/assets', () => ({
   getFixedAssetTimeline: vi.fn(),
   uploadFixedAssetImage: vi.fn(),
   deleteFixedAssetImage: vi.fn(),
+  batchUpdateFixedAssets: vi.fn(),
 }))
 
 vi.mock('@/api/branches', () => ({
@@ -55,12 +56,12 @@ const stubs = {
   BasePagination: { template: '<div />' },
   StatusBadge: { props: ['status'], template: '<span>{{ status }}</span>' },
   AssetPrintDialog: { props: ['assets', 'visible'], template: '<div class="print-stub">{{ assets.length }}-{{ visible }}</div>' },
-  'el-dialog': { props: ['modelValue'], template: '<div><slot /></div>' },
+  'el-dialog': { props: ['modelValue'], template: `<div><slot /><slot name="footer" /></div>` },
   'el-drawer': { props: ['modelValue'], template: '<div><slot /></div>' },
   'el-image': { props: ['src'], template: '<img class="el-image-stub" :src="src" />' },
   'el-form': { template: '<div><slot /></div>' },
   'el-form-item': { template: '<div><slot /></div>' },
-  'el-input': { template: '<input />' },
+  'el-input': { props: ['modelValue'], emits: ['update:modelValue'], template: `<input class="el-input-stub" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" />` },
   'el-button': { template: '<button><slot /></button>' },
 }
 
@@ -99,7 +100,10 @@ describe('FixedAssetList 物品图片', () => {
     expect(checks).toHaveLength(2)
     await checks[0].setValue(true)
     await checks[1].setValue(true)
-    const printBtn = wrapper.findAll('button').find(b => b.text().includes('打印标签（2）'))
+    const batchBtn = wrapper.findAll('button').find(b => b.text().includes('批量操作（2）'))
+    expect(batchBtn).toBeTruthy()
+    await batchBtn!.trigger('click')
+    const printBtn = wrapper.find('.batch-menu').findAll('button').find(b => b.text() === '打印标签')
     expect(printBtn).toBeTruthy()
     await printBtn!.trigger('click')
     expect(wrapper.find('.print-stub').text()).toBe('2-true')
@@ -160,5 +164,40 @@ describe('FixedAssetList 物品图片', () => {
     const thumb = wrapper.find('.data-table tbody img')
     expect(thumb.exists()).toBe(true)
     expect(thumb.attributes('src')).toBe('/media/fixed_assets/new.jpg')
+  })
+})
+
+describe('实例批量操作', () => {
+  it('勾选后批量菜单渲染四项，供应商弹窗提交 batch-update', async () => {
+    const { batchUpdateFixedAssets } = await import('@/api/assets')
+    vi.mocked(batchUpdateFixedAssets).mockResolvedValue({
+      data: { updated: 2, results: ['A-1', 'A-2'], errors: [] },
+    } as any)
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 2, results: [
+        _inst({ id: 'fa-1', 图片: null }), _inst({ id: 'fa-2', 图片: null }),
+      ] },
+    } as any)
+    const wrapper = await _mount()
+    const checks = wrapper.findAll('tbody .check-col input[type=checkbox]')
+    await checks[0].setValue(true)
+    await checks[1].setValue(true)
+    const batchBtn = wrapper.findAll('button').find(b => b.text().includes('批量操作（2）'))
+    expect(batchBtn).toBeTruthy()
+    await batchBtn!.trigger('click')
+    const menu = wrapper.find('.batch-menu')
+    expect(menu.exists()).toBe(true)
+    expect(menu.text()).toContain('修改供应商')
+    expect(menu.text()).toContain('补录序列号')
+
+    await menu.findAll('button').find(b => b.text() === '修改供应商')!.trigger('click')
+    expect(wrapper.find('.el-dialog').exists() || wrapper.text()).toBeTruthy()
+    const input = wrapper.find('.el-input-stub')
+    await input.setValue('联想')
+    await wrapper.findAll('button').find(b => b.text().includes('应用（2 台）'))!.trigger('click')
+    await flushPromises()
+    expect(batchUpdateFixedAssets).toHaveBeenCalledWith(
+      expect.objectContaining({ ids: ['fa-1', 'fa-2'], 供应商: '联想' }),
+    )
   })
 })

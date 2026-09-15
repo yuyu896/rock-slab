@@ -23,7 +23,7 @@ class TransferLineSerializer(serializers.ModelSerializer):
         fields = [
             'id', '行号', 'item', 'item_code', 'item_name', 'item_spec', 'unit',
             'asset_category', 'item_category', 'management_type',
-            '数量', '本批规格', '单价', '金额', '使用人',
+            '数量', '本批规格', '供应商', '单价', '金额', '使用人',
             'department', 'department_name', '存放位置', 'instances',
         ]
         read_only_fields = ['id', '行号']
@@ -88,6 +88,7 @@ class TransferLineInputSerializer(serializers.Serializer):
     item = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
     数量 = serializers.IntegerField(min_value=1)
     本批规格 = serializers.CharField(required=False, default='', allow_blank=True)
+    供应商 = serializers.CharField(required=False, default='', allow_blank=True)
     单价 = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True,
     )

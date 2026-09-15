@@ -229,6 +229,7 @@ defineExpose({ validate, validateMessage })
         <span>品目 <span class="req">*</span></span>
         <span>数量 <span class="req">*</span></span>
         <span v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'">本批规格</span>
+        <span v-if="type === 'purchase'">行供应商</span>
         <span v-if="type === 'purchase'">单价</span>
         <span v-if="type === 'purchase'">金额</span>
         <span v-if="type === 'assign'">使用人 <span class="req">*</span></span>
@@ -268,6 +269,7 @@ defineExpose({ validate, validateMessage })
           >在用 {{ inUseOf(draft.item.asset_code) }}</div>
         </div>
         <div v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'" class="cell"><input v-model="draft.本批规格" type="text" class="row-input" placeholder="记录性" @change="touch" /></div>
+        <div v-if="type === 'purchase'" class="cell"><input v-model="draft.行供应商" type="text" class="row-input" placeholder="留空用单头" @change="touch" /></div>
         <div v-if="type === 'purchase'" class="cell"><input v-model.number="draft.单价" type="number" class="row-input num" min="0" step="0.01" @change="onPriceChange(index)" /></div>
         <div v-if="type === 'purchase'" class="cell"><input v-model.number="draft.金额" type="number" class="row-input num" min="0" step="0.01" @change="onAmountChange(index)" /></div>
         <div v-if="type === 'assign'" class="cell"><input v-model="draft.使用人" type="text" class="row-input" placeholder="使用人姓名" @change="touch" /></div>
@@ -313,7 +315,7 @@ defineExpose({ validate, validateMessage })
 .lines-header, .lines-row { display: grid; gap: 8px; padding: 8px 12px; align-items: center; }
 .lines-header { background: var(--color-bg-elevated); font-size: 13px; color: var(--color-text-secondary); }
 .lines-row { border-top: 1px solid var(--color-border); }
-.lines-header[data-type='purchase'] , .lines-row[data-type='purchase'] { grid-template-columns: 2.2fr 0.6fr 1fr 0.9fr 0.9fr 56px; }
+.lines-header[data-type='purchase'] , .lines-row[data-type='purchase'] { grid-template-columns: 2fr 0.55fr 1fr 1fr 0.85fr 0.85fr 56px; }
 .lines-header[data-type='assign'] , .lines-row[data-type='assign'] { grid-template-columns: 2fr 0.55fr 1fr 1.1fr 1.6fr 56px; }
 .lines-header[data-type='transfer'] , .lines-row[data-type='transfer'] { grid-template-columns: 2.2fr 0.6fr 1.1fr 1.5fr 56px; }
 .lines-header[data-type='recovery'] , .lines-row[data-type='recovery'] { grid-template-columns: 1.9fr 0.55fr 0.9fr 1fr 1.5fr 56px; }

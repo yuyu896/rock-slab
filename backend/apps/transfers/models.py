@@ -193,6 +193,7 @@ class TransferLine(UUIDModel, TimestampedModel):
     行号 = models.IntegerField('行号')
     数量 = models.PositiveIntegerField('数量')
     本批规格 = models.CharField('本批规格（记录性）', max_length=200, blank=True, default='')
+    供应商 = models.CharField('供应商（行级，空=继承单头）', max_length=200, blank=True, default='')
     单价 = models.DecimalField('单价', max_digits=12, decimal_places=2, null=True, blank=True)
     金额 = models.DecimalField('金额', max_digits=14, decimal_places=2, null=True, blank=True)
     使用人 = models.CharField('使用人（记录性）', max_length=100, blank=True, default='')

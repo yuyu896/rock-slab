@@ -76,6 +76,8 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
                 err(row_no, item.asset_code, '领用行必须填写使用人')
             if entry.get('department') is None:
                 err(row_no, item.asset_code, '领用行必须选择领用部门')
+        if action_type != 'purchase' and (entry.get('供应商') or '').strip():
+            err(row_no, item.asset_code, '行级供应商仅采购行支持')
         if item.management_type != 'instance':
             if insts:
                 err(row_no, item.asset_code, '非实例管理品目无需选择实例')

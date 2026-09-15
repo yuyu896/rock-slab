@@ -1,4 +1,5 @@
 import io
+from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -384,6 +385,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     required_operations = {
         'supplement': 'manage_instances',
         'image': 'manage_instances',
+        'batch_update': 'manage_instances',
     }
 
     def get_queryset(self):
@@ -463,6 +465,66 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         )
         response['Content-Disposition'] = 'attachment; filename="fixed_assets.xlsx"'
         return response
+
+    @action(detail=False, methods=['post'], url_path='batch-update')
+    def batch_update(self, request):
+        """实例批量维护（第 31 案）：白名单 供应商（出生行）/备注/序列号（一一对应）。
+
+        状态/使用人/分公司等字段禁改（变动经流转单，铁律 2）；逐台校验与结果返回。
+        """
+        ids = request.data.get('ids') or []
+        supplier = request.data.get('供应商')
+        remark = request.data.get('备注')
+        serials = request.data.get('序列号列表') or []
+        unknown = set(request.data) - {'ids', '供应商', '备注', '序列号列表'}
+        if unknown:
+            return Response(
+                {'detail': f'批量维护仅支持 供应商/备注/序列号，多余字段：{"、".join(sorted(unknown))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not ids:
+            return Response({'detail': '请先勾选实例'}, status=status.HTTP_400_BAD_REQUEST)
+        if serials and len(serials) != len(ids):
+            return Response(
+                {'detail': f'序列号数量（{len(serials)}）与实例数（{len(ids)}）不一致'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if supplier is None and remark is None and not serials:
+            return Response({'detail': '未指定任何修改内容'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.assets.models import FixedAsset
+        from uuid import UUID
+        results, errors = [], []
+        qs = FixedAsset.objects.select_related('birth_line').in_bulk(ids)
+        for pos, iid in enumerate(ids):
+            key = UUID(str(iid)) if isinstance(iid, str) else iid
+            inst = qs.get(key)
+            if inst is None:
+                errors.append(f'{iid}: 实例不存在')
+                continue
+            try:
+                with transaction.atomic():
+                    if supplier is not None:
+                        if inst.birth_line is None:
+                            raise ValueError('无出生行（存量档案），跳过供应商修改')
+                        inst.birth_line.供应商 = supplier
+                        inst.birth_line.save(update_fields=['供应商', 'updated_at'])
+                    if remark is not None:
+                        inst.备注 = remark
+                        inst.save(update_fields=['备注', 'updated_at'])
+                    if serials:
+                        sn = (serials[pos] or '').strip()
+                        if not sn:
+                            raise ValueError('序列号为空')
+                        dup = FixedAsset.objects.filter(序列号=sn).exclude(pk=inst.pk).exists()
+                        if dup:
+                            raise ValueError(f'序列号 {sn} 已被其他实例使用')
+                        inst.序列号 = sn
+                        inst.save(update_fields=['序列号', 'updated_at'])
+                results.append(str(inst.内部编号))
+            except (ValueError, Exception) as e:
+                errors.append(f'{inst.内部编号 if inst else iid}: {e}')
+        return Response({'updated': len(results), 'results': results, 'errors': errors})
 
     @action(detail=True, methods=['patch'], url_path='supplement')
     def supplement(self, request, pk=None):
