@@ -261,3 +261,21 @@ class DocumentSequence(UUIDModel, TimestampedModel):
 
     def __str__(self):
         return f'{self.action_type} {self.date} #{self.last_no}'
+
+
+class ImportFingerprint(UUIDModel, TimestampedModel):
+    """导入文件防重传指纹：同一上传者的同一文件 24h 内重传即拒（第 30 案）。"""
+
+    user = models.ForeignKey(
+        'users.User', on_delete=models.CASCADE,
+        related_name='import_fingerprints', verbose_name='上传者',
+    )
+    sha1 = models.CharField('文件指纹', max_length=40)
+
+    class Meta:
+        db_table = 'transfers_importfingerprint'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'sha1'], name='uniq_import_fp_user_sha1'),
+        ]
+        verbose_name = '导入指纹'
+        verbose_name_plural = '导入指纹'

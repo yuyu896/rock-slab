@@ -677,6 +677,23 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         template_type = request.query_params.get('type', 'transfer')
 
+        # 文件指纹防重传：同上传者同文件 24h 内重传即拒（跨次上传去重，第 30 案）
+        import hashlib
+        from datetime import timedelta
+        from .models import ImportFingerprint
+        file_bytes = file.read()
+        file.seek(0)
+        fp = hashlib.sha1(file_bytes).hexdigest()
+        recent = ImportFingerprint.objects.filter(
+            user=request.user, sha1=fp,
+            created_at__gte=timezone.now() - timedelta(hours=24),
+        ).exists()
+        if recent:
+            return Response(
+                {'detail': '该文件 24 小时内已导入过，请勿重复上传；如确需重导请修改文件内容'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             wb = openpyxl.load_workbook(file, read_only=True)
             ws = wb.active
@@ -950,4 +967,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             imported += 1
 
         wb.close()
+        # 解析成功（未整体 400）即落指纹：后续重传同文件 24h 内被拒
+        ImportFingerprint.objects.get_or_create(user=request.user, sha1=fp)
         return Response({'imported': imported, 'imported_lines': imported_lines, 'errors': errors})

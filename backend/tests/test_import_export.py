@@ -661,3 +661,38 @@ class TestImportHeaderGuard:
         assert resp.data['imported'] == 1
         doc = Transfer.objects.get(action_type='purchase')
         assert doc.lines.count() == 2 and doc.备注 == '备注A'
+
+
+@pytest.mark.django_db
+class TestImportFingerprint:
+    """文件防重传（第 30 案）：同上传者同文件 24h 内重传拒。"""
+
+    def _upload(self, client, buf):
+        return _upload_url(client, '/api/transfers/import', buf, 'type=purchase')
+
+    def test_same_file_rejected(self, admin_client, test_branch):
+        from apps.transfers.models import Transfer
+        headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
+        buf = _make_xlsx(headers, [['2026-09-15', test_branch.name, 'PUR-001', '', 'S', 1, 10, '', '']])
+        r1 = self._upload(admin_client, buf)
+        assert r1.status_code == 200
+        buf2 = _make_xlsx(headers, [['2026-09-15', test_branch.name, 'PUR-001', '', 'S', 1, 10, '', '']])
+        r2 = self._upload(admin_client, buf2)
+        assert r2.status_code == 400
+        assert '请勿重复上传' in str(r2.data['detail'])
+        assert Transfer.objects.filter(action_type='purchase').count() == 1
+
+    def test_modified_file_passes(self, admin_client, test_branch):
+        headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
+        buf = _make_xlsx(headers, [['2026-09-15', test_branch.name, 'PUR-001', '', 'S', 1, 10, '', '']])
+        assert self._upload(admin_client, buf).status_code == 200
+        buf_mod = _make_xlsx(headers, [['2026-09-15', test_branch.name, 'PUR-001', '', 'S', 2, 10, '', '']])
+        assert self._upload(admin_client, buf_mod).status_code == 200
+
+    def test_rejected_by_header_guard_no_fingerprint(self, admin_client, test_branch):
+        """表头不符整体 400 时不落指纹（允许修正模板后重传）。"""
+        from apps.transfers.models import ImportFingerprint
+        legacy = ['采购日期', '分公司', '资产编号', '物品名称']
+        buf = _make_xlsx(legacy, [['2026-09-15', test_branch.name, 'X', 'y']])
+        assert self._upload(admin_client, buf).status_code == 400
+        assert ImportFingerprint.objects.count() == 0
