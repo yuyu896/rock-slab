@@ -293,3 +293,39 @@ class TestTimeline:
         actions = [row['action_type'] for row in resp.data['timeline']]
         assert actions == ['assign', 'purchase']  # 倒序
         assert resp.data['timeline'][0]['使用人'] == '张三'
+
+
+@pytest.mark.django_db
+class TestNaturalOrder:
+    """实例编号自然排序（第 28 案）：跨位数 -1..-12 按数字序。"""
+
+    def test_list_natural_order(self, supervisor_user, branch, item_instance, branch_factory=None):
+        from apps.assets.models import FixedAsset
+        from apps.organizations.models import Branch
+        bj = Branch.objects.get_or_create(name='北京排序分公司', code='BJX01', team=branch.team)[0]
+        made = []
+        for i in range(1, 13):
+            made.append(FixedAsset.objects.create(
+                item=item_instance, 内部编号=f'NB-001-BJX01-{i}',
+                当前状态='在库', branch=bj,
+            ))
+        client = _client_for(supervisor_user)
+        resp = client.get('/api/assets/fixed-assets?branch=北京排序分公司&pageSize=20')
+        codes = [r['内部编号'] for r in resp.data['results']]
+        assert codes == [f'NB-001-BJX01-{i}' for i in range(1, 13)], codes
+
+    def test_export_natural_order(self, supervisor_user, branch, item_instance):
+        import openpyxl
+        from io import BytesIO
+        from apps.assets.models import FixedAsset
+        from apps.organizations.models import Branch
+        bj = Branch.objects.get_or_create(name='北京排序分公司', code='BJX01', team=branch.team)[0]
+        for i in [2, 10, 1, 11]:
+            FixedAsset.objects.create(
+                item=item_instance, 内部编号=f'NB-001-BJX01-{i}', 当前状态='在库', branch=bj,
+            )
+        client = _client_for(supervisor_user)
+        resp = client.get('/api/assets/fixed-assets/export?branch=北京排序分公司')
+        ws = openpyxl.load_workbook(BytesIO(resp.content)).active
+        codes = [ws.cell(row=r, column=3).value for r in range(2, ws.max_row + 1)]
+        assert codes == ['NB-001-BJX01-1', 'NB-001-BJX01-2', 'NB-001-BJX01-10', 'NB-001-BJX01-11']

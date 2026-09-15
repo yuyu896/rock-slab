@@ -387,7 +387,11 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     }
 
     def get_queryset(self):
+        from django.db.models.functions import Length
         qs = super().get_queryset()
+        # 编号自然序：尾段数字无补零，字符串序会 -1,-10,-2 乱序；
+        # (长度, 编号) 复合键 = 同前缀数字序（跨库兼容，列表/导出同序）
+        qs = qs.order_by(Length('内部编号').asc(), '内部编号')
         return self.get_scoped_queryset(qs)
 
     def _frozen(self, request):
