@@ -61,7 +61,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
     item = serializers.PrimaryKeyRelatedField(read_only=True)
     item_code = serializers.CharField(source='item.asset_code', read_only=True)
     item_name = serializers.CharField(source='item.asset_name', read_only=True)
-    item_spec = serializers.CharField(source='item.specification', read_only=True, default='')
+    item_spec = serializers.SerializerMethodField()
     asset_category = serializers.CharField(source='item.asset_category', read_only=True, default='')
     item_category = serializers.CharField(source='item.item_category', read_only=True, default='')
     management_type = serializers.ChoiceField(
@@ -89,6 +89,12 @@ class FixedAssetSerializer(serializers.ModelSerializer):
 
     def get_待补录(self, obj):
         return not (obj.序列号 or '').strip()
+
+    def get_item_spec(self, obj):
+        """规格：出生行本批规格优先（批次实际规格），空则回退品目字典规格。"""
+        if obj.birth_line is not None and obj.birth_line.本批规格:
+            return obj.birth_line.本批规格
+        return obj.item.specification or ''
 
     def get_供应商(self, obj):
         if obj.birth_line is None:

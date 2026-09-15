@@ -356,3 +356,33 @@ class TestNaturalOrder:
         ws = openpyxl.load_workbook(BytesIO(resp.content)).active
         codes = [ws.cell(row=r, column=3).value for r in range(2, ws.max_row + 1)]
         assert codes == ['NB-001-BJX01-1', 'NB-001-BJX01-2', 'NB-001-BJX01-10', 'NB-001-BJX01-11']
+
+
+@pytest.mark.django_db
+class TestItemSpecFromBirthLine:
+    """实例规格：出生行本批规格优先，空回退品目字典（第 29 案）。"""
+
+    def test_birth_spec_preferred(self, supervisor_user, branch, inst):
+        line = _purchase_doc(branch, inst.item)
+        line.本批规格 = 'OPPO 128G'
+        line.save(update_fields=['本批规格'])
+        inst.birth_line = line
+        inst.save(update_fields=['birth_line'])
+        client = _client_for(supervisor_user)
+        resp = client.get(f'/api/assets/fixed-assets/{inst.pk}')
+        assert resp.data['item_spec'] == 'OPPO 128G'
+
+    def test_fallback_to_dictionary(self, supervisor_user, branch, inst):
+        # 出生行本批规格空 → 回退字典规格
+        inst.item.specification = '字典标准规格'
+        inst.item.save(update_fields=['specification'])
+        client = _client_for(supervisor_user)
+        resp = client.get(f'/api/assets/fixed-assets/{inst.pk}')
+        assert resp.data['item_spec'] == '字典标准规格'
+
+    def test_no_birth_line_uses_dictionary(self, supervisor_user, branch, inst):
+        inst.item.specification = '存量规格'
+        inst.item.save(update_fields=['specification'])
+        client = _client_for(supervisor_user)
+        resp = client.get(f'/api/assets/fixed-assets/{inst.pk}')
+        assert resp.data['item_spec'] == '存量规格'
