@@ -73,6 +73,11 @@ function fitLabelLines() {
   })
 }
 
+/** 供应商·采购日期合并行文案（与 labelImage.buildLabelLines 同规则：空值过滤） */
+function supplierDateLine(asset: Record<string, any>): string {
+  return [asset.供应商, asset.采购日期].filter(Boolean).join(' · ')
+}
+
 function executePrint() {
   window.print()
 }
@@ -149,7 +154,9 @@ onBeforeUnmount(() => {
                 <div class="label-code fit">{{ asset.内部编号 }}</div>
                 <div v-if="asset.序列号" class="label-sn fit">SN: {{ asset.序列号 }}</div>
                 <div class="label-name fit">{{ asset.资产名称 }}</div>
-                <div class="label-aux fit">品目 {{ asset.品目编号 }} · {{ asset.分公司 }}</div>
+                <div class="label-aux fit">品目 {{ asset.品目编号 }}</div>
+                <div v-if="asset.分公司" class="label-aux fit">{{ asset.分公司 }}</div>
+                <div v-if="supplierDateLine(asset)" class="label-aux fit">{{ supplierDateLine(asset) }}</div>
               </div>
             </div>
           </div>
@@ -215,11 +222,12 @@ onBeforeUnmount(() => {
   border: 0.3mm solid #999; background: #fff; color: #000; overflow: hidden;
 }
 .paper-60x40 .print-label:not(:last-child) { break-after: page; page-break-after: always; }
-.paper-60x40 .label-info { display: flex; flex-direction: column; gap: 0.6mm; min-width: 0; flex: 1; }
-.paper-60x40 .label-code { font-family: var(--font-mono, monospace); font-size: 3.2mm; font-weight: 700; color: #000; }
-.paper-60x40 .label-sn { font-family: var(--font-mono, monospace); font-size: 2.8mm; color: #000; }
-.paper-60x40 .label-name { font-size: 3mm; font-weight: 600; color: #000; }
-.paper-60x40 .label-aux { font-size: 2.4mm; color: #444; }
+/* V2：字号上调、行距收紧；margin-top 上移 0.4mm 校正垂直居中（与 LABEL_SPEC.blockLiftMm 同参） */
+.paper-60x40 .label-info { display: flex; flex-direction: column; gap: 0.5mm; min-width: 0; flex: 1; margin-top: -0.4mm; }
+.paper-60x40 .label-code { font-family: var(--font-mono, monospace); font-size: 3.6mm; font-weight: 700; color: #000; }
+.paper-60x40 .label-sn { font-family: var(--font-mono, monospace); font-size: 3mm; color: #000; }
+.paper-60x40 .label-name { font-size: 3.4mm; font-weight: 600; color: #000; }
+.paper-60x40 .label-aux { font-size: 2.6mm; color: #444; }
 .paper-60x40 .fit { white-space: nowrap; overflow: hidden; }
 
 /* ── A4 双列（普通打印机）：卡片流式分页 ── */

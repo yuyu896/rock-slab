@@ -275,7 +275,7 @@ function focusNextSerial(i: number) {
   els[i + 1]?.focus()
 }
 
-/** 打印标签 V1 形状：QR 编码内部编号，SN/品目信息随签（品目信息自联字典列映射） */
+/** 打印标签 V2 形状：QR 编码内部编号，SN/品目/供应商/采购日期随签（品目信息自联字典列映射） */
 function toPrintShape(item: FixedAsset) {
   return {
     id: item.id,
@@ -284,6 +284,8 @@ function toPrintShape(item: FixedAsset) {
     资产名称: item.itemName || '',
     品目编号: item.itemCode || '',
     分公司: item.branchName || '',
+    供应商: item.供应商 || '',
+    采购日期: item.采购日期 || '',
   }
 }
 

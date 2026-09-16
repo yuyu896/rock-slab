@@ -7,6 +7,8 @@ export interface LabelAssetShape {
   资产名称?: string
   品目编号?: string
   分公司?: string
+  供应商?: string
+  采购日期?: string
 }
 
 export const LABEL_SPEC = {
@@ -19,14 +21,16 @@ export const LABEL_SPEC = {
   qrQuietMm: 2,
   qrGapMm: 1.5,
   borderWidthMm: 0.3,
-  lineGapMm: 0.6,
-  lineHeightFactor: 1.25,
+  lineGapMm: 0.5,
+  lineHeightFactor: 1.2,
+  /** 垂直居中后的整体上移量：抵消行盒下行空隙导致的视觉偏下 */
+  blockLiftMm: 0.4,
   fontMinMm: 2.2,
   fonts: {
-    code: { sizeMm: 3.2, weight: '700', mono: true, color: '#000' },
-    sn: { sizeMm: 2.8, weight: '400', mono: true, color: '#000' },
-    name: { sizeMm: 3.0, weight: '600', mono: false, color: '#000' },
-    aux: { sizeMm: 2.4, weight: '400', mono: false, color: '#444' },
+    code: { sizeMm: 3.6, weight: '700', mono: true, color: '#000' },
+    sn: { sizeMm: 3.0, weight: '400', mono: true, color: '#000' },
+    name: { sizeMm: 3.4, weight: '600', mono: false, color: '#000' },
+    aux: { sizeMm: 2.6, weight: '400', mono: false, color: '#444' },
   },
 } as const
 
@@ -45,12 +49,15 @@ export interface MeasureFn {
   (text: string, font: { sizePx: number; weight: string; mono: boolean }): number
 }
 
-/** 三区文案行：SN 为空整行跳过（与打印版式同规则） */
+/** V2 六行集：品目编号/分公司分行，供应商·采购日期合并行；空值行隐藏（与打印版式同规则） */
 export function buildLabelLines(asset: LabelAssetShape): LabelLine[] {
   const lines: LabelLine[] = [{ text: asset.内部编号, ...LABEL_SPEC.fonts.code }]
   if (asset.序列号) lines.push({ text: `SN: ${asset.序列号}`, ...LABEL_SPEC.fonts.sn })
   lines.push({ text: asset.资产名称 || '', ...LABEL_SPEC.fonts.name })
-  lines.push({ text: `品目 ${asset.品目编号 || ''} · ${asset.分公司 || ''}`, ...LABEL_SPEC.fonts.aux })
+  lines.push({ text: `品目 ${asset.品目编号 || ''}`, ...LABEL_SPEC.fonts.aux })
+  if (asset.分公司) lines.push({ text: asset.分公司, ...LABEL_SPEC.fonts.aux })
+  const tail = [asset.供应商, asset.采购日期].filter(Boolean).join(' · ')
+  if (tail) lines.push({ text: tail, ...LABEL_SPEC.fonts.aux })
   return lines
 }
 
@@ -75,7 +82,7 @@ export function computeLabelLayout(asset: LabelAssetShape, measure: MeasureFn, p
   const blockHeightMm = lines.reduce(
     (sum, l) => sum + l.sizeMm * LABEL_SPEC.lineHeightFactor, 0,
   ) + (lines.length - 1) * LABEL_SPEC.lineGapMm
-  const { heightMm, paddingMm, qrSizeMm, qrQuietMm, qrGapMm } = LABEL_SPEC
+  const { heightMm, paddingMm, qrSizeMm, qrQuietMm, qrGapMm, blockLiftMm } = LABEL_SPEC
   return {
     lines,
     qrText: asset.内部编号,
@@ -83,7 +90,7 @@ export function computeLabelLayout(asset: LabelAssetShape, measure: MeasureFn, p
     qrYMm: (heightMm - qrSizeMm) / 2,
     qrSizeMm,
     textXMm: paddingMm + qrSizeMm + qrQuietMm * 2 + qrGapMm,
-    blockTopMm: (heightMm - blockHeightMm) / 2,
+    blockTopMm: (heightMm - blockHeightMm) / 2 - blockLiftMm,
     blockHeightMm,
   }
 }
