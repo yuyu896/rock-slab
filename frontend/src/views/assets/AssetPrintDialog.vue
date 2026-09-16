@@ -45,35 +45,32 @@ watch(() => props.visible, (val) => {
 </script>
 
 <template>
-  <!-- Teleport 到 body：与 #app 平级，打印媒体查询隐藏 #app 后仅输出本弹窗的标签区 -->
-  <Teleport to="body">
-    <div v-if="visible" class="modal-overlay" @click.self="emit('close')">
-      <div class="modal-content print-modal">
-        <div class="modal-header">
-          <h3>打印标签 ({{ assets.length }} 项)</h3>
-          <button class="modal-close" @click="emit('close')">&times;</button>
-        </div>
-        <div class="modal-body print-body">
-          <div id="print-area" class="print-labels">
-            <div v-for="asset in assets" :key="asset.id" class="print-label">
-              <div class="label-barcode">
-                <svg :id="'barcode-' + asset.id"></svg>
-              </div>
-              <div class="label-info">
-                <div class="label-name">{{ asset.资产名称 }}</div>
-                <div class="label-code">{{ asset.资产编号 }}</div>
-                <div class="label-branch">{{ asset.分公司 }}</div>
-              </div>
+  <div v-if="visible" class="modal-overlay" @click.self="emit('close')">
+    <div class="modal-content print-modal">
+      <div class="modal-header">
+        <h3>打印标签 ({{ assets.length }} 项)</h3>
+        <button class="modal-close" @click="emit('close')">&times;</button>
+      </div>
+      <div class="modal-body print-body">
+        <div id="print-area" class="print-labels">
+          <div v-for="asset in assets" :key="asset.id" class="print-label">
+            <div class="label-barcode">
+              <svg :id="'barcode-' + asset.id"></svg>
+            </div>
+            <div class="label-info">
+              <div class="label-name">{{ asset.资产名称 }}</div>
+              <div class="label-code">{{ asset.资产编号 }}</div>
+              <div class="label-branch">{{ asset.分公司 }}</div>
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="emit('close')">关闭</button>
-          <button class="btn-confirm" @click="executePrint">打印</button>
-        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" @click="emit('close')">关闭</button>
+        <button class="btn-confirm" @click="executePrint">打印</button>
       </div>
     </div>
-  </Teleport>
+  </div>
 </template>
 
 <style scoped>
@@ -94,28 +91,4 @@ watch(() => props.visible, (val) => {
 .label-branch { font-size: 12px; color: var(--color-text-secondary); }
 .btn-cancel { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-elevated); cursor: pointer; font-size: 14px; }
 .btn-confirm { padding: 8px 20px; border-radius: 8px; border: none; background: var(--color-primary); color: #fff; cursor: pointer; font-size: 14px; }
-
-/* 打印态：只输出标签网格（配合下方非 scoped 块隐藏 #app），配色用固定值绕开深色模式 */
-@media print {
-  .modal-overlay { position: static; background: none; display: block; }
-  .modal-content { max-height: none; overflow: visible; width: 100%; max-width: none; border: none; border-radius: 0; background: #fff; }
-  .modal-header, .modal-footer { display: none; }
-  .modal-body { padding: 0; }
-  .print-label { break-inside: avoid; page-break-inside: avoid; border: 1px solid #999; background: #fff; }
-  .label-name, .label-code { color: #000; }
-  .label-branch { color: #444; }
-}
-</style>
-
-<!-- 非 scoped：打印输出隔离。本组件是唯一打印源，规则随组件走：打印时隐藏应用壳（#app），
-     仅输出 Teleport 到 body 的标签区；白底固定不受深色模式影响 -->
-<style>
-@page {
-  margin: 8mm;
-}
-
-@media print {
-  #app { display: none !important; }
-  body { background: #fff !important; }
-}
 </style>
