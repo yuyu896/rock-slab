@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import QRCode from 'qrcode'
+import { labelFileName, renderLabelDataUrl } from '@/utils/labelImage'
+import type { LabelAssetShape } from '@/utils/labelImage'
 /* 打印对象为字段映射后的宽松形状（内部编号/序列号/品目信息） */
 type Asset = Record<string, any>
 
@@ -75,6 +77,43 @@ function executePrint() {
   window.print()
 }
 
+// ── 导出图片（第二输出通道：App 生态蓝牙标签机经相册图片打印） ──
+const exportMode = ref(false)
+const exportItems = ref<Array<{ url: string; name: string }>>([])
+const exporting = ref(false)
+
+async function openExport() {
+  exporting.value = true
+  exportMode.value = true
+  try {
+    exportItems.value = await Promise.all(props.assets.map(async asset => {
+      const shape = asset as unknown as LabelAssetShape
+      return { url: await renderLabelDataUrl(shape), name: labelFileName(shape) }
+    }))
+  } catch {
+    exportMode.value = false
+  } finally {
+    exporting.value = false
+  }
+}
+
+function backToPreview() {
+  exportMode.value = false
+}
+
+function triggerDownload(item: { url: string; name: string }) {
+  const a = document.createElement('a')
+  a.href = item.url
+  a.download = item.name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function downloadAll() {
+  exportItems.value.forEach((item, i) => setTimeout(() => triggerDownload(item), i * 200))
+}
+
 watch(() => props.visible, (val) => {
   if (val) renderQrCodes()
 })
@@ -92,14 +131,14 @@ onBeforeUnmount(() => {
     <div v-if="visible" class="modal-overlay" @click.self="emit('close')">
       <div class="modal-content print-modal" :class="paper === '60x40' ? 'paper-60x40' : 'paper-a4'">
         <div class="modal-header">
-          <h3>打印标签（{{ assets.length }} 项）</h3>
-          <div class="paper-switch">
+          <h3>{{ exportMode ? '导出标签图片' : `打印标签（${assets.length} 项）` }}</h3>
+          <div v-if="!exportMode" class="paper-switch">
             <button :class="{ active: paper === '60x40' }" @click="switchPaper('60x40')">60×40 标签纸</button>
             <button :class="{ active: paper === 'a4' }" @click="switchPaper('a4')">A4 双列</button>
           </div>
           <button class="modal-close" @click="emit('close')">&times;</button>
         </div>
-        <div class="modal-body print-body">
+        <div v-if="!exportMode" class="modal-body print-body">
           <p class="print-hint">打印时请选择：实际大小 / 100%（勿用「适应页面」）</p>
           <div id="print-area" class="print-labels">
             <div v-for="asset in assets" :key="asset.id" class="print-label">
@@ -115,9 +154,24 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+        <div v-else class="modal-body export-view">
+          <p class="print-hint">标签机 App 打印时请选「原尺寸 / 60×40」；手机浏览器可长按图片保存到相册</p>
+          <p v-if="exporting" class="export-loading">渲染中…</p>
+          <div class="export-list">
+            <div v-for="item in exportItems" :key="item.name" class="export-item">
+              <img :src="item.url" :alt="item.name" />
+              <button class="btn-cancel" @click="triggerDownload(item)">下载</button>
+            </div>
+          </div>
+        </div>
         <div class="modal-footer">
           <button class="btn-cancel" @click="emit('close')">关闭</button>
-          <button class="btn-confirm" @click="executePrint">打印</button>
+          <button v-if="!exportMode" class="btn-export" :disabled="exporting" @click="openExport">导出图片</button>
+          <template v-else>
+            <button class="btn-export" @click="downloadAll" :disabled="!exportItems.length">全部下载</button>
+            <button class="btn-confirm" @click="backToPreview">返回打印</button>
+          </template>
+          <button v-if="!exportMode" class="btn-confirm" @click="executePrint">打印</button>
         </div>
       </div>
     </div>
@@ -139,6 +193,14 @@ onBeforeUnmount(() => {
 .modal-footer { padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 12px; }
 .btn-cancel { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-elevated); cursor: pointer; font-size: 14px; }
 .btn-confirm { padding: 8px 20px; border-radius: 8px; border: none; background: var(--color-primary); color: #fff; cursor: pointer; font-size: 14px; }
+.btn-export { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--color-primary); background: var(--color-bg-elevated); color: var(--color-primary); cursor: pointer; font-size: 14px; }
+.btn-export:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── 导出图片视图：标签 PNG 预览 + 逐张/全部下载 ── */
+.export-view .export-loading { color: var(--color-text-secondary); font-size: 14px; }
+.export-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.export-item { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.export-item img { width: 240px; border: 1px solid var(--color-border); background: #fff; user-select: element; -webkit-user-select: element; -webkit-touch-callout: default; }
 
 /* QR 码：13×13mm 定死 + 2mm 静区，黑码白底 */
 .label-qr { flex: 0 0 auto; }
@@ -177,6 +239,7 @@ onBeforeUnmount(() => {
   .modal-content { max-height: none; overflow: visible; width: 100%; max-width: none; border: none; border-radius: 0; background: #fff; }
   .modal-header, .modal-footer, .print-hint { display: none; }
   .modal-body { padding: 0; }
+  .export-view { display: none !important; }
   .paper-60x40 .print-labels { gap: 0; }
   .paper-a4 .print-label { break-inside: avoid; page-break-inside: avoid; border-color: #999; background: #fff; }
   .paper-a4 .label-code { color: #000; }

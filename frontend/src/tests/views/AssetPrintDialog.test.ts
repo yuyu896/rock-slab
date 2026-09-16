@@ -2,9 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
 const { toStringMock } = vi.hoisted(() => ({ toStringMock: vi.fn() }))
+const { renderLabelDataUrlMock } = vi.hoisted(() => ({ renderLabelDataUrlMock: vi.fn() }))
 
 vi.mock('qrcode', () => ({
   default: { toString: toStringMock },
+}))
+
+vi.mock('@/utils/labelImage', () => ({
+  renderLabelDataUrl: renderLabelDataUrlMock,
+  labelFileName: (a: Record<string, any>) => `标签_${a.内部编号}.png`,
 }))
 
 import AssetPrintDialog from '@/views/assets/AssetPrintDialog.vue'
@@ -130,5 +136,92 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     expect(dialogSource).toMatch(/break-after:\s*page/)
     expect(dialogSource).toMatch(/height:\s*40mm/)
     expect(dialogSource).toMatch(/#app \{ display: none !important; \}/)
+  })
+})
+
+describe('AssetPrintDialog 导出图片（第二通道）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    toStringMock.mockResolvedValue('<svg class="qr-stub"></svg>')
+    renderLabelDataUrlMock.mockImplementation(async (a: Record<string, any>) => `data:image/png;base64,${a.id}`)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    document.head.querySelectorAll('#label-page-size').forEach(e => e.remove())
+  })
+
+  async function mountDialog() {
+    appShell = document.createElement('div')
+    appShell.id = 'app'
+    document.body.appendChild(appShell)
+    const wrapper = mount(AssetPrintDialog, {
+      props: { visible: true, assets },
+      attachTo: appShell,
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('点「导出图片」进入导出视图：每签一张图 + 下载按钮 + App 原尺寸提示', async () => {
+    const wrapper = await mountDialog()
+    const exportBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '导出图片')!
+    await exportBtn.click()
+    await flushPromises()
+
+    expect(renderLabelDataUrlMock).toHaveBeenCalledTimes(2)
+    expect(renderLabelDataUrlMock).toHaveBeenCalledWith(expect.objectContaining({ 内部编号: 'A-a00008-BJ001-1' }))
+    const view = document.querySelector('.export-view')!
+    expect(view).toBeTruthy()
+    expect(view.querySelector('.print-hint')!.textContent).toContain('原尺寸')
+    expect(document.querySelectorAll('.export-item img')).toHaveLength(2)
+    expect(document.querySelectorAll('.export-item img')[0].getAttribute('src')).toBe('data:image/png;base64,fa-1')
+    const dlBtns = [...document.querySelectorAll<HTMLButtonElement>('.export-item button')]
+    expect(dlBtns.map(b => b.textContent)).toEqual(['下载', '下载'])
+    wrapper.unmount()
+  })
+
+  it('单张下载：触发 a[download] 点击、文件名含内部编号', async () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const wrapper = await mountDialog()
+    const exportBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '导出图片')!
+    await exportBtn.click()
+    await flushPromises()
+    const first = [...document.querySelectorAll<HTMLButtonElement>('.export-item button')][0]
+    await first.click()
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+    const anchor = clickSpy.mock.instances[0] as unknown as HTMLAnchorElement
+    expect(anchor.download).toBe('标签_A-a00008-BJ001-1.png')
+    clickSpy.mockRestore()
+    wrapper.unmount()
+  })
+
+  it('「全部下载」逐张触发、「返回打印」回到打印预览', async () => {
+    vi.useFakeTimers()
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const wrapper = await mountDialog()
+    const exportBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '导出图片')!
+    await exportBtn.click()
+    await flushPromises()
+
+    const allBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '全部下载')!
+    await allBtn.click()
+    vi.advanceTimersByTime(1000)
+    expect(clickSpy).toHaveBeenCalledTimes(2)
+
+    const backBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '返回打印')!
+    await backBtn.click()
+    await flushPromises()
+    expect(document.querySelector('.export-view')).toBeNull()
+    expect(document.getElementById('print-area')).toBeTruthy()
+    clickSpy.mockRestore()
+    vi.useRealTimers()
+    wrapper.unmount()
   })
 })
