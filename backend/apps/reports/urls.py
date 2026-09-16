@@ -6,6 +6,7 @@ urlpatterns = [
     path('overview/', views.overview, name='report-overview'),
     path('by-branch/', views.by_branch, name='report-by-branch'),
     path('by-status/', views.by_status, name='report-by-status'),
+    path('changes-by-item/', views.changes_by_item, name='report-changes-by-item'),
     path('by-category/', views.by_category, name='report-by-category'),
     path('consumables/', views.consumables, name='report-consumables'),
     path('transfers/', views.transfers, name='report-transfers'),

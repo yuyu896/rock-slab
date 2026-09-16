@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getOverview, getByBranch, getByStatus, getByCategory, getTransferReport, getConsumptionReport, getReportBranches } from '@/api/reports'
+import { getOverview, getByBranch, getByStatus, getByCategory, getTransferReport, getConsumptionReport, getReportBranches, getChangesByItem } from '@/api/reports'
 import { handleApiError } from '@/utils/request'
 import { formatMoney } from '@/utils/format'
 import { ElMessage } from 'element-plus'
@@ -44,6 +44,8 @@ const monthlyTrend = ref<{ month: string; inbound: number; outbound: number; tra
 
 // 变动明细数据
 const transferDetails = ref<TransferReportRow[]>([])
+const changesByItem = ref<{ columns: string[]; results: { itemId: string; code: string; name: string; unit: string; cols: Record<string, number> }[] } | null>(null)
+const changesHeaders = computed(() => ['序号', '品目编号', '品目名称', '单位', ...(changesByItem.value?.columns ?? [])])
 
 // 消耗统计（部门×品目，按月展开）
 const consumptionData = ref<ConsumptionReport | null>(null)
@@ -90,19 +92,22 @@ async function fetchReportData() {
     const consumptionParams = { ...params }
     const consumptionRange = consumptionDateRange()
     if (consumptionRange) consumptionParams.dateRange = consumptionRange
-    const [overviewRes, branchRes, statusRes, transferRes, categoryRes, consumptionRes] = await Promise.all([
+    const changesRange = params.dateRange
+    const [overviewRes, branchRes, statusRes, transferRes, categoryRes, consumptionRes, changesRes] = await Promise.all([
       getOverview(params),
       getByBranch(params),
       getByStatus(params),
       getTransferReport(params),
       getByCategory(params),
       getConsumptionReport(consumptionParams),
+      getChangesByItem(changesRange ? { dateRange: changesRange } : undefined),
     ])
     overviewData.value = overviewRes.data
     branchStats.value = branchRes.data
     categoryStats.value = categoryRes.data.filter(c => c.count > 0)
     statusStats.value = statusRes.data
     transferDetails.value = transferRes.data ?? []
+    changesByItem.value = changesRes.data
     consumptionData.value = consumptionRes.data
     buildMonthlyTrend(transferDetails.value)
   } catch (error) {
@@ -161,23 +166,18 @@ const exportReport = async () => {
       rows.push(grand)
       const ws = XLSX.utils.json_to_sheet(rows)
       XLSX.utils.book_append_sheet(wb, ws, '消耗统计')
-    } else if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
-      // 导出变动明细
-      const rows = transferDetails.value.map((d, i) => ({
+    } else if (reportType.value === 'changeDetails' && (changesByItem.value?.results.length ?? 0) > 0) {
+      // 导出变动汇总（品目聚合口径）
+      const cols = changesByItem.value!.columns
+      const rows = changesByItem.value!.results.map((r, i) => ({
         '序号': i + 1,
-        '单据编号': d.docNumber || '',
-        '日期': d.date,
-        '操作类型': actionLabel(d.actionType),
-        '资产编号': d.assetCode,
-        '资产名称': d.assetName,
-        '调出分公司': d.fromBranch || '',
-        '调入分公司': d.toBranch || '',
-        '数量': d.quantity,
-        '审批状态': d.status,
-        '经办人': d.operator || '',
+        '品目编号': r.code,
+        '品目名称': r.name || '',
+        '单位': r.unit || '',
+        ...Object.fromEntries(cols.map(c => [c, r.cols[c] || 0])),
       }))
       const ws = XLSX.utils.json_to_sheet(rows)
-      XLSX.utils.book_append_sheet(wb, ws, '变动明细')
+      XLSX.utils.book_append_sheet(wb, ws, '变动汇总')
     } else {
       // 导出分公司报表
       const rows = branchStats.value.map((b, i) => ({
@@ -207,10 +207,13 @@ const exportReport = async () => {
         csv += `${i + 1},${r.department},${r.code},${r.name},${r.unit},${months.map(m => r.quantities[m] ?? 0).join(',')},${r.total}\n`
       })
       csv += `,\u603B\u8BA1,,,,${months.map(m => consumptionData.value!.grandTotal[m] ?? 0).join(',')},${consumptionData.value!.grandTotal.total ?? 0}\n`
-    } else if (reportType.value === 'changeDetails' && transferDetails.value.length > 0) {
-      csv = '序号,单据编号,日期,操作类型,资产编号,资产名称,调出分公司,调入分公司,数量,审批状态,经办人\n'
-      transferDetails.value.forEach((d, i) => {
-        csv += `${i + 1},${d.docNumber || ''},${d.date},${actionLabel(d.actionType)},${d.assetCode},${d.assetName},${d.fromBranch || ''},${d.toBranch || ''},${d.quantity},${d.status},${d.operator || ''}\n`
+    } else if (reportType.value === 'changeDetails' && (changesByItem.value?.results.length ?? 0) > 0) {
+      const cols = changesByItem.value!.columns
+      csv = `序号,品目编号,品目名称,单位,${cols.join(',')}
+`
+      changesByItem.value!.results.forEach((r, i) => {
+        csv += `${i + 1},${r.code},${r.name || ''},${r.unit || ''},${cols.map(c => r.cols[c] || 0).join(',')}
+`
       })
     } else {
       csv = '序号,分公司,在库,在用,回收库,总量,采购金额,数量占比\n'
@@ -243,6 +246,11 @@ const formatBranchMetric = (b: BranchStat) =>
   branchMetric.value === 'amount' ? formatMoney(b.amount) : b.value.toLocaleString()
 
 // 计算最大值用于柱状图（随口径切换）
+/** 排行按当前指标降序（数量/价值切换即时重排名次） */
+const sortedBranchStats = computed(() =>
+  [...branchStats.value].sort((a, b) => branchMetricValue(b) - branchMetricValue(a)),
+)
+
 const maxBranchValue = computed(() => {
   if (branchStats.value.length === 0) return 1
   return Math.max(...branchStats.value.map(branchMetricValue), 1)
@@ -404,7 +412,7 @@ onMounted(() => {
         <div class="chart-body">
           <div class="bar-chart">
             <div
-              v-for="(branch, index) in branchStats"
+              v-for="(branch, index) in sortedBranchStats"
               :key="branch.name"
               class="bar-item"
             >
@@ -586,32 +594,24 @@ onMounted(() => {
         </button>
       </div>
 
-      <!-- 变动明细表格 -->
-      <div v-if="reportType === 'changeDetails'" class="table-container">
+      <!-- 变动明细（按品目聚合；单据级明细走单据列表） -->
+      <div v-if="reportType === 'changeDetails'" class="table-container branch-table-wrap">
         <table class="data-table">
           <thead>
             <tr>
-              <th v-for="header in ['序号', '单据编号', '日期', '操作类型', '资产编号', '资产名称', '调出分公司', '调入分公司', '数量', '审批状态', '经办人']" :key="header">
-                {{ header }}
-              </th>
+              <th v-for="header in changesHeaders" :key="header">{{ header }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="transferDetails.length === 0">
-              <td colspan="11" style="text-align: center; color: var(--color-text-tertiary);">暂无变动明细数据</td>
+            <tr v-if="!changesByItem || changesByItem.results.length === 0">
+              <td :colspan="changesHeaders.length" class="empty-cell">暂无变动数据</td>
             </tr>
-            <tr v-for="(item, index) in transferDetails" :key="`${item.id}-${index}`">
+            <tr v-for="(row, index) in changesByItem?.results ?? []" :key="row.itemId">
               <td>{{ index + 1 }}</td>
-              <td>{{ item.docNumber || '-' }}</td>
-              <td>{{ item.date }}</td>
-              <td>{{ actionLabel(item.actionType) }}</td>
-              <td>{{ item.assetCode }}</td>
-              <td>{{ item.assetName || '-' }}</td>
-              <td>{{ item.fromBranch || '-' }}</td>
-              <td>{{ item.toBranch || '-' }}</td>
-              <td>{{ item.quantity }}</td>
-              <td>{{ item.status }}</td>
-              <td>{{ item.operator || '-' }}</td>
+              <td>{{ row.code }}</td>
+              <td>{{ row.name || '-' }}</td>
+              <td>{{ row.unit || '-' }}</td>
+              <td v-for="col in changesByItem!.columns" :key="col">{{ row.cols[col] || 0 }}</td>
             </tr>
           </tbody>
         </table>
@@ -679,6 +679,28 @@ onMounted(() => {
       </div>
 
       <!-- 分公司报表表格 -->
+      <!-- 资产总览：状态汇总表（总览专属报表） -->
+      <div v-if="reportType === 'overview'" class="table-container branch-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>序号</th><th>资产状态</th><th class="col-num">数量</th><th>占比</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(s, i) in statusStats" :key="s.status">
+              <td>{{ i + 1 }}</td>
+              <td>{{ s.status }}</td>
+              <td class="col-num">{{ s.count.toLocaleString() }}</td>
+              <td>
+                <div class="percent-bar">
+                  <div class="percent-fill" :style="{ width: s.percentage + '%' }" />
+                  <span>{{ s.percentage }}%</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <div v-else-if="reportType === 'branch'" class="table-container branch-table-wrap">
         <table class="data-table">
           <thead>

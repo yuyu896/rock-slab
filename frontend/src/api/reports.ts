@@ -33,3 +33,10 @@ export function getConsumptionReport(params?: Record<string, string>) {
 export function getReportBranches() {
   return request.get<{ id: string; name: string; code: string }[]>('/api/reports/branches/')
 }
+
+/** 变动按品目聚合：每品目一行，各类动作合计（生效单据，时间范围可选） */
+export function getChangesByItem(params?: { dateRange?: string }) {
+  return request.get<{ columns: string[]; results: { itemId: string; code: string; name: string; unit: string; cols: Record<string, number> }[] }>(
+    '/api/reports/changes-by-item', { params },
+  )
+}

@@ -251,3 +251,40 @@ class TestReportDataScoping:
         names = {row['name'] for row in resp.data}
         assert branch.name in names
         assert second_branch.name not in names
+
+
+@pytest.mark.django_db
+class TestChangesByItem:
+    """变动按品目聚合（报表三修）：多单同品目聚合、动作分列、时间过滤。"""
+
+    def _seed(self, branch, item_id_fixture):
+        import datetime
+        from apps.transfers.models import Transfer, TransferLine
+        def mk(code, day, action, qty, status='已通过'):
+            t = Transfer.objects.create(
+                单据编号=code, 调拨日期=datetime.date(2026, 9, day),
+                action_type=action, 审批状态=status,
+                调出分公司=branch.name, from_branch=branch, to_branch=branch,
+            )
+            return TransferLine.objects.create(transfer=t, item_id=item_id_fixture, 行号=1, 数量=qty)
+        mk('CBI-1', 1, 'purchase', 10, status='已入库')
+        mk('CBI-2', 5, 'assign', 3)
+        mk('CBI-3', 8, 'recovery', 1)
+        mk('CBI-4', 15, 'purchase', 5, status='已入库')  # 第二张采购单同品目
+
+    def test_aggregates_by_item(self, admin_user, branch, item_id):
+        self._seed(branch, item_id('PUR-001'))
+        resp = _client_for(admin_user).get('/api/reports/changes-by-item/')
+        assert resp.status_code == 200
+        row = next(r for r in resp.data['results'] if r['code'] == 'PUR-001')
+        assert row['cols']['入库'] == 15  # 两张采购单聚合
+        assert row['cols']['领用'] == 3
+        assert row['cols']['回收'] == 1
+        assert resp.data['columns'] == ['入库', '领用', '归还', '调拨', '回收']
+
+    def test_date_range_filters(self, admin_user, branch, item_id):
+        self._seed(branch, item_id('PUR-001'))
+        resp = _client_for(admin_user).get('/api/reports/changes-by-item/?dateRange=2026-09-01,2026-09-07')
+        row = next(r for r in resp.data['results'] if r['code'] == 'PUR-001')
+        assert row['cols']['入库'] == 10  # 09-15 那张被时间窗排除
+        assert row['cols']['回收'] == 0

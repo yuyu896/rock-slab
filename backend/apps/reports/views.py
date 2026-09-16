@@ -234,6 +234,64 @@ def by_branch(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def changes_by_item(request):
+    """变动按品目聚合：每品目一行，各类动作合计（生效单据行，时间范围可选）。
+
+    单据级明细走单据列表/详情；报表只给品目粒度汇总。
+    """
+    selected = _parse_selected_branches(request.query_params)
+    lines = TransferLine.objects.filter(
+        transfer__审批状态__in=['已通过', '已入库'],
+    ).select_related('item')
+    lines = _scope_queryset(
+        request.user, lines,
+        transfer_fields=('transfer__from_branch', 'transfer__to_branch'),
+        selected_branches=selected,
+    )
+    date_range = request.query_params.get('dateRange')
+    if date_range:
+        try:
+            start_str, end_str = date_range.split(',')
+            lines = lines.filter(
+                transfer__调拨日期__gte=start_str.strip(),
+                transfer__调拨日期__lte=end_str.strip(),
+            )
+        except (ValueError, AttributeError):
+            pass
+
+    ACTION_COLS = {
+        'purchase': '入库', 'assign': '领用', 'return': '归还',
+        'transfer': '调拨', 'recovery': '回收',
+    }
+    stats = (
+        lines.values(
+            'item', 'item__asset_code', 'item__asset_name', 'item__unit',
+            'transfer__action_type',
+        ).annotate(qty=Sum('数量'))
+    )
+    rows_by_key = {}
+    for s in stats:
+        key = s['item']
+        row = rows_by_key.get(key)
+        if row is None:
+            row = {
+                'itemId': str(s['item']),
+                'code': s['item__asset_code'],
+                'name': s['item__asset_name'],
+                'unit': s['item__unit'] or '',
+                'cols': {label: 0 for label in ACTION_COLS.values()},
+            }
+            rows_by_key[key] = row
+        label = ACTION_COLS.get(s['transfer__action_type'])
+        if label:
+            row['cols'][label] += s['qty'] or 0
+
+    rows = sorted(rows_by_key.values(), key=lambda r: r['code'])
+    return Response({'columns': list(ACTION_COLS.values()), 'results': rows})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def by_status(request):
     """按状态统计（台账三列口径：在库/在用/回收库）。"""
     selected = _parse_selected_branches(request.query_params)

@@ -17,6 +17,7 @@ vi.mock('@/api/reports', () => ({
   getTransferReport: vi.fn(),
   getConsumptionReport: vi.fn(),
   getReportBranches: vi.fn().mockResolvedValue({ data: [] }),
+  getChangesByItem: vi.fn().mockResolvedValue({ data: { columns: ['入库', '领用', '归还', '调拨', '回收'], results: [] } }),
 }))
 
 import Reports from '@/views/Reports.vue'
@@ -129,22 +130,24 @@ describe('Reports 报表页真实数据契约（P3 刀二）', () => {
     expect(wrapper.findAll('.trend-group')).toHaveLength(0)
   })
 
-  it('变动明细表按后端真实字段渲染（含经办人/单据编号）', async () => {
-    _mockAll({
-      transfers: [
-        { id: 't9', date: '2026-08-20', docNumber: 'CG20260820-001', assetCode: 'NB-1', assetName: '笔记本', quantity: 4, status: '已通过', actionType: 'purchase', fromBranch: '', toBranch: '杭州', operator: '张三' },
-      ],
-    })
+  it('变动明细 tab 按品目聚合渲染（不再逐单据行）', async () => {
+    const { getChangesByItem } = await import('@/api/reports')
+    vi.mocked(getChangesByItem).mockResolvedValue({
+      data: {
+        columns: ['入库', '领用', '归还', '调拨', '回收'],
+        results: [
+          { itemId: 'i1', code: 'NB-1', name: '笔记本', unit: '台', cols: { 入库: 15, 领用: 3, 归还: 0, 调拨: 0, 回收: 1 } },
+        ],
+      },
+    } as any)
     const wrapper = await mountReports()
-    // 切到变动明细 tab
     const tab = wrapper.findAll('.tab-btn').find(b => b.text() === '变动明细')
     await tab!.trigger('click')
 
-    const row = wrapper.find('tbody tr')
-    const cells = row.findAll('td').map(td => td.text())
-    expect(cells).toEqual([
-      '1', 'CG20260820-001', '2026-08-20', '采购入库', 'NB-1', '笔记本', '-', '杭州', '4', '已通过', '张三',
-    ])
+    const headers = wrapper.findAll('thead th').map(th => th.text())
+    expect(headers).toEqual(['序号', '品目编号', '品目名称', '单位', '入库', '领用', '归还', '调拨', '回收'])
+    const cells = wrapper.find('tbody tr').findAll('td').map(td => td.text())
+    expect(cells).toEqual(['1', 'NB-1', '笔记本', '台', '15', '3', '0', '0', '1'])
   })
 
   it('消耗统计表按月份列展开并渲染总计行', async () => {
