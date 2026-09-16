@@ -477,6 +477,9 @@ onMounted(() => { fetchAssets(); fetchBranches() })
     <el-dialog v-model="supplementVisibleProxy" title="序列号补录" width="460px" :close-on-click-modal="false">
       <el-form label-width="72px" v-if="supplementing">
         <el-form-item label="内部编号"><span class="asset-code">{{ supplementing.内部编号 }}</span></el-form-item>
+        <el-form-item label="品目名称">{{ supplementing.itemName || '-' }}</el-form-item>
+        <el-form-item label="使用人">{{ supplementing.使用人 || '-' }}</el-form-item>
+        <el-form-item label="部门">{{ supplementing.departmentName || '-' }}</el-form-item>
         <el-form-item label="序列号"><el-input v-model="supplementForm.序列号" placeholder="扫码或手工录入" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="supplementForm.备注" type="textarea" :rows="2" /></el-form-item>
       </el-form>
