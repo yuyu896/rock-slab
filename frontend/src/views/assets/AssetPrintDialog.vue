@@ -151,12 +151,11 @@ onBeforeUnmount(() => {
                 <div :id="'qr-' + asset.id" class="qr-box"></div>
               </div>
               <div class="label-info">
-                <div class="label-code fit">{{ asset.内部编号 }}</div>
-                <div v-if="asset.序列号" class="label-sn fit">SN: {{ asset.序列号 }}</div>
-                <div class="label-name fit">{{ asset.资产名称 }}</div>
-                <div class="label-aux fit">品目 {{ asset.品目编号 }}</div>
-                <div v-if="asset.分公司" class="label-aux fit">{{ asset.分公司 }}</div>
-                <div v-if="supplierDateLine(asset)" class="label-aux fit">{{ supplierDateLine(asset) }}</div>
+                <div class="label-code fit"><span class="label-prefix">NO.</span> {{ asset.内部编号 }}</div>
+                <div v-if="asset.序列号" class="label-sn fit"><span class="label-prefix">SN:</span> {{ asset.序列号 }}</div>
+                <div class="label-name fit"><span class="label-prefix">ITEM</span> {{ asset.资产名称 }}</div>
+                <div v-if="asset.分公司" class="label-aux fit"><span class="label-prefix">BRANCH</span> {{ asset.分公司 }}</div>
+                <div v-if="supplierDateLine(asset)" class="label-aux fit"><template v-if="asset.供应商"><span class="label-prefix">VENDOR</span> {{ asset.供应商 }}</template><span v-if="asset.供应商 && asset.采购日期">&nbsp;&nbsp;</span><template v-if="asset.采购日期"><span class="label-prefix">DATE</span> {{ asset.采购日期 }}</template></div>
               </div>
             </div>
           </div>
@@ -224,10 +223,12 @@ onBeforeUnmount(() => {
 .paper-60x40 .print-label:not(:last-child) { break-after: page; page-break-after: always; }
 /* V2：字号上调、行距收紧；margin-top 上移 0.4mm 校正垂直居中（与 LABEL_SPEC.blockLiftMm 同参） */
 .paper-60x40 .label-info { display: flex; flex-direction: column; gap: 0.5mm; min-width: 0; flex: 1; margin-top: -0.4mm; }
-.paper-60x40 .label-code { font-family: var(--font-mono, monospace); font-size: 3.6mm; font-weight: 700; color: #000; }
+.paper-60x40 .label-code { font-family: var(--font-mono, monospace); font-size: 3.4mm; font-weight: 700; color: #000; }
 .paper-60x40 .label-sn { font-family: var(--font-mono, monospace); font-size: 3mm; color: #000; }
 .paper-60x40 .label-name { font-size: 3.4mm; font-weight: 600; color: #000; }
 .paper-60x40 .label-aux { font-size: 2.6mm; color: #444; }
+/* V3 英文前缀：辅助级字号灰字（与 LABEL_SPEC.fonts.prefix 同参，前缀词表见该常量） */
+.paper-60x40 .label-prefix { font-family: var(--font-mono, monospace); font-size: 2.6mm; font-weight: 400; color: #444; margin-right: 0.6mm; }
 .paper-60x40 .fit { white-space: nowrap; overflow: hidden; }
 
 /* ── A4 双列（普通打印机）：卡片流式分页 ── */
@@ -240,6 +241,7 @@ onBeforeUnmount(() => {
 .paper-a4 .label-sn { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--color-text-secondary); }
 .paper-a4 .label-name { font-size: 14px; font-weight: 600; }
 .paper-a4 .label-aux { font-size: 12px; color: var(--color-text-secondary); }
+.paper-a4 .label-prefix { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--color-text-tertiary); margin-right: 4px; }
 
 /* 打印态：只输出标签（配合下方非 scoped 块隐藏 #app），配色固定值绕开深色模式 */
 @media print {

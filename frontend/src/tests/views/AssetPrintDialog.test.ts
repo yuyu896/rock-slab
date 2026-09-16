@@ -17,7 +17,7 @@ import AssetPrintDialog from '@/views/assets/AssetPrintDialog.vue'
 import dialogSource from '@/views/assets/AssetPrintDialog.vue?raw'
 
 const assets = [
-  { id: 'fa-1', 内部编号: 'A-a00008-BJ001-1', 序列号: 'PF3XK2LM', 资产名称: 'ThinkPad T14', 品目编号: 'A-a00008', 分公司: '北京分公司', 供应商: '联想', 采购日期: '2026-08-15' },
+  { id: 'fa-1', 内部编号: 'A-a00008-BJ001-1', 序列号: 'PF3XK2LM', 资产名称: 'ThinkPad T14', 品目编号: 'A-a00008', 分公司: '北京分公司', 供应商: '小熊', 采购日期: '2026-09-16' },
   { id: 'fa-2', 内部编号: 'A-a00008-BJ001-2', 序列号: '', 资产名称: 'ThinkPad T14', 品目编号: 'A-a00008', 分公司: '北京分公司', 供应商: '', 采购日期: '' },
 ]
 
@@ -68,20 +68,29 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     wrapper.unmount()
   })
 
-  it('标签 V2 六行文案：品目/分公司分行，供应商·采购日期行显隐', async () => {
+  it('标签 V3 五行英文前缀文案：无品目编号行，供应商/日期行显隐', async () => {
     const wrapper = await mountInAppShell()
     const labels = document.querySelectorAll('.print-label')
     expect(labels).toHaveLength(2)
     const first = labels[0]
-    expect(first.querySelector('.label-code')!.textContent).toBe('A-a00008-BJ001-1')
-    expect(first.querySelector('.label-sn')!.textContent).toBe('SN: PF3XK2LM')
-    expect(first.querySelector('.label-name')!.textContent).toBe('ThinkPad T14')
-    const auxTexts = [...first.querySelectorAll('.label-aux')].map(e => e.textContent)
-    expect(auxTexts).toEqual(['品目 A-a00008', '北京分公司', '联想 · 2026-08-15'])
+    expect(first.querySelector('.label-code')!.textContent).toContain('NO.')
+    expect(first.querySelector('.label-code')!.textContent).toContain('A-a00008-BJ001-1')
+    expect(first.querySelector('.label-sn')!.textContent).toContain('SN:')
+    expect(first.querySelector('.label-name')!.textContent).toContain('ITEM')
+    const auxTexts = [...first.querySelectorAll('.label-aux')].map(e => (e.textContent || '').trim())
+    expect(auxTexts).toHaveLength(2)
+    expect(auxTexts[0]).toContain('BRANCH')
+    expect(auxTexts[0]).toContain('北京分公司')
+    expect(auxTexts[1]).toContain('VENDOR')
+    expect(auxTexts[1]).toContain('小熊')
+    expect(auxTexts[1]).toContain('DATE')
+    expect(auxTexts[1]).toContain('2026-09-16')
+    expect(first.textContent).not.toContain('品目')
 
     const second = labels[1]
-    const secondAux = [...second.querySelectorAll('.label-aux')].map(e => e.textContent)
-    expect(secondAux).toEqual(['品目 A-a00008', '北京分公司'])
+    const secondAux = [...second.querySelectorAll('.label-aux')].map(e => (e.textContent || '').trim())
+    expect(secondAux).toHaveLength(1)
+    expect(secondAux[0]).toContain('BRANCH')
     wrapper.unmount()
   })
 

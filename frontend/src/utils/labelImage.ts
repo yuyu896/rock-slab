@@ -26,18 +26,21 @@ export const LABEL_SPEC = {
   /** 垂直居中后的整体上移量：抵消行盒下行空隙导致的视觉偏下 */
   blockLiftMm: 0.4,
   fontMinMm: 2.2,
+  /** V3 英文字段前缀（换词只改这里；打印 CSS 侧文案与此对齐，测试源码断言把关） */
+  prefixes: { code: 'NO.', sn: 'SN:', name: 'ITEM', branch: 'BRANCH', vendor: 'VENDOR', date: 'DATE' },
   fonts: {
-    code: { sizeMm: 3.6, weight: '700', mono: true, color: '#000' },
+    code: { sizeMm: 3.4, weight: '700', mono: true, color: '#000' },
     sn: { sizeMm: 3.0, weight: '400', mono: true, color: '#000' },
     name: { sizeMm: 3.4, weight: '600', mono: false, color: '#000' },
     aux: { sizeMm: 2.6, weight: '400', mono: false, color: '#444' },
+    prefix: { sizeMm: 2.6, weight: '400', mono: true, color: '#444' },
   },
 } as const
 
 const MONO_FAMILY = 'Consolas, "Courier New", monospace'
 const SANS_FAMILY = '"PingFang SC", "Microsoft YaHei", sans-serif'
 
-export interface LabelLine {
+export interface LabelSegment {
   text: string
   sizeMm: number
   weight: string
@@ -45,28 +48,58 @@ export interface LabelLine {
   color: string
 }
 
+export interface LabelLine {
+  segments: LabelSegment[]
+  /** 行主字号 = 最大段字号，驱动行高与缩号基准 */
+  sizeMm: number
+}
+
 export interface MeasureFn {
   (text: string, font: { sizePx: number; weight: string; mono: boolean }): number
 }
 
-/** V2 六行集：品目编号/分公司分行，供应商·采购日期合并行；空值行隐藏（与打印版式同规则） */
+function prefixed(prefix: string, value: string, valueFont: { sizeMm: number; weight: string; mono: boolean; color: string }): LabelSegment[] {
+  return [
+    { text: `${prefix} `, ...LABEL_SPEC.fonts.prefix },
+    { text: value, ...valueFont },
+  ]
+}
+
+function mkLine(segments: LabelSegment[]): LabelLine {
+  return { segments, sizeMm: Math.max(...segments.map(s => s.sizeMm)) }
+}
+
+/** V3 五行英文前缀行集：品目编号行已删（内部编号首段即品目码）；空值行隐藏（与打印版式同规则） */
 export function buildLabelLines(asset: LabelAssetShape): LabelLine[] {
-  const lines: LabelLine[] = [{ text: asset.内部编号, ...LABEL_SPEC.fonts.code }]
-  if (asset.序列号) lines.push({ text: `SN: ${asset.序列号}`, ...LABEL_SPEC.fonts.sn })
-  lines.push({ text: asset.资产名称 || '', ...LABEL_SPEC.fonts.name })
-  lines.push({ text: `品目 ${asset.品目编号 || ''}`, ...LABEL_SPEC.fonts.aux })
-  if (asset.分公司) lines.push({ text: asset.分公司, ...LABEL_SPEC.fonts.aux })
-  const tail = [asset.供应商, asset.采购日期].filter(Boolean).join(' · ')
-  if (tail) lines.push({ text: tail, ...LABEL_SPEC.fonts.aux })
+  const P = LABEL_SPEC.prefixes
+  const lines: LabelLine[] = [mkLine(prefixed(P.code, asset.内部编号, LABEL_SPEC.fonts.code))]
+  if (asset.序列号) lines.push(mkLine(prefixed(P.sn, asset.序列号, LABEL_SPEC.fonts.sn)))
+  lines.push(mkLine(prefixed(P.name, asset.资产名称 || '', LABEL_SPEC.fonts.name)))
+  if (asset.分公司) lines.push(mkLine(prefixed(P.branch, asset.分公司, LABEL_SPEC.fonts.aux)))
+  const tail: LabelSegment[] = []
+  if (asset.供应商) tail.push(...prefixed(P.vendor, asset.供应商, LABEL_SPEC.fonts.aux))
+  if (asset.供应商 && asset.采购日期) tail.push({ text: '  ', ...LABEL_SPEC.fonts.aux })
+  if (asset.采购日期) tail.push(...prefixed(P.date, asset.采购日期, LABEL_SPEC.fonts.aux))
+  if (tail.length) lines.push(mkLine(tail))
   return lines
 }
 
-/** 超宽行缩号（步进 0.1mm，下限 2.2mm），保持单行不换行（与打印版式同规则） */
+/** 行拼接文案（测试与调试用） */
+export function flattenLine(line: LabelLine): string {
+  return line.segments.map(s => s.text).join('')
+}
+
+/** 超宽行按比例缩号（步进 0.1mm 作用于行主字号，下限 2.2mm），保持单行不换行（与打印版式同规则） */
 export function fitLines(lines: LabelLine[], measure: MeasureFn, maxTextWidthPx: number, pxPerMm: number): void {
   lines.forEach(line => {
-    const fontOf = (sizePx: number) => ({ sizePx, weight: line.weight, mono: line.mono })
-    while (line.sizeMm > LABEL_SPEC.fontMinMm && measure(line.text, fontOf(line.sizeMm * pxPerMm)) > maxTextWidthPx) {
+    const widthOf = () => line.segments.reduce((sum, s) =>
+      sum + measure(s.text, { sizePx: s.sizeMm * pxPerMm, weight: s.weight, mono: s.mono }), 0)
+    while (widthOf() > maxTextWidthPx && line.sizeMm > LABEL_SPEC.fontMinMm) {
+      const factor = (line.sizeMm - 0.1) / line.sizeMm
       line.sizeMm = Math.round((line.sizeMm - 0.1) * 10) / 10
+      line.segments.forEach(s => {
+        s.sizeMm = Math.round(s.sizeMm * factor * 100) / 100
+      })
     }
   })
 }
@@ -95,9 +128,9 @@ export function computeLabelLayout(asset: LabelAssetShape, measure: MeasureFn, p
   }
 }
 
-function canvasFont(line: LabelLine, pxPerMm: number): string {
-  const family = line.mono ? MONO_FAMILY : SANS_FAMILY
-  return `${line.weight} ${Math.round(line.sizeMm * pxPerMm)}px ${family}`
+function canvasFont(seg: LabelSegment, pxPerMm: number): string {
+  const family = seg.mono ? MONO_FAMILY : SANS_FAMILY
+  return `${seg.weight} ${Math.round(seg.sizeMm * pxPerMm)}px ${family}`
 }
 
 /** 渲染单张标签为 canvas（960×640，白底黑字带边框）；QR 与打印通道同参（ECC M、13mm+2mm 静区） */
@@ -140,10 +173,15 @@ export async function renderLabelCanvas(asset: LabelAssetShape): Promise<HTMLCan
 
   let yMm = layout.blockTopMm
   layout.lines.forEach(line => {
-    ctx.font = canvasFont(line, pxPerMm)
-    ctx.fillStyle = line.color
+    let xPx = layout.textXMm * pxPerMm
+    const baselinePx = (yMm + line.sizeMm) * pxPerMm
     ctx.textBaseline = 'alphabetic'
-    ctx.fillText(line.text, layout.textXMm * pxPerMm, (yMm + line.sizeMm) * pxPerMm)
+    line.segments.forEach(seg => {
+      ctx.font = canvasFont(seg, pxPerMm)
+      ctx.fillStyle = seg.color
+      ctx.fillText(seg.text, xPx, baselinePx)
+      xPx += ctx.measureText(seg.text).width
+    })
     yMm += line.sizeMm * LABEL_SPEC.lineHeightFactor + LABEL_SPEC.lineGapMm
   })
   return canvas

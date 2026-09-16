@@ -4,6 +4,7 @@ import {
   buildLabelLines,
   computeLabelLayout,
   fitLines,
+  flattenLine,
   labelFileName,
   labelTextWidthMm,
 } from '@/utils/labelImage'
@@ -14,8 +15,8 @@ const asset = {
   资产名称: 'ThinkPad T14',
   品目编号: 'A-a00008',
   分公司: '北京分公司',
-  供应商: '联想',
-  采购日期: '2026-08-15',
+  供应商: '小熊',
+  采购日期: '2026-09-16',
 }
 
 const PX_PER_MM = 16
@@ -23,48 +24,49 @@ const PX_PER_MM = 16
 const fakeMeasure = (text: string, font: { sizePx: number; mono: boolean }) =>
   text.length * font.sizePx * (font.mono ? 0.55 : 0.6)
 
-describe('labelImage 布局计算', () => {
-  it('V2 六行集：品目/分公司分行，供应商·采购日期合并行', () => {
+describe('labelImage V3 布局计算', () => {
+  it('五行英文前缀行集（品目编号行已删）', () => {
     const lines = buildLabelLines(asset)
-    expect(lines.map(l => l.text)).toEqual([
-      'A-a00008-BJ001-1',
+    expect(lines.map(flattenLine)).toEqual([
+      'NO. A-a00008-BJ001-1',
       'SN: PF3XK2LM',
-      'ThinkPad T14',
-      '品目 A-a00008',
-      '北京分公司',
-      '联想 · 2026-08-15',
+      'ITEM ThinkPad T14',
+      'BRANCH 北京分公司',
+      'VENDOR 小熊  DATE 2026-09-16',
     ])
+  })
+
+  it('首行混合字号：前缀 2.6mm、主码 3.4mm', () => {
+    const [codeLine] = buildLabelLines(asset)
+    expect(codeLine.sizeMm).toBe(3.4)
+    expect(codeLine.segments[0]).toMatchObject({ text: 'NO. ', sizeMm: 2.6 })
+    expect(codeLine.segments[1]).toMatchObject({ text: 'A-a00008-BJ001-1', sizeMm: 3.4 })
   })
 
   it('SN 为空（待补录）整行跳过', () => {
     const lines = buildLabelLines({ ...asset, 序列号: '' })
-    expect(lines.some(l => l.text.startsWith('SN:'))).toBe(false)
-    expect(lines).toHaveLength(5)
+    expect(lines.some(l => flattenLine(l).startsWith('SN:'))).toBe(false)
+    expect(lines).toHaveLength(4)
   })
 
   it('供应商/采购日期空值形态：单项只留存在项、双空整行隐藏', () => {
-    expect(buildLabelLines({ ...asset, 采购日期: '' }).at(-1)!.text).toBe('联想')
-    expect(buildLabelLines({ ...asset, 供应商: '' }).at(-1)!.text).toBe('2026-08-15')
+    expect(flattenLine(buildLabelLines({ ...asset, 采购日期: '' }).at(-1)!)).toBe('VENDOR 小熊')
+    expect(flattenLine(buildLabelLines({ ...asset, 供应商: '' }).at(-1)!)).toBe('DATE 2026-09-16')
     const both = buildLabelLines({ ...asset, 供应商: '', 采购日期: '' })
-    expect(both.at(-1)!.text).toBe('北京分公司')
-    expect(both).toHaveLength(5)
+    expect(flattenLine(both.at(-1)!)).toBe('BRANCH 北京分公司')
+    expect(both).toHaveLength(4)
   })
 
-  it('超宽行缩号且不低于 2.2mm 下限', () => {
-    const longBranch = '上海浦东金桥某超长名称分公司测试专用延伸字符一二三四五六七八九十'
+  it('超宽行按比例缩号且不低于 2.2mm 下限', () => {
+    const longBranch = '上海浦东金桥某超长名称分公司测试专用延伸字符一二三四五六七八九十一'
     const lines = buildLabelLines({ ...asset, 分公司: longBranch })
-    const branch = lines.find(l => l.text === longBranch)!
-    expect(branch.sizeMm).toBe(LABEL_SPEC.fonts.aux.sizeMm)
+    const branch = lines.find(l => l.segments.some(s => s.text === longBranch))!
+    const before = branch.segments.map(s => s.sizeMm)
     fitLines(lines, fakeMeasure, labelTextWidthMm() * PX_PER_MM, PX_PER_MM)
-    expect(branch.sizeMm).toBeLessThan(LABEL_SPEC.fonts.aux.sizeMm)
-    lines.forEach(l => expect(l.sizeMm).toBeGreaterThanOrEqual(LABEL_SPEC.fontMinMm))
-  })
-
-  it('不超宽的行保持原字号', () => {
-    const lines = buildLabelLines(asset)
-    const before = lines.map(l => l.sizeMm)
-    fitLines(lines, fakeMeasure, labelTextWidthMm() * PX_PER_MM, PX_PER_MM)
-    expect(lines.map(l => l.sizeMm)).toEqual(before)
+    expect(branch.segments[1].sizeMm).toBeLessThan(before[1])
+    lines.forEach(l => {
+      l.segments.forEach(s => expect(s.sizeMm).toBeGreaterThanOrEqual(LABEL_SPEC.fontMinMm))
+    })
   })
 
   it('布局几何与规范一致：QR 左置垂直居中、文字区 20mm 起、居中后上移 0.4mm', () => {
