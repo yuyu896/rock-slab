@@ -151,11 +151,11 @@ onBeforeUnmount(() => {
                 <div :id="'qr-' + asset.id" class="qr-box"></div>
               </div>
               <div class="label-info">
-                <div class="label-code fit"><span class="label-prefix">NO.</span> {{ asset.内部编号 }}</div>
+                <div class="label-code fit"><span class="label-prefix">NO:</span> {{ asset.内部编号 }}</div>
                 <div v-if="asset.序列号" class="label-sn fit"><span class="label-prefix">SN:</span> {{ asset.序列号 }}</div>
-                <div class="label-name fit"><span class="label-prefix">ITEM</span> {{ asset.资产名称 }}</div>
-                <div v-if="asset.分公司" class="label-aux fit"><span class="label-prefix">BRANCH</span> {{ asset.分公司 }}</div>
-                <div v-if="supplierDateLine(asset)" class="label-aux fit"><template v-if="asset.供应商"><span class="label-prefix">VENDOR</span> {{ asset.供应商 }}</template><span v-if="asset.供应商 && asset.采购日期">&nbsp;&nbsp;</span><template v-if="asset.采购日期"><span class="label-prefix">DATE</span> {{ asset.采购日期 }}</template></div>
+                <div class="label-name fit"><span class="label-prefix">ITEM:</span> {{ asset.资产名称 }}</div>
+                <div v-if="asset.分公司" class="label-aux fit"><span class="label-prefix">BRANCH:</span> {{ asset.分公司 }}</div>
+                <div v-if="supplierDateLine(asset)" class="label-aux fit"><template v-if="asset.供应商"><span class="label-prefix">VENDOR:</span> {{ asset.供应商 }}</template><span v-if="asset.供应商 && asset.采购日期">&nbsp;&nbsp;</span><template v-if="asset.采购日期"><span class="label-prefix">DATE:</span> {{ asset.采购日期 }}</template></div>
               </div>
             </div>
           </div>

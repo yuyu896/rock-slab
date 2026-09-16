@@ -25,21 +25,21 @@ const fakeMeasure = (text: string, font: { sizePx: number; mono: boolean }) =>
   text.length * font.sizePx * (font.mono ? 0.55 : 0.6)
 
 describe('labelImage V3 布局计算', () => {
-  it('五行英文前缀行集（品目编号行已删）', () => {
+  it('五行英文前缀行集（前缀统一带冒号，品目编号行已删）', () => {
     const lines = buildLabelLines(asset)
     expect(lines.map(flattenLine)).toEqual([
-      'NO. A-a00008-BJ001-1',
+      'NO: A-a00008-BJ001-1',
       'SN: PF3XK2LM',
-      'ITEM ThinkPad T14',
-      'BRANCH 北京分公司',
-      'VENDOR 小熊  DATE 2026-09-16',
+      'ITEM: ThinkPad T14',
+      'BRANCH: 北京分公司',
+      'VENDOR: 小熊  DATE: 2026-09-16',
     ])
   })
 
   it('首行混合字号：前缀 2.6mm、主码 3.4mm', () => {
     const [codeLine] = buildLabelLines(asset)
     expect(codeLine.sizeMm).toBe(3.4)
-    expect(codeLine.segments[0]).toMatchObject({ text: 'NO. ', sizeMm: 2.6 })
+    expect(codeLine.segments[0]).toMatchObject({ text: 'NO: ', sizeMm: 2.6 })
     expect(codeLine.segments[1]).toMatchObject({ text: 'A-a00008-BJ001-1', sizeMm: 3.4 })
   })
 
@@ -50,10 +50,10 @@ describe('labelImage V3 布局计算', () => {
   })
 
   it('供应商/采购日期空值形态：单项只留存在项、双空整行隐藏', () => {
-    expect(flattenLine(buildLabelLines({ ...asset, 采购日期: '' }).at(-1)!)).toBe('VENDOR 小熊')
-    expect(flattenLine(buildLabelLines({ ...asset, 供应商: '' }).at(-1)!)).toBe('DATE 2026-09-16')
+    expect(flattenLine(buildLabelLines({ ...asset, 采购日期: '' }).at(-1)!)).toBe('VENDOR: 小熊')
+    expect(flattenLine(buildLabelLines({ ...asset, 供应商: '' }).at(-1)!)).toBe('DATE: 2026-09-16')
     const both = buildLabelLines({ ...asset, 供应商: '', 采购日期: '' })
-    expect(flattenLine(both.at(-1)!)).toBe('BRANCH 北京分公司')
+    expect(flattenLine(both.at(-1)!)).toBe('BRANCH: 北京分公司')
     expect(both).toHaveLength(4)
   })
 
