@@ -679,7 +679,7 @@ onMounted(() => {
       </div>
 
       <!-- 分公司报表表格 -->
-      <div v-else class="table-container">
+      <div v-else-if="reportType === 'branch'" class="table-container branch-table-wrap">
         <table class="data-table">
           <thead>
             <tr>
@@ -715,6 +715,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 分公司报表表格定高滚动（总览去重复后唯一表格承载 tab） */
+.branch-table-wrap { max-height: 560px; overflow-y: auto; }
+.branch-table-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-elevated); }
+
 .reports-page {
   max-width: 1400px;
   margin: 0 auto;
