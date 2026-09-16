@@ -275,12 +275,14 @@ function focusNextSerial(i: number) {
   els[i + 1]?.focus()
 }
 
-/** 打印弹窗沿用旧字段形状（品目信息自联字典列映射） */
+/** 打印标签 V1 形状：QR 编码内部编号，SN/品目信息随签（品目信息自联字典列映射） */
 function toPrintShape(item: FixedAsset) {
   return {
     id: item.id,
-    资产编号: item.itemCode,
-    资产名称: item.itemName,
+    内部编号: item.内部编号,
+    序列号: item.序列号 || '',
+    资产名称: item.itemName || '',
+    品目编号: item.itemCode || '',
     分公司: item.branchName || '',
   }
 }
