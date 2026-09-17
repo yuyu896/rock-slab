@@ -68,6 +68,20 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     wrapper.unmount()
   })
 
+  it('QR 生成失败不再静默：显示占位并报 console.error', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    toStringMock.mockRejectedValue(new Error('qrcode module broken'))
+    const wrapper = await mountInAppShell({ visible: false })
+    await wrapper.setProps({ visible: true })
+    await flushPromises()
+    const fallbacks = document.querySelectorAll('.qr-box .qr-fallback')
+    expect(fallbacks).toHaveLength(2)
+    expect(fallbacks[0].textContent).toContain('QR 生成失败')
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
+    wrapper.unmount()
+  })
+
   it('标签 V3 五行英文前缀文案：无品目编号行，供应商/日期行显隐', async () => {
     const wrapper = await mountInAppShell()
     const labels = document.querySelectorAll('.print-label')

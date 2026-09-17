@@ -53,8 +53,9 @@ async function renderQrCodes() {
         margin: 0,
       })
       el.innerHTML = svg
-    } catch {
-      // QR 生成失败静默（内部编号为必填字段）
+    } catch (error) {
+      console.error('标签 QR 生成失败', asset.内部编号, error)
+      el.innerHTML = '<span class="qr-fallback">QR 生成失败</span>'
     }
   }))
   fitLabelLines()
@@ -212,6 +213,7 @@ onBeforeUnmount(() => {
 .label-qr { flex: 0 0 auto; }
 .qr-box { width: 13mm; height: 13mm; padding: 2mm; box-sizing: content-box; background: #fff; }
 .qr-box :deep(svg) { width: 13mm; height: 13mm; display: block; }
+.qr-box :deep(.qr-fallback) { width: 13mm; height: 13mm; font-size: 2mm; color: #900; display: flex; align-items: center; justify-content: center; text-align: center; }
 
 /* ── 60×40 单签（标签打印机，默认）：一页一签，固定高度盒防越界 ── */
 .paper-60x40 .print-labels { display: flex; flex-direction: column; gap: 4mm; align-items: flex-start; }
