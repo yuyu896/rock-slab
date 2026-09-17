@@ -73,3 +73,14 @@ def test_idempotent():
     call_command('prod_data_fix_supplier_from_spec', '--apply')
     line.refresh_from_db()
     assert line.供应商 == '小熊' and line.本批规格 == ''
+
+
+def test_retained_rows_untouched():
+    """保留清单内的行（真实型号规格）命中圈定也不被修改。"""
+    line = _mk_line('办公手机', '瑞克OPPO 5G')
+    head = line.transfer
+    head.单据编号 = 'CG20260621-001'
+    head.save(update_fields=['单据编号'])
+    call_command('prod_data_fix_supplier_from_spec', '--apply')
+    line.refresh_from_db()
+    assert line.本批规格 == '瑞克OPPO 5G' and line.供应商 == ''

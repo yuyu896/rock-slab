@@ -17,6 +17,15 @@ COMPUTER_EXACT_SPECS = ('小熊U租', '悟空', '易点云', '小熊', '自购')
 PHONE_KEYWORDS = ('手机',)
 PHONE_CONTAIN_SPECS = ('瑞克', '华为', '自购')
 
+# 用户拍板保留的 8 行（方案 B，2026-09-17）：规格含真实型号/品牌信息，供应商本已正确，仅不清规格
+EXCLUDED_KEEP_ROWS = {
+    ('CG20250620-015', 1), ('CG20250620-015', 2), ('CG20250620-015', 3),  # 华为p30（8+128g）
+    ('CG20260621-001', 1),   # 瑞克OPPO 5G
+    ('CG20260501-005', 1), ('CG20260501-008', 1),  # 瑞克OPPO
+    ('CG20260710-023', 1),   # 瑞克oppo
+    ('CG20260911-021', 2),   # 瑞克oppo
+}
+
 
 def _classify(item_name: str) -> str:
     if any(k in (item_name or '') for k in COMPUTER_KEYWORDS):
@@ -48,23 +57,31 @@ class Command(BaseCommand):
         lines = (TransferLine.objects
                  .exclude(本批规格='')
                  .select_related('item', 'transfer'))
-        to_fix = []
+        to_fix, retained = [], []
         for line in lines:
             kind = _classify(line.item.asset_name if line.item else '')
-            if _hit(kind, line.本批规格 or ''):
+            if not _hit(kind, line.本批规格 or ''):
+                continue
+            if (line.transfer.单据编号, line.行号) in EXCLUDED_KEEP_ROWS:
+                retained.append(line)
+            else:
                 to_fix.append(line)
 
         fill = [l for l in to_fix if not (l.供应商 or l.transfer.供应商)]
         keep = [l for l in to_fix if (l.供应商 or l.transfer.供应商)]
-        self.stdout.write(f'命中 {len(to_fix)} 行（电脑 {sum(1 for l in to_fix if _classify(l.item.asset_name) == "computer")}'
-                          f' / 手机 {sum(1 for l in to_fix if _classify(l.item.asset_name) == "phone")}）：'
-                          f'{len(fill)} 行填入供应商、{len(keep)} 行沿用既有供应商；全部清空规格')
+        self.stdout.write(f'命中 {len(to_fix) + len(retained)} 行（电脑 {sum(1 for l in to_fix + retained if _classify(l.item.asset_name) == "computer")}'
+                          f' / 手机 {sum(1 for l in to_fix + retained if _classify(l.item.asset_name) == "phone")}）：'
+                          f'{len(fill)} 行填入供应商、{len(keep)} 行沿用既有供应商并清空规格；'
+                          f'保留 {len(retained)} 行（真实型号规格，不动）')
         for line in fill:
             self.stdout.write(f'  [填入] {line.transfer.单据编号} 行{line.行号} | {line.item.asset_name} | '
                               f'规格「{line.本批规格}」→ 供应商')
         for line in keep:
             self.stdout.write(f'  [沿用] {line.transfer.单据编号} 行{line.行号} | {line.item.asset_name} | '
                               f'规格「{line.本批规格}」清空 | 供应商保持「{line.供应商 or line.transfer.供应商}」')
+        for line in retained:
+            self.stdout.write(f'  [保留] {line.transfer.单据编号} 行{line.行号} | {line.item.asset_name} | '
+                              f'规格「{line.本批规格}」（真实型号，用户拍板保留）')
 
         if not apply:
             self.stdout.write('dry-run 结束，未修改任何数据')
