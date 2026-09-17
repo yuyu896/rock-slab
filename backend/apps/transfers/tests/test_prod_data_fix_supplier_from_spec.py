@@ -49,14 +49,15 @@ def test_computer_exact_and_phone_contains_hit():
     assert phone.供应商 == '华为 Mate60' and phone.本批规格 == ''
 
 
-def test_existing_supplier_protected():
+def test_existing_supplier_kept_spec_cleared():
     line = _mk_line('笔记本电脑', '悟空', supplier='既有供应商')
     header_only = _mk_line('办公手机', '自购', header_supplier='单头供应商')
     call_command('prod_data_fix_supplier_from_spec', '--apply')
     line.refresh_from_db()
     header_only.refresh_from_db()
-    assert line.供应商 == '既有供应商' and line.本批规格 == '悟空'
-    assert header_only.本批规格 == '自购'  # 单头有值同样跳过
+    # 命中行规格一律清空；既有供应商沿用不覆盖（行级或单头）
+    assert line.供应商 == '既有供应商' and line.本批规格 == ''
+    assert header_only.本批规格 == ''
 
 
 def test_dry_run_no_write():
