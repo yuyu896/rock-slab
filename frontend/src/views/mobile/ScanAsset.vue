@@ -78,23 +78,41 @@ function handleCode(code: string) {
 
 // ── 反馈：哔声（iOS 亦有效）+ 震动（Android），失败低音调 ──
 let audioCtx: AudioContext | null = null
-function feedback(ok: boolean) {
+/** 移动端自动播放策略：AudioContext 须在用户手势中创建/resume，否则 suspended 静音 */
+function ensureAudio() {
   try {
     audioCtx = audioCtx ?? new (window.AudioContext || (window as any).webkitAudioContext)()
+    if (audioCtx.state === 'suspended') void audioCtx.resume()
+  } catch {
+    // 音频不可用不影响扫码功能
+  }
+}
+function feedback(ok: boolean) {
+  ensureAudio()
+  try {
+    if (!audioCtx) return
     const osc = audioCtx.createOscillator()
     const gain = audioCtx.createGain()
     osc.connect(gain)
     gain.connect(audioCtx.destination)
-    osc.type = 'sine'
+    osc.type = 'square'
     osc.frequency.value = ok ? 1200 : 380
-    gain.gain.setValueAtTime(0.08, audioCtx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15)
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2)
     osc.start()
-    osc.stop(audioCtx.currentTime + 0.15)
+    osc.stop(audioCtx.currentTime + 0.2)
   } catch {
     // 音频失败不影响功能
   }
   navigator.vibrate?.(ok ? 80 : [60, 40, 60])
+}
+
+const audioState = ref('无音频')
+function startScan() {
+  ensureAudio()
+  feedback(true) // 手势内立即发声：既是开始确认音，也是媒体音量的自检
+  audioState.value = audioCtx?.state ?? '无音频'
+  void scanner.start()
 }
 
 // ── 查询模式：扫码/输入 → 资产卡片 ──
@@ -143,9 +161,12 @@ async function handleQueryScan(code: string) {
       }
     } else {
       notFound.value = true
+      feedback(false)
     }
+    if (card.value) feedback(true)
   } catch {
     ElMessage.error('查询失败')
+    feedback(false)
   } finally {
     queryLoading.value = false
     busy.value = false
@@ -222,7 +243,7 @@ onMounted(async () => {
     <!-- 扫码会话区 -->
     <div class="camera-zone">
       <video v-show="scanner.active.value" ref="videoRef" class="camera-video" playsinline muted></video>
-      <button v-if="!scanner.active.value" class="start-btn" @click="scanner.start()">
+      <button v-if="!scanner.active.value" class="start-btn" @click="startScan()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
           <line x1="7" y1="12" x2="17" y2="12"/>
@@ -231,6 +252,7 @@ onMounted(async () => {
       </button>
       <button v-else class="stop-btn" @click="scanner.stop()">停止扫码</button>
       <p v-if="scanner.error.value" class="camera-error">{{ scanner.error.value }}</p>
+      <p v-if="scanner.active.value" class="scan-debug">引擎 {{ scanner.engine }} · {{ scanner.resolution.value }} · 已分析 {{ scanner.frames.value }} 帧 · 音频 {{ audioState }}{{ scanner.lastError.value ? ' · ' + scanner.lastError.value : '' }}</p>
     </div>
 
     <!-- 手动输入兜底（扫码枪/手输与摄像头同链） -->
@@ -304,6 +326,7 @@ onMounted(async () => {
 .start-btn svg { width: 30px; height: 30px; }
 .stop-btn { position: absolute; right: 10px; bottom: 10px; padding: 6px 14px; border: none; border-radius: 8px; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; cursor: pointer; }
 .camera-error { position: absolute; left: 0; right: 0; bottom: 10px; margin: 0; text-align: center; font-size: 12px; color: var(--color-warning); padding: 0 12px; }
+.scan-debug { position: absolute; left: 10px; top: 8px; margin: 0; font-size: 10px; color: rgba(255,255,255,0.75); font-family: var(--font-mono); text-shadow: 0 0 2px rgba(0,0,0,0.6); }
 
 .manual-row { margin-bottom: var(--space-3); }
 .manual-input { width: 100%; height: 44px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-card); font-size: 15px; text-align: center; }
