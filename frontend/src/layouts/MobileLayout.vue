@@ -9,19 +9,16 @@ const userStore = useUserStore()
 
 const activeTab = computed(() => {
   const path = route.path
-  if (path.includes('/mobile/home')) return 'home'
-  if (path.includes('/mobile/assets') || path.includes('/mobile/scan')) return 'assets'
+  if (path.includes('/mobile/scan')) return 'scan'
   if (path.includes('/mobile/inventory')) return 'inventory'
-  if (path.includes('/mobile/approval')) return 'approval'
   if (path.includes('/mobile/profile')) return 'profile'
-  return 'home'
+  return 'scan'
 })
 
+/* 移动端定位为扫码终端：只保留 扫码/盘点任务/我的（PC 端功能不受影响） */
 const tabs = [
-  { key: 'home', label: '工作台', icon: 'home', path: '/mobile/home' },
-  { key: 'assets', label: '资产', icon: 'box', path: '/mobile/assets' },
-  { key: 'inventory', label: '盘点', icon: 'scan', path: '/mobile/inventory' },
-  { key: 'approval', label: '审批', icon: 'check', path: '/mobile/approval' },
+  { key: 'scan', label: '扫码', icon: 'scan', path: '/mobile/scan' },
+  { key: 'inventory', label: '盘点任务', icon: 'box', path: '/mobile/inventory' },
   { key: 'profile', label: '我的', icon: 'user', path: '/mobile/profile' },
 ]
 

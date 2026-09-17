@@ -1,614 +1,334 @@
 <script setup lang="ts">
-import { MANAGEMENT_TYPE_LABELS } from '@/constants'
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { getAssetStocks, getFixedAssets } from '@/api/assets'
+import { checkInventoryInstance, getInventoryReport, getInventoryTasks } from '@/api/inventories'
 import { ElMessage } from 'element-plus'
+import { useBarcodeScanner } from '@/composables/useBarcodeScanner'
 import type { AssetStock, FixedAsset } from '@/types'
 
+const route = useRoute()
 const router = useRouter()
-const scanInput = ref('')
-const scannedStock = ref<AssetStock | null>(null)
-const scannedInstances = ref<FixedAsset[]>([])
-const loading = ref(false)
-const showResult = ref(false)
 
-// 摄像头扫码相关
-const showCamera = ref(false)
-const videoRef = ref<HTMLVideoElement | null>(null)
-const cameraStream = ref<MediaStream | null>(null)
-const barcodeDetectorSupported = ref(false)
-let scanInterval: ReturnType<typeof setInterval> | null = null
+// ── 模式：查询（默认）/ 盘点（有进行中实例盘任务时可选，?task= 直达） ──
+type ScanMode = 'query' | 'inventory'
+const mode = ref<ScanMode>('query')
 
-// 检测 BarcodeDetector 支持
-if ('BarcodeDetector' in window) {
-  barcodeDetectorSupported.value = true
-}
+interface InvTaskLite { id: string; name: string; inventoryKind?: string }
+const invTasks = ref<InvTaskLite[]>([])
+const selectedTaskId = ref('')
+const selectedTaskName = ref('')
+const instanceItems = ref<any[]>([])
+const invLoading = ref(false)
 
-function toggleCamera() {
-  if (showCamera.value) {
-    stopCamera()
-  } else {
-    startCamera()
-  }
-}
+const invProgress = computed(() => {
+  const matched = instanceItems.value.filter(x => x.result === 'matched').length
+  return { matched, total: instanceItems.value.length }
+})
 
-async function startCamera() {
-  if (!barcodeDetectorSupported.value) {
-    ElMessage.warning('当前浏览器不支持摄像头扫码，请使用手动输入')
-    return
-  }
+async function loadInvTasks() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
-    })
-    cameraStream.value = stream
-    showCamera.value = true
-    setTimeout(() => {
-      if (videoRef.value) {
-        videoRef.value.srcObject = stream
-        videoRef.value.play()
-        startBarcodeDetection()
-      }
-    }, 100)
-  } catch (error) {
-    ElMessage.error('无法访问摄像头，请检查权限设置')
+    const { data } = await getInventoryTasks({ status: 'in_progress', pageSize: 50 } as any)
+    invTasks.value = ((data as any).results || []).filter((t: any) => t.inventoryKind === 'instance')
+  } catch {
+    invTasks.value = []
   }
 }
 
-function stopCamera() {
-  showCamera.value = false
-  if (scanInterval) {
-    clearInterval(scanInterval)
-    scanInterval = null
-  }
-  if (cameraStream.value) {
-    cameraStream.value.getTracks().forEach(track => track.stop())
-    cameraStream.value = null
-  }
-  if (videoRef.value) {
-    videoRef.value.srcObject = null
+async function selectTask(id: string) {
+  invLoading.value = true
+  try {
+    const { data } = await getInventoryReport(id)
+    instanceItems.value = (data as any).items ?? []
+    selectedTaskId.value = id
+    selectedTaskName.value = invTasks.value.find(t => t.id === id)?.name || '盘点任务'
+    mode.value = 'inventory'
+  } catch {
+    ElMessage.error('加载盘点清单失败')
+  } finally {
+    invLoading.value = false
   }
 }
 
-function startBarcodeDetection() {
-  if (!barcodeDetectorSupported.value) return
-  const detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39'] })
-  scanInterval = setInterval(async () => {
-    if (!videoRef.value || !showCamera.value) return
-    try {
-      const barcodes = await detector.detect(videoRef.value)
-      if (barcodes.length > 0) {
-        const code = barcodes[0].rawValue
-        if (code) {
-          scanInput.value = code
-          stopCamera()
-          handleScan()
-        }
-      }
-    } catch {
-      // detection can fail on some frames, ignore
-    }
-  }, 500)
+function switchMode(m: ScanMode) {
+  mode.value = m
+  if (m === 'inventory' && !selectedTaskId.value && invTasks.value.length === 1) {
+    selectTask(invTasks.value[0].id)
+  }
 }
 
-// 监听扫码输入
+// ── 扫码会话：显式开始（权限弹窗不前置），会话内连扫不停机 ──
+const videoRef = ref<HTMLVideoElement | null>(null)
+const scanner = useBarcodeScanner(videoRef, { onDetect: handleCode })
+const scanInput = ref('')
+const busy = ref(false)
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && scanInput.value.trim()) {
-    handleScan()
+    handleCode(scanInput.value.trim())
+    scanInput.value = ''
   }
 }
 
-async function handleScan() {
-  if (!scanInput.value.trim()) {
-    ElMessage.warning('请输入或扫描资产编号')
-    return
-  }
+function handleCode(code: string) {
+  if (busy.value) return
+  if (mode.value === 'inventory') handleInventoryScan(code)
+  else handleQueryScan(code)
+}
 
-  loading.value = true
-  showResult.value = false
-
+// ── 反馈：哔声（iOS 亦有效）+ 震动（Android），失败低音调 ──
+let audioCtx: AudioContext | null = null
+function feedback(ok: boolean) {
   try {
-    const kw = scanInput.value.trim()
+    audioCtx = audioCtx ?? new (window.AudioContext || (window as any).webkitAudioContext)()
+    const osc = audioCtx.createOscillator()
+    const gain = audioCtx.createGain()
+    osc.connect(gain)
+    gain.connect(audioCtx.destination)
+    osc.type = 'sine'
+    osc.frequency.value = ok ? 1200 : 380
+    gain.gain.setValueAtTime(0.08, audioCtx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15)
+    osc.start()
+    osc.stop(audioCtx.currentTime + 0.15)
+  } catch {
+    // 音频失败不影响功能
+  }
+  navigator.vibrate?.(ok ? 80 : [60, 40, 60])
+}
+
+// ── 查询模式：扫码/输入 → 资产卡片 ──
+const card = ref<{
+  stockId: string
+  code: string
+  name: string
+  status: string
+  holder: string
+  branch: string
+} | null>(null)
+const notFound = ref(false)
+const queryLoading = ref(false)
+
+async function handleQueryScan(code: string) {
+  queryLoading.value = true
+  notFound.value = false
+  card.value = null
+  busy.value = true
+  try {
     const [stockRes, instRes] = await Promise.all([
-      getAssetStocks({ keyword: kw, pageSize: 5 }),
-      getFixedAssets({ keyword: kw, pageSize: 10 }),
+      getAssetStocks({ keyword: code, pageSize: 5 }),
+      getFixedAssets({ keyword: code, pageSize: 5 }),
     ])
-    scannedInstances.value = instRes.data.results || []
-    const rows = stockRes.data.results || []
+    const rows: AssetStock[] = (stockRes.data as any).results || []
+    const instances: FixedAsset[] = (instRes.data as any).results || []
     if (rows.length > 0) {
-      scannedStock.value = rows[0]
-      showResult.value = true
-    } else if (scannedInstances.value.length > 0) {
-      // 只有实例命中（贵重物品台账行可能不在范围）：以首条实例的品目构造轻量展示
-      const first = scannedInstances.value[0]
-      showResult.value = true
-      scannedStock.value = {
-        id: '', branch: '', item: first.item,
-        资产编号: first.itemCode, 资产名称: first.itemName,
-        branchName: first.branchName || '',
-        在库数量: 0, 在用数量: 0, 回收库数量: 0,
-        管理方式: 'instance',
+      const s = rows[0]
+      card.value = {
+        stockId: s.id,
+        code: s.资产编号 || String(instances[0]?.内部编号 || code),
+        name: s.资产名称 || instances[0]?.itemName || '',
+        status: `${s.在库数量 ?? 0} 在库 / ${s.在用数量 ?? 0} 在用 / ${s.回收库数量 ?? 0} 回收库`,
+        holder: instances[0]?.使用人 || '',
+        branch: s.branchName || '',
+      }
+    } else if (instances.length > 0) {
+      const inst = instances[0]
+      card.value = {
+        stockId: '',
+        code: inst.内部编号,
+        name: inst.itemName || '',
+        status: inst.当前状态 || '',
+        holder: inst.使用人 || '',
+        branch: inst.branchName || '',
       }
     } else {
-      ElMessage.warning('未找到对应台账行或实例')
-      scannedStock.value = null
+      notFound.value = true
     }
-  } catch (error) {
+  } catch {
     ElMessage.error('查询失败')
   } finally {
-    loading.value = false
+    queryLoading.value = false
+    busy.value = false
   }
 }
 
 function viewDetail() {
-  if (scannedStock.value && scannedStock.value.id) {
-    router.push(`/mobile/assets/${scannedStock.value.id}`)
+  if (card.value?.stockId) router.push(`/mobile/assets/${card.value.stockId}`)
+}
+
+// ── 盘点模式：清单精确匹配 → 自动打钩 → 流水 ──
+interface FlowEntry { id: number; type: 'ok' | 'dup' | 'unknown'; text: string }
+const flow = ref<FlowEntry[]>([])
+let flowSeq = 0
+
+async function handleInventoryScan(code: string) {
+  if (!selectedTaskId.value) return
+  busy.value = true
+  try {
+    const target = instanceItems.value.find(x =>
+      x.instanceCode === code || (x.serialNumber && x.serialNumber === code))
+    if (!target) {
+      flow.value.unshift({ id: ++flowSeq, type: 'unknown', text: `清单外：${code}` })
+      feedback(false)
+      ElMessage.warning(`清单中未找到「${code}」`)
+      return
+    }
+    if (target.result === 'matched') {
+      flow.value.unshift({ id: ++flowSeq, type: 'dup', text: `已核对过：${target.instanceCode}` })
+      feedback(false)
+      return
+    }
+    await checkInventoryInstance(selectedTaskId.value, { instanceId: target.instance, found: true })
+    target.result = 'matched'
+    flow.value.unshift({
+      id: ++flowSeq,
+      type: 'ok',
+      text: `已核对：${target.instanceCode}（${target.assetName || ''}${target.holder ? ' · ' + target.holder : ''}）`,
+    })
+    feedback(true)
+  } catch {
+    ElMessage.error('核对失败，请重试')
+  } finally {
+    busy.value = false
   }
 }
 
-function clearScan() {
-  scanInput.value = ''
-  scannedStock.value = null
-  scannedInstances.value = []
-  showResult.value = false
-}
-
-onMounted(() => {
-  // 自动聚焦到输入框
-  const input = document.querySelector('.scan-input') as HTMLInputElement
-  if (input) {
-    input.focus()
+onMounted(async () => {
+  await loadInvTasks()
+  const taskParam = String(route.query.task || '')
+  if (taskParam && invTasks.value.some(t => t.id === taskParam)) {
+    selectTask(taskParam)
+  } else if (invTasks.value.length === 1) {
+    // 唯一进行中任务时不自动切模式，仅露出入口（保持查询默认）
   }
-})
-
-onUnmounted(() => {
-  stopCamera()
 })
 </script>
 
 <template>
-  <div class="scan-asset-page">
-    <!-- 头部 -->
-    <div class="page-header">
-      <h1>扫码查询</h1>
+  <div class="scan-terminal">
+    <div class="page-header"><h1>扫码</h1></div>
+
+    <!-- 模式开关：盘点项仅在有进行中实例盘任务时出现 -->
+    <div class="mode-switch">
+      <button class="mode-btn" :class="{ active: mode === 'query' }" @click="switchMode('query')">查询</button>
+      <button
+        v-if="invTasks.length"
+        class="mode-btn"
+        :class="{ active: mode === 'inventory' }"
+        @click="switchMode('inventory')"
+      >盘点</button>
     </div>
 
-    <!-- 扫码输入区 -->
-    <div class="scan-section">
-      <div class="scan-input-wrapper">
-        <svg class="scan-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <!-- 扫码会话区 -->
+    <div class="camera-zone">
+      <video v-show="scanner.active.value" ref="videoRef" class="camera-video" playsinline muted></video>
+      <button v-if="!scanner.active.value" class="start-btn" @click="scanner.start()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
           <line x1="7" y1="12" x2="17" y2="12"/>
         </svg>
-        <input
-          v-model="scanInput"
-          type="text"
-          class="scan-input"
-          placeholder="请扫描或输入资产编号"
-          @keydown="handleKeydown"
-        />
-      </div>
-      <button class="scan-btn" @click="handleScan">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/>
-          <path d="M21 21l-4.35-4.35"/>
-        </svg>
-        <span>查询</span>
+        <span>开始扫码</span>
       </button>
-      <button class="camera-btn" @click="toggleCamera" :class="{ active: showCamera }">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-          <circle cx="12" cy="13" r="4"/>
-        </svg>
-        <span>摄像头扫码</span>
-      </button>
+      <button v-else class="stop-btn" @click="scanner.stop()">停止扫码</button>
+      <p v-if="scanner.error.value" class="camera-error">{{ scanner.error.value }}</p>
     </div>
 
-    <!-- 摄像头视图 -->
-    <div v-if="showCamera" class="camera-view">
-      <video ref="videoRef" class="camera-video" playsinline muted></video>
-      <div class="camera-overlay">
-        <div class="scan-frame"></div>
-      </div>
-      <button class="camera-close-btn" @click="stopCamera">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"/>
-          <line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
-      </button>
+    <!-- 手动输入兜底（扫码枪/手输与摄像头同链） -->
+    <div class="manual-row">
+      <input
+        v-model="scanInput"
+        type="text"
+        class="manual-input"
+        placeholder="扫码枪或手动输入编号，回车确认"
+        @keydown="handleKeydown"
+      />
     </div>
-    <p v-if="!barcodeDetectorSupported && showCamera" class="camera-hint">当前浏览器不支持摄像头扫码，请使用手动输入</p>
 
-    <!-- 扫描结果（台账行口径） -->
-    <div v-if="showResult && scannedStock" class="result-section">
-      <div class="result-card" @click="viewDetail">
-        <div class="asset-header">
-          <span class="asset-status">
-            {{ MANAGEMENT_TYPE_LABELS[scannedStock.管理方式 ?? ''] || scannedStock.管理方式 }}
-          </span>
+    <!-- 查询模式：资产卡片 -->
+    <template v-if="mode === 'query'">
+      <p v-if="queryLoading" class="hint-text">查询中…</p>
+      <div v-if="card" class="asset-card" @click="viewDetail">
+        <div class="card-row card-code">{{ card.code }}</div>
+        <div class="card-row card-name">{{ card.name }}</div>
+        <div class="card-meta">
+          <span>状态：{{ card.status }}</span>
+          <span v-if="card.holder">使用人：{{ card.holder }}</span>
+          <span v-if="card.branch">分公司：{{ card.branch }}</span>
         </div>
-        <div class="asset-info">
-          <div class="asset-code">{{ scannedStock.资产编号 }}</div>
-          <div class="asset-name">{{ scannedStock.资产名称 }}</div>
-          <div class="asset-meta">
-            <div class="meta-item">
-              <span class="label">分公司</span>
-              <span class="value">{{ scannedStock.branchName || '-' }}</span>
-            </div>
-            <div class="meta-item">
-              <span class="label">在库 / 在用 / 回收库</span>
-              <span class="value">{{ scannedStock.在库数量 }} / {{ scannedStock.在用数量 }} / {{ scannedStock.回收库数量 }}</span>
-            </div>
+        <div v-if="card.stockId" class="card-link">查看详情 ›</div>
+      </div>
+      <p v-else-if="notFound" class="hint-text warn">未找到对应资产，可继续扫下一个</p>
+    </template>
+
+    <!-- 盘点模式：任务选择 / 进度与流水 -->
+    <template v-else>
+      <div v-if="!selectedTaskId" class="task-picker">
+        <p class="hint-text">选择进行中的盘点任务</p>
+        <button
+          v-for="t in invTasks"
+          :key="t.id"
+          class="task-option"
+          :disabled="invLoading"
+          @click="selectTask(t.id)"
+        >{{ t.name }}</button>
+      </div>
+      <template v-else>
+        <div class="inv-progress">
+          <span class="inv-name">{{ selectedTaskName }}</span>
+          <span class="inv-count">{{ invProgress.matched }} / {{ invProgress.total }}</span>
+        </div>
+        <div class="flow-list">
+          <div v-for="entry in flow" :key="entry.id" class="flow-item" :class="entry.type">
+            <span class="flow-mark">{{ entry.type === 'ok' ? '✓' : entry.type === 'dup' ? '↻' : '⚠' }}</span>
+            <span>{{ entry.text }}</span>
           </div>
+          <p v-if="!flow.length" class="hint-text">对准标签开始扫码，识别后自动打钩</p>
         </div>
-
-        <div v-if="scannedInstances.length" class="instance-hits">
-          <div class="instance-title">命中实例 {{ scannedInstances.length }} 台</div>
-          <div v-for="inst in scannedInstances.slice(0, 5)" :key="inst.id" class="instance-line">
-            <span class="i-code">{{ inst.内部编号 }}</span>
-            <span class="i-state">{{ inst.当前状态 }}</span>
-            <span class="i-user">{{ inst.使用人 || (inst.序列号 || '待补录') }}</span>
-          </div>
-        </div>
-
-        <div class="result-actions">
-          <button v-if="scannedStock.id" class="detail-btn" @click="viewDetail">
-            查看详情
-          </button>
-          <button class="clear-btn" @click="clearScan">
-            继续扫码
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 加载状态 -->
-    <div v-if="loading" class="loading-overlay">
-      <span>查询中...</span>
-    </div>
+      </template>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.scan-asset-page {
-  padding: var(--space-4);
-  min-height: 100vh;
-}
+.scan-terminal { padding: var(--space-4); min-height: 100vh; }
+.page-header { margin-bottom: var(--space-3); }
+.page-header h1 { font-size: 20px; font-weight: 600; color: var(--color-text-primary); }
 
-.page-header {
-  margin-bottom: var(--space-4);
-}
+.mode-switch { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+.mode-btn { flex: 1; height: 40px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-card); color: var(--color-text-secondary); font-size: 14px; cursor: pointer; }
+.mode-btn.active { border-color: var(--color-primary-500); color: var(--color-primary-500); background: var(--color-primary-50); }
 
-.page-header h1 {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
+.camera-zone { position: relative; height: 260px; border-radius: 14px; overflow: hidden; background: var(--color-bg-card); border: 1px solid var(--color-border); margin-bottom: var(--space-3); }
+.camera-video { width: 100%; height: 100%; object-fit: cover; }
+.start-btn { position: absolute; inset: 0; margin: auto; width: 150px; height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed var(--color-primary-500); border-radius: 16px; background: var(--color-bg-card); color: var(--color-primary-500); font-size: 15px; cursor: pointer; }
+.start-btn svg { width: 30px; height: 30px; }
+.stop-btn { position: absolute; right: 10px; bottom: 10px; padding: 6px 14px; border: none; border-radius: 8px; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; cursor: pointer; }
+.camera-error { position: absolute; left: 0; right: 0; bottom: 10px; margin: 0; text-align: center; font-size: 12px; color: var(--color-warning); padding: 0 12px; }
 
-.scan-section {
-  display: flex;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
+.manual-row { margin-bottom: var(--space-3); }
+.manual-input { width: 100%; height: 44px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-card); font-size: 15px; text-align: center; }
+.manual-input:focus { outline: none; border-color: var(--color-primary-500); }
 
-.scan-input-wrapper {
-  flex: 1;
-  position: relative;
-}
+.hint-text { font-size: 13px; color: var(--color-text-tertiary); text-align: center; }
+.hint-text.warn { color: var(--color-warning); }
 
-.scan-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 20px;
-  color: var(--color-text-tertiary);
-}
+.asset-card { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 14px; padding: var(--space-4); }
+.card-code { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-tertiary); }
+.card-name { font-size: 18px; font-weight: 600; color: var(--color-text-primary); margin: 4px 0 8px; }
+.card-meta { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--color-text-secondary); }
+.card-link { margin-top: 10px; font-size: 13px; color: var(--color-primary-500); }
 
-.scan-input {
-  width: 100%;
-  height: 50px;
-  padding: 0 var(--space-4) 0 44px;
-  border: 2px dashed var(--color-border);
-  border-radius: 12px;
-  background: var(--color-bg-card);
-  font-size: 16px;
-  text-align: center;
-}
+.task-picker { display: flex; flex-direction: column; gap: var(--space-2); }
+.task-option { height: 48px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-card); font-size: 14px; color: var(--color-text-primary); cursor: pointer; text-align: left; padding: 0 var(--space-3); }
 
-.scan-input:focus {
-  outline: none;
-  border-color: var(--color-primary-500);
-}
+.inv-progress { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2); }
+.inv-name { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.inv-count { font-size: 14px; color: var(--color-primary-500); font-weight: 600; }
 
-.scan-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  width: 70px;
-  height: 50px;
-  border: none;
-  border-radius: 12px;
-  background: var(--color-primary-500);
-  color: white;
-  cursor: pointer;
-}
-
-.scan-btn svg {
-  width: 22px;
-  height: 22px;
-}
-
-.scan-btn span {
-  font-size: 11px;
-}
-
-.camera-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  width: 100%;
-  height: 44px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-bg-card);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  margin-top: var(--space-2);
-}
-
-.camera-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
-.camera-btn.active {
-  border-color: var(--color-primary-500);
-  color: var(--color-primary-500);
-  background: var(--color-primary-50);
-}
-
-.camera-view {
-  position: relative;
-  width: 100%;
-  height: 240px;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #000;
-  margin-bottom: var(--space-3);
-}
-
-.camera-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.camera-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.3);
-}
-
-.scan-frame {
-  width: 200px;
-  height: 120px;
-  border: 2px solid rgba(255, 255, 255, 0.8);
-  border-radius: 8px;
-}
-
-.camera-close-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  border: none;
-  border-radius: 50%;
-  color: white;
-  cursor: pointer;
-}
-
-.camera-close-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.camera-hint {
-  font-size: 13px;
-  color: var(--color-warning);
-  text-align: center;
-  margin-bottom: var(--space-3);
-}
-
-.result-section {
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.result-card {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.asset-header {
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-elevated);
-  display: flex;
-  justify-content: flex-end;
-}
-
-.asset-status {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.asset-status.在库 {
-  background: var(--color-success-bg);
-  color: var(--color-success);
-}
-
-.asset-status.使用中 {
-  background: var(--color-primary-50);
-  color: var(--color-primary-500);
-}
-
-.asset-status.维修中 {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-}
-
-.asset-status.报废 {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-}
-
-.asset-image {
-  width: 100%;
-  height: 180px;
-  background: var(--color-bg-page);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.asset-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.asset-placeholder {
-  width: 64px;
-  height: 64px;
-  color: var(--color-text-tertiary);
-}
-
-.asset-placeholder svg {
-  width: 100%;
-  height: 100%;
-}
-
-.asset-info {
-  padding: var(--space-4);
-}
-
-.asset-code {
-  font-size: 12px;
-  font-family: var(--font-mono);
-  color: var(--color-text-tertiary);
-}
-
-.asset-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin-top: 4px;
-}
-
-.asset-meta {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-}
-
-.meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.meta-item .label {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-}
-
-.meta-item .value {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-
-.result-actions {
-  display: flex;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border-top: 1px solid var(--color-border);
-}
-
-.detail-btn,
-.clear-btn {
-  flex: 1;
-  height: 44px;
-  border: none;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.detail-btn {
-  background: var(--color-primary-500);
-  color: white;
-}
-
-.clear-btn {
-  background: var(--color-bg-elevated);
-  color: var(--color-text-secondary);
-}
-
-.loading-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  color: var(--color-text-secondary);
-}
-</style>
-
-<style scoped>
-.instance-hits { padding: 10px 16px; border-top: 1px solid var(--color-border-light); }
-.instance-title { font-size: 12px; color: var(--color-text-tertiary); margin-bottom: 6px; }
-.instance-line { display: flex; gap: 10px; font-size: 13px; padding: 4px 0; }
-.instance-line .i-code { font-family: var(--font-mono); color: var(--color-primary-600); min-width: 110px; }
-.instance-line .i-state { color: var(--color-text-secondary); flex: 1; }
-.instance-line .i-user { color: var(--color-text-tertiary); }
+.flow-list { display: flex; flex-direction: column; gap: 6px; }
+.flow-item { display: flex; gap: 8px; align-items: baseline; font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--color-bg-card); border: 1px solid var(--color-border); color: var(--color-text-primary); }
+.flow-item .flow-mark { font-weight: 700; }
+.flow-item.ok .flow-mark { color: var(--color-success); }
+.flow-item.dup { color: var(--color-text-tertiary); }
+.flow-item.unknown .flow-mark { color: var(--color-warning); }
 </style>

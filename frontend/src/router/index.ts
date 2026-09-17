@@ -54,8 +54,8 @@ const routes: RouteRecordRaw[] = [
     component: MobileLayout,
     meta: { requiresAuth: true, isMobile: true },
     children: [
-      { path: '', redirect: '/mobile/home' },
-      { path: 'home', component: () => import('@/views/mobile/Home.vue'), meta: { title: '工作台' } },
+      { path: '', redirect: '/mobile/scan' },
+      { path: 'home', redirect: '/mobile/scan' },
       { path: 'assets', component: () => import('@/views/mobile/AssetSearch.vue'), meta: { title: '资产查询' } },
       { path: 'assets/:id', component: () => import('@/views/mobile/AssetDetail.vue'), meta: { title: '资产详情' } },
       { path: 'scan', component: () => import('@/views/mobile/ScanAsset.vue'), meta: { title: '扫码查询' } },

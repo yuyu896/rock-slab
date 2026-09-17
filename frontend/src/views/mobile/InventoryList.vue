@@ -47,8 +47,13 @@ async function fetchTasks() {
   }
 }
 
+/** 实例盘 → 统一扫码器（连扫打钩）；数量盘 → 原任务页（逐项确认数量） */
 function startInventory(task: any) {
-  router.push(`/mobile/inventory/${task.id}`)
+  if (task.inventoryKind === 'instance') {
+    router.push(`/mobile/scan?task=${task.id}`)
+  } else {
+    router.push(`/mobile/inventory/${task.id}`)
+  }
 }
 
 function formatDate(dateStr: string): string {
