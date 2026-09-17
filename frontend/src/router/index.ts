@@ -82,6 +82,11 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false, title: '登录' },
   },
   {
+    path: '/install',
+    component: () => import('@/views/InstallGuide.vue'),
+    meta: { requiresAuth: false, title: '安装磐盘' },
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/dashboard',
   },
