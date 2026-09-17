@@ -10,7 +10,7 @@
 
 ## 3. 生产执行（不推送通道）
 
-- [ ] 3.1 本地 commit（**不 push**）；命令文件 scp 至服务器 /root/
-- [ ] 3.2 `docker compose run --rm -v ...prod_data_fix_hz5.py:...` 挂载 dry-run 复核（1 单 127 实例 −67/−60；45 调整单 + 44 行）
-- [ ] 3.3 `/root/backup_db.sh` 备份 → 挂载 `--apply` + 内嵌对账；独立复跑 `check_ledger_consistency` exit=0
-- [ ] 3.4 抽查：实例/台账/调整单全归零、员工饶智依在；幂等复证
+- [x] 3.1 本地 commit（**不 push**）；命令文件 scp 至服务器 /root/
+- [x] 3.2 `docker compose run --rm -v ...prod_data_fix_hz5.py:...` 挂载 dry-run 复核（1 单 127 实例 −67/−60；45 调整单 + 44 行）
+- [x] 3.3 `/root/backup_db.sh` 备份（rock_slab_20260917_113750.sql.gz）→ 挂载 `--apply` + 内嵌对账；独立复跑 `check_ledger_consistency` exit=0（5258 行零差异）
+- [x] 3.4 抽查：实例/台账/调整单全归零、员工饶智依在；幂等复证
