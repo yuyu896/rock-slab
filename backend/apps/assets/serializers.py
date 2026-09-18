@@ -91,7 +91,9 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         return not (obj.序列号 or '').strip()
 
     def get_item_spec(self, obj):
-        """规格：出生行本批规格优先（批次实际规格），空则回退品目字典规格。"""
+        """规格三级：实例个体覆盖 → 出生日.本批规格 → 品目字典。"""
+        if obj.规格:
+            return obj.规格
         if obj.birth_line is not None and obj.birth_line.本批规格:
             return obj.birth_line.本批规格
         return obj.item.specification or ''

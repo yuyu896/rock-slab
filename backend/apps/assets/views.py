@@ -474,12 +474,13 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         """
         ids = request.data.get('ids') or []
         supplier = request.data.get('供应商')
+        spec = request.data.get('规格')
         remark = request.data.get('备注')
         serials = request.data.get('序列号列表') or []
-        unknown = set(request.data) - {'ids', '供应商', '备注', '序列号列表'}
+        unknown = set(request.data) - {'ids', '供应商', '规格', '备注', '序列号列表'}
         if unknown:
             return Response(
-                {'detail': f'批量维护仅支持 供应商/备注/序列号，多余字段：{"、".join(sorted(unknown))}'},
+                {'detail': f'批量维护仅支持 供应商/规格/备注/序列号，多余字段：{"、".join(sorted(unknown))}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not ids:
@@ -489,7 +490,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 {'detail': f'序列号数量（{len(serials)}）与实例数（{len(ids)}）不一致'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if supplier is None and remark is None and not serials:
+        if supplier is None and spec is None and remark is None and not serials:
             return Response({'detail': '未指定任何修改内容'}, status=status.HTTP_400_BAD_REQUEST)
 
         from apps.assets.models import FixedAsset
@@ -508,6 +509,9 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                         # 个体覆盖写实例字段（同批共享出生行，写行会连带改全部同行实例）
                         inst.供应商 = supplier
                         inst.save(update_fields=['供应商', 'updated_at'])
+                    if spec is not None:
+                        inst.规格 = spec
+                        inst.save(update_fields=['规格', 'updated_at'])
                     if remark is not None:
                         inst.备注 = remark
                         inst.save(update_fields=['备注', 'updated_at'])

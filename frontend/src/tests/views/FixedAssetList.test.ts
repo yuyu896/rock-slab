@@ -56,7 +56,7 @@ const stubs = {
   BasePagination: { template: '<div />' },
   StatusBadge: { props: ['status'], template: '<span>{{ status }}</span>' },
   AssetPrintDialog: { props: ['assets', 'visible'], template: '<div class="print-stub">{{ assets.length }}-{{ visible }}</div>' },
-  'el-dialog': { props: ['modelValue'], template: `<div><slot /><slot name="footer" /></div>` },
+  'el-dialog': { props: ['modelValue', 'title'], template: `<div v-if="modelValue" class="el-dialog"><div class="dlg-title">{{ title }}</div><slot /><slot name="footer" /></div>` },
   'el-drawer': { props: ['modelValue'], template: '<div><slot /></div>' },
   'el-image': { props: ['src'], template: '<img class="el-image-stub" :src="src" />' },
   'el-form': { template: '<div><slot /></div>' },
@@ -142,7 +142,11 @@ describe('FixedAssetList 物品图片', () => {
     expect(fixedAssetListSource).not.toMatch(/\.action-col\s*\{[^}]*display:\s*flex/)
   })
 
-  it('上传成功后图片弹窗自动关闭', async () => {
+  it('编辑弹窗：上传图片即时生效，保存提交四项字段', async () => {
+    const { batchUpdateFixedAssets } = await import('@/api/assets')
+    vi.mocked(batchUpdateFixedAssets).mockResolvedValue({
+      data: { updated: 1, results: ['NB-001-1'], errors: [] },
+    } as any)
     vi.mocked(getFixedAssets).mockResolvedValue({
       data: { count: 1, results: [_inst({})] },
     } as any)
@@ -150,20 +154,29 @@ describe('FixedAssetList 物品图片', () => {
       data: _inst({ 图片: '/media/fixed_assets/new.jpg' }),
     } as any)
     const wrapper = await _mount()
-    await wrapper.findAll('.action-btn').find(b => b.attributes('title') === '物品图片')!.trigger('click')
-    expect(wrapper.find('.image-dialog-body').exists()).toBe(true)
+    const editBtn = wrapper.findAll('.action-btn').find(b => b.attributes('title') === '编辑')
+    expect(editBtn).toBeTruthy()
+    await editBtn!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('编辑实例')
 
+    // 图片上传（编辑弹窗内隐藏 input）
     const input = wrapper.find('input[type=file]')
     const file = new File([new Uint8Array(64)], 'photo.jpg', { type: 'image/jpeg' })
     Object.defineProperty(input.element, 'files', { value: [file] })
     await input.trigger('change')
     await flushPromises()
-
     expect(uploadFixedAssetImage).toHaveBeenCalledWith('fa-1', file)
-    expect(wrapper.find('.image-dialog-body').exists()).toBe(false)
-    const thumb = wrapper.find('.data-table tbody img')
-    expect(thumb.exists()).toBe(true)
-    expect(thumb.attributes('src')).toBe('/media/fixed_assets/new.jpg')
+
+    // 保存：batch-update 携带 序列号/备注/规格/供应商
+    await wrapper.findAll('button').find(b => b.text() === '保存')!.trigger('click')
+    await flushPromises()
+    expect(batchUpdateFixedAssets).toHaveBeenCalledWith(expect.objectContaining({
+      ids: ['fa-1'],
+      序列号列表: [expect.any(String)],
+      规格: expect.any(String),
+      供应商: expect.any(String),
+    }))
   })
 })
 

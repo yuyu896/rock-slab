@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getFixedAssets, exportFixedAssets, supplementFixedAsset, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets } from '@/api/assets'
+import { getFixedAssets, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets } from '@/api/assets'
 import type { FixedAsset, FixedAssetTimeline } from '@/types'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
@@ -56,54 +56,90 @@ async function handleExport() {
   }
 }
 
-// ── 序列号补录（仅 序列号/备注，manage_instances） ──
-const supplementing = ref<FixedAsset | null>(null)
-const supplementForm = ref({ 序列号: '', 备注: '' })
-const supplementSaving = ref(false)
-const supplementVisibleProxy = computed({
-  get: () => supplementing.value !== null,
-  set: (v: boolean) => { if (!v) supplementing.value = null },
+// ── 行编辑（归一弹窗：序列号/备注/规格/供应商/图片，manage_instances） ──
+const editing = ref<FixedAsset | null>(null)
+const editForm = ref({ 序列号: '', 备注: '', 规格: '', 供应商: '' })
+const editSaving = ref(false)
+const editVisibleProxy = computed({
+  get: () => editing.value !== null,
+  set: (v: boolean) => { if (!v) editing.value = null },
 })
 
-function openSupplement(asset: FixedAsset) {
-  supplementing.value = asset
-  supplementForm.value = { 序列号: asset.序列号 || '', 备注: asset.备注 || '' }
+function openEdit(asset: FixedAsset) {
+  editing.value = asset
+  editForm.value = {
+    序列号: asset.序列号 || '',
+    备注: asset.备注 || '',
+    规格: asset.itemSpec || '',
+    供应商: asset.供应商 || '',
+  }
 }
 
-async function handleSupplement() {
-  if (!supplementing.value) return
-  supplementSaving.value = true
+async function handleEditSave() {
+  if (!editing.value) return
+  editSaving.value = true
   try {
-    await supplementFixedAsset(supplementing.value.id, supplementForm.value)
-    ElMessage.success('补录成功')
-    supplementing.value = null
+    await batchUpdateFixedAssets({
+      ids: [editing.value.id],
+      序列号列表: [editForm.value.序列号],
+      备注: editForm.value.备注,
+      规格: editForm.value.规格,
+      供应商: editForm.value.供应商,
+    })
+    ElMessage.success('已保存')
+    editing.value = null
     await fetchAssets()
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
-    supplementSaving.value = false
+    editSaving.value = false
   }
 }
 
-// ── 物品图片（上传/更换/删除，manage_instances，覆盖即清旧图） ──
-const imaging = ref<FixedAsset | null>(null)
-const imagePreview = ref('')
+// ── 物品图片（编辑弹窗内即时上传/更换/删除，manage_instances，覆盖即清旧图） ──
 const imageSaving = ref(false)
-const imageInput = ref<HTMLInputElement | null>(null)
-const imagingVisibleProxy = computed({
-  get: () => imaging.value !== null,
-  set: (v: boolean) => { if (!v) imaging.value = null },
-})
 
-function openImageDialog(asset: FixedAsset) {
-  imaging.value = asset
-  imagePreview.value = asset.图片 || ''
+async function uploadImage(file: File) {
+  if (!editing.value) return
+  imageSaving.value = true
+  try {
+    const { data } = await uploadFixedAssetImage(editing.value.id, file)
+    applyImageUpdate(data)
+    ElMessage.success('图片已更新')
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    imageSaving.value = false
+  }
 }
 
-function handleImageSelect(e: Event) {
+async function handleDeleteImage() {
+  if (!editing.value?.图片) return
+  try {
+    await ElMessageBox.confirm('确定删除该物品图片？', '删除图片', { type: 'warning' })
+  } catch { return }
+  imageSaving.value = true
+  try {
+    const { data } = await deleteFixedAssetImage(editing.value.id)
+    applyImageUpdate(data)
+    ElMessage.success('图片已删除')
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    imageSaving.value = false
+  }
+}
+
+/** 编辑弹窗图片预览来源：行数据实时值 */
+function imagePreviewFor(asset: FixedAsset): string {
+  return asset.图片 || ''
+}
+
+const editImageInput = ref<HTMLInputElement | null>(null)
+function handleEditImageSelect(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || !editing.value) return
   const allowed = ['image/jpeg', 'image/png', 'image/webp']
   if (!allowed.includes(file.type)) {
     ElMessage.error('仅支持 JPG、PNG、WebP 格式')
@@ -119,44 +155,19 @@ function handleImageSelect(e: Event) {
   input.value = ''
 }
 
-async function uploadImage(file: File) {
-  if (!imaging.value) return
-  imageSaving.value = true
-  try {
-    const { data } = await uploadFixedAssetImage(imaging.value.id, file)
-    applyImageUpdate(data)
-    ElMessage.success('图片已更新')
-    imaging.value = null
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    imageSaving.value = false
-  }
-}
-
-async function handleDeleteImage() {
-  if (!imaging.value?.图片) return
+async function handleEditImageDelete() {
+  if (!editing.value?.图片) return
   try {
     await ElMessageBox.confirm('确定删除该物品图片？', '删除图片', { type: 'warning' })
   } catch { return }
-  imageSaving.value = true
-  try {
-    const { data } = await deleteFixedAssetImage(imaging.value.id)
-    applyImageUpdate(data)
-    ElMessage.success('图片已删除')
-    imaging.value = null
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    imageSaving.value = false
-  }
+  await handleDeleteImage()
 }
 
 /** 响应即最新档案：就地更新列表行，免整页刷新 */
 function applyImageUpdate(updated: FixedAsset) {
   const row = assets.value.find(a => a.id === updated.id)
   if (row) row.图片 = updated.图片
-  if (imaging.value) imaging.value = { ...imaging.value, 图片: updated.图片 }
+  if (editing.value) editing.value = { ...editing.value, 图片: updated.图片 }
 }
 
 // ── 生平（出生信息 + 关联全部明细行倒序） ──
@@ -222,12 +233,12 @@ function printSelected() {
 
 // ── 批量操作（manage_instances）：供应商/备注/序列号 ──
 const batchMenuOpen = ref(false)
-const batchDialog = ref<'supplier' | 'remark' | 'serial' | null>(null)
+const batchDialog = ref<'supplier' | 'spec' | 'remark' | 'serial' | null>(null)
 const batchValue = ref('')
 const batchSerials = ref<string[]>([])
 const batchSaving = ref(false)
 
-function openBatch(dialog: 'supplier' | 'remark' | 'serial') {
+function openBatch(dialog: 'supplier' | 'spec' | 'remark' | 'serial') {
   batchMenuOpen.value = false
   batchDialog.value = dialog
   batchValue.value = ''
@@ -240,8 +251,9 @@ const selectedIdList = () => assets.value.filter((a) => selectedIds.value.has(a.
 async function submitBatch() {
   const ids = selectedIdList()
   if (!ids.length) return
-  const payload: { ids: string[]; 供应商?: string; 备注?: string; 序列号列表?: string[] } = { ids }
+  const payload: { ids: string[]; 供应商?: string; 规格?: string; 备注?: string; 序列号列表?: string[] } = { ids }
   if (batchDialog.value === 'supplier') payload.供应商 = batchValue.value.trim()
+  if (batchDialog.value === 'spec') payload.规格 = batchValue.value.trim()
   if (batchDialog.value === 'remark') payload.备注 = batchValue.value.trim()
   if (batchDialog.value === 'serial') payload.序列号列表 = batchSerials.value.map((s) => s.trim())
   batchSaving.value = true
@@ -267,7 +279,9 @@ const batchVisibleProxy = computed({
   set: (v: boolean) => { if (!v) batchDialog.value = null },
 })
 const batchTitle = computed(() =>
-  batchDialog.value === 'supplier' ? '批量修改供应商' : batchDialog.value === 'remark' ? '批量修改备注' : '批量补录序列号',
+  batchDialog.value === 'supplier' ? '批量修改供应商'
+    : batchDialog.value === 'spec' ? '批量修改规格'
+    : batchDialog.value === 'remark' ? '批量修改备注' : '批量补录序列号',
 )
 const selectedRows = computed(() => assets.value.filter((a) => selectedIds.value.has(a.id)))
 function focusNextSerial(i: number) {
@@ -349,6 +363,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           <div v-if="batchMenuOpen" class="batch-menu" @mouseleave="batchMenuOpen = false">
             <button :disabled="!selectedIds.size" @click="printSelected">打印标签</button>
             <button :disabled="!selectedIds.size" @click="openBatch('supplier')">修改供应商</button>
+            <button :disabled="!selectedIds.size" @click="openBatch('spec')">修改规格</button>
             <button :disabled="!selectedIds.size" @click="openBatch('remark')">修改备注</button>
             <button :disabled="!selectedIds.size" @click="openBatch('serial')">补录序列号</button>
           </div>
@@ -409,12 +424,13 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <th>入库日期</th>
             <th>供应商</th>
             <th>采购日期</th>
+            <th>备注</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="16" class="empty-cell">加载中...</td></tr>
-          <tr v-else-if="assets.length === 0"><td colspan="16" class="empty-cell">暂无实例数据</td></tr>
+          <tr v-if="loading"><td colspan="17" class="empty-cell">加载中...</td></tr>
+          <tr v-else-if="assets.length === 0"><td colspan="17" class="empty-cell">暂无实例数据</td></tr>
           <tr v-for="(item, index) in assets" :key="item.id" v-else>
             <td class="check-col"><input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item)" /></td>
             <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
@@ -444,17 +460,12 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <td><span class="date-text">{{ item.入库日期 || '-' }}</span></td>
             <td>{{ item.供应商 || '-' }}</td>
             <td><span class="date-text">{{ item.采购日期 || '-' }}</span></td>
+            <td>{{ item.备注 || '-' }}</td>
             <td class="action-col">
-              <button v-if="canSupplement" class="action-btn" title="物品图片" @click="openImageDialog(item)">
+              <button v-if="canSupplement" class="action-btn" title="编辑" @click="openEdit(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                   <circle cx="12" cy="13" r="4"/>
-                </svg>
-              </button>
-              <button v-if="canSupplement" class="action-btn" title="补录序列号" @click="openSupplement(item)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
               </button>
               <button class="action-btn" title="生平" @click="openTimeline(item)">
@@ -477,45 +488,33 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 
     <BasePagination :total="pagination.total" :current-page="pagination.page" :page-size="pagination.pageSize" @change="handlePaginationChange" />
 
-    <!-- 补录弹窗（仅 序列号/备注） -->
-    <el-dialog v-model="supplementVisibleProxy" title="序列号补录" width="460px" :close-on-click-modal="false">
-      <el-form label-width="72px" v-if="supplementing">
-        <el-form-item label="内部编号"><span class="asset-code">{{ supplementing.内部编号 }}</span></el-form-item>
-        <el-form-item label="品目名称">{{ supplementing.itemName || '-' }}</el-form-item>
-        <el-form-item label="使用人">{{ supplementing.使用人 || '-' }}</el-form-item>
-        <el-form-item label="部门">{{ supplementing.departmentName || '-' }}</el-form-item>
-        <el-form-item label="序列号"><el-input v-model="supplementForm.序列号" placeholder="扫码或手工录入" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="supplementForm.备注" type="textarea" :rows="2" /></el-form-item>
+    <!-- 行编辑弹窗（归一：上下文 + 序列号/备注/规格/供应商 + 图片） -->
+    <el-dialog v-model="editVisibleProxy" title="编辑实例" width="520px" :close-on-click-modal="false">
+      <el-form label-width="72px" v-if="editing">
+        <el-form-item label="内部编号"><span class="asset-code">{{ editing.内部编号 }}</span></el-form-item>
+        <el-form-item label="品目名称">{{ editing.itemName || '-' }}</el-form-item>
+        <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
+        <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
+        <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
+        <el-form-item label="供应商"><el-input v-model="editForm.供应商" placeholder="修改后实例档案显示此供应商" /></el-form-item>
+        <el-form-item label="物品图片">
+          <div class="edit-image-row">
+            <el-image v-if="imagePreviewFor(editing)" :src="imagePreviewFor(editing)" fit="cover" class="row-thumb" :preview-src-list="[imagePreviewFor(editing)!]" preview-teleported />
+            <span v-else class="thumb-empty">—</span>
+            <input ref="editImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" @change="handleEditImageSelect" />
+            <el-button size="small" @click="editImageInput?.click()">{{ imagePreviewFor(editing) ? '更换图片' : '上传图片' }}</el-button>
+            <el-button v-if="imagePreviewFor(editing)" size="small" @click="handleEditImageDelete">删除</el-button>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="supplementing = null">取消</el-button>
-        <el-button type="primary" :loading="supplementSaving" @click="handleSupplement">保存</el-button>
+        <el-button @click="editing = null">取消</el-button>
+        <el-button type="primary" :loading="editSaving" @click="handleEditSave">保存</el-button>
       </template>
     </el-dialog>
 
-    <!-- 物品图片弹窗（上传/更换/删除） -->
-    <el-dialog v-model="imagingVisibleProxy" title="物品图片" width="420px" :close-on-click-modal="false">
-      <div v-if="imaging" class="image-dialog-body">
-        <div class="image-view">
-          <el-image v-if="imagePreview" :src="imagePreview" fit="contain" class="image-full" />
-          <div v-else class="image-empty">暂无图片</div>
-        </div>
-        <div class="image-meta"><span class="asset-code">{{ imaging.内部编号 }}</span> {{ imaging.itemName || '' }}</div>
-        <input
-          ref="imageInput"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          style="display:none"
-          @change="handleImageSelect"
-        />
-      </div>
-      <template #footer>
-        <el-button v-if="imagePreview" :loading="imageSaving" @click="handleDeleteImage">删除</el-button>
-        <el-button type="primary" :loading="imageSaving" @click="imageInput?.click()">
-          {{ imagePreview ? '更换图片' : '上传图片' }}
-        </el-button>
-      </template>
-    </el-dialog>
 
     <!-- 生平抽屉 -->
     <el-drawer v-model="timelineVisibleProxy" title="实例生平" size="560px">
@@ -566,7 +565,7 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           />
         </div>
       </div>
-      <el-input v-else v-model="batchValue" :placeholder="batchDialog === 'supplier' ? '统一设置的供应商名称' : '统一设置的备注内容'" />
+      <el-input v-else v-model="batchValue" :placeholder="batchDialog === 'supplier' ? '统一设置的供应商名称' : batchDialog === 'spec' ? '统一设置的规格' : '统一设置的备注内容'" />
       <template #footer>
         <el-button @click="batchDialog = null">取消</el-button>
         <el-button type="primary" :loading="batchSaving" @click="submitBatch">应用（{{ countSelected() }} 台）</el-button>

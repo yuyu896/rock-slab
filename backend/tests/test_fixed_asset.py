@@ -518,3 +518,59 @@ class TestInstanceLevelSupplier:
         line.供应商 = ''
         line.save(update_fields=['供应商'])
         assert FixedAssetSerializer(made[1]).data['供应商'] == '批次商'
+
+
+@pytest.mark.django_db
+class TestSpecOverride:
+    """规格个体覆盖（instance-edit-unify-and-spec）：三级派生 + 批量隔离。"""
+
+    def _two_on_one_line(self, branch, item_instance):
+        import datetime
+        from apps.assets.models import FixedAsset
+        from apps.transfers.models import Transfer, TransferLine
+        item_instance.specification = '字典规格'
+        item_instance.save(update_fields=['specification'])
+        t = Transfer.objects.create(
+            单据编号='SPEC-001', 调拨日期=datetime.date(2026, 9, 18),
+            调入分公司=branch.name, to_branch=branch,
+            action_type='purchase', 审批状态='已入库',
+        )
+        line = TransferLine.objects.create(
+            transfer=t, item=item_instance, 行号=1, 数量=2, 本批规格='批次规格')
+        a = FixedAsset.objects.create(item=item_instance, 内部编号='SP-1', 当前状态='在库', branch=branch, birth_line=line)
+        b = FixedAsset.objects.create(item=item_instance, 内部编号='SP-2', 当前状态='在库', branch=branch, birth_line=line)
+        return a, b, line
+
+    def test_three_level_derivation(self, branch, item_instance):
+        a, b, line = self._two_on_one_line(branch, item_instance)
+        from apps.assets.serializers import FixedAssetSerializer
+        assert FixedAssetSerializer(a).data['item_spec'] == '批次规格'  # 出生行优先于字典
+        a.规格 = '个体规格'
+        a.save(update_fields=['规格'])
+        assert FixedAssetSerializer(a).data['item_spec'] == '个体规格'
+        line.本批规格 = ''
+        line.save(update_fields=['本批规格'])
+        assert FixedAssetSerializer(b).data['item_spec'] == '字典规格'  # 回退字典
+
+    def test_batch_spec_isolated(self, supervisor_user, branch, item_instance):
+        _grant(supervisor_user, 'manage_instances')
+        a, b, line = self._two_on_one_line(branch, item_instance)
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(a.pk)], '规格': '改装版',
+        }, format='json')
+        assert resp.status_code == 200 and resp.data['updated'] == 1
+        a.refresh_from_db(); b.refresh_from_db()
+        assert a.规格 == '改装版'
+        assert b.规格 == ''  # 同行未勾选不受影响
+        line.refresh_from_db()
+        assert line.本批规格 == '批次规格'  # 出生行零触碰
+
+    def test_whitelist_message_includes_spec(self, supervisor_user, inst):
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(inst.pk)], '当前状态': '在用',
+        }, format='json')
+        assert resp.status_code == 400
+        assert '规格' in resp.data['detail']

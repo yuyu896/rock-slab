@@ -115,10 +115,11 @@ export function deleteFixedAssetImage(id: string) {
   return request.delete<FixedAsset>(`/api/assets/fixed-assets/${id}/image`)
 }
 
-/** 实例批量维护（白名单：供应商=出生行 / 备注 / 序列号一一对应） */
+/** 实例批量维护（白名单：供应商/规格 个体覆盖 / 备注 / 序列号一一对应） */
 export function batchUpdateFixedAssets(data: {
   ids: string[]
   供应商?: string
+  规格?: string
   备注?: string
   序列号列表?: string[]
 }) {
