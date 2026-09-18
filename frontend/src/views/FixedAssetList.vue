@@ -329,7 +329,7 @@ const handlePaginationChange = (page: number, pageSize: number) => {
   fetchAssets()
 }
 
-watch(filters, () => { pagination.value.page = 1; fetchAssets() }, { deep: true })
+watch(filters, () => { selectedIds.value = new Set(); pagination.value.page = 1; fetchAssets() }, { deep: true })
 
 onMounted(() => { fetchAssets(); fetchBranches() })
 </script>

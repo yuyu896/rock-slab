@@ -201,3 +201,31 @@ describe('实例批量操作', () => {
     )
   })
 })
+
+describe('勾选随筛选重置', () => {
+  it('筛选变化清空勾选，批量计数不残留', async () => {
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 2, results: [
+        _inst({ id: 'fa-1', 图片: null }), _inst({ id: 'fa-2', 图片: null }),
+      ] },
+    } as any)
+    const wrapper = await _mount()
+    const checks = wrapper.findAll('tbody .check-col input[type=checkbox]')
+    await checks[0].setValue(true)
+    await checks[1].setValue(true)
+    expect(wrapper.findAll('button').find(b => b.text().includes('批量操作（2）'))).toBeTruthy()
+
+    // 筛选变化（关键字）→ 刷新数据 + 勾选清空
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 1, results: [_inst({ id: 'fa-9', 图片: null })] },
+    } as any)
+    const search = wrapper.find('input[placeholder^="搜索内部编号"]')
+    await search.setValue('电脑')
+    await flushPromises()
+    const btn = wrapper.findAll('button').find(b => b.text().includes('批量操作'))
+    expect(btn!.text()).not.toContain('（')
+    // 新页勾选框为未选中态
+    const newChecks = wrapper.findAll('tbody .check-col input[type=checkbox]')
+    expect((newChecks[0].element as HTMLInputElement).checked).toBe(false)
+  })
+})
