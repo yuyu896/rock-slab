@@ -80,13 +80,18 @@ async function handleEditSave() {
   if (!editing.value) return
   editSaving.value = true
   try {
-    await batchUpdateFixedAssets({
+    const { data } = await batchUpdateFixedAssets({
       ids: [editing.value.id],
       序列号列表: [editForm.value.序列号],
       备注: editForm.value.备注,
       规格: editForm.value.规格,
       供应商: editForm.value.供应商,
     })
+    const errs = data.errors || []
+    if (errs.length) {
+      ElMessage.warning(`保存部分失败：${errs[0]}${errs.length > 1 ? ' 等' : ''}`)
+      return  // 弹窗保留，供修正重试
+    }
     ElMessage.success('已保存')
     editing.value = null
     await fetchAssets()

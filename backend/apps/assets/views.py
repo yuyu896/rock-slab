@@ -517,13 +517,14 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                         inst.save(update_fields=['备注', 'updated_at'])
                     if serials:
                         sn = (serials[pos] or '').strip()
-                        if not sn:
-                            raise ValueError('序列号为空')
-                        dup = FixedAsset.objects.filter(序列号=sn).exclude(pk=inst.pk).exists()
-                        if dup:
-                            raise ValueError(f'序列号 {sn} 已被其他实例使用')
-                        inst.序列号 = sn
-                        inst.save(update_fields=['序列号', 'updated_at'])
+                        # 空 = 不改该字段（编辑弹窗只改其他项时不连带回滚）；
+                        # 非空校验唯一后写入
+                        if sn:
+                            dup = FixedAsset.objects.filter(序列号=sn).exclude(pk=inst.pk).exists()
+                            if dup:
+                                raise ValueError(f'序列号 {sn} 已被其他实例使用')
+                            inst.序列号 = sn
+                            inst.save(update_fields=['序列号', 'updated_at'])
                 results.append(str(inst.内部编号))
             except (ValueError, Exception) as e:
                 errors.append(f'{inst.内部编号 if inst else iid}: {e}')

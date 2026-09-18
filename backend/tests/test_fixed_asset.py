@@ -422,16 +422,32 @@ class TestBatchUpdate:
         assert b.备注 == '首批'
 
     def test_batch_serials_pairing(self, supervisor_user, branch, item_instance):
+        """空序列号 = 跳过不回滚（编辑弹窗只改其他项时不连带失败）。"""
         _grant(supervisor_user, 'manage_instances')
         a, b = self._two(branch, item_instance)
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
             'ids': [str(a.pk), str(b.pk)], '序列号列表': ['SN-A', ''],
         }, format='json')
-        assert resp.data['updated'] == 1
-        assert any('序列号为空' in e for e in resp.data['errors'])
+        assert resp.data['updated'] == 2  # 空序列号台也成功（跳过序列号项）
+        assert resp.data['errors'] == []
         a.refresh_from_db()
         assert a.序列号 == 'SN-A'
+        b.refresh_from_db()
+        assert b.序列号 == ''
+
+    def test_edit_dialog_semantics_empty_serial_keeps_other_fields(self, supervisor_user, branch, item_instance):
+        """编辑弹窗场景：序列号空 + 改规格/供应商 → 全部生效不回滚。"""
+        _grant(supervisor_user, 'manage_instances')
+        a, _ = self._two(branch, item_instance)
+        assert a.序列号 == ''  # 前置：待补录
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(a.pk)], '序列号列表': [''], '规格': '改装版', '供应商': '联想',
+        }, format='json')
+        assert resp.status_code == 200 and resp.data['updated'] == 1
+        a.refresh_from_db()
+        assert a.规格 == '改装版' and a.供应商 == '联想' and a.序列号 == ''
 
     def test_rejects_unknown_fields(self, supervisor_user, branch, inst):
         _grant(supervisor_user, 'manage_instances')
