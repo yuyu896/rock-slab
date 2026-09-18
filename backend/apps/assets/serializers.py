@@ -112,6 +112,9 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         return obj.birth_line.单价
 
     def get_采购日期(self, obj):
+        # 两级链：实例个体覆盖 → 出生单日期（空=批次口径，同供应商/规格模式）
+        if obj.采购日期:
+            return obj.采购日期
         if obj.birth_line is None:
             return None
         return obj.birth_line.transfer.调拨日期

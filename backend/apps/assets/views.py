@@ -587,7 +587,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 '日期': birth_transfer.调拨日期,
                 '供应商': birth_transfer.供应商 or '',
                 '单价': instance.birth_line.单价,
-                '采购日期': birth_transfer.调拨日期,
+                # 个体覆盖 → 出生单日期（与单据"日期"语义分离）
+                '采购日期': instance.采购日期 or birth_transfer.调拨日期,
             }
 
         rows = []
