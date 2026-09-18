@@ -415,8 +415,9 @@ class TestBatchUpdate:
             'ids': [str(a.pk), str(b.pk)], '供应商': '联想', '备注': '首批',
         }, format='json')
         assert resp.status_code == 200 and resp.data['updated'] == 2
-        a.birth_line.refresh_from_db()
-        assert a.birth_line.供应商 == '联想'
+        # 新语义（instance-level-supplier）：供应商写实例个体字段，出生行不动
+        a.refresh_from_db()
+        assert a.供应商 == '联想'
         b.refresh_from_db()
         assert b.备注 == '首批'
 
@@ -462,3 +463,58 @@ class TestBatchUpdate:
         a.birth_line.save(update_fields=['供应商'])
         data = FixedAssetSerializer(a).data
         assert data['供应商'] == '单头供应商'  # 回退单头
+
+
+@pytest.mark.django_db
+class TestInstanceLevelSupplier:
+    """实例级供应商覆盖（批量修改隔离）：勾选谁改谁，同行不受影响。"""
+
+    def _three_on_one_line(self, branch, item_instance):
+        import datetime
+        from apps.assets.models import FixedAsset
+        from apps.transfers.models import Transfer, TransferLine
+        t = Transfer.objects.create(
+            单据编号='ISOL-001', 调拨日期=datetime.date(2026, 9, 18),
+            调入分公司=branch.name, to_branch=branch,
+            action_type='purchase', 审批状态='已入库', 供应商='批次商',
+        )
+        line = TransferLine.objects.create(transfer=t, item=item_instance, 行号=1, 数量=3)
+        made = []
+        for i in range(1, 4):
+            made.append(FixedAsset.objects.create(
+                item=item_instance, 内部编号=f'ISOL-{i}', 当前状态='在库',
+                branch=branch, birth_line=line,
+            ))
+        return made, line
+
+    def test_batch_supplier_isolated(self, supervisor_user, branch, item_instance):
+        _grant(supervisor_user, 'manage_instances')
+        made, line = self._three_on_one_line(branch, item_instance)
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(made[0].pk)], '供应商': '个体商',
+        }, format='json')
+        assert resp.status_code == 200 and resp.data['updated'] == 1
+        line.refresh_from_db()
+        assert line.供应商 == ''  # 出生行未被触碰
+        made[0].refresh_from_db()
+        made[1].refresh_from_db()
+        assert made[0].供应商 == '个体商'
+        assert made[1].供应商 == ''  # 同行未勾选实例无个体覆盖
+        # 派生：勾选台显示个体商；未勾选台回退批次口径（单头）
+        from apps.assets.serializers import FixedAssetSerializer
+        assert FixedAssetSerializer(made[0]).data['供应商'] == '个体商'
+        assert FixedAssetSerializer(made[1]).data['供应商'] == '批次商'
+
+    def test_three_level_derivation(self, branch, item_instance):
+        made, line = self._three_on_one_line(branch, item_instance)
+        from apps.assets.serializers import FixedAssetSerializer
+        made[0].供应商 = '覆盖商'
+        made[0].save(update_fields=['供应商'])
+        line.供应商 = '行商'
+        line.save(update_fields=['供应商'])
+        assert FixedAssetSerializer(made[0]).data['供应商'] == '覆盖商'
+        assert FixedAssetSerializer(made[1]).data['供应商'] == '行商'
+        line.供应商 = ''
+        line.save(update_fields=['供应商'])
+        assert FixedAssetSerializer(made[1]).data['供应商'] == '批次商'

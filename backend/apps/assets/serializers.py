@@ -97,6 +97,9 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         return obj.item.specification or ''
 
     def get_供应商(self, obj):
+        # 三级链：实例个体覆盖 → 出生日.批次供应商 → 出生单头.供应商
+        if obj.供应商:
+            return obj.供应商
         if obj.birth_line is None:
             return ''
         return obj.birth_line.供应商 or obj.birth_line.transfer.供应商 or ''

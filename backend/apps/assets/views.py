@@ -505,10 +505,9 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
             try:
                 with transaction.atomic():
                     if supplier is not None:
-                        if inst.birth_line is None:
-                            raise ValueError('无出生行（存量档案），跳过供应商修改')
-                        inst.birth_line.供应商 = supplier
-                        inst.birth_line.save(update_fields=['供应商', 'updated_at'])
+                        # 个体覆盖写实例字段（同批共享出生行，写行会连带改全部同行实例）
+                        inst.供应商 = supplier
+                        inst.save(update_fields=['供应商', 'updated_at'])
                     if remark is not None:
                         inst.备注 = remark
                         inst.save(update_fields=['备注', 'updated_at'])
