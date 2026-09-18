@@ -134,7 +134,7 @@ describe('FixedAssetList 物品图片', () => {
     // 图片/补录按钮均不渲染，仅剩生平/打印
     expect(buttons.filter(b => b.attributes('title') === '物品图片').length).toBe(0)
     expect(buttons.filter(b => b.attributes('title') === '补录序列号').length).toBe(0)
-    expect(buttons.filter(b => b.attributes('title') === '生平').length).toBe(1)
+    expect(buttons.filter(b => b.attributes('title') === '生平').length).toBe(0)
   })
 
   it('操作列单元格不得用 flex 破坏表格行布局（行分割线同高对齐）', () => {

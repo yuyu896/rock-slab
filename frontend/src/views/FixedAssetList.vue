@@ -73,6 +73,7 @@ function openEdit(asset: FixedAsset) {
     规格: asset.itemSpec || '',
     供应商: asset.供应商 || '',
   }
+  openTimeline(asset)  // 右栏生平并行拉取（不阻塞左栏编辑）
 }
 
 async function handleEditSave() {
@@ -464,13 +465,8 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <td class="action-col">
               <button v-if="canSupplement" class="action-btn" title="编辑" @click="openEdit(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                  <circle cx="12" cy="13" r="4"/>
-                </svg>
-              </button>
-              <button class="action-btn" title="生平" @click="openTimeline(item)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
               </button>
               <button class="action-btn" title="打印标签" @click="printSingleLabel(item)">
@@ -488,27 +484,67 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 
     <BasePagination :total="pagination.total" :current-page="pagination.page" :page-size="pagination.pageSize" @change="handlePaginationChange" />
 
-    <!-- 行编辑弹窗（归一：上下文 + 序列号/备注/规格/供应商 + 图片） -->
-    <el-dialog v-model="editVisibleProxy" title="编辑实例" width="520px" :close-on-click-modal="false">
-      <el-form label-width="72px" v-if="editing">
-        <el-form-item label="内部编号"><span class="asset-code">{{ editing.内部编号 }}</span></el-form-item>
-        <el-form-item label="品目名称">{{ editing.itemName || '-' }}</el-form-item>
-        <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
-        <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
-        <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
-        <el-form-item label="供应商"><el-input v-model="editForm.供应商" placeholder="修改后实例档案显示此供应商" /></el-form-item>
-        <el-form-item label="物品图片">
-          <div class="edit-image-row">
-            <el-image v-if="imagePreviewFor(editing)" :src="imagePreviewFor(editing)" fit="cover" class="row-thumb" :preview-src-list="[imagePreviewFor(editing)!]" preview-teleported />
-            <span v-else class="thumb-empty">—</span>
-            <input ref="editImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" @change="handleEditImageSelect" />
-            <el-button size="small" @click="editImageInput?.click()">{{ imagePreviewFor(editing) ? '更换图片' : '上传图片' }}</el-button>
-            <el-button v-if="imagePreviewFor(editing)" size="small" @click="handleEditImageDelete">删除</el-button>
-          </div>
-        </el-form-item>
-      </el-form>
+    <!-- 行编辑弹窗（双栏：左编辑 右生平） -->
+    <el-dialog v-model="editVisibleProxy" title="编辑实例" width="920px" :close-on-click-modal="false" top="6vh">
+      <div v-if="editing" class="edit-dual">
+        <!-- 左栏：编辑表单 -->
+        <div class="edit-pane">
+          <el-form label-width="72px">
+            <el-form-item label="内部编号"><span class="asset-code">{{ editing.内部编号 }}</span></el-form-item>
+            <el-form-item label="品目名称">{{ editing.itemName || '-' }}</el-form-item>
+            <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
+            <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
+            <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入" /></el-form-item>
+            <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
+            <el-form-item label="供应商"><el-input v-model="editForm.供应商" placeholder="修改后实例档案显示此供应商" /></el-form-item>
+            <el-form-item label="物品图片">
+              <div class="edit-image-block">
+                <el-image v-if="imagePreviewFor(editing)" :src="imagePreviewFor(editing)" fit="cover" class="edit-image-large" :preview-src-list="[imagePreviewFor(editing)!]" preview-teleported />
+                <div v-else class="edit-image-empty">暂无图片</div>
+                <input ref="editImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" @change="handleEditImageSelect" />
+                <div class="edit-image-actions">
+                  <el-button size="small" @click="editImageInput?.click()">{{ imagePreviewFor(editing) ? '更换图片' : '上传图片' }}</el-button>
+                  <el-button v-if="imagePreviewFor(editing)" size="small" @click="handleEditImageDelete">删除</el-button>
+                </div>
+              </div>
+            </el-form-item>
+          </el-form>
+        </div>
+        <!-- 右栏：实例生平 -->
+        <div class="edit-pane timeline-pane">
+          <div v-if="timelineLoading" class="timeline-empty">生平加载中...</div>
+          <div v-else-if="!timeline" class="timeline-empty">暂无生平数据</div>
+          <template v-else>
+            <div class="timeline-head">
+              <div class="timeline-code">{{ timeline.instance.内部编号 }}</div>
+              <div class="timeline-meta">
+                {{ timeline.instance.itemCode }} · {{ timeline.instance.itemName }} ·
+                <StatusBadge :status="timeline.instance.当前状态" />
+              </div>
+              <div class="timeline-meta dim">
+                供应商：{{ timeline.birth?.供应商 || '（存量档案）' }}
+                <template v-if="timeline.birth?.采购日期"> · 采购日期：{{ timeline.birth.采购日期 }}</template>
+              </div>
+            </div>
+            <table class="data-table timeline-table">
+              <thead>
+                <tr><th>日期</th><th>单据</th><th>类型</th><th>使用人</th><th>状态</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in timeline.timeline" :key="row.transferId + '-' + row.行号">
+                  <td><span class="date-text">{{ row.日期 }}</span></td>
+                  <td>{{ row.单据编号 || '-' }}</td>
+                  <td>{{ row.actionType }}</td>
+                  <td>{{ row.使用人 || '-' }}</td>
+                  <td>{{ row.审批状态 }}</td>
+                </tr>
+                <tr v-if="timeline.timeline.length === 0"><td colspan="5" class="empty-cell">暂无流转记录</td></tr>
+              </tbody>
+            </table>
+          </template>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="editing = null">取消</el-button>
         <el-button type="primary" :loading="editSaving" @click="handleEditSave">保存</el-button>
@@ -516,39 +552,6 @@ onMounted(() => { fetchAssets(); fetchBranches() })
     </el-dialog>
 
 
-    <!-- 生平抽屉 -->
-    <el-drawer v-model="timelineVisibleProxy" title="实例生平" size="560px">
-      <div v-if="timelineLoading" class="timeline-empty">加载中...</div>
-      <div v-else-if="!timeline" class="timeline-empty">暂无数据</div>
-      <template v-else>
-        <div class="timeline-head">
-          <div class="timeline-code">{{ timeline.instance.内部编号 }}</div>
-          <div class="timeline-meta">
-            {{ timeline.instance.itemCode }} · {{ timeline.instance.itemName }} ·
-            <StatusBadge :status="timeline.instance.当前状态" />
-          </div>
-          <div class="timeline-meta dim">
-            供应商：{{ timeline.birth?.供应商 || '（存量档案）' }}
-            <template v-if="timeline.birth?.采购日期"> · 采购日期：{{ timeline.birth.采购日期 }}</template>
-          </div>
-        </div>
-        <table class="data-table timeline-table">
-          <thead>
-            <tr><th>日期</th><th>单据</th><th>类型</th><th>使用人</th><th>状态</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in timeline.timeline" :key="row.transferId + '-' + row.行号">
-              <td><span class="date-text">{{ row.日期 }}</span></td>
-              <td>{{ row.单据编号 || '-' }}</td>
-              <td>{{ row.actionType }}</td>
-              <td>{{ row.使用人 || '-' }}</td>
-              <td>{{ row.审批状态 }}</td>
-            </tr>
-            <tr v-if="timeline.timeline.length === 0"><td colspan="5" class="empty-cell">暂无流转记录</td></tr>
-          </tbody>
-        </table>
-      </template>
-    </el-drawer>
 
     <!-- 批量操作弹窗 -->
     <el-dialog v-model="batchVisibleProxy" :title="batchTitle" width="460px" :close-on-click-modal="false">
@@ -610,6 +613,19 @@ onMounted(() => { fetchAssets(); fetchBranches() })
 .asset-code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-primary-600); background: var(--color-primary-50); padding: 2px 8px; border-radius: 4px; }
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; }
 .pending-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: var(--text-xs); color: var(--color-warning, #b45309); background: var(--color-warning-bg, #fef3c7); }
+/* 编辑弹窗双栏 */
+.edit-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.edit-pane { min-width: 0; }
+.timeline-pane { max-height: 62vh; overflow-y: auto; padding-left: 16px; border-left: 1px solid var(--color-border); }
+.timeline-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.timeline-code { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--color-primary-600); }
+.timeline-meta { font-size: var(--text-sm); color: var(--color-text-secondary); }
+.timeline-meta.dim { color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.edit-image-block { display: flex; flex-direction: column; gap: 8px; }
+.edit-image-large { width: 160px; height: 120px; border-radius: 8px; display: block; }
+.edit-image-empty { width: 160px; height: 120px; border-radius: 8px; border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--text-sm); }
+.edit-image-actions { display: flex; gap: 8px; }
+@media (max-width: 768px) { .edit-dual { grid-template-columns: 1fr; } .timeline-pane { border-left: none; padding-left: 0; border-top: 1px solid var(--color-border); padding-top: 12px; } }
 .image-cell { width: 56px; }
 .check-col { width: 36px; text-align: center; }
 .batch-wrap { position: relative; }
