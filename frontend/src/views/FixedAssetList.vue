@@ -58,7 +58,7 @@ async function handleExport() {
 
 // ── 行编辑（归一弹窗：序列号/备注/规格/供应商/图片，manage_instances） ──
 const editing = ref<FixedAsset | null>(null)
-const editForm = ref({ 序列号: '', 备注: '', 规格: '', 供应商: '' })
+const editForm = ref<{ 序列号: string; 备注: string; 规格: string; 供应商: string; 采购日期: string | null }>({ 序列号: '', 备注: '', 规格: '', 供应商: '', 采购日期: null })
 const editSaving = ref(false)
 const editVisibleProxy = computed({
   get: () => editing.value !== null,
@@ -72,6 +72,7 @@ function openEdit(asset: FixedAsset) {
     备注: asset.备注 || '',
     规格: asset.itemSpec || '',
     供应商: asset.供应商 || '',
+    采购日期: asset.采购日期 || null,
   }
   openTimeline(asset)  // 右栏生平并行拉取（不阻塞左栏编辑）
 }
@@ -80,12 +81,14 @@ async function handleEditSave() {
   if (!editing.value) return
   editSaving.value = true
   try {
+    const hadDate = !!editing.value.采购日期  // 原有个体日期：清空即清除覆盖
     const { data } = await batchUpdateFixedAssets({
       ids: [editing.value.id],
       序列号列表: [editForm.value.序列号],
       备注: editForm.value.备注,
       规格: editForm.value.规格,
       供应商: editForm.value.供应商,
+      ...(editForm.value.采购日期 || hadDate ? { 采购日期: editForm.value.采购日期 || '' } : {}),
     })
     const errs = data.errors || []
     if (errs.length) {
@@ -503,6 +506,9 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
             <el-form-item label="供应商"><el-input v-model="editForm.供应商" placeholder="修改后实例档案显示此供应商" /></el-form-item>
+            <el-form-item label="采购日期">
+              <el-date-picker v-model="editForm.采购日期" type="date" value-format="YYYY-MM-DD" placeholder="空=沿用出生单日期" style="width: 100%" clearable />
+            </el-form-item>
             <el-form-item label="物品图片">
               <div class="edit-image-block">
                 <el-image v-if="imagePreviewFor(editing)" :src="imagePreviewFor(editing)" fit="cover" class="edit-image-large" :preview-src-list="[imagePreviewFor(editing)!]" preview-teleported />

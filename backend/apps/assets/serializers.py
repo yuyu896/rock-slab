@@ -83,7 +83,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             'item', 'item_code', 'item_name', 'item_spec',
             'asset_category', 'item_category', 'management_type',
             '入库日期', '供应商', '单价', '采购日期',
-            '备注', '图片', 'created_at', 'updated_at',
+            '备注', '图片', '采购日期', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 

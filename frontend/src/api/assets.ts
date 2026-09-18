@@ -120,6 +120,7 @@ export function batchUpdateFixedAssets(data: {
   ids: string[]
   供应商?: string
   规格?: string
+  采购日期?: string
   备注?: string
   序列号列表?: string[]
 }) {

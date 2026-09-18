@@ -590,3 +590,62 @@ class TestSpecOverride:
         }, format='json')
         assert resp.status_code == 400
         assert '规格' in resp.data['detail']
+
+
+@pytest.mark.django_db
+class TestPurchaseDateOverride:
+    """采购日期个体覆盖（instance-purchase-date-override）：两级派生 + 入库日期联动。"""
+
+    def _inst_with_birth(self, branch, item_instance, doc_date, entry_date=None):
+        import datetime
+        from apps.assets.models import FixedAsset
+        from apps.transfers.models import Transfer, TransferLine
+        t = Transfer.objects.create(
+            单据编号=f'PD-{doc_date}', 调拨日期=datetime.date.fromisoformat(doc_date),
+            调入分公司=branch.name, to_branch=branch,
+            action_type='purchase', 审批状态='已入库',
+        )
+        line = TransferLine.objects.create(transfer=t, item=item_instance, 行号=1, 数量=1)
+        return FixedAsset.objects.create(
+            item=item_instance, 内部编号='PD-1', 当前状态='在库', branch=branch,
+            birth_line=line, 入库日期=datetime.date.fromisoformat(entry_date or doc_date),
+        )
+
+    def test_set_date_syncs_entry_date(self, supervisor_user, branch, item_instance):
+        import datetime
+        _grant(supervisor_user, 'manage_instances')
+        a = self._inst_with_birth(branch, item_instance, '2026-03-01')
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(a.pk)], '采购日期': '2024-06-15',
+        }, format='json')
+        assert resp.status_code == 200 and resp.data['updated'] == 1
+        a.refresh_from_db()
+        assert a.采购日期 == datetime.date(2024, 6, 15)
+        assert a.入库日期 == datetime.date(2024, 6, 15)  # 业务规则联动
+        assert a.birth_line.transfer.调拨日期 == datetime.date(2026, 3, 1)  # 单据不动
+
+        from apps.assets.serializers import FixedAssetSerializer
+        assert str(FixedAssetSerializer(a).data['采购日期']) == '2024-06-15'
+
+    def test_clear_falls_back_to_birth(self, supervisor_user, branch, item_instance):
+        import datetime
+        _grant(supervisor_user, 'manage_instances')
+        a = self._inst_with_birth(branch, item_instance, '2026-03-01')
+        a.采购日期 = datetime.date(2025, 1, 1)
+        a.save(update_fields=['采购日期'])
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(a.pk)], '采购日期': '',
+        }, format='json')
+        assert resp.data['updated'] == 1
+        a.refresh_from_db()
+        assert a.采购日期 is None
+        assert a.入库日期 == datetime.date(2026, 3, 1)  # 回退出生单
+        from apps.assets.serializers import FixedAssetSerializer
+        assert str(FixedAssetSerializer(a).data['采购日期']) == '2026-03-01'
+
+    def test_no_override_shows_birth_date(self, branch, item_instance):
+        a = self._inst_with_birth(branch, item_instance, '2025-08-20')
+        from apps.assets.serializers import FixedAssetSerializer
+        assert str(FixedAssetSerializer(a).data['采购日期']) == '2025-08-20'

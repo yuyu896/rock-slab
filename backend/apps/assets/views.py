@@ -475,12 +475,13 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         ids = request.data.get('ids') or []
         supplier = request.data.get('供应商')
         spec = request.data.get('规格')
+        purchase_date = request.data.get('采购日期')
         remark = request.data.get('备注')
         serials = request.data.get('序列号列表') or []
-        unknown = set(request.data) - {'ids', '供应商', '规格', '备注', '序列号列表'}
+        unknown = set(request.data) - {'ids', '供应商', '规格', '采购日期', '备注', '序列号列表'}
         if unknown:
             return Response(
-                {'detail': f'批量维护仅支持 供应商/规格/备注/序列号，多余字段：{"、".join(sorted(unknown))}'},
+                {'detail': f'批量维护仅支持 供应商/规格/采购日期/备注/序列号，多余字段：{"、".join(sorted(unknown))}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not ids:
@@ -490,7 +491,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 {'detail': f'序列号数量（{len(serials)}）与实例数（{len(ids)}）不一致'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if supplier is None and spec is None and remark is None and not serials:
+        if supplier is None and spec is None and purchase_date is None and remark is None and not serials:
             return Response({'detail': '未指定任何修改内容'}, status=status.HTTP_400_BAD_REQUEST)
 
         from apps.assets.models import FixedAsset
@@ -512,6 +513,18 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                     if spec is not None:
                         inst.规格 = spec
                         inst.save(update_fields=['规格', 'updated_at'])
+                    if purchase_date is not None:
+                        # 业务规则：入库日期 = 采购日期；清除时两列回退出生单日期
+                        if purchase_date in ('', 'null'):
+                            inst.采购日期 = None
+                            fallback = (inst.birth_line.transfer.调拨日期
+                                        if inst.birth_line is not None else None)
+                            inst.入库日期 = fallback
+                            inst.save(update_fields=['采购日期', '入库日期', 'updated_at'])
+                        else:
+                            inst.采购日期 = purchase_date
+                            inst.入库日期 = purchase_date
+                            inst.save(update_fields=['采购日期', '入库日期', 'updated_at'])
                     if remark is not None:
                         inst.备注 = remark
                         inst.save(update_fields=['备注', 'updated_at'])
