@@ -35,12 +35,11 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-@media (max-width: 768px) { .install-qr-card { display: none; } }
-.install-qr-card { position: fixed; right: 20px; bottom: 20px; z-index: 100; display: flex; align-items: center; gap: 16px; padding: 14px 18px; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
-.qr-info h3 { margin: 0 0 6px; font-size: 16px; color: var(--color-text-primary); }
-.qr-info p { margin: 0 0 4px; font-size: 14px; color: var(--color-text-secondary); }
-.qr-hint { font-size: 12px; color: var(--color-text-tertiary); }
-.qr-box { margin-left: auto; text-align: center; }
-.qr-box canvas { display: block; background: #fff; border: 1px solid var(--color-border); border-radius: 8px; }
-.qr-url { margin: 6px 0 0; font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono, monospace); }
+.install-qr-card { display: flex; align-items: center; gap: 10px; padding: 0; background: transparent; border: none; box-shadow: none; }
+.qr-info h3 { margin: 0 0 2px; font-size: 12px; color: var(--color-text-secondary); font-weight: 500; }
+.qr-info p { margin: 0 0 2px; font-size: 12px; color: var(--color-text-tertiary); }
+.qr-hint { font-size: 10px; color: var(--color-text-tertiary); }
+.qr-box { margin-left: 0; text-align: center; }
+.qr-box canvas { display: block; background: #fff; border-radius: 8px; }
+.qr-url { margin: 4px 0 0; font-size: 10px; color: var(--color-text-tertiary); font-family: var(--font-mono, monospace); }
 </style>

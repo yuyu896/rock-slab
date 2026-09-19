@@ -224,6 +224,9 @@ onMounted(() => {
         <h1 class="welcome-title">{{ getGreeting() }}，{{ userName }}</h1>
         <p class="welcome-subtitle">今天是{{ getDateString() }}，您有{{ pendingTasks.length }}项待办事项需要处理</p>
       </div>
+      <div class="welcome-qr-inline">
+        <InstallQrCard />
+      </div>
     </div>
 
     <div class="stats-grid">
@@ -380,6 +383,7 @@ onMounted(() => {
 <style scoped>
 .dashboard { max-width: 1400px; margin: 0 auto; }
 .welcome-section { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); }
+.welcome-qr-inline { flex-shrink: 0; }
 .welcome-title { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-primary); margin: 0 0 var(--space-2) 0; }
 .welcome-subtitle { font-size: var(--text-base); color: var(--color-text-secondary); margin: 0; }
 .welcome-actions { display: flex; gap: var(--space-3); }
