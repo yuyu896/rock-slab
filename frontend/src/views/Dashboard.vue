@@ -270,8 +270,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <InstallQrCard />
-
     <div class="main-grid">
       <div class="card distribution-card">
         <div class="card-header">
