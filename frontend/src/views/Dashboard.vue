@@ -267,9 +267,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="install-qr-slot">
-      <InstallQrCard />
-    </div>
+    <InstallQrCard />
 
     <div class="main-grid">
       <div class="card distribution-card">
@@ -385,7 +383,6 @@ onMounted(() => {
 .welcome-title { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-primary); margin: 0 0 var(--space-2) 0; }
 .welcome-subtitle { font-size: var(--text-base); color: var(--color-text-secondary); margin: 0; }
 .welcome-actions { display: flex; gap: var(--space-3); }
-.install-qr-slot { margin-bottom: 20px; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
 .stat-card { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-5); display: flex; align-items: center; gap: var(--space-4); border: 1px solid var(--color-border); transition: all var(--transition-fast); }
 .stat-card:hover { box-shadow: var(--shadow-sm); transform: translateY(-2px); }

@@ -10,7 +10,7 @@ onMounted(async () => {
   if (!canvasRef.value) return
   try {
     await QRCode.toCanvas(canvasRef.value, `${location.origin}/install`, {
-      width: 160,
+      width: 128,
       margin: 2,
       errorCorrectionLevel: 'M',
     })
@@ -28,14 +28,15 @@ onMounted(async () => {
       <p class="qr-hint">安卓两下 · iPhone 四下，装完桌面有图标</p>
     </div>
     <div class="qr-box">
-      <canvas ref="canvasRef" width="160" height="160"></canvas>
+      <canvas ref="canvasRef" width="128" height="128"></canvas>
       <p class="qr-url">{{ installUrl }}</p>
     </div>
   </div>
 </template>
 
 <style scoped>
-.install-qr-card { display: flex; align-items: center; gap: 24px; padding: 20px 24px; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 14px; }
+@media (max-width: 768px) { .install-qr-card { display: none; } }
+.install-qr-card { position: fixed; right: 20px; bottom: 20px; z-index: 100; display: flex; align-items: center; gap: 16px; padding: 14px 18px; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
 .qr-info h3 { margin: 0 0 6px; font-size: 16px; color: var(--color-text-primary); }
 .qr-info p { margin: 0 0 4px; font-size: 14px; color: var(--color-text-secondary); }
 .qr-hint { font-size: 12px; color: var(--color-text-tertiary); }
