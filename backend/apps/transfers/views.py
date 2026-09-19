@@ -320,8 +320,24 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         _notify_created(transfer)
         return Response(TransferSerializer(transfer).data)
 
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
+    @audit_log(action='withdraw', resource_type='Transfer', description_template='撤回采购单至草稿')
+    def withdraw(self, request, pk=None):
+        """撤回：创建人将「待审批」采购单拉回「草稿」，自行修改后重新提交。"""
+        transfer = self.get_object()
+        self._assert_transfer_operable(request.user, transfer)
+        if transfer.action_type != Transfer.ACTION_PURCHASE:
+            return Response({'detail': '仅采购入库单支持撤回'}, status=status.HTTP_400_BAD_REQUEST)
+        if transfer.审批状态 != '待审批':
+            return Response({'detail': '仅待审批的记录可撤回'}, status=status.HTTP_400_BAD_REQUEST)
+        if transfer.创建人 != (request.user.name or request.user.phone):
+            return Response({'detail': '仅创建人可撤回自己的单据'}, status=status.HTTP_400_BAD_REQUEST)
+        transfer.审批状态 = '草稿'
+        transfer.save(update_fields=['审批状态', 'updated_at'])
+        return Response(TransferSerializer(transfer).data)
+
     def update(self, request, *args, **kwargs):
-        """已驳回单据编辑：单头字段更新 + items 整体替换（原子、行号重排）。
+        """已驳回/草稿单据编辑：单头字段更新 + items 整体替换（原子、行号重排）。
 
         只应用请求里实际携带的字段——序列化器的字段默认值不得在 PATCH 时清空既有值。
         """
@@ -329,8 +345,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         kwargs.pop('partial', False)
         instance = self.get_object()
-        if instance.审批状态 != '已驳回':
-            return Response({'detail': '仅已驳回的记录可编辑'}, status=status.HTTP_400_BAD_REQUEST)
+        if instance.审批状态 not in ('已驳回', '草稿'):
+            return Response({'detail': '仅已驳回或草稿的记录可编辑'}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = TransferActionSerializer(data=request.data, partial=True, for_update=True)
         serializer.is_valid(raise_exception=True)

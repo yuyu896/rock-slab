@@ -76,6 +76,11 @@ export function resubmitTransfer(id: string) {
   return request.post<TransferDocument>(`/api/transfers/${id}/resubmit`)
 }
 
+/** 撤回采购单（待审批→草稿，仅创建人） */
+export function withdrawTransfer(id: string) {
+  return request.post<TransferDocument>(`/api/transfers/${id}/withdraw`)
+}
+
 /** 获取待审批列表 */
 export function getPendingTransfers(params?: PaginationParams) {
   return request.get<PaginatedResponse<TransferDocument>>('/api/transfers/', {

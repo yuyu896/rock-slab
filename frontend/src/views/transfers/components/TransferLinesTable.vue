@@ -7,6 +7,8 @@ import type { TransferType } from '@/constants'
 const props = defineProps<{
   lines: TransferLine[]
   type: TransferType
+  /** 单头供应商（存量采购单行级为空时的展示回退） */
+  headerSupplier?: string
 }>()
 
 const router = useRouter()
@@ -36,6 +38,7 @@ function goTimeline(code: string) {
           <th>规格</th>
           <th>单位</th>
           <th v-if="type === 'purchase'">资产类目</th>
+          <th v-if="type === 'purchase'">供应商</th>
           <th v-if="type === 'assign'" class="col-user">使用人</th>
           <th v-if="type === 'assign'" class="col-user">领用部门</th>
           <th v-if="type === 'purchase'">单价</th>
@@ -53,6 +56,7 @@ function goTimeline(code: string) {
           <td>{{ specOf(line) }}</td>
           <td>{{ line.unit || '-' }}</td>
           <td v-if="type === 'purchase'">{{ line.assetCategory }}/{{ line.itemCategory }}</td>
+          <td v-if="type === 'purchase'">{{ line.供应商 || props.headerSupplier || '-' }}</td>
           <td v-if="type === 'assign'">{{ line.使用人 || '-' }}</td>
           <td v-if="type === 'assign'">{{ line.departmentName || '-' }}</td>
           <td v-if="type === 'purchase'">{{ line.单价 ?? '-' }}</td>
@@ -73,7 +77,7 @@ function goTimeline(code: string) {
           <td class="qty">{{ line.数量 }}</td>
         </tr>
         <tr class="total-row">
-          <td :colspan="type === 'purchase' ? 10 : type === 'assign' ? 9 : 7" class="total-label">合计</td>
+          <td :colspan="type === 'purchase' ? 11 : type === 'assign' ? 9 : 7" class="total-label">合计</td>
           <td class="qty">{{ lines.reduce((sum, line) => sum + (line.数量 || 0), 0) }}</td>
         </tr>
       </tbody>

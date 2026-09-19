@@ -58,7 +58,7 @@ function branchText(doc: TransferDocument) {
       <slot name="extra-view" :doc="doc" />
 
       <h3 class="lines-title">明细（{{ doc.lines?.length ?? 0 }} 项）</h3>
-      <TransferLinesTable :lines="doc.lines ?? []" :type="props.type" />
+      <TransferLinesTable :lines="doc.lines ?? []" :type="props.type" :header-supplier="doc.供应商" />
 
       <slot name="extra-edit" :doc="doc" />
 

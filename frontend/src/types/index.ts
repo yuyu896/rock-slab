@@ -267,6 +267,8 @@ export interface TransferLine {
   managementType?: 'quantity' | 'instance' | 'consumable'
   数量: number
   本批规格?: string
+  /** 行级供应商（采购单：空=继承单头，展示层回退表头值） */
+  供应商?: string
   单价?: number | null
   金额?: number | null
   使用人?: string
