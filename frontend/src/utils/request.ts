@@ -35,7 +35,11 @@ request.interceptors.response.use(
         if (detail.includes('过期')) {
           sessionStorage.setItem('token_expired', 'true')
         }
-        window.location.href = '/login'
+        // 带上当前路径让登录后回到原页面（否则默认兜底 /dashboard，移动端 401 重登会被送到 PC 工作台）；已在登录页时不带，避免 redirect 指向自身
+        const current = window.location.pathname + window.location.search
+        window.location.href = window.location.pathname === '/login'
+          ? '/login'
+          : `/login?redirect=${encodeURIComponent(current)}`
       }
     }
     if (error.response?.status === 429) {
