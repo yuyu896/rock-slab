@@ -9,4 +9,4 @@
 
 - [x] 2.1 更新 InstallQrCard.test.ts：断言新文案（含「安装」字样不出现）、二维码内容为 origin + /mobile/inventory
 - [x] 2.2 全量 vitest 通过 + npm run build（类型门禁）通过
-- [ ] 2.3 手验收口：本地起服务，手机微信扫工作台二维码，确认落在登录页且带 redirect=/mobile/inventory，登录后进盘点任务列表
+- [x] 2.3 手验收口：本地起服务，手机微信扫工作台二维码，确认落在登录页且带 redirect=/mobile/inventory，登录后进盘点任务列表（2026-09-19 用户真机验收通过）
