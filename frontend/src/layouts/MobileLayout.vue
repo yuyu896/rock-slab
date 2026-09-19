@@ -1,39 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-
-// ── PWA 安装引导：安卓 Chrome 捕获 beforeinstallprompt 出一键安装；iOS 给菜单引导 ──
-const installPrompt = ref<any>(null)
-const showInstallBanner = ref(false)
-const dismissed = () => sessionStorage.getItem('rock_slab_pwa_hint_dismissed') === '1'
-const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
-
-onMounted(() => {
-  window.addEventListener('beforeinstallprompt', (e: Event) => {
-    e.preventDefault()
-    installPrompt.value = e
-    if (!dismissed()) showInstallBanner.value = true
-  })
-  // iOS 无 beforeinstallprompt：直接展示引导文案
-  if (isIos && !dismissed()) showInstallBanner.value = true
-})
-
-async function doInstall() {
-  if (!installPrompt.value) return
-  installPrompt.value.prompt()
-  await installPrompt.value.userChoice.catch(() => null)
-  showInstallBanner.value = false
-}
-
-function dismissBanner() {
-  showInstallBanner.value = false
-  sessionStorage.setItem('rock_slab_pwa_hint_dismissed', '1')
-}
 
 const activeTab = computed(() => {
   const path = route.path
@@ -68,14 +40,6 @@ function getTabIcon(name: string): string {
 
 <template>
   <div class="mobile-layout">
-    <div v-if="showInstallBanner" class="install-banner">
-      <span class="install-text">
-        {{ installPrompt ? '把磐盘安装到桌面，一点即用' : 'iOS：Safari 分享 → 添加到主屏幕' }}
-      </span>
-      <button v-if="installPrompt" class="install-btn" @click="doInstall">安装</button>
-      <button class="install-close" @click="dismissBanner">&times;</button>
-    </div>
-
     <main class="mobile-content">
       <router-view />
     </main>
@@ -96,11 +60,6 @@ function getTabIcon(name: string): string {
 </template>
 
 <style scoped>
-.install-banner { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--color-primary-50, #eef4ee); border-bottom: 1px solid var(--color-border); font-size: 13px; color: var(--color-text-primary); }
-.install-text { flex: 1; }
-.install-btn { padding: 5px 14px; border: none; border-radius: 6px; background: var(--color-primary-500); color: #fff; font-size: 13px; cursor: pointer; }
-.install-close { background: none; border: none; font-size: 20px; color: var(--color-text-tertiary); cursor: pointer; line-height: 1; }
-
 .mobile-layout {
   min-height: 100vh;
   display: flex;

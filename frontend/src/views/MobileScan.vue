@@ -32,6 +32,8 @@ function toggleCamera() {
 }
 
 async function startCamera() {
+  // 数量盘物资无二维码可扫：脚本层守卫，防 URL 直达绕过界面隐藏
+  if (!isInstanceTask.value) return
   if (!barcodeDetectorSupported.value) {
     ElMessage.warning('当前浏览器不支持摄像头扫码，请使用手动输入')
     return
@@ -397,15 +399,15 @@ onUnmounted(() => {
             <path d="M12 6v6l4 2"/>
           </svg>
         </button>
-        <button class="camera-toggle-btn" @click="toggleCamera" :class="{ active: showCamera }">
+        <button v-if="isInstanceTask" class="camera-toggle-btn" @click="toggleCamera" :class="{ active: showCamera }">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
             <circle cx="12" cy="13" r="4"/>
           </svg>
         </button>
       </div>
-      <!-- 摄像头视图 -->
-      <div v-if="showCamera" class="camera-view">
+      <!-- 摄像头视图（仅实例盘；数量盘物资无二维码，扫码入口不出现） -->
+      <div v-if="showCamera && isInstanceTask" class="camera-view">
         <video ref="videoRef" class="camera-video" playsinline muted></video>
         <div class="camera-overlay">
           <div class="scan-frame"></div>
@@ -418,7 +420,7 @@ onUnmounted(() => {
         </button>
       </div>
       <p class="scan-hint">支持扫码枪直接扫描，或手动输入编号后点击搜索</p>
-      <p v-if="!barcodeDetectorSupported" class="scan-hint camera-not-supported">当前浏览器不支持摄像头扫码，请使用手动输入</p>
+      <p v-if="!barcodeDetectorSupported && isInstanceTask" class="scan-hint camera-not-supported">当前浏览器不支持摄像头扫码，请使用手动输入</p>
     </div>
 
     <!-- 异常统计 -->
