@@ -740,3 +740,50 @@ class TestRenumberInstances:
 
         call_command('renumber_instances')  # 幂等
         assert '无需重编号' in capsys.readouterr().out
+
+    def test_branch_scope_only_touches_target(self, branch, second_branch, capsys):
+        """--branch 定向：只重排目标分公司，其余分公司编号原样。"""
+        from django.core.management import call_command
+        item = _item('RN-002')
+        for no in (5, 6, 9):  # 目标分公司：跳号数据（烧号重录场景）
+            FixedAsset.objects.create(
+                item=item, 内部编号=f'RN-002-CS001-{no}', 当前状态='在库', branch=branch)
+        for no in (7, 12):  # 旁分公司：同样跳号，不应被动
+            FixedAsset.objects.create(
+                item=item, 内部编号=f'RN-002-RG2001-{no}', 当前状态='在库', branch=second_branch)
+
+        call_command('renumber_instances', '--branch', 'CS001')  # 预览零落库
+        assert FixedAsset.objects.filter(branch=branch, 内部编号='RN-002-CS001-5').exists()
+
+        call_command('renumber_instances', '--branch', 'CS001', '--confirm')
+        codes = sorted(FixedAsset.objects.filter(branch=branch).values_list('内部编号', flat=True))
+        assert codes == ['RN-002-CS001-1', 'RN-002-CS001-2', 'RN-002-CS001-3']
+        assert sorted(FixedAsset.objects.filter(branch=second_branch).values_list('内部编号', flat=True)) \
+            == ['RN-002-RG2001-12', 'RN-002-RG2001-7']
+        assert InstanceSequence.objects.get(item=item, branch=branch).last_no == 3
+        assert not InstanceSequence.objects.filter(item=item, branch=second_branch).exists()
+
+    def test_branch_scope_unknown_code_raises(self, branch):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        with pytest.raises(CommandError, match='不存在'):
+            call_command('renumber_instances', '--branch', 'NOPE1')
+
+    def test_strayed_instance_group_skipped(self, branch, second_branch, capsys):
+        """调出带号守卫：他分公司名下挂着本分公司编号段 → 整组跳过不撞号。"""
+        from django.core.management import call_command
+        item = _item('RN-003')
+        for no in (19, 20, 21):  # 18 缺号（被调出带走）
+            FixedAsset.objects.create(
+                item=item, 内部编号=f'RN-003-CS001-{no}', 当前状态='在库', branch=branch)
+        FixedAsset.objects.create(  # 调出到二分但保留 CS001 编号
+            item=item, 内部编号='RN-003-CS001-18', 当前状态='在库', branch=second_branch)
+
+        call_command('renumber_instances', '--confirm')
+        out = capsys.readouterr().out
+        assert '跳过' in out and 'CS001' in out
+        # 编号原样保留，未压缩成 1..3（避免与调出实例撞号）
+        assert FixedAsset.objects.filter(branch=branch, 内部编号='RN-003-CS001-19').exists()
+        assert FixedAsset.objects.get(branch=second_branch).内部编号 == 'RN-003-CS001-18'
+        # 来源组被跳过，序列兜底按段内最大尾号 21 建行（后续发号从 22 起，不撞 18~21）
+        assert InstanceSequence.objects.get(item=item, branch=branch).last_no == 21
