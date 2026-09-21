@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from core.models import UUIDModel, TimestampedModel
 
@@ -103,6 +104,16 @@ class Transfer(UUIDModel, TimestampedModel):
     处置方式 = models.CharField('处置方式', max_length=20, blank=True, default='', choices=DISPOSAL_METHOD_CHOICES)
     处置金额 = models.DecimalField('处置金额', max_digits=14, decimal_places=2, null=True, blank=True)
     出库日期 = models.DateField('出库日期', null=True, blank=True)
+    # 撤回等权限判定的唯一身份依据（purchase-withdraw-creator-fk）；
+    # 「创建人」字符串是创建时姓名快照（记录性，展示/导出用），不参与权限判定
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='created_transfers',
+        null=True,
+        blank=True,
+        verbose_name='创建账号(FK)',
+    )
 
     class Meta:
         db_table = 'transfers_transfer'

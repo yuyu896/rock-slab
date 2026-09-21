@@ -44,6 +44,7 @@ class TransferSerializer(serializers.ModelSerializer):
     品项数 = serializers.SerializerMethodField()
     总数量 = serializers.SerializerMethodField()
     canOperate = serializers.SerializerMethodField()
+    canWithdraw = serializers.SerializerMethodField()
 
     class Meta:
         model = Transfer
@@ -55,7 +56,7 @@ class TransferSerializer(serializers.ModelSerializer):
             '供应商', '需求部门', '采购经办人', '用途',
             '回收分类', '回收去向', '处置方式', '处置金额', '出库日期', '领用来源',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
-            'lines', '品项数', '总数量', 'canOperate',
+            'lines', '品项数', '总数量', 'canOperate', 'canWithdraw',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at', '单据编号']
@@ -80,6 +81,19 @@ class TransferSerializer(serializers.ModelSerializer):
         if scope.all:
             return True
         return obj.from_branch_id in scope.branches
+
+    def get_canWithdraw(self, obj):
+        """撤回入口显隐（purchase-withdraw-creator-fk）：账号身份判定，不比对姓名。
+
+        采购单且待审批且请求者为创建账号；无请求上下文（离线序列化）默认 False。
+        """
+        if obj.action_type != Transfer.ACTION_PURCHASE or obj.审批状态 != '待审批':
+            return False
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user is None or not user.is_authenticated:
+            return False
+        return obj.created_by_id == user.id
 
 
 class TransferLineInputSerializer(serializers.Serializer):

@@ -7,11 +7,9 @@ import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { getTransfer, updateTransfer, resubmitTransfer, submitTransfer, withdrawTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useUserStore } from '@/store/user'
 import type { TransferDocument } from '@/types'
 
 const route = useRoute()
-const userStore = useUserStore()
 const transfer = ref<TransferDocument | null>(null)
 const loading = ref(false)
 const editing = ref(false)
@@ -34,14 +32,7 @@ async function fetchTransfer() {
   }
 }
 
-/** 与后端一致：创建人按 name 兜底 phone 比对 */
-function currentUserName() {
-  return userStore.profile?.name || userStore.profile?.phone || ''
-}
-
-function canWithdraw(doc: TransferDocument) {
-  return doc.审批状态 === '待审批' && doc.创建人 === currentUserName()
-}
+/** 撤回入口显隐由服务端 canWithdraw 判定（账号身份，purchase-withdraw-creator-fk） */
 
 async function withdrawDoc(doc: TransferDocument) {
   try {
@@ -140,7 +131,7 @@ onMounted(fetchTransfer)
     </template>
 
     <template #footer="{ doc }">
-      <template v-if="!editing && doc.审批状态 === '待审批' && canWithdraw(doc)">
+      <template v-if="!editing && doc.canWithdraw">
         <button class="btn-cancel" @click="withdrawDoc(doc)">撤回</button>
       </template>
       <template v-if="!editing && doc.审批状态 === '已驳回'">

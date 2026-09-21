@@ -200,6 +200,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 branch_kwargs = {'所属分公司': from_branch}
             data['单据编号'] = generate_document_number(action_type, data['调拨日期'])
             transfer = Transfer.build(action_type, data, **branch_kwargs)
+            transfer.created_by = request.user
             transfer.save()
             _build_lines(transfer, items)
         _notify_created(transfer)
@@ -330,7 +331,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             return Response({'detail': '仅采购入库单支持撤回'}, status=status.HTTP_400_BAD_REQUEST)
         if transfer.审批状态 != '待审批':
             return Response({'detail': '仅待审批的记录可撤回'}, status=status.HTTP_400_BAD_REQUEST)
-        if transfer.创建人 != (request.user.name or request.user.phone):
+        if transfer.created_by_id != request.user.id:
             return Response({'detail': '仅创建人可撤回自己的单据'}, status=status.HTTP_400_BAD_REQUEST)
         transfer.审批状态 = '草稿'
         transfer.save(update_fields=['审批状态', 'updated_at'])
@@ -953,6 +954,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     header['创建人'] = creator
                     header['单据编号'] = generate_document_number(action, header['调拨日期'])
                     transfer = Transfer.build(action, header, **_branch_kwargs)
+                    transfer.created_by = request.user
                     transfer.save()
                     TransferLine.objects.create(transfer=transfer, 行号=1, **line_kwargs)
                 _notify_created(transfer)
@@ -979,6 +981,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 header['创建人'] = creator
                 header['单据编号'] = generate_document_number(action, header['调拨日期'])
                 transfer = Transfer.build(action, header, **_branch_kwargs)
+                transfer.created_by = request.user
                 transfer.save()
                 _build_lines(transfer, bucket['lines'])
             _notify_created(transfer)
