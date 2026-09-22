@@ -24,7 +24,7 @@
 
 ## 5. 收尾
 
-- [ ] 5.1 拆 feat + openspec 两 commit，push
-- [ ] 5.2 归档顺序：先归档 `purchase-withdraw-and-excel-ui`（其 ADDED 需求入基线），再归档本变更
-- [ ] 5.3 生产部署（用户自行 `bash deploy.sh`，migrate 含回填），健康检查
-- [ ] 5.4 手验：同名测试账号互看无撤回按钮、创建人撤回全链路、回填统计日志确认
+- [x] 5.1 拆 feat + openspec 两 commit，push
+- [x] 5.2 归档顺序：先归档 `purchase-withdraw-and-excel-ui`（其 ADDED 需求入基线），再归档本变更
+- [x] 5.3 生产部署（用户自行 `bash deploy.sh`，migrate 含回填），健康检查（2026-09-22 部署成功，回填 1905 张零跳过）
+- [x] 5.4 手验：同名测试账号互看无撤回按钮、创建人撤回全链路、回填统计日志确认（同名场景后端用例覆盖；2026-09-22 线上他人账号确认无撤回按钮）
