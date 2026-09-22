@@ -75,7 +75,7 @@ function branchText(doc: TransferDocument) {
 </template>
 
 <style scoped>
-.detail-page { max-width: 1080px; margin: 0 auto; }
+.detail-page { max-width: 1600px; margin: 0 auto; }
 .page-header { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-6); }
 .back-btn { display: inline-flex; align-items: center; gap: var(--space-1); height: 36px; padding: 0 var(--space-3); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-secondary); cursor: pointer; }
 .back-btn:hover { color: var(--color-primary-500); border-color: var(--color-primary-300); }
