@@ -311,7 +311,8 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         params = self.request.query_params
         branch = params.get('branch')
         if branch:
-            qs = qs.filter(branch_id=branch)
+            # 分公司多选（逗号分隔 id → 并集）
+            qs = qs.filter(branch_id__in=[b for b in branch.split(',') if b])
         asset_code = (params.get('assetCode') or '').strip()
         if asset_code:
             qs = qs.filter(item__asset_code__icontains=asset_code)

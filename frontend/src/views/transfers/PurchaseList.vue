@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTransferList } from '@/composables/useTransferList'
 import { submitTransfer } from '@/api/transfers'
@@ -30,19 +29,6 @@ if (route.query.status) {
 
 const router = useRouter()
 
-/** 采购列表排序：待审批置顶 → 草稿 → 其余；同组按分公司名、日期倒序（页内排序） */
-const STATUS_RANK: Record<string, number> = { 待审批: 0, 草稿: 1 }
-const sortedTransfers = computed(() =>
-  [...rawTransfers.value].sort((a, b) => {
-    const ra = STATUS_RANK[a.审批状态] ?? 2
-    const rb = STATUS_RANK[b.审批状态] ?? 2
-    if (ra !== rb) return ra - rb
-    const branchA = a.toBranchName || a.调入分公司 || ''
-    const branchB = b.toBranchName || b.调入分公司 || ''
-    if (branchA !== branchB) return branchA.localeCompare(branchB, 'zh')
-    return String(b.调拨日期 || '').localeCompare(String(a.调拨日期 || ''))
-  }),
-)
 
 function openCreatePage() {
   router.push('/transfers/purchase/create')
@@ -113,7 +99,7 @@ async function handleSubmitDraft(item: Transfer) {
       <table class="data-table">
         <thead><tr><th>单号</th><th>日期</th><th>入库分公司</th><th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th><th>状态</th><th>经办人</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="item in sortedTransfers" :key="item.id">
+          <tr v-for="item in rawTransfers" :key="item.id">
             <td><span class="doc-number">{{ item.单据编号 || item.id.slice(0, 8) }}</span></td>
             <td><span class="date-text">{{ item.调拨日期 || item.createdAt?.slice(0, 10) }}</span></td>
             <td>{{ item.toBranchName || item.调入分公司 || '-' }}</td>

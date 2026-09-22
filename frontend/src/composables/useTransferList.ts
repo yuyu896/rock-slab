@@ -22,8 +22,8 @@ export function useTransferList(type: TransferType) {
   // 筛选
   const filters = ref({
     status: '',
-    fromBranch: '',
-    toBranch: '',
+    fromBranch: [] as string[],
+    toBranch: [] as string[],
     keyword: ''
   })
 
@@ -57,8 +57,8 @@ export function useTransferList(type: TransferType) {
         page: pagination.value.page,
         pageSize: pagination.value.pageSize,
         status: filters.value.status || undefined,
-        fromBranch: filters.value.fromBranch || undefined,
-        toBranch: filters.value.toBranch || undefined,
+        fromBranch: filters.value.fromBranch.length ? filters.value.fromBranch.join(',') : undefined,
+        toBranch: filters.value.toBranch.length ? filters.value.toBranch.join(',') : undefined,
         type,
         keyword: filters.value.keyword || undefined,
       })
@@ -172,8 +172,8 @@ export function useTransferList(type: TransferType) {
   async function handleExport() {
     try {
       const params: Record<string, string> = { type }
-      if (filters.value.fromBranch) params.fromBranch = filters.value.fromBranch
-      if (filters.value.toBranch) params.toBranch = filters.value.toBranch
+      if (filters.value.fromBranch.length) params.fromBranch = filters.value.fromBranch.join(',')
+      if (filters.value.toBranch.length) params.toBranch = filters.value.toBranch.join(',')
       if (filters.value.status) params.status = filters.value.status
       if (filters.value.keyword) params.keyword = filters.value.keyword
       const { data } = await exportTransfers(params)
@@ -191,7 +191,7 @@ export function useTransferList(type: TransferType) {
   }
 
   function resetFilters() {
-    filters.value = { status: '', fromBranch: '', toBranch: '', keyword: '' }
+    filters.value = { status: '', fromBranch: [], toBranch: [], keyword: '' }
     pagination.value.page = 1
     fetchTransfers()
   }

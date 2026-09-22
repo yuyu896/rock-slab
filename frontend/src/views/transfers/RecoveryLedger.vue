@@ -11,7 +11,7 @@ import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 
 type LedgerRow = Record<string, string | number | null>
 
-const filters = ref({ branch: '', dateFrom: '', dateTo: '', keyword: '' })
+const filters = ref({ branch: [] as string[], dateFrom: '', dateTo: '', keyword: '' })
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 const loading = ref(false)
@@ -24,7 +24,7 @@ async function fetchRows() {
     const { data } = await getRecoveryLedger({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      fromBranch: filters.value.branch || undefined,
+      fromBranch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
       keyword: filters.value.keyword || undefined,
       dateFrom: filters.value.dateFrom || undefined,
       dateTo: filters.value.dateTo || undefined,
@@ -49,7 +49,7 @@ async function handleExport() {
   exporting.value = true
   try {
     const params: Record<string, string> = {}
-    if (filters.value.branch) params.fromBranch = filters.value.branch
+    if (filters.value.branch.length) params.fromBranch = filters.value.branch.join(',')
     if (filters.value.keyword) params.keyword = filters.value.keyword
     if (filters.value.dateFrom) params.dateFrom = filters.value.dateFrom
     if (filters.value.dateTo) params.dateTo = filters.value.dateTo
@@ -68,7 +68,7 @@ async function handleExport() {
 }
 
 function resetFilters() {
-  filters.value = { branch: '', dateFrom: '', dateTo: '', keyword: '' }
+  filters.value = { branch: [], dateFrom: '', dateTo: '', keyword: '' }
   pagination.value.page = 1
   fetchRows()
 }

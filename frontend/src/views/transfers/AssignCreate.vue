@@ -6,6 +6,7 @@ import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDraf
 import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { assignAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
+import { sortBranchesByName } from '@/utils/sortBranchesByName'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { ASSIGN_SOURCE_OPTIONS } from '@/constants'
@@ -25,7 +26,7 @@ onMounted(async () => {
   try {
     // 所属分公司（扣数方）收口到授权范围
     const { data } = await getBranches({ scope: 'write' })
-    branchOptions.value = data.map((b: any) => ({ value: b.id, label: b.name }))
+    branchOptions.value = sortBranchesByName(data.map((b: any) => ({ value: b.id, label: b.name })))
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }

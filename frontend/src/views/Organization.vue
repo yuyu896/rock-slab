@@ -6,6 +6,7 @@ import {
 } from '@/api/users'
 import { getRegions, createRegion, updateRegion, deleteRegion } from '@/api/regions'
 import { getBranches, createBranch, updateBranch, deleteBranch } from '@/api/branches'
+import { sortBranchesByName } from '@/utils/sortBranchesByName'
 import { getTeams, createTeam, updateTeam, deleteTeam } from '@/api/teams'
 import { getCompany, updateCompany } from '@/api/company'
 import { handleApiError } from '@/utils/request'
@@ -42,8 +43,7 @@ const orgTree = computed<TreeNode[]>(() => {
       .filter(t => t.region === r.id)
       .map(t => ({
         key: `team-${t.id}`, type: 'team', label: t.name, rawId: t.id,
-        children: branches.value
-          .filter(b => b.team === t.id)
+        children: sortBranchesByName(branches.value.filter(b => b.team === t.id))
           .map(b => ({ key: `branch-${b.id}`, type: 'branch', label: b.name, rawId: b.id, children: [] })),
       }))
     return { key: `region-${r.id}`, type: 'region', label: `${r.name}（${r.code}）`, rawId: r.id, children: teamNodes }

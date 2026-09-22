@@ -6,6 +6,7 @@ import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDraf
 import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { recoverAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
+import { sortBranchesByName } from '@/utils/sortBranchesByName'
 import { getInventoryReport } from '@/api/inventories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
@@ -84,7 +85,7 @@ onMounted(async () => {
   try {
     // 调出分公司（扣数方）收口到授权范围
     const { data } = await getBranches({ scope: 'write' })
-    branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name, id: b.id }))
+    branchOptions.value = sortBranchesByName(data.map((b: any) => ({ value: b.name, label: b.name, id: b.id })))
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }

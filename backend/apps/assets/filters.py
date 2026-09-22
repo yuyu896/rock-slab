@@ -1,6 +1,11 @@
 import django_filters
 from django.db.models import F, Q
+from django_filters import BaseInFilter, CharFilter
 from .models import AssetStock, FixedAsset
+
+
+class BranchNameInFilter(BaseInFilter, CharFilter):
+    """分公司多选（逗号分隔名称 → __in 并集）。"""
 
 
 def insufficient_stock_q():
@@ -13,7 +18,7 @@ def insufficient_stock_q():
 
 
 class AssetStockFilterSet(django_filters.FilterSet):
-    branch = django_filters.CharFilter(field_name='branch__name')
+    branch = BranchNameInFilter(field_name='branch__name', lookup_expr='in')
     category = django_filters.CharFilter(field_name='item__asset_category')
     物品分类 = django_filters.CharFilter(field_name='item__item_category')
     management_type = django_filters.CharFilter(field_name='item__management_type')
@@ -51,7 +56,7 @@ class AssetStockFilterSet(django_filters.FilterSet):
 
 
 class FixedAssetFilterSet(django_filters.FilterSet):
-    branch = django_filters.CharFilter(field_name='branch__name')
+    branch = BranchNameInFilter(field_name='branch__name', lookup_expr='in')
     status = django_filters.CharFilter(field_name='当前状态')
     asset_code = django_filters.CharFilter(field_name='item__asset_code')
     item_keyword = django_filters.CharFilter(method='filter_item_keyword')

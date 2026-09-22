@@ -58,10 +58,10 @@ const reportVisible = ref(false)
 const reportRef = ref<InstanceType<typeof InventoryReport> | null>(null)
 
 // 筛选条件
-const filters = ref({ status: '', branch: '', keyword: '' })
+const filters = ref({ status: '', branch: [] as string[], keyword: '' })
 
 // 分公司选项
-const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部分公司' }])
+const branchOptions = ref<{ value: string; label: string }[]>([])
 
 // 获取规则标签
 const getMissedRuleLabel = (rule: string) => MISSED_RULE_LABELS[rule as MissedRuleType] || '-'
@@ -170,7 +170,7 @@ async function fetchTasks() {
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
       status: filters.value.status || undefined,
-      branchId: filters.value.branch || undefined,
+      branchId: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
     })
     inventoryTasks.value = data.results
     pagination.value.total = data.count

@@ -14,7 +14,7 @@ const props = defineProps<{
   loading: boolean
   tasks: any[]
   stats: { total: number; pending: number; inProgress: number; pendingReview: number }
-  filters: { status: string; branch: string; keyword: string }
+  filters: { status: string; branch: string[]; keyword: string }
   branchOptions: { value: string; label: string }[]
 }>()
 

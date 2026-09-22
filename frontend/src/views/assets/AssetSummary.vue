@@ -63,7 +63,7 @@ const canAdjust = can('adjust_ledger')
 // 报表"库存不足"下钻：/assets/summary?sufficient=0 预置仅不足
 const route = useRoute()
 const filters = ref({
-  branch: '',
+  branch: [] as string[],
   category: '',
   keyword: '',
   sufficient: route.query.sufficient === '0' ? '0' : '',
@@ -73,7 +73,7 @@ const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 const loading = ref(false)
 const stocks = ref<AssetStock[]>([])
 
-const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部分公司' }])
+const branchOptions = ref<{ value: string; label: string }[]>([])
 const categoryOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部类目' }])
 
 async function fetchStocks() {
@@ -82,7 +82,7 @@ async function fetchStocks() {
     const { data } = await getAssetStocks({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      branch: filters.value.branch || undefined,
+      branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
       category: filters.value.category || undefined,
       keyword: filters.value.keyword || undefined,
       sufficient: filters.value.sufficient || undefined,
@@ -135,7 +135,7 @@ const showImportModal = ref(false)
 async function handleExport() {
   try {
     const { data } = await exportAssetStocks({
-      branch: filters.value.branch || undefined,
+      branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
       category: filters.value.category || undefined,
       keyword: filters.value.keyword || undefined,
     } as Record<string, string>)
@@ -152,7 +152,7 @@ async function handleExport() {
 }
 
 function resetFilters() {
-  filters.value = { branch: '', category: '', keyword: '', sufficient: '' }
+  filters.value = { branch: [], category: '', keyword: '', sufficient: '' }
   pagination.value.page = 1
   fetchStocks()
 }

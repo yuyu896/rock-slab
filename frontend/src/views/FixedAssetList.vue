@@ -18,7 +18,7 @@ const canSupplement = computed(() => can('manage_instances'))
 const route = useRoute()
 
 const filters = ref({
-  branch: '',
+  branch: [] as string[],
   status: '',
   pendingSerial: false,
   keyword: (route.query.keyword as string) || '',
@@ -29,7 +29,7 @@ const loading = ref(false)
 const assets = ref<FixedAsset[]>([])
 
 const statusOptions = [{ value: '', label: '全部状态' }, ...INSTANCE_STATUS_OPTIONS.map(o => ({ value: o.value, label: o.label }))]
-const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部分公司' }])
+const branchOptions = ref<{ value: string; label: string }[]>([])
 
 // ── 导出 ──
 const exporting = ref(false)
@@ -38,7 +38,7 @@ async function handleExport() {
   exporting.value = true
   try {
     const params: Record<string, string> = {}
-    if (filters.value.branch) params.branch = filters.value.branch
+    if (filters.value.branch.length) params.branch = filters.value.branch.join(',')
     if (filters.value.status) params.status = filters.value.status
     if (filters.value.keyword) params.keyword = filters.value.keyword
     if (filters.value.pendingSerial) params.pending_serial = '1'
@@ -319,7 +319,7 @@ async function fetchAssets() {
     const { data } = await getFixedAssets({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      branch: filters.value.branch || undefined,
+      branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
       status: filters.value.status || undefined,
       keyword: filters.value.keyword || undefined,
       pending_serial: filters.value.pendingSerial ? '1' : undefined,
@@ -341,7 +341,7 @@ async function fetchBranches() {
 }
 
 const resetFilters = () => {
-  filters.value = { branch: '', status: '', pendingSerial: false, keyword: '' }
+  filters.value = { branch: [], status: '', pendingSerial: false, keyword: '' }
   pagination.value.page = 1
   fetchAssets()
 }

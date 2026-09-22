@@ -96,8 +96,8 @@ describe('useTransferList 导出透传全部筛选', () => {
 
     // VTU 的 vm 类型对嵌套 ref 的解包声明与运行时不一致，这里以运行时为准（filters 是 Ref）
     const state = wrapper.vm.state as any
-    state.filters.value.fromBranch = '杭州分公司'
-    state.filters.value.toBranch = '上海分公司'
+    state.filters.value.fromBranch = ['杭州分公司']
+    state.filters.value.toBranch = ['上海分公司']
     state.filters.value.status = '已通过'
     state.filters.value.keyword = 'A-1'
     await state.handleExport()
@@ -121,7 +121,7 @@ describe('固定资产实例导出透传全部筛选', () => {
     await wrapper.find('input[placeholder^="搜索内部编号"]').setValue('NB-1')
     // 分公司筛选已收敛为 BranchFilterSelect（shallow 下为 stub），经组件事件设值
     const branchFilter = wrapper.findComponent({ name: 'BranchFilterSelect' })
-    await branchFilter.vm.$emit('update:modelValue', '杭州分公司')
+    await branchFilter.vm.$emit('update:modelValue', ['杭州分公司'])
     const selects = wrapper.findAll('select')
     await selects[0].setValue('在库')
     await wrapper.find('input[type="checkbox"]').setValue(true)

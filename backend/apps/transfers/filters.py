@@ -1,12 +1,17 @@
 import django_filters
 from django.db.models import Q
+from django_filters import BaseInFilter, CharFilter
 from .models import Transfer
+
+
+class BranchNameInFilter(BaseInFilter, CharFilter):
+    """分公司多选（逗号分隔名称 → __in 并集）。"""
 
 
 class TransferFilterSet(django_filters.FilterSet):
     status = django_filters.CharFilter(field_name='审批状态')
-    fromBranch = django_filters.CharFilter(field_name='调出分公司')
-    toBranch = django_filters.CharFilter(field_name='调入分公司')
+    fromBranch = BranchNameInFilter(field_name='调出分公司', lookup_expr='in')
+    toBranch = BranchNameInFilter(field_name='调入分公司', lookup_expr='in')
     type = django_filters.CharFilter(field_name='action_type')
     docNumber = django_filters.CharFilter(field_name='单据编号')
     assetCode = django_filters.CharFilter(method='filter_asset_code')

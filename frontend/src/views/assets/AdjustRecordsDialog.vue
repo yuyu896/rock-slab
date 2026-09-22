@@ -11,8 +11,8 @@ import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-const filters = ref({ branch: '', assetCode: '', dateFrom: '', dateTo: '' })
-const branchOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部分公司' }])
+const filters = ref({ branch: [] as string[], assetCode: '', dateFrom: '', dateTo: '' })
+const branchOptions = ref<{ value: string; label: string }[]>([])
 const rows = ref<LedgerAdjustment[]>([])
 const loading = ref(false)
 const pagination = ref({ page: 1, pageSize: 20, total: 0 })
@@ -41,7 +41,7 @@ async function fetchRows() {
     const { data } = await getLedgerAdjustments({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      branch: filters.value.branch || undefined,
+      branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
       assetCode: filters.value.assetCode.trim() || undefined,
       dateFrom: filters.value.dateFrom || undefined,
       dateTo: filters.value.dateTo || undefined,
@@ -61,7 +61,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  filters.value = { branch: '', assetCode: '', dateFrom: '', dateTo: '' }
+  filters.value = { branch: [], assetCode: '', dateFrom: '', dateTo: '' }
   applyFilters()
 }
 

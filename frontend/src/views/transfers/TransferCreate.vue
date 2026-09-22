@@ -6,6 +6,7 @@ import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDraf
 import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { transferAsset } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
+import { sortBranchesByName } from '@/utils/sortBranchesByName'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
@@ -33,8 +34,8 @@ onMounted(async () => {
       getBranches({ scope: 'write' }),
       getBranches(),
     ])
-    fromBranchOptions.value = scoped.data.map((b: any) => ({ value: b.id, label: b.name }))
-    toBranchOptions.value = all.data.map((b: any) => ({ value: b.id, label: b.name }))
+    fromBranchOptions.value = sortBranchesByName(scoped.data.map((b: any) => ({ value: b.id, label: b.name })))
+    toBranchOptions.value = sortBranchesByName(all.data.map((b: any) => ({ value: b.id, label: b.name })))
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }

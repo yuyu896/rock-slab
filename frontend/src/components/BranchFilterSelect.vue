@@ -1,36 +1,43 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { ElSelect, ElOption } from 'element-plus'
+import { sortBranchesByName } from '@/utils/sortBranchesByName'
 
 /**
- * 分公司筛选共用组件：可键入搜索（名称包含匹配）、一键清空；内置「全部分公司」空值项。
- * 值语义与原生下拉一致：'' = 不过滤，其余 = 分公司名；options 由父级传（数据源与权限口径在父级）。
+ * 分公司筛选共用组件（多选，branch-order-and-multi-filter）：
+ * 可键入搜索、一键清空；值语义 string[]，空数组 = 不过滤；选项按名称拼音排序。
+ * options 由父级传（数据源与权限口径在父级），值口径沿各页现状（名称/编号/id）。
  */
-defineProps<{
-  modelValue: string
+const props = defineProps<{
+  modelValue: string[]
   options: { value: string; label: string }[]
-  /** 空值项文案（默认「全部分公司」；调拨/领用列表按调出/调入语义定制） */
+  /** 空值提示文案（默认「全部分公司」；调拨/领用列表按调出/调入语义定制） */
   allLabel?: string
 }>()
-const emit = defineEmits<{ (e: 'update:modelValue', value: string): void }>()
+const emit = defineEmits<{ (e: 'update:modelValue', value: string[]): void }>()
+
+const sortedOptions = computed(() => sortBranchesByName(props.options))
 </script>
 
 <template>
   <ElSelect
     :model-value="modelValue"
+    multiple
+    collapse-tags
+    collapse-tags-tooltip
     filterable
     clearable
     :placeholder="allLabel ?? '全部分公司'"
     class="branch-filter-select"
-    @update:model-value="(v) => emit('update:modelValue', v ?? '')"
-    @clear="emit('update:modelValue', '')"
+    @update:model-value="(v) => emit('update:modelValue', v ?? [])"
+    @clear="emit('update:modelValue', [])"
   >
-    <ElOption value="" :label="allLabel ?? '全部分公司'" />
-    <ElOption v-for="opt in options" :key="opt.value" :value="opt.value" :label="opt.label" />
+    <ElOption v-for="opt in sortedOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
   </ElSelect>
 </template>
 
 <style scoped>
-.branch-filter-select { width: 180px; }
+.branch-filter-select { width: 220px; }
 .branch-filter-select :deep(.el-select__wrapper) {
   min-height: 38px;
   background: var(--color-bg-page);

@@ -7,9 +7,13 @@ class StatusInFilter(BaseInFilter, CharFilter):
     pass
 
 
+class BranchIdInFilter(BaseInFilter, CharFilter):
+    """分公司多选（逗号分隔 id → __in 并集）。"""
+
+
 class InventoryTaskFilterSet(django_filters.FilterSet):
     status = StatusInFilter(field_name='status', lookup_expr='in')
-    branchId = django_filters.CharFilter(field_name='branch_id')
+    branchId = BranchIdInFilter(field_name='branch_id', lookup_expr='in')
 
     ordering = django_filters.OrderingFilter(fields=(
         ('created_at', 'created_at'),

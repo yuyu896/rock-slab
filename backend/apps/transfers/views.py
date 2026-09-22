@@ -1,5 +1,6 @@
 import io
 from datetime import date
+from django.db.models import Case, IntegerField, Value, When
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -93,7 +94,17 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        return self.get_scoped_queryset(qs)
+        qs = self.get_scoped_queryset(qs)
+        # 列表统一排序（branch-order-and-multi-filter）：待审批→草稿→其余 + 日期倒序，
+        # 跨分页一致；状态为等值比较无中文 collation 依赖，分公司名不作排序键
+        return qs.annotate(
+            _status_rank=Case(
+                When(审批状态='待审批', then=Value(0)),
+                When(审批状态='草稿', then=Value(1)),
+                default=Value(2),
+                output_field=IntegerField(),
+            ),
+        ).order_by('_status_rank', '-调拨日期', '-created_at')
 
     def _check_inventory_lock(self, branch_name=None, branch_id=None):
         """Raise ValidationError if branch has active inventory tasks."""
