@@ -58,3 +58,22 @@ Each transfer type page SHALL support the existing batch import functionality (d
 - **WHEN** user clicks "批量导入" on any transfer type page
 - **THEN** the import modal opens with the same download template / upload file / view results workflow
 
+### Requirement: 流转列表统一排序
+
+五种单据列表（采购/领用/调拨/归还/回收）SHALL 由后端统一排序：`待审批` 置顶 → `草稿` 次之 → 其余，同组内按调拨日期倒序（created_at 兜底）；排序 MUST 跨分页一致（第 1 页不含某待审批单而第 2 页含有的错乱 MUST NOT 出现）。前端 MUST NOT 再做页内重排；分公司名称 MUST NOT 作为排序键。
+
+#### Scenario: 待审批跨页置顶
+
+- **WHEN** 待审批单数量超过一页且存在其他状态的单据
+- **THEN** 待审批单全部排在最前（占据第 1 页及续页头部），其后为草稿，再后按日期倒序
+
+#### Scenario: 同组内日期倒序
+
+- **WHEN** 同一状态组内存在多张单据
+- **THEN** 按调拨日期倒序排列，日期相同按创建时间倒序
+
+#### Scenario: 前端直接呈现服务端序
+
+- **WHEN** 打开任一流转列表
+- **THEN** 行序与该页接口返回序一致（无页内二次排序）
+
