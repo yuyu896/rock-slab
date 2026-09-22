@@ -31,6 +31,14 @@ vi.mock('@/api/assets', () => ({
 vi.mock('@/api/branches', () => ({
   getBranches: vi.fn().mockResolvedValue({ data: [] }),
 }))
+vi.mock('@/api/suppliers', () => ({
+  getSuppliers: vi.fn().mockResolvedValue({
+    data: { count: 2, next: null, previous: null, results: [
+      { id: 's1', name: '小熊U租' },
+      { id: 's2', name: '易点云' },
+    ] },
+  }),
+}))
 
 import FixedAssetList from '@/views/FixedAssetList.vue'
 import fixedAssetListSource from '@/views/FixedAssetList.vue?raw'
@@ -62,6 +70,8 @@ const stubs = {
   'el-form': { template: '<div><slot /></div>' },
   'el-form-item': { template: '<div><slot /></div>' },
   'el-input': { props: ['modelValue'], emits: ['update:modelValue'], template: `<input class="el-input-stub" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" />` },
+  'el-select': { name: 'ElSelect', props: ['modelValue', 'placeholder'], emits: ['update:modelValue', 'clear'], template: `<div class="el-select-stub" :data-ph="placeholder" />` },
+  'el-option': { name: 'ElOption', props: ['value', 'label'], template: '<div class="el-option-stub" />' },
   'el-button': { template: '<button><slot /></button>' },
 }
 
@@ -205,12 +215,15 @@ describe('实例批量操作', () => {
 
     await menu.findAll('button').find(b => b.text() === '修改供应商')!.trigger('click')
     expect(wrapper.find('.el-dialog').exists() || wrapper.text()).toBeTruthy()
-    const input = wrapper.find('.el-input-stub')
-    await input.setValue('联想')
+    // 供应商已收口为字典下拉：经 ElSelect 桩 emit 选中值
+    const selectStub = wrapper.findAllComponents({ name: 'ElSelect' })
+      .find(c => c.props('placeholder') === '统一设置的供应商')
+    expect(selectStub).toBeTruthy()
+    await selectStub!.vm.$emit('update:modelValue', '小熊U租')
     await wrapper.findAll('button').find(b => b.text().includes('应用（2 台）'))!.trigger('click')
     await flushPromises()
     expect(batchUpdateFixedAssets).toHaveBeenCalledWith(
-      expect.objectContaining({ ids: ['fa-1', 'fa-2'], 供应商: '联想' }),
+      expect.objectContaining({ ids: ['fa-1', 'fa-2'], 供应商: '小熊U租' }),
     )
   })
 })
@@ -240,5 +253,19 @@ describe('勾选随筛选重置', () => {
     // 新页勾选框为未选中态
     const newChecks = wrapper.findAll('tbody .check-col input[type=checkbox]')
     expect((newChecks[0].element as HTMLInputElement).checked).toBe(false)
+  })
+})
+
+describe('实例档案供应商只准选（instance-supplier-dict-select）', () => {
+  it('行编辑与批量供应商均为字典下拉，自由输入退役，含继承语义项', () => {
+    expect(fixedAssetListSource).toContain('<el-select v-model="editForm.供应商"')
+    expect(fixedAssetListSource).not.toContain('el-input v-model="editForm.供应商"')
+    expect(fixedAssetListSource).toContain('继承出生单（清空覆盖）')
+    expect(fixedAssetListSource).toContain('设为继承（清空覆盖，回落出生单供应商，可能为空）')
+    expect(fixedAssetListSource).toContain('for="sp in supplierOptions"')
+  })
+
+  it('批量供应商提交前确认影响行数与回落语义', () => {
+    expect(fixedAssetListSource).toContain('ElMessageBox.confirm(`将更新 ${ids.length} 台实例的供应商')
   })
 })

@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { getFixedAssets, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets } from '@/api/assets'
 import type { FixedAsset, FixedAssetTimeline } from '@/types'
 import { getBranches } from '@/api/branches'
+import { getSuppliers, type Supplier } from '@/api/suppliers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
@@ -27,6 +28,17 @@ const filters = ref({
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 const loading = ref(false)
 const assets = ref<FixedAsset[]>([])
+// 供应商字典选项（实例档案供应商只准选，instance-supplier-dict-select）
+const supplierOptions = ref<Supplier[]>([])
+
+async function fetchSuppliers() {
+  try {
+    const { data } = await getSuppliers({ pageSize: 100 })
+    supplierOptions.value = data.results
+  } catch {
+    supplierOptions.value = []
+  }
+}
 
 const statusOptions = [{ value: '', label: '全部状态' }, ...INSTANCE_STATUS_OPTIONS.map(o => ({ value: o.value, label: o.label }))]
 const branchOptions = ref<{ value: string; label: string }[]>([])
@@ -260,6 +272,14 @@ const selectedIdList = () => assets.value.filter((a) => selectedIds.value.has(a.
 async function submitBatch() {
   const ids = selectedIdList()
   if (!ids.length) return
+  if (batchDialog.value === 'supplier') {
+    const target = batchValue.value ? `为「${batchValue.value}」` : '为继承（清空覆盖，回落出生单供应商，可能为空）'
+    try {
+      await ElMessageBox.confirm(`将更新 ${ids.length} 台实例的供应商${target}，确认？`, '批量修改供应商', { type: 'warning' })
+    } catch {
+      return
+    }
+  }
   const payload: { ids: string[]; 供应商?: string; 规格?: string; 备注?: string; 序列号列表?: string[] } = { ids }
   if (batchDialog.value === 'supplier') payload.供应商 = batchValue.value.trim()
   if (batchDialog.value === 'spec') payload.规格 = batchValue.value.trim()
@@ -354,7 +374,7 @@ const handlePaginationChange = (page: number, pageSize: number) => {
 
 watch(filters, () => { selectedIds.value = new Set(); pagination.value.page = 1; fetchAssets() }, { deep: true })
 
-onMounted(() => { fetchAssets(); fetchBranches() })
+onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 </script>
 
 <template>
@@ -505,7 +525,12 @@ onMounted(() => { fetchAssets(); fetchBranches() })
             <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入" /></el-form-item>
             <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
-            <el-form-item label="供应商"><el-input v-model="editForm.供应商" placeholder="修改后实例档案显示此供应商" /></el-form-item>
+            <el-form-item label="供应商">
+              <el-select v-model="editForm.供应商" placeholder="继承出生单" style="width: 100%">
+                <el-option label="继承出生单（清空覆盖）" value="" />
+                <el-option v-for="sp in supplierOptions" :key="sp.id" :label="sp.name" :value="sp.name" />
+              </el-select>
+            </el-form-item>
             <el-form-item label="采购日期">
               <el-date-picker v-model="editForm.采购日期" type="date" value-format="YYYY-MM-DD" placeholder="空=沿用出生单日期" style="width: 100%" clearable />
             </el-form-item>
@@ -579,7 +604,13 @@ onMounted(() => { fetchAssets(); fetchBranches() })
           />
         </div>
       </div>
-      <el-input v-else v-model="batchValue" :placeholder="batchDialog === 'supplier' ? '统一设置的供应商名称' : batchDialog === 'spec' ? '统一设置的规格' : '统一设置的备注内容'" />
+      <template v-else-if="batchDialog === 'supplier'">
+        <el-select v-model="batchValue" placeholder="统一设置的供应商" style="width: 100%">
+          <el-option label="设为继承（清空覆盖，回落出生单供应商，可能为空）" value="" />
+          <el-option v-for="sp in supplierOptions" :key="sp.id" :label="sp.name" :value="sp.name" />
+        </el-select>
+      </template>
+      <el-input v-else v-model="batchValue" :placeholder="batchDialog === 'spec' ? '统一设置的规格' : '统一设置的备注内容'" />
       <template #footer>
         <el-button @click="batchDialog = null">取消</el-button>
         <el-button type="primary" :loading="batchSaving" @click="submitBatch">应用（{{ countSelected() }} 台）</el-button>
