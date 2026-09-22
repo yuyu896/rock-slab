@@ -182,7 +182,7 @@ async function handleSubmitDraft(item: Transfer) {
 .btn-secondary { background: var(--color-bg-card); border: 1px solid var(--color-border); color: var(--color-text-primary); }
 .btn-primary { background: var(--color-primary-500); border: 1px solid var(--color-primary-500); color: white; }
 .btn-secondary svg, .btn-primary svg { width: 18px; height: 18px; }
-.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); flex-shrink: 0; }
+.stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); flex-shrink: 0; }
 .stat-card { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); border: 1px solid var(--color-border); }
 .stat-card.pending { border-left: 4px solid oklch(0.60 0.14 85); }
 .stat-card.draft { border-left: 4px solid var(--color-text-tertiary); }

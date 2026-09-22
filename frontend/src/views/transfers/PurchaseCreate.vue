@@ -68,7 +68,7 @@ async function submit(asDraft = false) {
 <template>
   <TransferCreateLayout title="新建采购入库" :loading="creating" @submit="submit(false)" @back="goBack">
     <template #footer-extra>
-      <button class="btn-cancel" :disabled="creating" @click="submit(true)">存为草稿</button>
+      <button class="btn-draft" :disabled="creating" @click="submit(true)">存为草稿</button>
     </template>
     <div class="form-grid">
       <div class="form-item"><label class="form-label">日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
@@ -87,3 +87,10 @@ async function submit(asDraft = false) {
     <TransferLinesEditor ref="linesEditor" v-model="lines" type="purchase" />
   </TransferCreateLayout>
 </template>
+
+<style scoped>
+/* 存为草稿（插槽内容不吃布局组件的 scoped 样式，此处复刻次级按钮外观） */
+.btn-draft { height: 40px; padding: 0 var(--space-5); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; }
+.btn-draft:hover { border-color: var(--color-primary-300); }
+.btn-draft:disabled { opacity: 0.6; cursor: not-allowed; }
+</style>
