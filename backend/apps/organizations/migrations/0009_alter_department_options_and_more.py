@@ -36,6 +36,10 @@ def noop_reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # PG 禁止同事务内对同一表先 DML（合并回填）后 DDL（删约束/删列）——
+    # pending trigger events（同 0001_initial 期初迁移先例）。SQLite 无此限制，
+    # 测试全绿但生产 PG 实炸于 2026-09-22 首次部署，事务回滚无损后改非原子重上。
+    atomic = False
 
     dependencies = [
         ("organizations", "0008_department"),
