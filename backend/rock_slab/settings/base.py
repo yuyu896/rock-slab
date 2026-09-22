@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.organizations',
     'apps.categories',
+    'apps.suppliers',
     'apps.assets',
     'apps.transfers',
     'apps.inventories',

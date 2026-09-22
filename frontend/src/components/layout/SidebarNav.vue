@@ -105,6 +105,7 @@ const navItems = computed<NavItem[]>(() => [
     children: [
       { icon: '', label: '组织架构', path: '/organization' },
       { icon: '', label: '部门字典', path: '/departments' },
+      ...(userStore.isAdmin ? [{ icon: '', label: '供应商字典', path: '/suppliers' }] : []),
     ]
   },
   // 仅超级管理员可见：权限分配与权限矩阵

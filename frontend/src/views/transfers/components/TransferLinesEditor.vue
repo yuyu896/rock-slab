@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue'
 import ItemPicker from '@/components/ItemPicker.vue'
 import InstancePicker from '@/components/InstancePicker.vue'
 import { getDepartmentOptions, type Department } from '@/api/departments'
+import { getSuppliers, type Supplier } from '@/api/suppliers'
 import { getAssetStocks } from '@/api/assets'
 import { emptyDraft, type LineDraft } from './lineDrafts'
 import type { TransferType } from '@/constants'
@@ -132,6 +133,25 @@ watch(
       departments.value = data
     } catch {
       departments.value = []
+    }
+  },
+  { immediate: true },
+)
+
+// 采购行的供应商字典（全集团扁平；行上存名称文本，字典只做选择来源）
+const suppliers = ref<Supplier[]>([])
+watch(
+  () => props.type,
+  async (type) => {
+    if (type !== 'purchase') {
+      suppliers.value = []
+      return
+    }
+    try {
+      const { data } = await getSuppliers({ pageSize: 100 })
+      suppliers.value = data.results
+    } catch {
+      suppliers.value = []
     }
   },
   { immediate: true },
@@ -269,7 +289,12 @@ defineExpose({ validate, validateMessage })
           >在用 {{ inUseOf(draft.item.asset_code) }}</div>
         </div>
         <div v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'" class="cell"><input v-model="draft.本批规格" type="text" class="row-input" placeholder="记录性" @change="touch" /></div>
-        <div v-if="type === 'purchase'" class="cell"><input v-model="draft.行供应商" type="text" class="row-input" placeholder="各行自填" @change="touch" /></div>
+        <div v-if="type === 'purchase'" class="cell">
+          <select v-model="draft.行供应商" class="row-input" @change="touch">
+            <option value="">{{ suppliers.length ? '选择供应商（选填）' : '暂无供应商（管理员维护）' }}</option>
+            <option v-for="sp in suppliers" :key="sp.id" :value="sp.name">{{ sp.name }}</option>
+          </select>
+        </div>
         <div v-if="type === 'purchase'" class="cell"><input v-model.number="draft.单价" type="number" class="row-input num" min="0" step="0.01" @change="onPriceChange(index)" /></div>
         <div v-if="type === 'purchase'" class="cell"><input v-model.number="draft.金额" type="number" class="row-input num" min="0" step="0.01" @change="onAmountChange(index)" /></div>
         <div v-if="type === 'assign'" class="cell"><input v-model="draft.使用人" type="text" class="row-input" placeholder="使用人姓名" @change="touch" /></div>

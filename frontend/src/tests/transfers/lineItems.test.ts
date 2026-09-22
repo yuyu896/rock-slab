@@ -16,7 +16,16 @@ vi.mock('@/api/assets', () => ({
 vi.mock('@/api/departments', () => ({
   getDepartmentOptions: vi.fn().mockResolvedValue({ data: [] }),
 }))
+vi.mock('@/api/suppliers', () => ({
+  getSuppliers: vi.fn().mockResolvedValue({
+    data: { count: 2, next: null, previous: null, results: [
+      { id: 's1', name: '得力办公' },
+      { id: 's2', name: '晨光文具' },
+    ] },
+  }),
+}))
 import { getFixedAssets } from '@/api/assets'
+import { getSuppliers } from '@/api/suppliers'
 
 const pickedItem = {
   id: 'item-1',
@@ -91,6 +100,19 @@ describe('TransferLinesEditor 增删行与校验', () => {
       },
     })
   }
+
+  it('采购行供应商为字典下拉（只准选，选中落名称）', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+    expect(getSuppliers).toHaveBeenCalled()
+    const selects = wrapper.findAll('select.row-input')
+    const supplierSelect = selects[0]
+    const options = supplierSelect.findAll('option')
+    expect(options.map(o => o.attributes('value')).filter(Boolean)).toEqual(['得力办公', '晨光文具'])
+    await supplierSelect.setValue('晨光文具')
+    const emitted = wrapper.emitted('update:modelValue')?.[0]?.[0] as LineDraft[]
+    expect(emitted[0].行供应商).toBe('晨光文具')
+  })
 
   it('初始一行，可添加/删除行（至少保留一行）', async () => {
     const wrapper = mountEditor()
