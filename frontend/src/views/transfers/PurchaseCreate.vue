@@ -9,11 +9,13 @@ import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
-const form = ref({ 调拨日期: '', toBranch: '', 需求部门: '', 采购经办人: '', 备注: '' })
+const form = ref({ 调拨日期: '', toBranch: '', 需求部门: '', 采购经办人: userStore.profile?.name || '', 备注: '' })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 
