@@ -339,7 +339,7 @@ class TestTransferImport:
         Branch.objects.create(name='杭州分公司', code='HZ001', team=test_branch.team)
         if ttype == 'assign':
             # 领用部门按（分公司, 部门名）解析行级外键，样例行的"行政部"需在字典内
-            Department.objects.get_or_create(branch=test_branch, name='行政部')
+            Department.objects.get_or_create(name='行政部')
         if ttype == 'recovery':
             _seed_recovery_dictionary(test_branch)
         tpl = TRANSFER_TYPE_TEMPLATES[ttype]
@@ -403,7 +403,7 @@ class TestTransferImport:
     def test_assign_import_requires_user_and_department(self, admin_client, test_branch):
         """领用导入行缺使用人/领用部门 → 逐行报错不建单（与表单路径同口径）。"""
         from apps.organizations.models import Department
-        Department.objects.get_or_create(branch=test_branch, name='行政部')
+        Department.objects.get_or_create(name='行政部')
         tpl = TRANSFER_TYPE_TEMPLATES['assign']
         row = list(tpl['sample_row'])
         row[4] = ''  # 使用人留空
@@ -415,7 +415,7 @@ class TestTransferImport:
         assert any('使用人' in e for e in resp.data['errors'])
 
     def test_assign_import_department_not_found(self, admin_client, test_branch):
-        """领用部门不在该分公司部门字典 → 报错点名分公司与部门。"""
+        """领用部门不在部门字典（全集团扁平）→ 报错点名部门。"""
         tpl = TRANSFER_TYPE_TEMPLATES['assign']
         row = list(tpl['sample_row'])
         row[5] = '不存在部'  # 领用部门
@@ -423,7 +423,7 @@ class TestTransferImport:
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
         assert resp.status_code == status.HTTP_200_OK
         assert resp.data['imported'] == 0
-        assert any('不存在部' in e and '测试分公司' in e for e in resp.data['errors'])
+        assert any('不存在部' in e for e in resp.data['errors'])
 
     def test_purchase_import_autofills_amount(self, admin_client, test_branch):
         """采购模板无金额列 → 落库金额 = 单价 × 数量自动计算。"""
@@ -612,7 +612,7 @@ class TestImportMergeDocs:
     def test_assign_two_rows_one_doc(self, admin_client, test_branch):
         from apps.organizations.models import Department
         from apps.transfers.models import Transfer
-        Department.objects.get_or_create(branch=test_branch, name='行政部')
+        Department.objects.get_or_create(name='行政部')
         headers = TRANSFER_TYPE_TEMPLATES['assign']['template_headers']
         rows = [
             [test_branch.name, '2026-09-14', 'AST-TEST-001', 2, '张三', '行政部', '办公', ''],

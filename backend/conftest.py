@@ -115,10 +115,10 @@ def branch(db, team):
 
 
 @pytest.fixture
-def department(branch):
-    """领用行必填的部门外键（分公司 × 部门名字典）。"""
+def department(db):
+    """领用行必填的部门外键（全集团扁平字典）。"""
     from apps.organizations.models import Department
-    dept, _ = Department.objects.get_or_create(branch=branch, name='测试部门')
+    dept, _ = Department.objects.get_or_create(name='测试部门')
     return dept
 
 

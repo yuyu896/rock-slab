@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { getDepartments, createDepartment, deleteDepartment, type Department } from '@/api/departments'
-import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
-import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 
 const { canManageOrganizations } = usePermission()
 
-const branches = ref<{ id: string; name: string }[]>([])
 const departments = ref<Department[]>([])
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 const loading = ref(false)
-const filterBranch = ref('')
 
-const newBranchId = ref('')
 const newName = ref('')
 const saving = ref(false)
 
@@ -26,7 +21,6 @@ async function fetchDepartments() {
     const { data } = await getDepartments({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      branch: filterBranch.value || undefined,
     })
     departments.value = data.results
     pagination.value.total = data.count
@@ -38,13 +32,13 @@ async function fetchDepartments() {
 }
 
 async function handleCreate() {
-  if (!newBranchId.value || !newName.value.trim()) {
-    ElMessage.warning('请选择分公司并填写部门名称')
+  if (!newName.value.trim()) {
+    ElMessage.warning('请填写部门名称')
     return
   }
   saving.value = true
   try {
-    await createDepartment({ branch: newBranchId.value, name: newName.value.trim() })
+    await createDepartment({ name: newName.value.trim() })
     ElMessage.success('已添加')
     newName.value = ''
     await fetchDepartments()
@@ -57,7 +51,7 @@ async function handleCreate() {
 
 async function handleDelete(d: Department) {
   try {
-    await ElMessageBox.confirm(`确定删除「${d.branchName} · ${d.name}」？`, '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除「${d.name}」？`, '删除确认', { type: 'warning' })
     await deleteDepartment(d.id)
     ElMessage.success('已删除')
     await fetchDepartments()
@@ -74,15 +68,7 @@ function handlePaginationChange(page: number, pageSize: number) {
   fetchDepartments()
 }
 
-onMounted(async () => {
-  fetchDepartments()
-  try {
-    const { data } = await getBranches()
-    branches.value = data.map((b: any) => ({ id: b.id, name: b.name }))
-  } catch (error) {
-    console.error(error)
-  }
-})
+onMounted(fetchDepartments)
 </script>
 
 <template>
@@ -90,25 +76,13 @@ onMounted(async () => {
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">部门字典</h1>
-        <p class="page-desc">归属标签（分公司 × 部门名），供资产/单据表单下拉归一；不是组织树节点</p>
+        <p class="page-desc">全集团扁平归属标签，供资产/单据表单下拉归一；不是组织树节点</p>
       </div>
     </div>
 
     <div v-if="canManageOrganizations" class="add-row">
-      <select v-model="newBranchId" class="filter-select" aria-label="选择分公司">
-        <option value="">选择分公司</option>
-        <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
-      </select>
       <input v-model="newName" type="text" class="filter-input" placeholder="部门名称" @keyup.enter="handleCreate" />
       <button class="btn-primary" :disabled="saving" @click="handleCreate">添加</button>
-    </div>
-
-    <div class="filter-row">
-      <BranchFilterSelect
-        v-model="filterBranch"
-        :options="branches.map((b) => ({ value: b.name, label: b.name }))"
-        @update:model-value="pagination.page = 1; fetchDepartments()"
-      />
     </div>
 
     <div class="table-container">
@@ -116,21 +90,19 @@ onMounted(async () => {
         <thead>
           <tr>
             <th>序号</th>
-            <th>分公司</th>
             <th>部门名称</th>
             <th v-if="canManageOrganizations">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && departments.length === 0">
-            <td :colspan="canManageOrganizations ? 4 : 3" class="empty-cell">加载中...</td>
+            <td :colspan="canManageOrganizations ? 3 : 2" class="empty-cell">加载中...</td>
           </tr>
           <tr v-else-if="departments.length === 0">
-            <td :colspan="canManageOrganizations ? 4 : 3" class="empty-cell">暂无部门（存量部门文本可在台账迁移时归一生成）</td>
+            <td :colspan="canManageOrganizations ? 3 : 2" class="empty-cell">暂无部门</td>
           </tr>
           <tr v-for="(d, index) in departments" :key="d.id">
             <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
-            <td>{{ d.branchName }}</td>
             <td>{{ d.name }}</td>
             <td v-if="canManageOrganizations">
               <button class="action-btn danger" @click="handleDelete(d)">删除</button>
@@ -156,8 +128,6 @@ onMounted(async () => {
 .page-title { font-size: var(--text-xl); font-weight: 600; margin: 0; }
 .page-desc { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: 0; }
 .add-row { display: flex; gap: var(--space-3); margin-bottom: var(--space-4); }
-.filter-row { display: flex; gap: var(--space-3); margin-bottom: var(--space-4); }
-.filter-select { height: 38px; padding: 0 var(--space-3); min-width: 160px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-card); font-size: var(--text-sm); }
 .filter-input { flex: 1; height: 38px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-card); font-size: var(--text-sm); }
 .btn-primary { height: 38px; padding: 0 var(--space-5); border: none; border-radius: 8px; background: var(--color-primary-500); color: #fff; cursor: pointer; font-size: var(--text-sm); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }

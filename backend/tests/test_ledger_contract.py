@@ -44,7 +44,7 @@ def _create_doc(client, action, branch, code, qty, line=None, **header_extra):
     if action == 'assign':
         # 领用行使用人/部门必填（修订 2.2）：默认注入，专用用例经 line 显式覆盖
         from apps.organizations.models import Department
-        dept, _ = Department.objects.get_or_create(branch=branch, name='测试部门')
+        dept, _ = Department.objects.get_or_create(name='测试部门')
         item_line.setdefault('使用人', '张三')
         item_line.setdefault('department', str(dept.id))
     item_line.update(line or {})

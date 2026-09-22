@@ -2,7 +2,7 @@
 历史文本折叠备注、实例编号序列初始化（纯 Python 聚合，禁数据库特定聚合）。"""
 import re
 
-from django.db import migrations
+from django.db import connection, migrations
 
 
 def backfill(apps, schema_editor):
@@ -33,10 +33,22 @@ def backfill(apps, schema_editor):
     item_by_code = {
         c.asset_code: c for c in Category.objects.only('id', 'asset_code')
     }
-    dept_by_key = {
-        (d.branch_id, d.name): d
-        for d in Department.objects.only('id', 'branch_id', 'name')
-    }
+    # 部门字典形状自适应（organizations 0009 扁平化后回放本迁移时 branch 列已不存在）：
+    # 全新环境按依赖序回放（0017 先于 organizations 0009）走原 (branch, name) 口径；
+    # 扁平结构下名称全局唯一，退化为按名称匹配。
+    with connection.cursor() as _cur:
+        _dept_cols = [c.name for c in connection.introspection.get_table_description(_cur, 'organizations_department')]
+    _dept_has_branch = 'branch_id' in _dept_cols
+    if _dept_has_branch:
+        dept_by_key = {
+            (d.branch_id, d.name): d
+            for d in Department.objects.only('id', 'branch_id', 'name')
+        }
+    else:
+        dept_by_key = {
+            (None, d.name): d
+            for d in Department.objects.only('id', 'name')
+        }
 
     max_seq = {}  # item_code -> 最大序号
     for inst in instances:
@@ -49,10 +61,11 @@ def backfill(apps, schema_editor):
         if inst.当前状态 == '空闲':
             inst.当前状态 = '回收库'
 
-        # 4) 部门文本 → 字典 FK（分公司内同名匹配），未匹配折叠备注
+        # 4) 部门文本 → 字典 FK（按字典形状分公司内同名/扁平按名匹配），未匹配折叠备注
         dept_text = (inst.所属部门 or '').strip()
         if dept_text:
-            dept = dept_by_key.get((inst.branch_id, dept_text))
+            _key_branch = inst.branch_id if _dept_has_branch else None
+            dept = dept_by_key.get((_key_branch, dept_text))
             if dept is not None:
                 inst.department_id = dept.id
             else:

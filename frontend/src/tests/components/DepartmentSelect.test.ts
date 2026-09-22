@@ -5,21 +5,21 @@ import DepartmentSelect from '@/components/DepartmentSelect.vue'
 vi.mock('@/api/departments', () => ({
   getDepartmentOptions: vi.fn().mockResolvedValue({
     data: [
-      { id: 'd1', name: '行政部', branch: 'b1', branchName: '分公司A' },
-      { id: 'd2', name: '仓库', branch: 'b1', branchName: '分公司A' },
+      { id: 'd1', name: '行政部' },
+      { id: 'd2', name: '仓库' },
     ],
   }),
 }))
 
 import { getDepartmentOptions } from '@/api/departments'
 
-describe('DepartmentSelect（P1 部门字典版）', () => {
-  it('按分公司拉取字典选项渲染 datalist', async () => {
+describe('DepartmentSelect（扁平部门字典版）', () => {
+  it('挂载即拉取全集团字典选项渲染 datalist', async () => {
     const wrapper = mount(DepartmentSelect, {
-      props: { modelValue: '', branch: '分公司A' },
+      props: { modelValue: '' },
     })
     await flushPromises()
-    expect(getDepartmentOptions).toHaveBeenCalledWith({ branch: '分公司A' })
+    expect(getDepartmentOptions).toHaveBeenCalledWith()
     const options = wrapper.findAll('datalist option')
     expect(options.map(o => o.attributes('value'))).toEqual(['行政部', '仓库'])
   })

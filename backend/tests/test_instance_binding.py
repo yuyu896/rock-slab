@@ -68,7 +68,7 @@ def _line(item, instances, **extra):
 def _dept(branch):
     """领用行必填的部门外键（分公司 × 部门名字典）。"""
     from apps.organizations.models import Department
-    dept, _ = Department.objects.get_or_create(branch=branch, name='测试部门')
+    dept, _ = Department.objects.get_or_create(name='测试部门')
     return dept
 
 
@@ -220,7 +220,7 @@ class TestDocumentInstanceMatrix:
         item = _item('IM-A-001')
         _seed(branch, item, stock=2)
         insts = _make_instances(branch, item, '在库', 2)
-        dept = Department.objects.create(branch=branch, name='行政部')
+        dept = Department.objects.create(name='行政部')
         resp = authenticated_client.post('/api/transfers/assign', {
             '调拨日期': '2026-08-23', '调出分公司': branch.name,
             'items': [_line(item, insts, 使用人='张三', department=str(dept.id))],

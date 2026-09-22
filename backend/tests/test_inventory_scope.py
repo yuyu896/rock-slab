@@ -34,12 +34,12 @@ def inst_item(db):
 
 @pytest.fixture
 def department(db, branch):
-    return Department.objects.create(branch=branch, name='行政部')
+    return Department.objects.create(name='行政部')
 
 
 @pytest.fixture
 def other_branch_department(db, second_branch):
-    return Department.objects.create(branch=second_branch, name='其他分公司部门')
+    return Department.objects.create(name='其他分公司部门')
 
 
 @pytest.mark.django_db

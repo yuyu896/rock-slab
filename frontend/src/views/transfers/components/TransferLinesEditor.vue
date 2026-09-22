@@ -118,17 +118,17 @@ function onAmountChange(index: number) {
   touch()
 }
 
-// 领用行的部门字典（按分公司过滤；department 为字典 FK）
+// 领用行的部门字典（全集团扁平；department 为字典 FK）
 const departments = ref<Department[]>([])
 watch(
-  () => props.branchId,
-  async (branchId) => {
-    if (props.type !== 'assign' || !branchId) {
+  () => props.type,
+  async (type) => {
+    if (type !== 'assign') {
       departments.value = []
       return
     }
     try {
-      const { data } = await getDepartmentOptions({ branch_id: branchId })
+      const { data } = await getDepartmentOptions()
       departments.value = data
     } catch {
       departments.value = []
@@ -274,8 +274,8 @@ defineExpose({ validate, validateMessage })
         <div v-if="type === 'purchase'" class="cell"><input v-model.number="draft.金额" type="number" class="row-input num" min="0" step="0.01" @change="onAmountChange(index)" /></div>
         <div v-if="type === 'assign'" class="cell"><input v-model="draft.使用人" type="text" class="row-input" placeholder="使用人姓名" @change="touch" /></div>
         <div v-if="type === 'assign'" class="cell">
-          <select v-model="draft.department" class="row-input" :disabled="!branchId" @change="touch">
-            <option :value="null">{{ branchId ? '请选择部门' : '请先选择所属分公司' }}</option>
+          <select v-model="draft.department" class="row-input" @change="touch">
+            <option :value="null">请选择部门</option>
             <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
           </select>
         </div>

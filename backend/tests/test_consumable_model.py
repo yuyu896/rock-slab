@@ -43,7 +43,7 @@ class TestConsumableAssign:
 
     def test_assign_consumable_deducts_stock_only(self, authenticated_client, branch, item_id):
         from apps.organizations.models import Department
-        dept = Department.objects.create(branch=branch, name='测试部')
+        dept = Department.objects.create(name='测试部')
         _seed(branch, 'CM-1', stock=10)
         resp = authenticated_client.post('/api/transfers/assign', _assign_payload(branch, [
             {'item': item_id('CM-1'), '数量': 3, '使用人': '张三', 'department': str(dept.id)},
@@ -60,7 +60,7 @@ class TestConsumableAssign:
     def test_mixed_lines_split_by_management_type(self, authenticated_client, branch, item_id):
         """混合单行级分流：消耗品行走耗用发放，数量行走 在库−N 在用+N。"""
         from apps.organizations.models import Department
-        dept = Department.objects.create(branch=branch, name='测试部')
+        dept = Department.objects.create(name='测试部')
         _seed(branch, 'CM-2A', stock=10, management_type='consumable')
         _seed(branch, 'CM-2B', stock=10, management_type='quantity')
         resp = authenticated_client.post('/api/transfers/assign', _assign_payload(branch, [

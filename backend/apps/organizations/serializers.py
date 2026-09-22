@@ -70,21 +70,18 @@ class CompanySerializer(serializers.ModelSerializer):
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
-    """部门字典输出：分公司名联表。"""
-
-    branch_name = serializers.CharField(source='branch.name', read_only=True)
+    """部门字典输出（全集团扁平）。"""
 
     class Meta:
         model = Department
-        fields = ['id', 'branch', 'branch_name', 'name', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
 
     def validate(self, attrs):
-        branch = attrs.get('branch') or (self.instance.branch if self.instance else None)
         name = attrs.get('name') or (self.instance.name if self.instance else None)
-        qs = Department.objects.filter(branch=branch, name=name)
+        qs = Department.objects.filter(name=name)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
-            raise serializers.ValidationError({'name': [f'{branch.name} 下已存在部门「{name}」']})
+            raise serializers.ValidationError({'name': [f'已存在部门「{name}」']})
         return attrs

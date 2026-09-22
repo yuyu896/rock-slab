@@ -183,7 +183,7 @@ async function submit() {
           <option v-for="b in branchOptions" :key="b.value" :value="b.label">{{ b.label }}</option>
         </select>
       </div>
-      <div class="form-item"><label class="form-label">所属部门</label><DepartmentSelect v-model="form.调出部门" :branch="form.调出分公司" /></div>
+      <div class="form-item"><label class="form-label">所属部门</label><DepartmentSelect v-model="form.调出部门" /></div>
       <div class="form-item"><label class="form-label">出库日期</label><input v-model="form.出库日期" type="date" class="form-input" /></div>
       <div class="form-item"><label class="form-label">经办人</label><input v-model="form.采购经办人" type="text" class="form-input" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>

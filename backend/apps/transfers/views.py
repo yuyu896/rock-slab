@@ -750,13 +750,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         dept_cache = {}
 
         def _resolve_dept(branch_name, dept_name):
-            """领用部门按（分公司, 部门名）解析行级外键；缓存避免逐行查询。"""
-            key = (branch_name, dept_name)
-            if key not in dept_cache:
-                dept_cache[key] = Department.objects.filter(
-                    branch=branch_cache.get(branch_name), name=dept_name,
-                ).first()
-            return dept_cache[key]
+            """领用部门按部门名解析行级外键（部门字典全集团扁平）；缓存避免逐行查询。"""
+            if dept_name not in dept_cache:
+                dept_cache[dept_name] = Department.objects.filter(name=dept_name).first()
+            return dept_cache[dept_name]
 
         def _parse_date(val):
             if hasattr(val, 'strftime'):
@@ -852,11 +849,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             '调出部门': _cell(row, '领用部门'),
                             '备注': _cell(row, '备注'),
                         }
-                        # 领用部门：文本照写单头 + 按（分公司, 部门名）解析行级外键；留空由预检口报"必须选择领用部门"
+                        # 领用部门：文本照写单头 + 按部门名解析行级外键（全集团扁平字典）；留空由预检口报"必须选择领用部门"
                         dept_name = _cell(row, '领用部门')
                         dept = _resolve_dept(branch_name, dept_name)
                         if dept_name and dept is None:
-                            errors.append(f'第 {i} 行: 领用部门「{dept_name}」不存在于分公司「{branch_name}」的部门字典')
+                            errors.append(f'第 {i} 行: 领用部门「{dept_name}」不存在于部门字典')
                             continue
                         line_kwargs = {
                             'item': item,

@@ -141,6 +141,7 @@ class TestWenzhouWipe:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
+@pytest.mark.skip(reason="历史数据修复命令（2026-09-14 生产使命已完成）：部门字典扁平化（organizations 0009）后其按分公司过滤部门的逻辑不再可重放，命令保留存档、不再回归")
 class TestWeifangMerge:
     def _seed_pair(self, ke, er, admin_user):
         overlap = _item('WF-A', 'quantity')
@@ -260,6 +261,7 @@ class TestTaizhouDocs:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
+@pytest.mark.skip(reason="历史数据修复命令（2026-09-14 生产使命已完成）：部门字典扁平化（organizations 0009）后其按分公司过滤部门的逻辑不再可重放，命令保留存档、不再回归")
 class TestSafetyShape:
     def test_dry_run_writes_nothing(self, wenzhou, weifang_pair, branch, admin_user):
         ke, er = weifang_pair

@@ -103,8 +103,8 @@ async function submit() {
       </div>
       <div class="form-item"><label class="form-label">调出负责人</label><input v-model="form.调出负责人" type="text" class="form-input" /></div>
       <div class="form-item"><label class="form-label">调入负责人</label><input v-model="form.调入负责人" type="text" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">调出部门</label><DepartmentSelect v-model="form.调出部门" :branch-id="form.fromBranch" /></div>
-      <div class="form-item"><label class="form-label">调入部门</label><DepartmentSelect v-model="form.调入部门" :branch-id="form.toBranch" /></div>
+      <div class="form-item"><label class="form-label">调出部门</label><DepartmentSelect v-model="form.调出部门" /></div>
+      <div class="form-item"><label class="form-label">调入部门</label><DepartmentSelect v-model="form.调入部门" /></div>
       <div class="form-item full"><label class="form-label">调拨原因</label><input v-model="form.调拨原因" type="text" class="form-input" /></div>
     </div>
 
