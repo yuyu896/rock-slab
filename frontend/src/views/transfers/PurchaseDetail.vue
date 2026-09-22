@@ -46,8 +46,9 @@ async function withdrawDoc(doc: TransferDocument) {
   }
   try {
     await withdrawTransfer(doc.id)
-    ElMessage.success('已撤回为草稿')
+    ElMessage.success('已撤回为草稿，可直接修改后重新提交')
     await fetchTransfer()
+    startEdit('draft')
   } catch (error) {
     ElMessage.error(handleApiError(error))
   }

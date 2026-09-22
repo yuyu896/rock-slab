@@ -43,6 +43,7 @@ export function useTransferList(type: TransferType) {
     return {
       total: pagination.value.total,
       pending: items.filter(t => t.审批状态 === '待审批').length,
+      draft: items.filter(t => t.审批状态 === '草稿').length,
       approved: items.filter(t => t.审批状态 === '已通过').length,
       rejected: items.filter(t => t.审批状态 === '已驳回').length,
       warehoused: items.filter(t => t.审批状态 === '已入库').length,

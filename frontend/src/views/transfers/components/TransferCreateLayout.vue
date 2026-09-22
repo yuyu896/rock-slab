@@ -25,6 +25,7 @@ const emit = defineEmits<{
       </div>
       <div class="form-footer">
         <button class="btn-cancel" @click="emit('back')">取消</button>
+        <slot name="footer-extra" />
         <button class="btn-confirm" @click="emit('submit')" :disabled="loading">
           {{ loading ? '提交中...' : (submitText || '确定提交') }}
         </button>

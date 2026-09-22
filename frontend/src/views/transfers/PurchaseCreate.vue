@@ -33,7 +33,7 @@ function goBack() {
   router.replace('/transfers/purchase')
 }
 
-async function submit() {
+async function submit(asDraft = false) {
   const f = form.value
   if (!f.调拨日期 || !f.toBranch) {
     ElMessage.warning('请填写日期与入库分公司')
@@ -53,8 +53,9 @@ async function submit() {
       采购经办人: f.采购经办人,
       备注: f.备注,
       items,
+      draft: asDraft || undefined,
     })
-    ElMessage.success('提交成功')
+    ElMessage.success(asDraft ? '已存为草稿' : '提交成功')
     goBack()
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -65,7 +66,10 @@ async function submit() {
 </script>
 
 <template>
-  <TransferCreateLayout title="新建采购入库" :loading="creating" @submit="submit" @back="goBack">
+  <TransferCreateLayout title="新建采购入库" :loading="creating" @submit="submit(false)" @back="goBack">
+    <template #footer-extra>
+      <button class="btn-cancel" :disabled="creating" @click="submit(true)">存为草稿</button>
+    </template>
     <div class="form-grid">
       <div class="form-item"><label class="form-label">日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
       <div class="form-item">

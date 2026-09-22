@@ -85,6 +85,7 @@ async function handleSubmitDraft(item: Transfer) {
     <div class="stats-row">
       <div class="stat-card"><div class="stat-content"><span class="stat-value">{{ stats.total }}</span><span class="stat-label">流转总数</span></div></div>
       <div class="stat-card pending"><div class="stat-content"><span class="stat-value">{{ stats.pending }}</span><span class="stat-label">待审批</span></div></div>
+      <div class="stat-card draft"><div class="stat-content"><span class="stat-value">{{ stats.draft }}</span><span class="stat-label">草稿</span></div></div>
       <div class="stat-card success"><div class="stat-content"><span class="stat-value">{{ stats.approved }}</span><span class="stat-label">已通过</span></div></div>
       <div class="stat-card warehoused"><div class="stat-content"><span class="stat-value">{{ stats.warehoused }}</span><span class="stat-label">已入库</span></div></div>
     </div>
@@ -184,6 +185,7 @@ async function handleSubmitDraft(item: Transfer) {
 .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); flex-shrink: 0; }
 .stat-card { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); border: 1px solid var(--color-border); }
 .stat-card.pending { border-left: 4px solid oklch(0.60 0.14 85); }
+.stat-card.draft { border-left: 4px solid var(--color-text-tertiary); }
 .stat-card.success { border-left: 4px solid var(--color-success); }
 .stat-card.danger { border-left: 4px solid var(--color-danger); }
 .stat-card.warehoused { border-left: 4px solid var(--color-success); }
