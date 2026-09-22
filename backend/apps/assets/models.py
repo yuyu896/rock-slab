@@ -169,7 +169,6 @@ class FixedAsset(UUIDModel, TimestampedModel):
     供应商 = models.CharField('供应商（个体覆盖，空=批次口径）', max_length=200, blank=True, default='')
     规格 = models.CharField('规格（个体覆盖，空=批次口径）', max_length=200, blank=True, default='')
     采购日期 = models.DateField('采购日期（个体覆盖，空=出生单日期）', null=True, blank=True)
-    采购日期 = models.DateField('采购日期（个体覆盖，空=批次口径）', null=True, blank=True)
     image = models.ImageField('物品图片', upload_to='fixed_assets/', blank=True, null=True)
 
     class Meta:

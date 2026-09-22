@@ -56,7 +56,7 @@ class InventoryTask(UUIDModel, TimestampedModel):
     department = models.ForeignKey(
         'organizations.Department', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='inventory_tasks',
-        verbose_name='盘点部门（存量档案）',
+        verbose_name='盘点部门（实例盘）',
     )
     status = models.CharField(
         '状态', max_length=20,
