@@ -17,7 +17,7 @@ const ASSIGN_HEADERS = [
 const TRANSFER_HEADERS = [
   '调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
   '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
-  '调出负责人', '调入负责人', '备注',
+  '调入负责人', '备注',
 ]
 
 const CATEGORY_HEADERS = [

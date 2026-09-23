@@ -79,7 +79,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         'transfer': {
             'headers': ['调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
                         '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
-                        '调出负责人', '调入负责人', '备注'],
+                        '调入负责人', '备注'],
             'sheet': '调拨',
             'filename': 'transfer_template.xlsx',
         },
@@ -555,7 +555,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             ws.title = '调拨'
             headers = ['调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
                        '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
-                       '调出负责人', '调入负责人', '经办人', '备注']
+                       '调入负责人', '经办人', '备注']
             ws.append(headers)
             for t in queryset:
                 for line in t.lines.all():
@@ -563,7 +563,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         str(t.调拨日期) if t.调拨日期 else '',
                         t.调出分公司, t.调出部门, t.调入分公司, t.调入部门,
                         line.item.asset_code, line.item.asset_name, _spec(line), line.数量,
-                        t.调拨原因, t.调出负责人, t.调入负责人, t.经办人 or t.创建人, t.备注,
+                        t.调拨原因, t.调入负责人, t.经办人 or t.创建人, t.备注,
                     ])
 
         output = io.BytesIO()
@@ -903,8 +903,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             '调入分公司': _cell(row, '调入分公司'),
                             '调入部门': _cell(row, '调入部门'),
                             '调拨原因': _cell(row, '调拨原因'),
-                            '调出负责人': _cell(row, '调出负责人'),
                             '调入负责人': _cell(row, '调入负责人'),
+                            '经办人': creator,
                             '备注': _cell(row, '备注'),
                         }
                         line_kwargs = {'item': item, '数量': _qty(row, '调拨数量'), '本批规格': _cell(row, '规格型号')}

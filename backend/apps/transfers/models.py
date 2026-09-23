@@ -77,7 +77,6 @@ class Transfer(UUIDModel, TimestampedModel):
     )
     调入部门 = models.CharField('调入部门', max_length=100, blank=True, default='')
     调拨原因 = models.TextField('调拨原因', blank=True, default='')
-    调出负责人 = models.CharField('调出负责人', max_length=100, blank=True, default='')
     调入负责人 = models.CharField('调入负责人', max_length=100, blank=True, default='')
     供应商 = models.CharField('供应商', max_length=200, blank=True, default='')
     需求部门 = models.CharField('需求部门', max_length=100, blank=True, default='')

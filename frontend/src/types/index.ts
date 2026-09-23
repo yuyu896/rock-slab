@@ -307,7 +307,6 @@ export interface TransferDocument {
   调拨原因?: string
   供应商?: string
   需求部门?: string
-  调出负责人?: string
   调入负责人?: string
   用途?: string
   回收分类?: string

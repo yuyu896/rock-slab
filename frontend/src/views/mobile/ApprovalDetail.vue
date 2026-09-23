@@ -141,10 +141,6 @@ onMounted(() => {
             <span class="value">{{ transfer.调入分公司 || '-' }}</span>
           </div>
           <div class="info-item">
-            <span class="label">调出负责人</span>
-            <span class="value">{{ transfer.调出负责人 || '-' }}</span>
-          </div>
-          <div class="info-item">
             <span class="label">调入负责人</span>
             <span class="value">{{ transfer.调入负责人 || '-' }}</span>
           </div>

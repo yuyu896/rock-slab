@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import TransferCreateLayout from './components/TransferCreateLayout.vue'
 import { draftsToItems, emptyDraft, type LineDraft } from './components/lineDrafts'
@@ -11,6 +11,7 @@ import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
 import { useUserStore } from '@/store/user'
+import { getUsers } from '@/api/users'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -22,13 +23,29 @@ const form = ref({
   调拨日期: '',
   fromBranch: '', toBranch: '',
   调出部门: '', 调入部门: '',
-  调出负责人: '', 调入负责人: '', 经办人: userStore.profile?.name || '', 调拨原因: '', 备注: '',
+  调入负责人: '', 经办人: userStore.profile?.name || '', 调拨原因: '', 备注: '',
 })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 const fromBranchName = computed(
   () => fromBranchOptions.value.find((b: any) => b.value === form.value.fromBranch)?.label || '',
 )
+
+/** 调入负责人纯下拉：选项=调入分公司员工（员工即系统账号）；切换公司清空重拉 */
+const toBranchUserOptions = ref<string[]>([])
+watch(() => form.value.toBranch, async (branchId) => {
+  form.value.调入负责人 = ''
+  toBranchUserOptions.value = []
+  if (!branchId) return
+  try {
+    const { data } = await getUsers({ branch: branchId })
+    toBranchUserOptions.value = data
+      .map((u: any) => u.name)
+      .filter(Boolean)
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  }
+})
 
 onMounted(async () => {
   try {
@@ -70,7 +87,6 @@ async function submit() {
       toBranch: f.toBranch,
       调出部门: f.调出部门,
       调入部门: f.调入部门,
-      调出负责人: f.调出负责人,
       调入负责人: f.调入负责人,
       经办人: f.经办人,
       调拨原因: f.调拨原因,
@@ -105,8 +121,13 @@ async function submit() {
           <option v-for="b in toBranchOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
         </select>
       </div>
-      <div class="form-item"><label class="form-label">调出负责人</label><input v-model="form.调出负责人" type="text" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">调入负责人</label><input v-model="form.调入负责人" type="text" class="form-input" /></div>
+      <div class="form-item">
+        <label class="form-label">调入负责人</label>
+        <select v-model="form.调入负责人" class="form-select" :disabled="!form.toBranch">
+          <option value="">{{ form.toBranch ? '请选择' : '请先选调入分公司' }}</option>
+          <option v-for="name in toBranchUserOptions" :key="name" :value="name">{{ name }}</option>
+        </select>
+      </div>
       <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
       <div class="form-item"><label class="form-label">调出部门</label><DepartmentSelect v-model="form.调出部门" /></div>
       <div class="form-item"><label class="form-label">调入部门</label><DepartmentSelect v-model="form.调入部门" /></div>

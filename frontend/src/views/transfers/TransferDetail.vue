@@ -66,7 +66,6 @@ onMounted(fetchTransfer)
       <div class="extra-grid">
         <span class="extra-item"><label>调出部门</label><span>{{ doc.调出部门 || '-' }}</span></span>
         <span class="extra-item"><label>调入部门</label><span>{{ doc.调入部门 || '-' }}</span></span>
-        <span class="extra-item"><label>调出负责人</label><span>{{ doc.调出负责人 || '-' }}</span></span>
         <span class="extra-item"><label>调入负责人</label><span>{{ doc.调入负责人 || '-' }}</span></span>
         <span class="extra-item"><label>调拨原因</label><span>{{ doc.调拨原因 || '-' }}</span></span>
         <span class="extra-item full"><label>备注</label><span>{{ doc.备注 || '-' }}</span></span>

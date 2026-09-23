@@ -248,12 +248,12 @@ class TestTransferImportScope:
         f = _xlsx_bytes(
             ['调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
              '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
-             '调出负责人', '调入负责人', '备注'],
+             '调入负责人', '备注'],
             [
                 [date(2026, 1, 15), second_branch.name, '', branch.name, '',
-                 'TR-IMP-001', '', '', 1, '', '', '', ''],
+                 'TR-IMP-001', '', '', 1, '', '', ''],
                 [date(2026, 1, 15), branch.name, '', branch.name, '',
-                 'TR-IMP-002', '', '', 1, '', '', '', ''],
+                 'TR-IMP-002', '', '', 1, '', '', ''],
             ],
         )
         resp = _client_for(staff_user).post(
@@ -355,12 +355,12 @@ class TestTransferSingleSideScope:
         f = _xlsx_bytes(
             ['调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
              '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
-             '调出负责人', '调入负责人', '备注'],
+             '调入负责人', '备注'],
             [
                 [date(2026, 1, 15), branch.name, '', second_branch.name, '',
-                 'SS-IMP-001', '', '', 1, '', '', '', ''],
+                 'SS-IMP-001', '', '', 1, '', '', ''],
                 [date(2026, 1, 15), second_branch.name, '', branch.name, '',
-                 'SS-IMP-002', '', '', 1, '', '', '', ''],
+                 'SS-IMP-002', '', '', 1, '', '', ''],
             ],
         )
         resp = _client_for(staff_user).post(
