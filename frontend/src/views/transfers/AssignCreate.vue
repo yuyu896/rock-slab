@@ -90,6 +90,7 @@ async function submit() {
           回收库来源仅适用于数量/实例管理品目；消耗品行须走新品库（领出即耗用）。
         </div>
       </div>
+      <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
     </div>
 
     <TransferLinesEditor
@@ -101,7 +102,6 @@ async function submit() {
       :assign-source="form.领用来源"
     />
 
-    <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
     <div class="form-item full remark-item"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
   </TransferCreateLayout>
 </template>
