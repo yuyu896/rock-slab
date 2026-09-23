@@ -18,12 +18,11 @@ TBD - created by archiving change align-create-forms-with-templates. Update Purp
 - **THEN** 表单含入库日期、数量、单价、购入金额、出库日期、当前状态（此前缺失的）
 
 ### Requirement: 采购入库表单补齐缺失字段
-采购入库新增表单 SHALL 包含供应商、需求部门、采购经办人。
+采购入库新增表单 SHALL 包含供应商、需求部门、经办人（字段 `经办人`，原「采购经办人」重命名，标签统一为「经办人」）。
 
 #### Scenario: 采购表单含供应商等
 - **WHEN** 用户打开采购入库新增页面
-- **THEN** 表单含供应商、需求部门、采购经办人字段
-
+- **THEN** 表单含供应商、需求部门、经办人字段
 ### Requirement: 调拨表单补齐缺失字段
 调拨新增表单 SHALL 包含规格型号、调拨数量。
 
