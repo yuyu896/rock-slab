@@ -148,10 +148,10 @@ class TestTransferRenumberOnApproval:
 
 @pytest.mark.django_db
 class TestRenumberCommand:
-    def _make_drift(self, branch, second_branch, item):
+    def _make_drift(self, branch, second_branch, item, no=9):
         """造漂号实例：编号挂 CS001 段、实例已属第二分公司、有生效调拨流水。"""
         inst = FixedAsset.objects.create(
-            item=item, 内部编号=f'{item.asset_code}-{branch.code}-9',
+            item=item, 内部编号=f'{item.asset_code}-{branch.code}-{no}',
             当前状态='在库', branch=second_branch,
         )
         t = Transfer.objects.create(
@@ -168,22 +168,29 @@ class TestRenumberCommand:
         from io import StringIO
         item = _item('RN-CMD')
         inst, t, line = self._make_drift(branch, second_branch, item)
+        inst2, _, _ = self._make_drift(branch, second_branch, item, no=10)  # 第二台漂号（同组）
         for no in (1, 2):
             _mk_inst(second_branch, item, no)
         _set_seq(second_branch, item, 2)
 
         out = StringIO()
         call_command('renumber_transfer_instances', stdout=out)
-        assert 'RN-CMD-CS001-9 → RN-CMD-RG2001-3' in out.getvalue()
+        text = out.getvalue()
+        assert 'RN-CMD-CS001-9 →' in text and 'RN-CMD-CS001-10 →' in text
+        assert '→ RN-CMD-RG2001-3' in text and '→ RN-CMD-RG2001-4' in text  # 多台同组预览不重号
         inst.refresh_from_db()
-        assert inst.内部编号 == 'RN-CMD-CS001-9'  # 预览零落库
+        inst2.refresh_from_db()
+        assert inst.内部编号 == 'RN-CMD-CS001-9'  # 预览零落库（整体回滚）
+        assert inst2.内部编号 == 'RN-CMD-CS001-10'
+        assert not TransferLineInstance.objects.get(instance=inst).调拨前编号
 
         out = StringIO()
         call_command('renumber_transfer_instances', '--confirm', stdout=out)
         inst.refresh_from_db()
-        assert inst.内部编号 == 'RN-CMD-RG2001-3'
-        lnk = TransferLineInstance.objects.get(instance=inst)
-        assert lnk.调拨前编号 == 'RN-CMD-CS001-9'
+        inst2.refresh_from_db()
+        assert {inst.内部编号, inst2.内部编号} == {'RN-CMD-RG2001-3', 'RN-CMD-RG2001-4'}
+        assert TransferLineInstance.objects.get(instance=inst).调拨前编号 == 'RN-CMD-CS001-9'
+        assert TransferLineInstance.objects.get(instance=inst2).调拨前编号 == 'RN-CMD-CS001-10'
 
         out = StringIO()
         call_command('renumber_transfer_instances', stdout=out)

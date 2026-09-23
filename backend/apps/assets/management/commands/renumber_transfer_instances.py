@@ -62,10 +62,12 @@ class Command(BaseCommand):
                 no = _next_no_gap_aware(inst.item, inst.branch)
                 new_code = f'{inst.item.asset_code}-{inst.branch.code}-{no}'
                 self.stdout.write(f'  {"写入" if confirm else "预览"} {inst.内部编号} → {new_code}')
-                if confirm:
-                    old_code = inst.内部编号
-                    renumber_instance(inst, new_code)
-                    TransferLineInstance.objects.filter(pk=lnk.pk).update(调拨前编号=old_code)
+                old_code = inst.内部编号
+                # 预览同样执行换号（多台同组时后续取号须看到前者占用），事务整体回滚
+                renumber_instance(inst, new_code)
+                TransferLineInstance.objects.filter(pk=lnk.pk).update(调拨前编号=old_code)
+            if not confirm:
+                transaction.set_rollback(True)
         if confirm:
             self.stdout.write(self.style.SUCCESS(f'已完成 {len(drift)} 台，前编号已回写调拨单行'))
         else:
