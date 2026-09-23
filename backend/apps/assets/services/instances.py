@@ -107,6 +107,29 @@ def _next_seq(item, branch):
     return row.last_no
 
 
+def _next_no_gap_aware(item, branch):
+    """空号补位取号（调拨换号）：与出生发号共锁串行，优先顶 {1..last_no} 最小空缺号
+    （last_no 不动）；无空缺才 last_no+1。禁止以编号字符串比较推断（字符串序 9 > 101）。"""
+    row = InstanceSequence.objects.select_for_update().filter(item=item, branch=branch).first()
+    if row is None:
+        try:
+            with transaction.atomic():
+                row = InstanceSequence.objects.create(item=item, branch=branch)
+        except IntegrityError:
+            row = InstanceSequence.objects.select_for_update().get(item=item, branch=branch)
+    existing = set()
+    for (code,) in FixedAsset.objects.filter(item=item, branch=branch).values_list('内部编号'):
+        tail = code.rsplit('-', 1)[-1]
+        if tail.isdigit():
+            existing.add(int(tail))
+    for no in range(1, row.last_no + 1):
+        if no not in existing:
+            return no
+    row.last_no += 1
+    row.save(update_fields=['last_no', 'updated_at'])
+    return row.last_no
+
+
 def generate_instances(line, branch):
     """采购行生效：按数量生成实例（在库、出生行=该行、编号锁行发号）并建行关联。
 
@@ -149,8 +172,20 @@ def apply_line_instances(transfer, line, instances):
             inst.当前状态 = FixedAsset.STATUS_IN_STOCK
             _clear_assignee(inst)
     elif action == 'transfer':
+        # 换号（transfer-instance-renumber）：过户+空号补位换号+前编号快照，同事务
+        links = {lnk.instance_id: lnk for lnk in line.instance_links.all()}
         for inst in instances:
+            old_code = inst.内部编号
+            new_code = (f'{line.item.asset_code}-{transfer.to_branch.code}'
+                        f'-{_next_no_gap_aware(line.item, transfer.to_branch)}')
+            renumber_instance(inst, new_code)
+            inst.内部编号 = new_code  # 内存对齐：末尾全字段 save 不得回滚换号
             inst.branch = transfer.to_branch
+            inst.save(update_fields=['branch'])  # 立即落库：同事务后续取号可见，防同行多台重号
+            lnk = links.get(inst.pk)
+            if lnk is not None and not lnk.调拨前编号:
+                lnk.调拨前编号 = old_code
+                lnk.save(update_fields=['调拨前编号'])
     elif action == 'recovery':
         target = (
             FixedAsset.STATUS_RETIRED

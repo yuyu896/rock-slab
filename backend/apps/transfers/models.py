@@ -242,6 +242,8 @@ class TransferLineInstance(UUIDModel, TimestampedModel):
     instance = models.ForeignKey(
         'assets.FixedAsset', on_delete=models.PROTECT, related_name='line_links', verbose_name='实例',
     )
+    # 调拨换号快照（transfer-instance-renumber）：该实例本次调拨生效前的内部编号，仅调拨类型行有值
+    调拨前编号 = models.CharField('调拨前编号', max_length=100, blank=True, default='')
 
     class Meta:
         db_table = 'transfers_transferlineinstance'

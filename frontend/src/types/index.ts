@@ -276,7 +276,7 @@ export interface TransferLine {
   departmentName?: string
   存放位置?: string
   /** 行关联实例（实例管理品目）：内部编号列表，可跳转实例生平 */
-  instances?: { id: string; code: string }[]
+  instances?: { id: string; code: string; 前编号?: string }[]
 }
 
 /** 明细行创建入参（品目为字典 uuid；实例引用为实例 uuid 数组） */

@@ -29,8 +29,9 @@ class TransferLineSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', '行号']
 
     def get_instances(self, obj):
+        prev = {lnk.instance_id: lnk.调拨前编号 for lnk in obj.instance_links.all()}
         return [
-            {'id': inst.pk, 'code': inst.内部编号}
+            {'id': inst.pk, 'code': inst.内部编号, '前编号': prev.get(inst.pk, '')}
             for inst in obj.instances.all()
         ]
 

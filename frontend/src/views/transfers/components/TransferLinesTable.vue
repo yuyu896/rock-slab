@@ -70,7 +70,7 @@ function goTimeline(code: string) {
                 class="inst-link"
                 title="查看实例生平"
                 @click.prevent="goTimeline(inst.code)"
-              >{{ inst.code }}</a>
+              >{{ inst.前编号 ? `${inst.前编号} → ${inst.code}` : inst.code }}</a>
             </template>
             <span v-else class="mono">-</span>
           </td>
