@@ -36,6 +36,6 @@ class TransferFilterSet(django_filters.FilterSet):
             | Q(lines__item__asset_code__icontains=value)
             | Q(调出分公司__icontains=value)
             | Q(调入分公司__icontains=value)
-            | Q(采购经办人__icontains=value)
+            | Q(经办人__icontains=value)
             | Q(创建人__icontains=value)
         ).distinct()

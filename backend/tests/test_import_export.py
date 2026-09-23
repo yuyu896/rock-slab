@@ -291,11 +291,11 @@ TRANSFER_TYPE_TEMPLATES = {
         # Must match import parsing: row[0]=分公司, row[1]=资产编号, row[2]=资产类目,
         # row[3]=物品分类, row[4]=资产名称, row[5]=回收分类, row[6]=入库日期(→调拨日期),
         # row[7]=数量, row[8]=单位, row[9]=规格, row[10]=出库日期, row[11]=所属部门,
-        # row[12]=?(unused), row[13]=存放位置, row[14]=经办人(→采购经办人), row[15]=备注
+        # row[12]=?(unused), row[13]=存放位置, row[14]=经办人, row[15]=备注
         'sample_row': ['测试分公司', 'REC-001', '电子设备', '电脑', '回收电脑',
                        '闲置回收', '2026-03-01', 2, '台', '型号Z', '2026-03-05',
                        '行政部', '仓库B', '张采购', '回收备注'],
-        'check_fields': {'回收分类': '闲置回收', '采购经办人': '张采购'},
+        'check_fields': {'回收分类': '闲置回收', '经办人': '张采购'},
         'line_check_fields': {'存放位置': '仓库B'},
         'item_check_fields': {'unit': '台', 'asset_category': '电子设备', 'item_category': '电脑'},
     },
@@ -380,7 +380,7 @@ class TestTransferImport:
         t = Transfer.objects.filter(action_type='recovery').last()
         assert t is not None
         assert t.回收分类 == '闲置回收'
-        assert t.采购经办人 == '张采购'
+        assert t.经办人 == '张采购'
         line = t.lines.select_related('item').first()
         assert line is not None
         assert line.存放位置 == '仓库B'
@@ -578,8 +578,8 @@ class TestImportMergeDocs:
         assert resp.data['imported'] == 1 and resp.data['imported_lines'] == 2
         doc = Transfer.objects.filter(action_type='purchase').order_by('-created_at').first()
         assert doc.lines.count() == 2
-        assert doc.采购经办人 == resp.data and False or doc.采购经办人  # 便于失败时查看
-        assert doc.采购经办人 != ''  # 操作人自动落
+        assert doc.经办人 == resp.data and False or doc.经办人  # 便于失败时查看
+        assert doc.经办人 != ''  # 操作人自动落
         assert sorted(doc.lines.values_list('item__asset_code', flat=True)) == ['APR-001', 'PUR-001']
 
     def test_purchase_different_keys_two_docs(self, admin_client, test_branch):

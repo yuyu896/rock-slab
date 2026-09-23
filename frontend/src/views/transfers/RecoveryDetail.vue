@@ -42,7 +42,7 @@ onMounted(fetchTransfer)
         <span v-if="doc.回收去向 === 'dispose' && doc.处置方式 === '出售'" class="extra-item"><label>处置金额</label><span>{{ doc.处置金额 ?? '-' }}</span></span>
         <span class="extra-item"><label>所属部门</label><span>{{ doc.调出部门 || '-' }}</span></span>
         <span class="extra-item"><label>出库日期</label><span class="mono">{{ doc.出库日期 || '-' }}</span></span>
-        <span class="extra-item"><label>经办人</label><span>{{ doc.采购经办人 || '-' }}</span></span>
+        <span class="extra-item"><label>经办人</label><span>{{ doc.经办人 || doc.创建人 || '-' }}</span></span>
         <span class="extra-item full"><label>备注</label><span>{{ doc.备注 || '-' }}</span></span>
       </div>
     </template>

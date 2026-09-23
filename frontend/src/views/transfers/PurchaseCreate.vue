@@ -16,7 +16,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
-const form = ref({ 调拨日期: '', toBranch: '', 需求部门: '', 采购经办人: userStore.profile?.name || '', 备注: '' })
+const form = ref({ 调拨日期: '', toBranch: '', 需求部门: '', 经办人: userStore.profile?.name || '', 备注: '' })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 
@@ -51,7 +51,7 @@ async function submit(asDraft = false) {
       调拨日期: f.调拨日期,
       toBranch: f.toBranch,
       需求部门: f.需求部门,
-      采购经办人: f.采购经办人,
+      经办人: f.经办人,
       备注: f.备注,
       items,
       draft: asDraft || undefined,
@@ -81,7 +81,7 @@ async function submit(asDraft = false) {
         </select>
       </div>
       <div class="form-item"><label class="form-label">需求部门</label><DepartmentSelect v-model="form.需求部门" placeholder="选填" /></div>
-      <div class="form-item"><label class="form-label">采购经办人</label><input v-model="form.采购经办人" type="text" class="form-input" placeholder="选填" /></div>
+      <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
 

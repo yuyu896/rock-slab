@@ -10,8 +10,10 @@ import { sortBranchesByName } from '@/utils/sortBranchesByName'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const creating = ref(false)
 /** 调出=授权范围（扣数方收口）；调入=全量（单边化设计，调入方不要求授权） */
 const fromBranchOptions = ref<{ value: string; label: string }[]>([])
@@ -20,7 +22,7 @@ const form = ref({
   调拨日期: '',
   fromBranch: '', toBranch: '',
   调出部门: '', 调入部门: '',
-  调出负责人: '', 调入负责人: '', 调拨原因: '', 备注: '',
+  调出负责人: '', 调入负责人: '', 经办人: userStore.profile?.name || '', 调拨原因: '', 备注: '',
 })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
@@ -70,6 +72,7 @@ async function submit() {
       调入部门: f.调入部门,
       调出负责人: f.调出负责人,
       调入负责人: f.调入负责人,
+      经办人: f.经办人,
       调拨原因: f.调拨原因,
       备注: f.备注,
       items,
@@ -104,6 +107,7 @@ async function submit() {
       </div>
       <div class="form-item"><label class="form-label">调出负责人</label><input v-model="form.调出负责人" type="text" class="form-input" /></div>
       <div class="form-item"><label class="form-label">调入负责人</label><input v-model="form.调入负责人" type="text" class="form-input" /></div>
+      <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
       <div class="form-item"><label class="form-label">调出部门</label><DepartmentSelect v-model="form.调出部门" /></div>
       <div class="form-item"><label class="form-label">调入部门</label><DepartmentSelect v-model="form.调入部门" /></div>
       <div class="form-item full"><label class="form-label">调拨原因</label><input v-model="form.调拨原因" type="text" class="form-input" /></div>

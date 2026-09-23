@@ -10,11 +10,13 @@ import { sortBranchesByName } from '@/utils/sortBranchesByName'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { ASSIGN_SOURCE_OPTIONS } from '@/constants'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
-const form = ref({ 调拨日期: '', fromBranch: '', 领用来源: 'stock' as 'stock' | 'recycle_bin', 备注: '' })
+const form = ref({ 调拨日期: '', fromBranch: '', 领用来源: 'stock' as 'stock' | 'recycle_bin', 经办人: userStore.profile?.name || '', 备注: '' })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 
@@ -54,6 +56,7 @@ async function submit() {
       调拨日期: f.调拨日期,
       fromBranch: f.fromBranch,
       领用来源: f.领用来源,
+      经办人: f.经办人,
       备注: f.备注,
       items,
     })
@@ -98,6 +101,7 @@ async function submit() {
       :assign-source="form.领用来源"
     />
 
+    <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
     <div class="form-item full remark-item"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
   </TransferCreateLayout>
 </template>

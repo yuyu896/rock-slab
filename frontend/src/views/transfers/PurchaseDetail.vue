@@ -84,7 +84,7 @@ async function saveAndSubmit() {
     await updateTransfer(transfer.value.id, {
       调拨日期: editForm.value.调拨日期,
       需求部门: editForm.value.需求部门,
-      采购经办人: editForm.value.采购经办人,
+      经办人: editForm.value.经办人,
       备注: editForm.value.备注,
       items,
     })
@@ -113,7 +113,6 @@ onMounted(fetchTransfer)
     <template #extra-view="{ doc }">
       <div class="info-row">
         <span class="info-item"><label>需求部门</label><span>{{ doc.需求部门 || '-' }}</span></span>
-        <span class="info-item"><label>采购经办人</label><span>{{ doc.采购经办人 || '-' }}</span></span>
         <span class="info-item wide"><label>备注</label><span>{{ doc.备注 || '-' }}</span></span>
       </div>
     </template>
@@ -123,7 +122,7 @@ onMounted(fetchTransfer)
         <div class="edit-grid">
           <div class="form-item"><label>日期</label><input v-model="editForm.调拨日期" type="date" class="form-input" /></div>
           <div class="form-item"><label>需求部门</label><input v-model="editForm.需求部门" type="text" class="form-input" /></div>
-          <div class="form-item"><label>采购经办人</label><input v-model="editForm.采购经办人" type="text" class="form-input" /></div>
+          <div class="form-item"><label>经办人</label><input v-model="editForm.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
           <div class="form-item full"><label>备注</label><textarea v-model="editForm.备注" class="form-input" rows="2"></textarea></div>
         </div>
         <h4 class="edit-lines-title">明细行（整体替换，供应商按行填写）</h4>

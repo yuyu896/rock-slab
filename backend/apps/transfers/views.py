@@ -176,6 +176,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         items = data.pop('items')
         if not data.get('创建人'):
             data['创建人'] = request.user.name or request.user.phone
+        if not data.get('经办人'):
+            data['经办人'] = data['创建人']
 
         # 草稿：保存为「草稿」状态，不进入审批流
         if request.data.get('draft'):
@@ -490,7 +492,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if template_type == 'purchase':
             ws.title = '采购入库'
             headers = ['采购日期', '分公司', '资产编号', '物品名称', '规格型号',
-                       '供应商', '采购数量', '单价', '总金额', '需求部门', '采购经办人', '备注']
+                       '供应商', '采购数量', '单价', '总金额', '需求部门', '经办人', '备注']
             ws.append(headers)
             for t in queryset:
                 for line in t.lines.all():
@@ -498,13 +500,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         str(t.调拨日期) if t.调拨日期 else '',
                         t.调出分公司, line.item.asset_code, line.item.asset_name, _spec(line),
                         t.供应商, line.数量, line.单价 or '', line.金额 or '',
-                        t.需求部门, t.采购经办人, t.备注,
+                        t.需求部门, t.经办人, t.备注,
                     ])
 
         elif template_type == 'assign':
             ws.title = '领用出库'
             headers = ['分公司', '日期', '资产编号', '物品名称', '领用数量', '使用人', '领用部门', '用途',
-                       '部门累计领用', '当前库存', '是否核对', '备注']
+                       '部门累计领用', '当前库存', '是否核对', '经办人', '备注']
             ws.append(headers)
 
             dept_counts = dict(
@@ -526,7 +528,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         str(t.调拨日期) if t.调拨日期 else '',
                         line.item.asset_code, line.item.asset_name, line.数量,
                         line.使用人, t.调出部门, t.用途,
-                        dept_total, current_stock, '待核对', t.备注,
+                        dept_total, current_stock, '待核对', t.经办人 or t.创建人, t.备注,
                     ])
 
         elif template_type == 'recovery':
@@ -546,14 +548,14 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         str(t.调拨日期) if t.调拨日期 else '',
                         line.数量, line.item.unit, _spec(line),
                         str(t.出库日期) if t.出库日期 else '',
-                        t.调出部门, t.审批状态, line.存放位置, t.采购经办人, t.备注,
+                        t.调出部门, t.审批状态, line.存放位置, t.经办人, t.备注,
                     ])
 
         else:
             ws.title = '调拨'
             headers = ['调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
                        '资产编号', '资产名称', '规格型号', '调拨数量', '调拨原因',
-                       '调出负责人', '调入负责人', '备注']
+                       '调出负责人', '调入负责人', '经办人', '备注']
             ws.append(headers)
             for t in queryset:
                 for line in t.lines.all():
@@ -561,7 +563,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         str(t.调拨日期) if t.调拨日期 else '',
                         t.调出分公司, t.调出部门, t.调入分公司, t.调入部门,
                         line.item.asset_code, line.item.asset_name, _spec(line), line.数量,
-                        t.调拨原因, t.调出负责人, t.调入负责人, t.备注,
+                        t.调拨原因, t.调出负责人, t.调入负责人, t.经办人 or t.创建人, t.备注,
                     ])
 
         output = io.BytesIO()
@@ -835,7 +837,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             '调入分公司': branch_name,
                             '供应商': '',  # 单头退役（第 33 案后）：供应商由明细行承载
                             '需求部门': _cell(row, '需求部门'),
-                            '采购经办人': creator,
+                            '经办人': creator,
                             '备注': _cell(row, '备注'),
                         }
                         qty = _qty(row, '采购数量')
@@ -882,7 +884,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             '回收分类': _cell(row, '回收分类'),
                             '出库日期': _parse_date(_num(row, '出库日期')) if _cell(row, '出库日期') else None,
                             '调出部门': _cell(row, '所属部门'),
-                            '采购经办人': _cell(row, '经办人'),
+                            '经办人': _cell(row, '经办人'),
                             '备注': _cell(row, '备注'),
                         }
                         line_kwargs = {

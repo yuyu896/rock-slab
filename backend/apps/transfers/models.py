@@ -81,7 +81,7 @@ class Transfer(UUIDModel, TimestampedModel):
     调入负责人 = models.CharField('调入负责人', max_length=100, blank=True, default='')
     供应商 = models.CharField('供应商', max_length=200, blank=True, default='')
     需求部门 = models.CharField('需求部门', max_length=100, blank=True, default='')
-    采购经办人 = models.CharField('采购经办人', max_length=100, blank=True, default='')
+    经办人 = models.CharField('经办人', max_length=100, blank=True, default='')
     用途 = models.CharField('用途', max_length=200, blank=True, default='')
     备注 = models.TextField('备注', blank=True, default='')
     审批状态 = models.CharField('审批状态', max_length=20, choices=APPROVAL_CHOICES, default='待审批', db_index=True)

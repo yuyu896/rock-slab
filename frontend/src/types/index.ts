@@ -316,7 +316,7 @@ export interface TransferDocument {
   处置方式?: '出售' | '报废' | '捐赠' | ''
   处置金额?: number
   出库日期?: string
-  采购经办人?: string
+  经办人?: string
   备注?: string
   审批状态: ApprovalStatusType
   审批人?: string

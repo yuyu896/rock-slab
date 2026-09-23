@@ -53,7 +53,7 @@ class TransferSerializer(serializers.ModelSerializer):
             '调拨日期', '调出分公司', '调出部门', '调入分公司', '调入部门',
             '调拨原因', '调出负责人', '调入负责人', '备注', '审批状态', '审批人',
             '审批时间', '创建人', 'action_type',
-            '供应商', '需求部门', '采购经办人', '用途',
+            '供应商', '需求部门', '经办人', '用途',
             '回收分类', '回收去向', '处置方式', '处置金额', '出库日期', '领用来源',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
             'lines', '品项数', '总数量', 'canOperate', 'canWithdraw',
@@ -140,7 +140,7 @@ class TransferActionSerializer(serializers.Serializer):
     # Purchase fields
     供应商 = serializers.CharField(required=False, default='', allow_blank=True)
     需求部门 = serializers.CharField(required=False, default='', allow_blank=True)
-    采购经办人 = serializers.CharField(required=False, default='', allow_blank=True)
+    经办人 = serializers.CharField(required=False, default='', allow_blank=True)
     用途 = serializers.CharField(required=False, default='', allow_blank=True)
     # Recovery fields
     回收分类 = serializers.CharField(required=False, default='', allow_blank=True)

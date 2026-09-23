@@ -105,7 +105,7 @@ export function generateTransferTemplate(filename: string, type: string) {
   const RECOVERY_HEADERS = [
     '调拨日期', '调出分公司', '调出部门', '资产编号', '资产类目',
     '物品分类', '资产名称', '回收分类', '调拨数量', '单位',
-    '规格型号', '出库日期', '存放位置', '采购经办人', '备注',
+    '规格型号', '出库日期', '存放位置', '经办人', '备注',
   ]
 
   const headersMap: Record<string, string[]> = {

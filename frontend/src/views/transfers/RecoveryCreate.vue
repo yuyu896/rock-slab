@@ -11,11 +11,13 @@ import { getInventoryReport } from '@/api/inventories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
+import { useUserStore } from '@/store/user'
 
 const RECOVERY_CATEGORIES = ['闲置回收', '报废回收', '捐赠回收', '其他']
 const DISPOSAL_METHODS = ['出售', '报废', '捐赠']
 
 const router = useRouter()
+const userStore = useUserStore()
 const route = useRoute()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string; id?: string }[]>([])
@@ -28,7 +30,7 @@ const form = ref({
   出库日期: '',
   调出分公司: '',
   调出部门: '',
-  采购经办人: '',
+  经办人: userStore.profile?.name || '',
   备注: '',
 })
 const lines = ref<LineDraft[]>([emptyDraft()])
@@ -125,7 +127,7 @@ async function submit() {
       出库日期: f.出库日期 || undefined,
       调出分公司: f.调出分公司,
       调出部门: f.调出部门,
-      采购经办人: f.采购经办人,
+      经办人: f.经办人,
       备注: f.备注,
       items,
     })
@@ -186,7 +188,7 @@ async function submit() {
       </div>
       <div class="form-item"><label class="form-label">所属部门</label><DepartmentSelect v-model="form.调出部门" /></div>
       <div class="form-item"><label class="form-label">出库日期</label><input v-model="form.出库日期" type="date" class="form-input" /></div>
-      <div class="form-item"><label class="form-label">经办人</label><input v-model="form.采购经办人" type="text" class="form-input" /></div>
+      <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
 

@@ -95,7 +95,7 @@ function openCreatePage() {
             <td><span class="date-text">{{ item.出库日期 || '-' }}</span></td>
             <td>{{ item.调出部门 || '-' }}</td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
-            <td>{{ item.采购经办人 || '-' }}</td>
+            <td>{{ item.经办人 || item.创建人 || '-' }}</td>
             <td>{{ item.备注 || '-' }}</td>
             <td>
               <div class="action-buttons">
