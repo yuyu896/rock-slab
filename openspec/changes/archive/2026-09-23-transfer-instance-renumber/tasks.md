@@ -19,4 +19,4 @@
 ## 4. 收口
 
 - [x] 4.1 拆两 commit（feat + openspec）并 push，等用户本地手验后自行部署
-- [ ] 4.2 部署项：AddField 迁移随 deploy.sh；上线后生产跑 `renumber_transfer_instances`（先预览核对 A-a00007-NB018-18/81 → NB032-102/103，再 --confirm）；对账零差异复核；提醒 32 分按调拨单新号重打 2 张标签
+- [x] 4.2 部署项：AddField 迁移随 deploy.sh；上线后生产跑 `renumber_transfer_instances`（先预览核对 A-a00007-NB018-18/81 → NB032-102/103，再 --confirm）；对账零差异复核；提醒 32 分按调拨单新号重打 2 张标签

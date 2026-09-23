@@ -62,7 +62,7 @@ TBD - created by archiving change asset-v2-p2-instances. Update Purpose after ar
 | 领用（新品库） | 所选在库实例 → 在用，写入使用人/部门 |
 | 领用（回收库） | 所选回收库实例 → 在用，写入使用人/部门 |
 | 归还 | 所选在用实例 → 在库，清空使用人/部门 |
-| 调拨 | 所选在库实例 branch → 调入分公司（状态不变） |
+| 调拨 | 所选在库实例 branch → 调入分公司（状态不变），并同事务按调入公司该品目序列计数器换新内部编号、将调拨前编号快照写进行实例关联（见 transfer-instance-renumber 能力） |
 | 回收（入回收库） | 所选在用实例 → 回收库，清空使用人/部门 |
 | 回收（直接处置） | 所选在用实例 → 退役（终态，档案永久保留） |
 
@@ -83,6 +83,11 @@ TBD - created by archiving change asset-v2-p2-instances. Update Purpose after ar
 - **WHEN** 领用单（来源=新品库）行（品目 X × 2，使用人=张三）审批通过
 - **THEN** 所选 2 个实例状态→在用，使用人=张三，部门=行部门
 
+#### Scenario: 调拨过户并换号
+
+- **WHEN** 调拨单行绑定的实例审批通过
+- **THEN** 实例 branch→调入分公司、状态不变，内部编号换为调入公司新序号，行实例关联记录调拨前编号
+
 #### Scenario: 回收直接处置实例退役不删除
 
 - **WHEN** 回收单（去向=直接处置）行绑定的实例审批通过
@@ -92,7 +97,6 @@ TBD - created by archiving change asset-v2-p2-instances. Update Purpose after ar
 
 - **WHEN** 两张含同一品目的采购单并发生效
 - **THEN** 生成的内部编号不重复（锁行发号 + 唯一约束兜底）
-
 ### Requirement: 序列号待补录
 
 实例序列号 MUST 可空，空值语义为「待补录」，MUST NOT 阻塞任何单据流程。系统 SHALL 提供列表「待补录」筛选与醒目标识；补录经专用端点渐进完成。
