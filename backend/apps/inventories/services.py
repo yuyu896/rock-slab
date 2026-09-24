@@ -4,9 +4,8 @@ from .models import InventoryItem, InventoryTask
 
 
 def task_target_column(task):
-    """台账盘目标列：库别 stock→在库数量 / recycle→回收库数量。"""
-    if task.stock_bin == InventoryTask.BIN_RECYCLE:
-        return ledger_service.COLUMN_RECYCLE
+    """台账盘差异目标列：固定在库数量（inventory-scope-rework——库别随范围分派下线，
+    台账盘对象全是非实例品目，差异扣在库无歧义；存量 recycle 任务生产已清零，不兼容）。"""
     return ledger_service.COLUMN_STOCK
 
 
@@ -34,6 +33,10 @@ def generate_variance_adjustments(task, approver):
             continue
         label = '盘盈' if delta > 0 else '盘亏'
         stock = entry.stock
+        # 在用余额品目：差异或在用侧，提示人工核实（不自动改扣在用列）
+        if (stock.在用数量 or 0) > 0:
+            entry.remarks = (f'{entry.remarks}；' if entry.remarks else '') +                 f'该品目存在在用量 {stock.在用数量}，差异或在用侧，请人工核实'
+            entry.save(update_fields=['remarks', 'updated_at'])
         adjustments.append(ledger_service.apply_adjustment(
             branch=stock.branch,
             item=stock.item,

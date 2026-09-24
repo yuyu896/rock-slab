@@ -44,6 +44,7 @@ class InventoryInstanceItemSerializer(serializers.ModelSerializer):
     asset_code = serializers.CharField(source='instance.item.asset_code', read_only=True)
     asset_name = serializers.CharField(source='instance.item.asset_name', read_only=True)
     holder = serializers.CharField(source='instance.使用人', read_only=True)
+    instance_status = serializers.CharField(source='instance.当前状态', read_only=True)
     department = serializers.CharField(source='instance.department.name', read_only=True, default='')
 
     class Meta:
@@ -53,7 +54,7 @@ class InventoryInstanceItemSerializer(serializers.ModelSerializer):
             'item_id', 'unit', 'asset_code', 'asset_name', 'holder', 'department',
             'result', 'check_count', 'checked_by', 'checked_at',
             'remarks', 'created_at', 'updated_at',
-        ]
+                'instance_status',]
         read_only_fields = ['created_at', 'updated_at']
 
 

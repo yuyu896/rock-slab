@@ -29,15 +29,9 @@
           </label>
           <label class="kind-item" :class="{ active: form.kind === 'instance' }">
             <input type="radio" value="instance" v-model="form.kind" />
-            <span>实例盘点（逐台核对全公司在用资产）</span>
+            <span>实例盘点（逐台核对全部实例档案：在库+在用）</span>
           </label>
         </div>
-      </div>
-      <div v-if="form.kind === 'stock'" class="form-group">
-        <label class="form-label">库别</label>
-        <select v-model="form.stockBin" class="form-input">
-          <option v-for="opt in stockBinOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-        </select>
       </div>
       <div class="form-group">
         <label class="form-label">资产类目</label>
@@ -96,10 +90,10 @@ import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
 import {
-  MISSED_RULE_LABELS, REPEAT_RULE_LABELS, REPEAT_RULE_HINTS, STOCK_BIN_OPTIONS,
+  MISSED_RULE_LABELS, REPEAT_RULE_LABELS, REPEAT_RULE_HINTS,
 } from '@/constants'
 import { ElMessage } from 'element-plus'
-import type { MissedRuleType, RepeatRuleType, StockBinType } from '@/types'
+import type { MissedRuleType, RepeatRuleType } from '@/types'
 
 const router = useRouter()
 const creating = ref(false)
@@ -109,14 +103,12 @@ const form = reactive({
   branchId: '',
   categoryId: '',
   kind: 'stock' as 'stock' | 'instance',
-  stockBin: 'stock' as StockBinType,
   missedRule: 'keep' as MissedRuleType,
   repeatRule: 'last' as RepeatRuleType,
 })
 
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const categoryOptions = ref<{ value: string; label: string }[]>([])
-const stockBinOptions = STOCK_BIN_OPTIONS
 const missedRuleOptions = Object.entries(MISSED_RULE_LABELS).map(([value, label]) => ({ value, label }))
 const repeatRuleOptions = Object.entries(REPEAT_RULE_LABELS).map(([value, label]) => ({ value, label }))
 
@@ -143,7 +135,6 @@ async function submit() {
       name: form.name,
       branch: form.branchId,
       category: form.categoryId || undefined,
-      stock_bin: form.kind === 'stock' ? form.stockBin : undefined,
       kind: form.kind,
       missed_rule: form.missedRule,
       repeat_rule: form.repeatRule,

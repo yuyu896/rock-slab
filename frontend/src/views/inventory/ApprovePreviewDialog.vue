@@ -72,12 +72,13 @@ defineExpose({ done: () => { submitting.value = false } })
             </p>
             <table class="data-table">
               <thead>
-                <tr><th>内部编号</th><th>名称</th><th>序列号</th><th>使用人</th></tr>
+                <tr><th>内部编号</th><th>名称</th><th>状态</th><th>序列号</th><th>使用人</th></tr>
               </thead>
               <tbody>
                 <tr v-for="it in instanceMissing" :key="it.id">
                   <td><span class="asset-code">{{ it.instanceCode || '-' }}</span></td>
                   <td>{{ it.assetName || '-' }}</td>
+                  <td>{{ it.instanceStatus ?? '-' }}</td>
                   <td>{{ it.serialNumber || '（待补录）' }}</td>
                   <td>{{ it.holder || '-' }}</td>
                 </tr>

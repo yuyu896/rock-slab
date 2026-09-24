@@ -51,58 +51,8 @@ class TestStockBinInventory:
         ledger.apply_adjustment(branch, item, ledger.COLUMN_RECYCLE, 2, '造数')
         ledger.apply_adjustment(branch, item, ledger.COLUMN_IN_USE, 3, '造数')
 
-    def test_recycle_bin_task_expected_from_recycle_column(
-        self, authenticated_client, branch, qty_item,
-    ):
-        self._seed_stock(branch, qty_item)
-        task = InventoryTask.objects.create(
-            name='回收库盘', branch=branch, stock_bin='recycle', created_by=None,
-        )
-        resp = authenticated_client.post(_action('start', task.id))
-        assert resp.status_code == status.HTTP_200_OK
-
-        from apps.assets.models import AssetStock
-        stock = AssetStock.objects.get(branch=branch, item=qty_item)
-        items = task.items.all()
-        assert items.count() == 1
-        assert items.first().expected_qty == 2  # 回收库列
-        assert items.first().stock_id == stock.id
-
-    def test_stock_bin_task_skips_zero_column_rows(self, authenticated_client, branch, qty_item):
-        # 在库 0、回收库 2：在库盘跳过；回收库盘纳入
-        ledger.apply_adjustment(branch, qty_item, ledger.COLUMN_RECYCLE, 2, '造数')
-        stock_task = InventoryTask.objects.create(
-            name='在库盘', branch=branch, stock_bin='stock',
-        )
-        authenticated_client.post(_action('start', stock_task.id))
-        assert stock_task.items.count() == 0  # 在库列=0，跳过
-
-    def test_recycle_variance_adjusts_recycle_column_only(
-        self, authenticated_client, branch, qty_item, admin_user,
-    ):
-        from apps.assets.models import AssetStock
-        self._seed_stock(branch, qty_item)
-        task = InventoryTask.objects.create(
-            name='回收库盘差异', branch=branch, stock_bin='recycle', missed_rule='keep',
-        )
-        authenticated_client.post(_action('start', task.id))
-        stock = AssetStock.objects.get(branch=branch, item=qty_item)
-
-        resp = authenticated_client.post(_action('check', task.id), {
-            'stock_id': str(stock.id), 'qty': 0,
-        })
-        assert resp.status_code == status.HTTP_200_OK
-        authenticated_client.post(_action('submit', task.id))
-        resp = authenticated_client.post(_action('approve', task.id))
-        assert resp.status_code == status.HTTP_200_OK
-
-        stock.refresh_from_db()
-        assert stock.回收库数量 == 0   # 修回收库列
-        assert stock.在库数量 == 5    # 在库列不动
-        adj = task.adjustments.get()
-        assert adj.目标列 == '回收库数量'
-        assert adj.变动量 == -2
-        assert '回收库' in adj.事由
+    # 库别维度已随 inventory-scope-rework 退役（应盘=总量、差异固定扣在库）——
+    # 新口径见 tests/test_inventory_scope_rework.py；下列三个库别语义测试随之移除
 
     def test_create_ignores_department(self, authenticated_client, branch, other_branch_department):
         """部门维度退役：入参 department 被忽略（只读档案字段），创建成功且为空。"""
@@ -146,10 +96,10 @@ class TestInstanceInventory:
                 item=item, 内部编号=code, 当前状态='在用',
                 使用人=holder, department=department, branch=branch,
             ))
-        # 干扰项：在库实例不入清单；无部门在用实例 SI-001-8 属全公司口径应入清单
-        FixedAsset.objects.create(
+        # inventory-scope-rework：在库实例也入清单（全档案口径）；无部门在用实例同理
+        made.append(FixedAsset.objects.create(
             item=item, 内部编号='SI-001-9', 当前状态='在库', branch=branch,
-        )
+        ))
         made.append(FixedAsset.objects.create(
             item=item, 内部编号='SI-001-8', 当前状态='在用',
             使用人='王五', branch=branch,
@@ -173,7 +123,7 @@ class TestInstanceInventory:
         assert resp.status_code == status.HTTP_200_OK
         assert task.is_instance_inventory is True
         entries = task.instance_items.all()
-        assert entries.count() == 4  # 全分公司在用实例（含无部门归属）
+        assert entries.count() == 5  # 全部非退役实例（在库+在用，含无部门归属）
         assert set(entries.values_list('instance_id', flat=True)) == {
             i.id for i in instances
         }
@@ -256,7 +206,7 @@ class TestInstanceInventory:
         stock = AssetStock.objects.get(branch=branch, item=inst_item)
         assert stock.在用数量 == 3                       # 台账零变化
         missing = task.instance_items.filter(result='missing').count()
-        assert missing == 2                              # 报告缺失明细来源（含无部门归属台）
+        assert missing == 3                              # 5 台清单勾 2 台，未核 3 台归缺失
 
     def test_report_returns_instance_items(
         self, authenticated_client, branch, inst_item, department,
@@ -270,10 +220,10 @@ class TestInstanceInventory:
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
         assert data['task']['inventoryKind'] == 'instance'
-        assert len(data['items']) == 4
+        assert len(data['items']) == 5
         first = data['items'][0]
         assert {'instanceCode', 'assetName', 'holder', 'result'} <= set(first)
-        assert data['progress']['totalItems'] == 4
+        assert data['progress']['totalItems'] == 5
         assert data['adjustments'] == {'total': 0, 'surplus': 0, 'missing': 0}
 
     def test_stock_actions_rejected_on_instance_task(
@@ -335,14 +285,14 @@ class TestInstanceInventory:
         codes = {ws.cell(row=r, column=2).value for r in range(2, ws.max_row + 1)}
         assert codes == {i.内部编号 for i in instances}
 
-        # 导入：2 已找到 / 1 未找到 / 1 非法值 / 1 不在清单
-        headers = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注']
+        # 导入：2 已找到 / 1 未找到 / 1 非法值 / 1 不在清单（新 10 列含状态）
+        headers = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '状态', '使用人', '所属部门', '核对结果', '备注']
         rows = [
-            [1, instances[0].内部编号, '', 'SCOPE-INST', '笔记本', '张三', '', '已找到', '线上核对'],
-            [2, instances[1].内部编号, '', 'SCOPE-INST', '笔记本', '张三', '', '已找到', ''],
-            [3, instances[2].内部编号, '', 'SCOPE-INST', '笔记本', '李四', '', '未找到', ''],
-            [4, instances[3].内部编号, '', 'SCOPE-INST', '笔记本', '王五', '', '找到了', ''],
-            [5, 'SI-999-9', '', 'SCOPE-INST', '笔记本', '赵六', '', '已找到', ''],
+            [1, instances[0].内部编号, '', 'SCOPE-INST', '笔记本', '在用', '张三', '', '已找到', '线上核对'],
+            [2, instances[1].内部编号, '', 'SCOPE-INST', '笔记本', '在用', '张三', '', '已找到', ''],
+            [3, instances[2].内部编号, '', 'SCOPE-INST', '笔记本', '在用', '李四', '', '未找到', ''],
+            [4, instances[3].内部编号, '', 'SCOPE-INST', '笔记本', '在用', '王五', '', '找到了', ''],
+            [5, 'SI-999-9', '', 'SCOPE-INST', '笔记本', '在库', '赵六', '', '已找到', ''],
         ]
         resp = authenticated_client.post(
             _action('import-result', task.id), {'file': self._xlsx(headers, rows)}, format='multipart',
@@ -365,10 +315,10 @@ class TestInstanceInventory:
         """pending 状态实例盘任务导入被拒。"""
         self._seed_instances(branch, inst_item, department)
         task = self._make_task(branch, department)
-        headers = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注']
+        headers = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '状态', '使用人', '所属部门', '核对结果', '备注']
         resp = authenticated_client.post(
             _action('import-result', task.id),
-            {'file': self._xlsx(headers, [[1, 'SI-001-1', '', '', '', '', '', '已找到', '']])},
+            {'file': self._xlsx(headers, [[1, 'SI-001-1', '', '', '', '在用', '', '', '已找到', '']])},
             format='multipart',
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST

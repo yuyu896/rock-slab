@@ -22,7 +22,12 @@ const getResultLabel = (result: string) => INVENTORY_RESULT_MAP[result as keyof 
 
 const isInstance = computed(() => reportData.value?.task?.inventoryKind === 'instance')
 const missingInstances = computed(() =>
-  isInstance.value ? (reportData.value?.items ?? []).filter((i: any) => i.result === 'missing') : [])
+  isInstance.value ? (reportData.value?.items ?? []).filter(
+    (i: any) => i.result === 'missing' && i.instanceStatus === '在用') : [])
+/** 在库实例缺失：不适用一键回收（回收收在用），待跟进人为查明 */
+const missingInStock = computed(() =>
+  isInstance.value ? (reportData.value?.items ?? []).filter(
+    (i: any) => i.result === 'missing' && i.instanceStatus !== '在用') : [])
 const currentTaskId = ref('')
 
 async function open(taskId: string) {
@@ -130,7 +135,7 @@ defineExpose({ open })
             台账已按差异修正，可在台账页「调整记录」查看。
           </div>
           <div v-if="isInstance && reportData.task?.status === 'completed'" class="adjustment-summary">
-            实例盘不自动改账：缺失 <strong>{{ missingInstances.length }}</strong> 台标记「待跟进」，
+            实例盘不自动改账：缺失 <strong>{{ missingInstances.length + missingInStock.length }}</strong> 台标记「待跟进」，
             请人工确认（重新查找 / 对盘亏项发起回收处置单，走审批流）。
           </div>
           <!-- 盘点明细列表 -->
@@ -140,6 +145,7 @@ defineExpose({ open })
                 <tr>
                   <th>内部编号</th>
                   <th>资产名称</th>
+                  <th>状态</th>
                   <th>序列号</th>
                   <th>使用人</th>
                   <th>结果</th>
@@ -149,6 +155,7 @@ defineExpose({ open })
                 <tr v-for="item in reportData.items" :key="item.id" :class="{ 'missing-row': item.result === 'missing' }">
                   <td>{{ item.instanceCode ?? '-' }}</td>
                   <td>{{ item.assetName ?? '-' }}</td>
+                  <td>{{ item.instanceStatus ?? '-' }}</td>
                   <td>{{ item.serialNumber || '（待补录）' }}</td>
                   <td>{{ item.holder || '-' }}</td>
                   <td :style="{ color: item.result === 'missing' ? 'var(--color-danger)' : '' }">

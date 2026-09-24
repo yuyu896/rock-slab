@@ -62,7 +62,7 @@ class TestEmptyScopeStartGuard:
         resp = authenticated_client.post(f'/api/inventories/{task.id}/start')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert '无可盘对象' in str(resp.data['detail'])
-        assert '领用审批' in str(resp.data['detail'])
+        assert '实例档案' in str(resp.data['detail'])
         task.refresh_from_db()
         assert task.status == 'pending'
         assert task.instance_items.count() == 0
@@ -113,10 +113,11 @@ class TestTemplateGuidance:
         ws = openpyxl.load_workbook(io.BytesIO(resp.content)).active
         dvs = list(ws.data_validations.dataValidation)
         assert len(dvs) == 1 and dvs[0].formula1 == '"已找到,未找到"'
-        assert 'H2:H3' in str(dvs[0].sqref)
-        assert ws['H1'].comment is not None and '已找到' in ws['H1'].comment.text
-        assert ws['I1'].comment is not None
+        assert 'I2:I3' in str(dvs[0].sqref)
+        assert ws['I1'].comment is not None and '已找到' in ws['I1'].comment.text
+        assert ws['J1'].comment is not None
         assert ws.max_row == 3  # 表头 + 2 台，无示例行
+        assert ws['F2'].value in ('在库', '在用')  # 状态列有值
 
     def test_ledger_template_has_qty_comment(self, authenticated_client, branch):
         item = _item('SG-5', 'quantity')
@@ -130,10 +131,12 @@ class TestTemplateGuidance:
 
 @pytest.mark.django_db
 class TestImportHint:
+    NEW_HEADERS = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '状态', '使用人', '所属部门', '核对结果', '备注']
+
     def _upload(self, client, task):
         buf = _make_xlsx(
-            ['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注'],
-            [[1, 'X-1', '', 'X', '品目', '张三', '', '已找到', '']],
+            self.NEW_HEADERS,
+            [[1, 'X-1', '', 'X', '品目', '在用', '张三', '', '已找到', '']],
         )
         return client.post(
             f'/api/inventories/{task.id}/import-result', {'file': buf}, format='multipart',
@@ -176,8 +179,8 @@ class TestImportHint:
         task.status = 'in_progress'
         task.save(update_fields=['status'])
         buf = _make_xlsx(
-            ['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注'],
-            [[1, 'X-1', '', 'X', '品目', '张三', '', '没找到', '']],
+            self.NEW_HEADERS,
+            [[1, 'X-1', '', 'X', '品目', '在用', '张三', '', '没找到', '']],
         )
         resp = authenticated_client.post(
             f'/api/inventories/{task.id}/import-result', {'file': buf}, format='multipart')

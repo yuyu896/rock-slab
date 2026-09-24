@@ -39,7 +39,8 @@ async function prefillFromInventoryTask(taskId: string) {
   try {
     const { data: report } = await getInventoryReport(taskId)
     // 实例盘报告的 items 为 InventoryInstanceItem（inventoryKind=instance 保证）
-    const missing = ((report.items ?? []) as any[]).filter((i: any) => i.result === 'missing')
+    const missing = ((report.items ?? []) as any[]).filter(
+      (i: any) => i.result === 'missing' && i.instanceStatus === '在用')  // 在库缺失不适用回收（回收收在用）
     if (!missing.length) {
       ElMessage.warning('该盘点任务没有缺失实例，无需发起回收')
       return

@@ -708,6 +708,7 @@ onMounted(() => {
                         <tr>
                           <th>内部编号</th>
                           <th>资产名称</th>
+                          <th>状态</th>
                           <th>序列号</th>
                           <th>核对结果</th>
                           <th v-if="isTaskInProgress(selectedTask)">操作</th>
@@ -718,6 +719,7 @@ onMounted(() => {
                         <tr v-for="item in group.items" :key="item.id">
                           <td>{{ item.instanceCode ?? '-' }}</td>
                           <td>{{ item.assetName ?? '-' }}</td>
+                          <td>{{ item.instanceStatus ?? '-' }}</td>
                           <td>{{ item.serialNumber || '（待补录）' }}</td>
                           <td :style="{ color: item.result === 'missing' ? 'var(--color-danger)' : item.result === 'matched' ? 'var(--color-success)' : '' }">
                             {{ getInstanceResultLabel(item.result) }}

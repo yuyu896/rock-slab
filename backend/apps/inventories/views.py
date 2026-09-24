@@ -84,12 +84,13 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         # 任务保持 pending 零副作用——防"开始早于领用审批"类时序事故空盘还锁分公司
         if self._scope_count(task) == 0:
             kind_desc = (
-                '实例盘=分公司当前「在用」实例快照' if task.is_instance_inventory else '台账盘=范围内台账行'
+                '实例盘=分公司实例档案（在库+在用）' if task.is_instance_inventory
+                else '台账盘=非实例管理品目台账行'
             )
             return Response(
                 {'detail': (
                     f'开始失败：盘点范围内无可盘对象（{kind_desc}）。'
-                    f'常见原因：开始盘点早于领用审批——请先完成审批，或调整范围（分公司/类目）后再开始'
+                    f'请核对分公司/类目范围后开始，或确认该范围确无资产'
                 )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -633,13 +634,14 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if task.is_instance_inventory:
             from openpyxl.comments import Comment
             from openpyxl.worksheet.datavalidation import DataValidation
-            ws.append(['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注'])
-            ws['H1'].comment = Comment(
+            # inventory-scope-rework：加「状态」列（在库/在用）；核对结果列随之 I、备注 J
+            ws.append(['序号', '内部编号', '序列号', '品目编号', '品目名称', '状态', '使用人', '所属部门', '核对结果', '备注'])
+            ws['I1'].comment = Comment(
                 '只能填：已找到 / 未找到（手工输入其他值导入会报错）；留空 = 未盘，提交时按漏盘规则处理', '磐盘')
-            ws['I1'].comment = Comment('选填；核对异常时填写情况说明', '磐盘')
-            entries = task.instance_items.select_related(
+            ws['J1'].comment = Comment('选填；核对异常时填写情况说明', '磐盘')
+            entries = list(task.instance_items.select_related(
                 'instance__item', 'instance__department',
-            ).order_by('created_at')
+            ).order_by('created_at'))
             for idx, entry in enumerate(entries, start=1):
                 inst = entry.instance
                 ws.append([
@@ -648,6 +650,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     inst.序列号 or '',
                     inst.item.asset_code,
                     inst.item.asset_name,
+                    inst.当前状态,
                     inst.使用人 or '',
                     inst.department.name if inst.department else '',
                     '',  # 核对结果 - 已找到 / 未找到
@@ -660,7 +663,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 )
                 dv.error = '只能填：已找到 / 未找到'
                 ws.add_data_validation(dv)
-                dv.add(f'H2:H{entries.count() + 1}')
+                dv.add(f'I2:I{len(entries) + 1}')
         else:
             from openpyxl.comments import Comment
             ws.append(['序号', '资产编号', '资产名称', '资产类目', '账面数量', '实盘数量', '备注'])
@@ -729,6 +732,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             wb.close()
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         wb.close()
 
@@ -737,13 +741,22 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         if task.is_instance_inventory:
             # 实例盘：内部编号匹配清单项，核对结果列回写（已找到/未找到）
+            # inventory-scope-rework：模板加「状态」列后核对结果=第9列(idx8)、备注=第10列(idx9)；
+            # 表头守卫拦旧版文件（无状态列会错位，提示重下模板）
+            EXPECTED_HEADERS = ['序号', '内部编号', '序列号', '品目编号', '品目名称', '状态', '使用人', '所属部门', '核对结果', '备注']
+            actual_headers = [str(c).strip() if c is not None else '' for c in header_row]
+            if actual_headers[:len(EXPECTED_HEADERS)] != EXPECTED_HEADERS:
+                return Response(
+                    {'detail': '表头与当前模板不符（模板已升级含「状态」列）——请重新下载盘点模板填写后导入'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             RESULT_MAP = {'已找到': 'matched', '未找到': 'missing'}
             for i, row in enumerate(rows, start=2):
                 if not row or not row[1]:
                     continue
                 inner_code = str(row[1]).strip()
-                verdict_raw = row[7] if len(row) > 7 else None
-                remarks = str(row[8]).strip() if len(row) > 8 and row[8] else ''
+                verdict_raw = row[8] if len(row) > 8 else None
+                remarks = str(row[9]).strip() if len(row) > 9 and row[9] else ''
 
                 if verdict_raw is None or not str(verdict_raw).strip():
                     continue  # 未填结果 = 未盘项，交漏盘规则处理
@@ -773,8 +786,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             # 空清单根因提示（inventory-checklist-safety）：清单空导致的批量不匹配点明病因
             payload = {'imported': imported, 'errors': errors}
             if not task.instance_items.exists() and errors:
-                payload['hint'] = ('本任务清单为空——开始盘点时可盘范围为空'
-                                   '（常见：开始早于领用审批）；请作废重建盘点任务')
+                payload['hint'] = '本任务清单为空——开始盘点时范围内无可盘对象；请核对范围或作废重建任务'
             return Response(payload)
 
         for i, row in enumerate(rows, start=2):
@@ -836,18 +848,23 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     # ---- Helpers ----
 
     def _scope_count(self, task):
-        """可盘范围计数（与清单生成同源条件，inventory-checklist-safety 空清单拦截用）。"""
+        """可盘范围计数（与清单生成同源条件，inventory-checklist-safety 空清单拦截用；
+        inventory-scope-rework 后范围=实例盘全档案 / 台账盘非实例品目行）。"""
         if task.is_instance_inventory:
             from apps.assets.models import FixedAsset
             qs = FixedAsset.objects.filter(
-                当前状态=FixedAsset.STATUS_IN_USE, branch=task.branch,
-            )
+                branch=task.branch,
+            ).exclude(当前状态=FixedAsset.STATUS_RETIRED)
             if task.category:
                 qs = qs.filter(item__asset_category=task.category.asset_category)
             return qs.count()
         from apps.assets.models import AssetStock
-        column = task_target_column(task)
-        qs = AssetStock.objects.filter(**{f'{column}__gt': 0})
+        from django.db.models import Q
+        qs = AssetStock.objects.exclude(
+            item__management_type='instance',
+        ).filter(
+            Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
+        )
         if task.branch:
             qs = qs.filter(branch=task.branch)
         if task.category:
@@ -855,11 +872,14 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return qs.count()
 
     def _generate_items(self, task):
-        """台账盘：从任务范围内台账行生成盘点项（目标库别列>0，应盘=该列）。"""
+        """台账盘：非实例管理品目的台账行生成盘点项（inventory-scope-rework——实例品目
+        由实例盘专属覆盖；应盘=行总量三列合计，条件=任一列>0）。"""
         from apps.assets.models import AssetStock
-        column = task_target_column(task)
-        qs = AssetStock.objects.select_related('item').filter(
-            **{f'{column}__gt': 0},
+        from django.db.models import Q
+        qs = AssetStock.objects.select_related('item').exclude(
+            item__management_type='instance',
+        ).filter(
+            Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
         )
         if task.branch:
             qs = qs.filter(branch=task.branch)
@@ -868,16 +888,16 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         for stock in qs:
             InventoryItem.objects.get_or_create(
                 task=task, stock=stock,
-                defaults={'expected_qty': getattr(stock, column)},
+                defaults={'expected_qty': stock.总量},
             )
 
     def _generate_instance_items(self, task):
-        """实例盘：生成全分公司在用实例快照（一台一行；仅实例管理品目有实例）。"""
+        """实例盘：生成全部非退役实例快照（在库+在用，一台一行；inventory-scope-rework
+        ——实例盘即实例品目的台账盘点，按档案全量核对）。"""
         from apps.assets.models import FixedAsset
         qs = FixedAsset.objects.select_related('item', 'department').filter(
-            当前状态=FixedAsset.STATUS_IN_USE,
             branch=task.branch,
-        )
+        ).exclude(当前状态=FixedAsset.STATUS_RETIRED)
         if task.category:
             qs = qs.filter(item__asset_category=task.category.asset_category)
         for instance in qs:
