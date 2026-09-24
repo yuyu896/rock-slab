@@ -34,9 +34,10 @@ EFFECTIVE_STATUSES = ('已通过', '已入库')
 
 def _transfer_ledger_plan(transfer):
     """单据明细行 → [(branch, item, column, delta)]（与 ledger 服务同源，实时计算）。"""
+    from apps.assets.services.ledger import line_effective_plan
     plans = []
     for line in transfer.lines.select_related('item').order_by('行号'):
-        plans.extend(_line_plan(transfer, line))
+        plans.extend(line_effective_plan(transfer, line))
     return plans
 
 

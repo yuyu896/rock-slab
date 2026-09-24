@@ -283,27 +283,15 @@ TRANSFER_TYPE_TEMPLATES = {
         'line_check_fields': {'数量': 3},
         'item_check_fields': {},
     },
-    'recovery': {
-        # Must match TYPE_TEMPLATES['recovery']['headers'] in views.py exactly
-        'template_headers': ['分公司', '资产编号', '资产类目', '物品分类', '资产名称', '回收分类',
-                             '入库日期', '数量', '单位', '规格', '出库日期', '所属部门',
-                             '存放位置', '经办人', '备注'],
-        # Must match import parsing: row[0]=分公司, row[1]=资产编号, row[2]=资产类目,
-        # row[3]=物品分类, row[4]=资产名称, row[5]=回收分类, row[6]=入库日期(→调拨日期),
-        # row[7]=数量, row[8]=单位, row[9]=规格, row[10]=出库日期, row[11]=所属部门,
-        # row[12]=?(unused), row[13]=存放位置, row[14]=经办人, row[15]=备注
-        'sample_row': ['测试分公司', 'REC-001', '电子设备', '电脑', '回收电脑',
-                       '闲置回收', '2026-03-01', 2, '台', '型号Z', '2026-03-05',
-                       '行政部', '仓库B', '张采购', '回收备注'],
-        'check_fields': {'回收分类': '闲置回收', '经办人': '张采购'},
-        'line_check_fields': {'存放位置': '仓库B'},
-        'item_check_fields': {'unit': '台', 'asset_category': '电子设备', 'item_category': '电脑'},
-    },
 }
+
+# 回收批量导入已下线（recovery-stock-source-and-cleanup）：Excel 无合法内容
+# （实例品需页面点选、数量品无重新入库概念），导入/模板端点对 type=recovery 一律 400。
+
 
 
 class TestTransferTemplates:
-    @pytest.mark.parametrize('ttype', ['purchase', 'assign', 'transfer', 'recovery'])
+    @pytest.mark.parametrize('ttype', ['purchase', 'assign', 'transfer'])
     def test_download_template(self, admin_client, ttype):
         tpl = TRANSFER_TYPE_TEMPLATES[ttype]
         resp = admin_client.get(f'/api/transfers/template?type={ttype}')
@@ -313,24 +301,8 @@ class TestTransferTemplates:
             assert h in headers, f"[{ttype}] Missing header: {h}"
 
 
-def _seed_recovery_dictionary(test_branch=None):
-    """预置 REC-001 字典展示值（单位/类目），与导入模板样例行一致——P2 起这些值取自字典而非行内。
-
-    回收导入受在用软预检（第 7 案修复）：样例行 数量2 需有台账在用底数。
-    """
-    from apps.categories.models import Category
-    Category.objects.filter(asset_code='REC-001').update(
-        asset_category='电子设备', item_category='电脑', unit='台',
-    )
-    if test_branch is not None:
-        from apps.assets.services import ledger
-        item = Category.objects.filter(asset_code='REC-001').first()
-        if item is not None:
-            ledger.apply_adjustment(test_branch, item, ledger.COLUMN_IN_USE, 5, '导入测试造数')
-
-
 class TestTransferImport:
-    @pytest.mark.parametrize('ttype', ['purchase', 'assign', 'transfer', 'recovery'])
+    @pytest.mark.parametrize('ttype', ['purchase', 'assign', 'transfer'])
     def test_import_valid_data(self, admin_client, ttype, test_branch):
         from apps.transfers.models import Transfer
         from apps.organizations.models import Branch, Department
@@ -340,8 +312,6 @@ class TestTransferImport:
         if ttype == 'assign':
             # 领用部门按（分公司, 部门名）解析行级外键，样例行的"行政部"需在字典内
             Department.objects.get_or_create(name='行政部')
-        if ttype == 'recovery':
-            _seed_recovery_dictionary(test_branch)
         tpl = TRANSFER_TYPE_TEMPLATES[ttype]
         buf = _make_xlsx(tpl['template_headers'], [tpl['sample_row']])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params=f'type={ttype}')
@@ -369,24 +339,16 @@ class TestTransferImport:
             actual = getattr(line.item, field)
             assert actual == expected, f"[{ttype}] item {field}: '{actual}' != '{expected}'"
 
-    def test_recovery_import_all_fields(self, admin_client, test_branch):
-        """Verify all recovery-specific fields survive import (单头 + 明细行 + 字典联查)."""
-        from apps.transfers.models import Transfer
-        _seed_recovery_dictionary(test_branch)
-        tpl = TRANSFER_TYPE_TEMPLATES['recovery']
-        buf = _make_xlsx(tpl['template_headers'], [tpl['sample_row']])
+    def test_recovery_import_retired(self, admin_client):
+        """回收批量导入已下线（recovery-stock-source-and-cleanup）：导入/模板端点一律 400。"""
+        buf = _make_xlsx(['分公司', '资产编号', '数量'], [['测试分公司', 'REC-001', 1]])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=recovery')
-        assert resp.status_code == status.HTTP_200_OK
-        t = Transfer.objects.filter(action_type='recovery').last()
-        assert t is not None
-        assert t.回收分类 == '闲置回收'
-        assert t.经办人 == '张采购'
-        line = t.lines.select_related('item').first()
-        assert line is not None
-        assert line.存放位置 == '仓库B'
-        assert line.item.unit == '台'
-        assert line.item.asset_category == '电子设备'
-        assert line.item.item_category == '电脑'
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '已下线' in str(resp.data['detail'])
+
+        resp = admin_client.get('/api/transfers/template', {'type': 'recovery'})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '已下线' in str(resp.data['detail'])
 
 
     def test_import_rejects_unknown_branch(self, admin_client):

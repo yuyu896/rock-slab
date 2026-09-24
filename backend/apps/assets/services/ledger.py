@@ -55,15 +55,20 @@ def _apply_delta(row, column, delta):
     return new_value
 
 
-def _recovery_friendly(error):
-    """回收在用不足 → 业务语言（其余单据类型的通用格式不变）。"""
+def _recovery_friendly(error, transfer):
+    """回收扣减不足 → 业务语言（其余单据类型的通用格式不变）。"""
     detail = getattr(error, 'detail', {})
     current = int(detail.get('current', 0)) if isinstance(detail, dict) else 0
     delta = int(detail.get('delta', 0)) if isinstance(detail, dict) else 0
+    tail = (
+        f'数量品物若有在用余量请先走归还单收口'
+        if transfer.回收去向 == 'dispose'
+        else f'请核对物品是否未领用、或调出分公司是否选错'
+    )
     return ValidationError({
         'detail': (
-            f'回收只能回收『在用』中的资产：当前在用 {current}，需回收 {-delta}；'
-            f'请核对物品是否未领用、或调出分公司是否选错'
+            f'回收扣减不足：当前数量 {current}，需回收 {-delta}；'
+            f'{tail}'
         ),
         'code': 'LEDGER_INSUFFICIENT',
     })
@@ -132,10 +137,12 @@ def _line_plan(transfer, line):
             (to_branch, item, COLUMN_STOCK, qty),
         ]
     if action == 'recovery':
-        plan = [(from_branch, item, COLUMN_IN_USE, -qty)]
         if transfer.回收去向 == 'dispose':
-            pass  # 直接处置：三存储列均不增加，总量随在用扣减下跌
-        elif transfer.回收去向 == 'recycle_bin':
+            # 处置向双源：扣列在行锁后按实例状态/品目派生（_recovery_dispose_deltas）；
+            # 此处零增量占位，仅保证 (分公司×品目) 进锁集参与充足终检
+            return [(from_branch, item, COLUMN_STOCK, 0)]
+        plan = [(from_branch, item, COLUMN_IN_USE, -qty)]
+        if transfer.回收去向 == 'recycle_bin':
             # 历史档案单据：按当时语义重放入回收库（与归一调整单对冲）；
             # 新单据入口已收口 restock，不再产生本分支
             plan.append((from_branch, item, COLUMN_RECYCLE, qty))
@@ -143,6 +150,31 @@ def _line_plan(transfer, line):
             plan.append((from_branch, item, COLUMN_STOCK, qty))  # 重新入库：在用→在库
         return plan
     raise ValidationError({'detail': f'未知单据类型 {action}'})
+
+
+def line_effective_plan(transfer, line):
+    """单行有效台账计划——离线回放口径（数据修复命令的聚合回退用）。
+
+    历史单据按当时生效语义回放：处置向一律扣在用（双源派生是
+    recovery-stock-source-and-cleanup 之后的新单据语义；新单据生效以
+    apply_document 行锁后按实例状态派生为准，不经本函数——退役终态
+    无法事后反推处置前状态，新单据的离线回放不适用）。"""
+    if transfer.action_type == 'recovery' and transfer.回收去向 == 'dispose':
+        return [(transfer.from_branch, line.item, COLUMN_IN_USE, -line.数量)]
+    return _line_plan(transfer, line)
+
+
+def _recovery_dispose_deltas(transfer, line, insts):
+    """处置向扣列派生（行锁后、终检通过后调用）：实例行按锁定态实例状态逐台扣对应列
+    （在用/在库），数量行扣在库（数量品物不出库不领用、常态在库）。"""
+    from_branch = transfer.from_branch
+    if line.item.management_type == 'instance':
+        return [
+            (from_branch, line.item,
+             COLUMN_IN_USE if inst.当前状态 == '在用' else COLUMN_STOCK, -1)
+            for inst in insts
+        ]
+    return [(from_branch, line.item, COLUMN_STOCK, -line.数量)]
 
 
 def _with_line_context(line, error):
@@ -249,7 +281,10 @@ def apply_document(transfer):
             ]
             try:
                 instance_service.check_line_instances(transfer, line, insts)
-                for branch, item, column, delta in plan:
+                line_plan = plan
+                if action == 'recovery' and transfer.回收去向 == 'dispose':
+                    line_plan = _recovery_dispose_deltas(transfer, line, insts)
+                for branch, item, column, delta in line_plan:
                     key = (branch.pk, item.pk)
                     row = locked.get(key)
                     if row is None:
@@ -268,7 +303,7 @@ def apply_document(transfer):
                 detail = getattr(error, 'detail', None)
                 if action == 'recovery' and isinstance(detail, dict) \
                         and detail.get('code') == 'LEDGER_INSUFFICIENT':
-                    error = _recovery_friendly(error)
+                    error = _recovery_friendly(error, transfer)
                 raise _with_line_context(line, error)
 
         for key in sorted(touched):

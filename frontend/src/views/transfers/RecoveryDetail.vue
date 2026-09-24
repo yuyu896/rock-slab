@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/** 回收去向三态：dispose=直接处置 / restock=重新入库 / 存量 recycle_bin=入回收库（历史档案） */
+function destText(dest?: string): string {
+  if (dest === 'dispose') return '直接处置'
+  if (dest === 'restock' || !dest) return '重新入库'
+  return '入回收库'
+}
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import TransferDetailLayout from './components/TransferDetailLayout.vue'
@@ -36,12 +42,10 @@ onMounted(fetchTransfer)
   >
     <template #extra-view="{ doc }">
       <div class="extra-grid">
-        <span class="extra-item"><label>回收分类</label><span>{{ doc.回收分类 || '-' }}</span></span>
-        <span class="extra-item"><label>回收去向</label><span>{{ doc.回收去向 === 'dispose' ? '直接处置' : '入回收库' }}</span></span>
+        <span class="extra-item"><label>回收去向</label><span>{{ destText(doc.回收去向) }}</span></span>
         <span v-if="doc.回收去向 === 'dispose'" class="extra-item"><label>处置方式</label><span>{{ doc.处置方式 || '-' }}</span></span>
         <span v-if="doc.回收去向 === 'dispose' && doc.处置方式 === '出售'" class="extra-item"><label>处置金额</label><span>{{ doc.处置金额 ?? '-' }}</span></span>
         <span class="extra-item"><label>所属部门</label><span>{{ doc.调出部门 || '-' }}</span></span>
-        <span class="extra-item"><label>出库日期</label><span class="mono">{{ doc.出库日期 || '-' }}</span></span>
         <span class="extra-item"><label>经办人</label><span>{{ doc.经办人 || doc.创建人 || '-' }}</span></span>
         <span class="extra-item full"><label>备注</label><span>{{ doc.备注 || '-' }}</span></span>
       </div>

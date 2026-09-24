@@ -77,9 +77,9 @@ function openCreatePage() {
       <table class="data-table">
         <thead>
           <tr>
-            <th>单号</th><th>入库日期</th><th>分公司</th><th>回收分类</th><th>去向</th>
+            <th>单号</th><th>回收日期</th><th>分公司</th><th>去向</th>
             <th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th>
-            <th>出库日期</th><th>所属部门</th><th>状态</th><th>经办人</th><th>备注</th><th>操作</th>
+            <th>所属部门</th><th>状态</th><th>经办人</th><th>备注</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -87,12 +87,10 @@ function openCreatePage() {
             <td><span class="doc-number">{{ item.单据编号 || item.id.slice(0, 8) }}</span></td>
             <td><span class="date-text">{{ item.调拨日期 || '-' }}</span></td>
             <td>{{ item.调出分公司 || '-' }}</td>
-            <td>{{ item.回收分类 || '-' }}</td>
             <td>{{ DEST_LABELS[item.回收去向 ?? ''] || item.回收去向 || '-' }}</td>
             <td><span class="asset-name">{{ transferDocSummary(item).name }}</span></td>
             <td class="col-num">{{ item.品项数 ?? item.lines?.length ?? '-' }}</td>
             <td><span class="qty-value">{{ item.总数量 ?? '-' }}</span></td>
-            <td><span class="date-text">{{ item.出库日期 || '-' }}</span></td>
             <td>{{ item.调出部门 || '-' }}</td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
             <td>{{ item.经办人 || item.创建人 || '-' }}</td>

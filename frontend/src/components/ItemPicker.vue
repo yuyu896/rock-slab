@@ -14,8 +14,8 @@ const props = defineProps<{
   placeholder?: string
   /** 分公司名称（台账检索前置条件，空则禁用） */
   branch?: string
-  /** 扣数列（有值走台账检索）：领用新品库/调拨=在库，领用回收库=回收库，回收=在用 */
-  stockColumn?: '在库数量' | '在用数量' | '回收库数量'
+  /** 扣数列（有值走台账检索）：领用新品库/调拨=在库，领用回收库=回收库，回收处置=在库或在用（逗号多列 OR） */
+  stockColumn?: string
   /** 剔除消耗品（回收库来源：领出即耗用品目不得走回收库） */
   excludeConsumable?: boolean
 }>()
@@ -31,6 +31,7 @@ const COLUMN_LABELS: Record<string, string> = {
   在库数量: '在库',
   在用数量: '在用',
   回收库数量: '回收库',
+  '在库数量,在用数量': '在库或在用',
 }
 
 const usesLedger = computed(() => Boolean(props.stockColumn))
@@ -67,7 +68,8 @@ async function remoteSearch(query: string) {
           assetCategory: c.资产类目,
           itemCategory: c.物品分类,
           managementType: c.管理方式,
-          qty: c[props.stockColumn ?? ''] as number | undefined,
+          qty: (props.stockColumn ?? '').split(',')
+            .reduce((a: number, col: string) => a + (Number(c[col]) || 0), 0) as number | undefined,
         }))
     } else {
       const { data } = await getCategories({ keyword: query || undefined, pageSize: 50 })

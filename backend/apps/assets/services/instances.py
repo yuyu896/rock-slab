@@ -26,18 +26,23 @@ def _err(detail):
     return ValidationError({'detail': detail, 'code': 'INSTANCE_INVALID'})
 
 
-def expected_state(action_type, assign_source='stock'):
-    """按单据类型/领用来源给出实例的合法前置状态；None 表示该类型不绑实例。"""
+def expected_state(action_type, assign_source='stock', recovery_dest='restock'):
+    """按单据类型/领用来源给出实例的合法前置状态集合；None 表示该类型不绑实例。"""
     if action_type == 'assign':
         return (
-            FixedAsset.STATUS_RECYCLE
+            (FixedAsset.STATUS_RECYCLE,)
             if assign_source == Transfer.ASSIGN_SOURCE_RECYCLE
-            else FixedAsset.STATUS_IN_STOCK
+            else (FixedAsset.STATUS_IN_STOCK,)
         )
-    if action_type in ('return', 'recovery'):
-        return FixedAsset.STATUS_IN_USE
+    if action_type == 'return':
+        return (FixedAsset.STATUS_IN_USE,)
     if action_type == 'transfer':
-        return FixedAsset.STATUS_IN_STOCK
+        return (FixedAsset.STATUS_IN_STOCK,)
+    if action_type == 'recovery':
+        # 处置向双源（在库/在用均可收）；重新入库仅收在用（recovery-stock-source-and-cleanup）
+        if recovery_dest == 'dispose':
+            return (FixedAsset.STATUS_IN_USE, FixedAsset.STATUS_IN_STOCK)
+        return (FixedAsset.STATUS_IN_USE,)
     return None
 
 
@@ -71,7 +76,7 @@ def check_line_instances(transfer, line, instances):
             f'明细行 {line.行号}（{line.item.asset_code}）：实例数 {len(instances)} 与数量 {qty} 不一致'
         )
 
-    want_state = expected_state(transfer.action_type, transfer.领用来源)
+    want_state = expected_state(transfer.action_type, transfer.领用来源, transfer.回收去向)
     branch = (
         transfer.from_branch
         if transfer.action_type in ('assign', 'recovery', 'transfer')
@@ -82,10 +87,16 @@ def check_line_instances(transfer, line, instances):
             raise _err(
                 f'明细行 {line.行号}（{line.item.asset_code}）：实例 {inst.内部编号} 品目不符'
             )
-        if inst.当前状态 != want_state:
+        if inst.当前状态 not in want_state:
+            hint = (
+                '（在库实例无需回库；处置请改选「直接处置」）'
+                if transfer.action_type == 'recovery' and transfer.回收去向 != 'dispose'
+                and inst.当前状态 == FixedAsset.STATUS_IN_STOCK
+                else ''
+            )
             raise _err(
                 f'明细行 {line.行号}（{line.item.asset_code}）：实例 {inst.内部编号} '
-                f'状态 {inst.当前状态} 不是 {want_state}（可能已被其他单据占用）'
+                f'状态 {inst.当前状态} 不是 {"、".join(want_state)}（可能已被其他单据占用）{hint}'
             )
         if branch is not None and inst.branch_id != branch.pk:
             raise _err(

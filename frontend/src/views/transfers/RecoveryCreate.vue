@@ -13,7 +13,6 @@ import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
 import { useUserStore } from '@/store/user'
 
-const RECOVERY_CATEGORIES = ['闲置回收', '报废回收', '捐赠回收', '其他']
 const DISPOSAL_METHODS = ['出售', '报废', '捐赠']
 
 const router = useRouter()
@@ -23,11 +22,9 @@ const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string; id?: string }[]>([])
 const form = ref({
   调拨日期: '',
-  回收分类: '',
-  回收去向: 'restock' as 'recycle_bin' | 'dispose',
+  回收去向: 'restock' as 'restock' | 'dispose',
   处置方式: '' as '' | '出售' | '报废' | '捐赠',
   处置金额: undefined as number | undefined,
-  出库日期: '',
   调出分公司: '',
   调出部门: '',
   经办人: userStore.profile?.name || '',
@@ -111,6 +108,10 @@ async function submit() {
     ElMessage.warning('直接处置需选择处置方式')
     return
   }
+  if (f.回收去向 === 'dispose' && f.处置方式 === '出售' && (f.处置金额 === undefined || f.处置金额 === null)) {
+    ElMessage.warning('处置方式为出售时需填写处置金额')
+    return
+  }
   const items = draftsToItems(lines.value)
   if (items.length === 0 || !linesEditor.value?.validate()) {
     ElMessage.warning(linesEditor.value?.validateMessage || '每行请选择品目并填写数量（≥1）')
@@ -120,11 +121,9 @@ async function submit() {
   try {
     await recoverAsset({
       调拨日期: f.调拨日期,
-      回收分类: f.回收分类,
       回收去向: f.回收去向,
       处置方式: f.回收去向 === 'dispose' ? f.处置方式 : '',
       处置金额: f.回收去向 === 'dispose' && f.处置方式 === '出售' ? f.处置金额 : undefined,
-      出库日期: f.出库日期 || undefined,
       调出分公司: f.调出分公司,
       调出部门: f.调出部门,
       经办人: f.经办人,
@@ -144,16 +143,9 @@ async function submit() {
 <template>
   <TransferCreateLayout title="新建回收记录" :loading="creating" @submit="submit" @back="goBack">
     <div class="form-grid">
-      <div class="form-item"><label class="form-label">入库日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
-      <div class="form-item">
-        <label class="form-label">回收分类 <span class="required">*</span></label>
-        <select v-model="form.回收分类" class="form-select">
-          <option value="">请选择</option>
-          <option v-for="cat in RECOVERY_CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
-        </select>
-      </div>
+      <div class="form-item"><label class="form-label">回收日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
 
-      <!-- 回收去向二选一：重新入库（在用→在库） / 直接处置（回收库概念退役） -->
+      <!-- 回收去向二选一：重新入库（仅实例且在用） / 直接处置（在库/在用双源） -->
       <div class="form-item full">
         <label class="form-label">回收去向 <span class="required">*</span></label>
         <div class="destination-row">
@@ -187,12 +179,11 @@ async function submit() {
         </select>
       </div>
       <div class="form-item"><label class="form-label">所属部门</label><DepartmentSelect v-model="form.调出部门" /></div>
-      <div class="form-item"><label class="form-label">出库日期</label><input v-model="form.出库日期" type="date" class="form-input" /></div>
       <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
 
-    <TransferLinesEditor ref="linesEditor" v-model="lines" type="recovery" :branch-name="fromBranchName" />
+    <TransferLinesEditor ref="linesEditor" v-model="lines" type="recovery" :branch-name="fromBranchName" :recovery-dest="form.回收去向" />
   </TransferCreateLayout>
 </template>
 

@@ -13,7 +13,7 @@ export function getAssetStocks(params?: PaginationParams & {
   /** '0' = 仅不足行（在库 < 生效警戒线） */
   sufficient?: string
   /** 指定列>0（写单页品目点选按扣数列收口） */
-  positive_column?: '在库数量' | '在用数量' | '回收库数量'
+  positive_column?: string
 }) {
   return request.get<PaginatedResponse<AssetStock>>('/api/assets/summary', { params })
 }

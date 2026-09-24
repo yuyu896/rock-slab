@@ -125,14 +125,13 @@ export function useTransferList(type: TransferType) {
   }
 
   function handleDownloadTemplate() {
-    const templateConfig: Record<TransferType, { filename: string }> = {
+    const templateConfig: Partial<Record<TransferType, { filename: string }>> = {
       purchase: { filename: '采购入库导入模板' },
       assign: { filename: '领用出库导入模板' },
       return: { filename: '归还入库导入模板' },
       transfer: { filename: '调拨导入模板' },
-      recovery: { filename: '回收导入模板' },
     }
-    const { filename } = templateConfig[type]
+    const { filename } = templateConfig[type] ?? { filename: '流转导入模板' }
     generateTransferTemplate(filename, type)
   }
 

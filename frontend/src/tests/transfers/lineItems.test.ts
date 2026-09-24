@@ -179,9 +179,9 @@ describe('TransferLinesEditor 增删行与校验', () => {
     expect((wrapper.vm as any).validate()).toBe(true)
   })
 
-  it('回收行在用数量未知时预检放行（终检在后端台账行锁内）', async () => {
+  it('回收处置行在库数量未知时预检放行（终检在后端台账行锁内）', async () => {
     const wrapper = mount(TransferLinesEditor, {
-      props: { modelValue: [], type: 'recovery', branchName: '测试分公司' },
+      props: { modelValue: [], type: 'recovery', branchName: '测试分公司', recoveryDest: 'dispose' },
       global: {
         stubs: { ItemPicker: { template: '<div class="picker-stub" />' } },
       },

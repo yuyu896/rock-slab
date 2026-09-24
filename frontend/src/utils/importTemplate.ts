@@ -102,23 +102,15 @@ export function generateAssetTemplate() {
 }
 
 export function generateTransferTemplate(filename: string, type: string) {
-  const RECOVERY_HEADERS = [
-    '调拨日期', '调出分公司', '调出部门', '资产编号', '资产类目',
-    '物品分类', '资产名称', '回收分类', '调拨数量', '单位',
-    '规格型号', '出库日期', '存放位置', '经办人', '备注',
-  ]
-
   const headersMap: Record<string, string[]> = {
     purchase: PURCHASE_HEADERS,
     assign: ASSIGN_HEADERS,
     transfer: TRANSFER_HEADERS,
-    recovery: RECOVERY_HEADERS,
   }
   const sheetMap: Record<string, string> = {
     purchase: '采购入库',
     assign: '领用出库',
     transfer: '调拨',
-    recovery: '回收',
   }
   return buildTemplate(headersMap[type] || TRANSFER_HEADERS, sheetMap[type] || '流转记录', filename)
 }

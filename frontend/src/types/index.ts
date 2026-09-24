@@ -310,7 +310,7 @@ export interface TransferDocument {
   调入负责人?: string
   用途?: string
   回收分类?: string
-  回收去向?: 'recycle_bin' | 'dispose'
+  回收去向?: 'restock' | 'dispose' | 'recycle_bin'
   领用来源?: 'stock' | 'recycle_bin'
   处置方式?: '出售' | '报废' | '捐赠' | ''
   处置金额?: number

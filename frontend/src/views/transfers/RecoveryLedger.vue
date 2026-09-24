@@ -14,6 +14,7 @@ type LedgerRow = Record<string, string | number | null>
 const filters = ref({ branch: [] as string[], dateFrom: '', dateTo: '', keyword: '' })
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
+const disposalIncome = ref<number | null>(null)
 const loading = ref(false)
 const rows = ref<LedgerRow[]>([])
 const exporting = ref(false)
@@ -31,6 +32,7 @@ async function fetchRows() {
     })
     rows.value = data.results as LedgerRow[]
     pagination.value.total = data.count
+    disposalIncome.value = Number((data as any).disposalIncome ?? 0) || 0
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -88,7 +90,9 @@ onMounted(() => { fetchRows(); fetchBranches() })
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">回收台账</h1>
-        <p class="page-desc">直接处置物资明细 · 共{{ pagination.total }}条 · 供管理层查账</p>
+        <p class="page-desc">
+          直接处置物资明细 · 共{{ pagination.total }}条 · 处置收入合计 ¥{{ disposalIncome ?? 0 }} · 供管理层查账
+        </p>
       </div>
       <div class="header-actions">
         <button class="btn-secondary" :disabled="exporting" @click="handleExport">

@@ -1,6 +1,6 @@
 import io
 from datetime import date
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Sum, Value, When
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -16,7 +16,8 @@ from .models import Transfer, TransferLine, TransferLineInstance
 from .serializers import (
     TransferSerializer, TransferActionSerializer, ApproveSerializer,
 )
-from .services import generate_document_number, validate_line_items_instances
+from .services import (generate_document_number, validate_disposal_fields,
+                       validate_line_items_instances)
 from .filters import TransferFilterSet
 
 # Active inventory statuses that lock a branch's transfers
@@ -83,13 +84,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             'sheet': '调拨',
             'filename': 'transfer_template.xlsx',
         },
-        'recovery': {
-            'headers': ['分公司', '资产编号', '资产类目', '物品分类', '资产名称', '回收分类',
-                        '入库日期', '数量', '单位', '规格', '出库日期', '所属部门',
-                        '存放位置', '经办人', '备注'],
-            'sheet': '回收',
-            'filename': 'recovery_template.xlsx',
-        },
+
     }
 
     def get_queryset(self):
@@ -178,6 +173,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             data['创建人'] = request.user.name or request.user.phone
         if not data.get('经办人'):
             data['经办人'] = data['创建人']
+        if action_type == Transfer.ACTION_RECOVERY:
+            validate_disposal_fields(
+                data.get('回收去向') or Transfer.RESTOCK,
+                data.get('处置方式') or '',
+                data.get('处置金额'),
+            )
 
         # 草稿：保存为「草稿」状态，不进入审批流
         if request.data.get('draft'):
@@ -196,6 +197,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         validate_line_items_instances(
             action_type, from_branch, to_branch,
             data.get('领用来源') or Transfer.ASSIGN_SOURCE_STOCK, items,
+            recovery_dest=data.get('回收去向') or Transfer.RESTOCK,
         )
 
         # Check inventory lock on both source and target branches
@@ -399,6 +401,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 to_branch or instance.to_branch,
             )
 
+        if instance.action_type == Transfer.ACTION_RECOVERY:
+            validate_disposal_fields(
+                data.get('回收去向', instance.回收去向),
+                data.get('处置方式', instance.处置方式),
+                data.get('处置金额', instance.处置金额),
+            )
+
         # 明细整替的实例引用预检（分公司维度取编辑后单据现状）
         if items is not None:
             validate_line_items_instances(
@@ -407,6 +416,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 to_branch or instance.to_branch,
                 data.get('领用来源') or instance.领用来源,
                 items,
+                recovery_dest=data.get('回收去向') or instance.回收去向,
             )
 
         with transaction.atomic():
@@ -454,6 +464,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.http import HttpResponse
 
         template_type = request.query_params.get('type', 'transfer')
+        if template_type == 'recovery':
+            return Response(
+                {'detail': '回收导入模板已下线：回收请走页面新建'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         tpl = self.TYPE_TEMPLATES.get(template_type, self.TYPE_TEMPLATES['transfer'])
 
         wb = openpyxl.Workbook()
@@ -534,7 +549,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         elif template_type == 'recovery':
             ws.title = '回收'
             headers = ['序号', '分公司', '资产编号', '资产类目', '物品分类', '资产名称',
-                       '回收分类', '入库日期', '数量', '单位', '规格', '出库日期',
+                       '回收日期', '数量', '单位', '规格',
                        '所属部门', '当前处理状态', '存放位置', '经办人', '备注']
             ws.append(headers)
             idx = 0
@@ -544,11 +559,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     ws.append([
                         idx, t.调出分公司, line.item.asset_code,
                         line.item.asset_category, line.item.item_category,
-                        line.item.asset_name, t.回收分类,
+                        line.item.asset_name,
                         str(t.调拨日期) if t.调拨日期 else '',
                         line.数量, line.item.unit, _spec(line),
-                        str(t.出库日期) if t.出库日期 else '',
-                        t.调出部门, t.审批状态, line.存放位置, t.经办人, t.备注,
+                        t.调出部门, t.审批状态, line.存放位置,
+                        t.经办人 or t.创建人, t.备注,
                     ])
 
         else:
@@ -605,7 +620,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 '分公司': t.调出分公司,
                 '处置方式': t.处置方式,
                 '处置金额': t.处置金额,
-                '经办人': t.创建人,
+                '经办人': t.经办人 or t.创建人,
                 '备注': t.备注,
             }
             for line in t.lines.all():
@@ -643,9 +658,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         page_size = min(int(request.query_params.get('pageSize', 20) or 20), 100)
         page = int(request.query_params.get('page', 1) or 1)
         start = (page - 1) * page_size
+        disposal_income = queryset.filter(处置方式='出售').aggregate(
+            v=Sum('处置金额'))['v'] or 0
         return Response({
             'count': len(rows),
             'results': rows[start:start + page_size],
+            'disposal_income': disposal_income,
         })
 
     @action(detail=False, methods=['get'], url_path='recovery-ledger/export')
@@ -668,6 +686,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.append(self.DISPOSAL_LEDGER_HEADERS)
         for row in self._disposal_rows(queryset):
             ws.append([row[h] for h in self.DISPOSAL_LEDGER_HEADERS])
+        disposal_income = queryset.filter(处置方式='出售').aggregate(
+            v=Sum('处置金额'))['v'] or 0
+        ws.append([])
+        ws.append(['处置收入合计（出售）'] + [''] * (len(self.DISPOSAL_LEDGER_HEADERS) - 4)
+                  + [float(disposal_income), '', ''])
 
         output = io.BytesIO()
         wb.save(output)
@@ -706,6 +729,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         template_type = request.query_params.get('type', 'transfer')
+        # 回收批量导入已下线（recovery-stock-source-and-cleanup：实例品需页面点选、
+        # 数量品无重新入库概念，Excel 无合法内容）；回收统一走页面操作
+        if template_type == 'recovery':
+            return Response(
+                {'detail': '回收批量导入已下线：回收请走页面新建（新模型下回收为页面操作）'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # 文件指纹防重传：同上传者同文件 24h 内重传即拒（跨次上传去重，第 30 案）
         import hashlib
@@ -876,25 +906,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         }
                         action = Transfer.ACTION_ASSIGN
 
-                    elif template_type == 'recovery':
-                        branch_name = _cell(row, '分公司')
-                        header = {
-                            '调拨日期': _parse_date(_num(row, '入库日期')) if _cell(row, '入库日期') else date.today(),
-                            '调出分公司': branch_name,
-                            '回收分类': _cell(row, '回收分类'),
-                            '出库日期': _parse_date(_num(row, '出库日期')) if _cell(row, '出库日期') else None,
-                            '调出部门': _cell(row, '所属部门'),
-                            '经办人': _cell(row, '经办人'),
-                            '备注': _cell(row, '备注'),
-                        }
-                        line_kwargs = {
-                            'item': item,
-                            '数量': _qty(row, '数量'),
-                            '本批规格': _cell(row, '规格'),
-                            '存放位置': _cell(row, '存放位置'),
-                        }
-                        action = Transfer.ACTION_RECOVERY
-
                     else:  # transfer
                         header = {
                             '调拨日期': _parse_date(_num(row, '调拨日期')),
@@ -930,6 +941,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None,
                         Transfer.ASSIGN_SOURCE_STOCK,
                         [line_kwargs],
+                        recovery_dest=Transfer.RESTOCK,
                     )
 
                     # ── 建单（采购/领用：单头键相同的行合并一张多明细单；调拨/回收：一行一单） ──

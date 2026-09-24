@@ -18,6 +18,8 @@ const props = defineProps<{
   branchName?: string
   /** 领用来源（stock=新品库 扣在库 / recycle_bin=回收库 扣回收库），仅 assign */
   assignSource?: 'stock' | 'recycle_bin'
+  /** 回收去向（restock=仅实例在用 / dispose=在库在用双源、数量行扣在库），仅 recovery */
+  recoveryDest?: 'restock' | 'dispose'
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: LineDraft[]): void
@@ -53,7 +55,7 @@ function onItemPicked(index: number, item: any) {
     drafts.value[index].instances = []
     drafts.value[index].数量 = 1
   }
-  if (props.type === 'recovery') loadInUse(item.asset_code)
+  if (props.type === 'recovery') loadStockRow(item.asset_code)
   touch()
 }
 
@@ -67,7 +69,8 @@ function isInstanceRow(draft: LineDraft): boolean {
 function pickerStatus(): string {
   if (props.type === 'assign') return props.assignSource === 'recycle_bin' ? '回收库' : '在库'
   if (props.type === 'transfer') return '在库'
-  return '在用' // return / recovery
+  if (props.type === 'recovery') return props.recoveryDest === 'dispose' ? '在库,在用' : '在用'
+  return '在用' // return
 }
 
 /** 本单全部行已选实例 id：跨行去重下传（本行已选在组件内保留勾选回显） */
@@ -160,54 +163,77 @@ watch(
 const hasInstanceColumn = computed(() => BINDING_TYPES.includes(props.type))
 
 /** 品目点选扣数列收口：领用按来源、调拨在库、回收在用；采购生成制不收口（全量字典） */
-const itemStockColumn = computed<'在库数量' | '在用数量' | '回收库数量' | undefined>(() => {
+const itemStockColumn = computed<string | undefined>(() => {
   if (props.type === 'assign') return props.assignSource === 'recycle_bin' ? '回收库数量' : '在库数量'
   if (props.type === 'transfer') return '在库数量'
-  if (props.type === 'recovery') return '在用数量'
+  if (props.type === 'recovery') {
+    // 处置向双源：品目有在库或在用即可选；重新入库维持仅实例在用
+    return props.recoveryDest === 'dispose' ? '在库数量,在用数量' : '在用数量'
+  }
   return undefined
 })
 /** 回收库来源剔除消耗品（领出即耗用品目不得走回收库，与提交校验口径一致） */
 const excludeConsumable = computed(() => itemStockColumn.value === '回收库数量')
 
-/** 回收在用数量缓存（品目编号 → 在用）：品目点选逐条拉取，切换调出分公司整体失效重拉 */
-const inUseMap = ref(new Map<string, number>())
+/** 回收台账行缓存（品目编号 → {stock, inUse}）：点选逐条拉取，切分公司整体失效重拉 */
+const stockRowMap = ref(new Map<string, { stock: number; inUse: number }>())
 
-async function loadInUse(code: string) {
-  if (!props.branchName || inUseMap.value.has(code)) return
-  inUseMap.value.set(code, -1) // -1 = 拉取中，防止并发重复请求
+async function loadStockRow(code: string) {
+  if (!props.branchName || stockRowMap.value.has(code)) return
+  stockRowMap.value.set(code, { stock: -1, inUse: -1 }) // -1 = 拉取中
   try {
     const { data } = await getAssetStocks({ branch: props.branchName, asset_code: code, pageSize: 1 })
-    inUseMap.value.set(code, data.results[0]?.在用数量 ?? 0)
+    const row = data.results[0]
+    stockRowMap.value.set(code, {
+      stock: row?.在库数量 ?? 0,
+      inUse: row?.在用数量 ?? 0,
+    })
   } catch {
-    inUseMap.value.delete(code)
+    stockRowMap.value.delete(code)
   }
 }
 
 watch(
   () => props.branchName,
   () => {
-    inUseMap.value = new Map()
+    stockRowMap.value = new Map()
     if (props.type === 'recovery') {
-      drafts.value.forEach((d) => d.item && loadInUse(d.item.asset_code))
+      drafts.value.forEach((d) => d.item && loadStockRow(d.item.asset_code))
     }
   },
 )
 
-function inUseOf(code: string): number | null {
-  const value = inUseMap.value.get(code)
-  return value === undefined || value < 0 ? null : value
+function stockRowOf(code: string): { stock: number; inUse: number } | null {
+  const value = stockRowMap.value.get(code)
+  return value && value.stock >= 0 ? value : null
 }
 
-/** 回收同品目多行合并计量超在用（缓存未知的品目放行，终检在后端台账行锁内） */
-function recoveryOverUse(): { code: string; total: number } | null {
+function inUseOf(code: string): number | null {
+  return stockRowOf(code)?.inUse ?? null
+}
+
+function stockOf(code: string): number | null {
+  return stockRowOf(code)?.stock ?? null
+}
+
+/** 回收数量品行充足软预检（缓存未知的品目放行，终检在后端台账行锁内）：
+ *  处置向合并计量超在库即拒；重新入库向出现数量品行直接拒（无重新入库概念）。 */
+function recoveryQuantityIssue(): string | null {
+  if (props.recoveryDest !== 'dispose') {
+    const bad = drafts.value.find((d) => d.item && d.item.managementType !== 'instance')
+    if (bad?.item) return `品目 ${bad.item.asset_code} 数量品物无重新入库概念（回库请走归还单；处置请改选「直接处置」）`
+    return null
+  }
   const merged = new Map<string, number>()
   drafts.value.forEach((d) => {
-    if (d.item && inUseOf(d.item.asset_code) !== null) {
+    if (d.item && d.item.managementType !== 'instance' && stockOf(d.item.asset_code) !== null) {
       merged.set(d.item.asset_code, (merged.get(d.item.asset_code) ?? 0) + Number(d.数量))
     }
   })
   for (const [code, total] of merged) {
-    if (total > (inUseOf(code) ?? 0)) return { code, total }
+    if (total > (stockOf(code) ?? 0)) {
+      return `品目 ${code} 合计处置 ${total} 超出当前在库 ${stockOf(code)}；若有在用余量请先走归还单`
+    }
   }
   return null
 }
@@ -226,9 +252,9 @@ function validate(): boolean {
   })
   if (!ok) return false
   if (props.type === 'recovery') {
-    const over = recoveryOverUse()
-    if (over) {
-      validateMessage.value = `品目 ${over.code} 合计回收 ${over.total} 超出当前在用 ${inUseOf(over.code)}，请核对物品是否未领用、或调出分公司是否选错`
+    const issue = recoveryQuantityIssue()
+    if (issue) {
+      validateMessage.value = issue
       return false
     }
   }
@@ -283,10 +309,12 @@ defineExpose({ validate, validateMessage })
             @change="onQtyChange(index)"
           />
           <div
-            v-if="type === 'recovery' && draft.item && inUseOf(draft.item.asset_code) !== null"
+            v-if="type === 'recovery' && recoveryDest === 'dispose' && draft.item
+              && draft.item.managementType !== 'instance'
+              && stockOf(draft.item.asset_code) !== null"
             class="in-use"
-            :class="{ 'in-use-short': Number(draft.数量) > (inUseOf(draft.item.asset_code) ?? 0) }"
-          >在用 {{ inUseOf(draft.item.asset_code) }}</div>
+            :class="{ 'in-use-short': Number(draft.数量) > (stockOf(draft.item.asset_code) ?? 0) }"
+          >在库 {{ stockOf(draft.item.asset_code) }}</div>
         </div>
         <div v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'" class="cell"><input v-model="draft.本批规格" type="text" class="row-input" placeholder="记录性" @change="touch" /></div>
         <div v-if="type === 'purchase'" class="cell">
