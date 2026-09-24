@@ -198,6 +198,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             action_type, from_branch, to_branch,
             data.get('领用来源') or Transfer.ASSIGN_SOURCE_STOCK, items,
             recovery_dest=data.get('回收去向') or Transfer.RESTOCK,
+            exclude_transfer_id=None,
         )
 
         # Check inventory lock on both source and target branches
@@ -417,6 +418,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 data.get('领用来源') or instance.领用来源,
                 items,
                 recovery_dest=data.get('回收去向') or instance.回收去向,
+                exclude_transfer_id=instance.id,
             )
 
         with transaction.atomic():
@@ -456,6 +458,24 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         '调拨': Transfer.ACTION_TRANSFER,
         '回收': Transfer.ACTION_RECOVERY,
     }
+
+    @action(detail=False, methods=['get'], url_path='instance-occupancy')
+    def instance_occupancy(self, request):
+        """未生效单据实例占用映射（instance-picker-completeness：点选器候选标注用）。
+        参数 branch（分公司名）与 asset_code（品目编号）收敛查询面。"""
+        from .services import _pending_occupation_map
+        from apps.assets.models import FixedAsset
+        branch_name = request.query_params.get('branch') or ''
+        asset_code = request.query_params.get('asset_code') or ''
+        insts = FixedAsset.objects.filter(
+            item__asset_code=asset_code, branch__name=branch_name,
+        ) if (branch_name and asset_code) else FixedAsset.objects.none()
+        occupancy = _pending_occupation_map(list(insts.values_list('id', flat=True)))
+        id_map = {i.pk: i.内部编号 for i in insts}
+        return Response([
+            {'instanceId': str(pk), 'instanceCode': id_map.get(pk, ''), 'docNo': doc_no, 'docStatus': status}
+            for pk, (doc_no, status) in occupancy.items()
+        ])
 
     @action(detail=False, methods=['get'], url_path='template')
     def download_template(self, request):
@@ -942,6 +962,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         Transfer.ASSIGN_SOURCE_STOCK,
                         [line_kwargs],
                         recovery_dest=Transfer.RESTOCK,
+                        exclude_transfer_id=None,
                     )
 
                     # ── 建单（采购/领用：单头键相同的行合并一张多明细单；调拨/回收：一行一单） ──

@@ -56,24 +56,24 @@ def check_line_instances(transfer, line, instances):
     if not instances:
         if is_instance_item and transfer.action_type in BINDING_ACTIONS:
             raise _err(
-                f'明细行 {line.行号}（{line.item.asset_code}）：实例管理品目必须选择与数量等长的实例'
+                f'实例管理品目必须选择与数量等长的实例'
             )
         return
     if not is_instance_item:
         raise _err(
-            f'明细行 {line.行号}（{line.item.asset_code}）：非实例管理品目无需选择实例'
+            f'非实例管理品目无需选择实例'
         )
     if transfer.action_type == 'purchase':
         raise _err(
-            f'明细行 {line.行号}（{line.item.asset_code}）：采购实例由入库自动生成，不可携带'
+            f'采购实例由入库自动生成，不可携带'
         )
     if transfer.action_type not in BINDING_ACTIONS:
-        raise _err(f'明细行 {line.行号}：该单据类型不支持实例引用')
+        raise _err(f'该单据类型不支持实例引用')
 
     qty = int(line.数量 or 0)
     if len(instances) != qty:
         raise _err(
-            f'明细行 {line.行号}（{line.item.asset_code}）：实例数 {len(instances)} 与数量 {qty} 不一致'
+            f'实例数 {len(instances)} 与数量 {qty} 不一致'
         )
 
     want_state = expected_state(transfer.action_type, transfer.领用来源, transfer.回收去向)
@@ -85,7 +85,7 @@ def check_line_instances(transfer, line, instances):
     for inst in instances:
         if inst.item_id != line.item_id:
             raise _err(
-                f'明细行 {line.行号}（{line.item.asset_code}）：实例 {inst.内部编号} 品目不符'
+                f'实例 {inst.内部编号} 品目不符'
             )
         if inst.当前状态 not in want_state:
             hint = (
@@ -95,12 +95,12 @@ def check_line_instances(transfer, line, instances):
                 else ''
             )
             raise _err(
-                f'明细行 {line.行号}（{line.item.asset_code}）：实例 {inst.内部编号} '
+                f'实例 {inst.内部编号} '
                 f'状态 {inst.当前状态} 不是 {"、".join(want_state)}（可能已被其他单据占用）{hint}'
             )
         if branch is not None and inst.branch_id != branch.pk:
             raise _err(
-                f'明细行 {line.行号}（{line.item.asset_code}）：实例 {inst.内部编号} 不在 {branch.name}'
+                f'实例 {inst.内部编号} 不在 {branch.name}'
             )
 
 

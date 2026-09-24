@@ -37,7 +37,7 @@ describe('InventoryTaskCreate 实例盘去部门', () => {
   it('页面无盘点部门下拉；实例盘 radio 文案为全公司口径', async () => {
     const wrapper = await _mount()
     expect(wrapper.text()).not.toContain('盘点部门')
-    expect(wrapper.text()).toContain('实例盘点（逐台核对全公司在用资产）')
+    expect(wrapper.text()).toContain('实例盘点（逐台核对全部实例档案')
     await wrapper.find('input[type=radio][value=instance]').setValue()
     expect(wrapper.text()).toContain('全公司「在用」实例')
   })

@@ -70,6 +70,14 @@ class FixedAssetFilterSet(django_filters.FilterSet):
     item_keyword = django_filters.CharFilter(method='filter_item_keyword')
     pending_serial = django_filters.CharFilter(method='filter_pending_serial')
     keyword = django_filters.CharFilter(method='filter_keyword')
+    # 点选器直达搜索（instance-picker-completeness）：内部编号/序列号 icontains
+    inner_keyword = django_filters.CharFilter(method='filter_inner_keyword')
+
+    def filter_inner_keyword(self, queryset, name, value):
+        from django.db.models import Q
+        return queryset.filter(
+            Q(内部编号__icontains=value) | Q(序列号__icontains=value)
+        )
 
     def filter_status_in(self, queryset, name, value):
         states = [v.strip() for v in value.split(',') if v.strip()]

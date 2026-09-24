@@ -63,9 +63,6 @@ function openCreatePage() {
           <BranchFilterSelect v-model="filters.fromBranch" :options="branchOptions" all-label="调出分公司" />
         </div>
         <div class="filter-item">
-          <BranchFilterSelect v-model="filters.toBranch" :options="branchOptions" all-label="调入分公司" />
-        </div>
-        <div class="filter-item">
           <select v-model="filters.status" class="filter-select">
             <option value="">全部状态</option>
             <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>

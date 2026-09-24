@@ -320,7 +320,11 @@ class TestDocumentInstanceMatrix:
         assert (row.在用数量, row.回收库数量, row.在库数量) == (0, 0, 1)
 
     def test_occupied_instance_rolls_back_whole_doc(self, authenticated_client, branch):
-        """创建到生效之间实例被并发单据占用 → 终检失败，台账与实例均无变化。"""
+        """创建到生效之间实例被并发占用 → 终检失败，台账与实例均无变化。
+
+        instance-picker-completeness 后创建端已拦未生效单据占用（两张待审批单选同台
+        直接 400），此处用直改实例状态模拟非单据路径的竞态，保住行锁终检覆盖。
+        """
         item = _item('IM-X-001')
         _seed(branch, item, stock=1)
         insts = _make_instances(branch, item, '在库', 1)
@@ -329,17 +333,16 @@ class TestDocumentInstanceMatrix:
             '调拨日期': '2026-08-23', '调出分公司': branch.name,
             'items': [_line(item, insts, 使用人='乙', department=str(_dept(branch).id))],
         }, format='json')
-        doc_a = authenticated_client.post('/api/transfers/assign', {
-            '调拨日期': '2026-08-23', '调出分公司': branch.name,
-            'items': [_line(item, insts, 使用人='甲', department=str(_dept(branch).id))],
-        }, format='json')
-        assert _approve(authenticated_client, doc_a.data['id']).status_code == 200
+        # 创建后、审批前：实例经非单据路径被他方占用（tests 白名单：实例直改 + 台账经写入口）
+        FixedAsset.objects.filter(pk=insts[0].pk).update(当前状态='在用', 使用人='甲')
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, -1, '模拟他方占用')
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_IN_USE, 1, '模拟他方占用')
 
         resp = _approve(authenticated_client, doc_b.data['id'])
         assert resp.status_code == 400
         assert '不是 在库' in str(resp.data['detail'])
         insts[0].refresh_from_db()
-        assert insts[0].使用人 == '甲'  # A 单的绑定保留，B 单未生效
+        assert insts[0].使用人 == '甲'  # 他方占用保留，B 单未生效
         row = AssetStock.objects.get(branch=branch, item=item)
         assert (row.在库数量, row.在用数量) == (0, 1)
         from apps.transfers.models import Transfer

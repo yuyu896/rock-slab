@@ -37,8 +37,30 @@ def generate_document_number(action_type, doc_date):
     return f'{prefix}{doc_date.strftime("%Y%m%d")}-{no:03d}'
 
 
+def _pending_occupation_map(instance_ids, exclude_transfer_id=None):
+    """未生效单据占用映射（instance-picker-completeness）：{instance_id: (单据编号, 状态)}。
+    仅认 待审批/草稿；已驳回/已取消不占（重提转待审批时再受检）；exclude 排除编辑单自身。"""
+    from .models import Transfer, TransferLineInstance
+    if not instance_ids:
+        return {}
+    qs = TransferLineInstance.objects.filter(
+        instance_id__in=instance_ids,
+        line__transfer__审批状态__in=('待审批', '草稿'),
+        line__transfer__action_type__in=(
+            Transfer.ACTION_ASSIGN, Transfer.ACTION_RETURN,
+            Transfer.ACTION_TRANSFER, Transfer.ACTION_RECOVERY,
+        ),
+    ).select_related('line__transfer')
+    if exclude_transfer_id is not None:
+        qs = qs.exclude(line__transfer_id=exclude_transfer_id)
+    occupancy = {}
+    for link in qs.order_by('line__transfer__created_at'):
+        occupancy.setdefault(link.instance_id, (link.line.transfer.单据编号, link.line.transfer.审批状态))
+    return occupancy
+
+
 def validate_line_items_instances(action_type, from_branch, to_branch, assign_source, items,
-                                  recovery_dest='restock'):
+                                  recovery_dest='restock', exclude_transfer_id=None):
     """创建/编辑预检：品目管理方式 × 单据类型矩阵 + 类型专属行规则（生效时 ledger 另有行锁终检）。
 
     items 为序列化后的明细行字典（item 为品目实例、instances 为实例对象列表）。
@@ -96,7 +118,13 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
 
         want = instance_service.expected_state(action_type, assign_source, recovery_dest)
         branch = from_branch if action_type != 'return' else (to_branch or from_branch)
+        # 未生效单据占用预检（编辑单自身引用不拦）
+        occupancy = _pending_occupation_map([i.pk for i in insts], exclude_transfer_id)
         for inst in insts:
+            if inst.pk in occupancy:
+                doc_no, doc_status = occupancy[inst.pk]
+                err(row_no, item.asset_code,
+                    f'实例 {inst.内部编号} 已被{doc_status}单 {doc_no} 占用，请改选其他实例')
             if inst.item_id != item.pk:
                 err(row_no, item.asset_code, f'实例 {inst.内部编号} 品目不符')
             if inst.当前状态 not in want:
