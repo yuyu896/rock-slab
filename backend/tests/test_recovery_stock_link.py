@@ -8,6 +8,7 @@ from rest_framework import status
 
 from apps.assets.models import AssetStock, FixedAsset
 from apps.assets.services import ledger
+from apps.transfers.models import TransferLine
 
 
 def _ensure_item(code, management_type='quantity'):
@@ -160,6 +161,31 @@ class TestRecoveryDirectDispose:
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert '处置方式' in str(resp.data['detail'])
+
+    def test_dispose_snapshot_written_and_consistent(self, authenticated_client, branch, item_id):
+        """处置生效写扣列快照（在用实例→在用列 / 在库实例→在库列）；对账重放零差异。"""
+        from django.core.management import call_command
+        from io import StringIO
+        _seed_ledger(branch, 'FAI-4', in_use=1, stock=1, management_type='instance')
+        item = _ensure_item('FAI-4', 'instance')
+        a = FixedAsset.objects.create(
+            item=item, 内部编号='FAI-4-1', 当前状态='在用', branch=branch, 使用人='张三')
+        b = FixedAsset.objects.create(
+            item=item, 内部编号='FAI-4-2', 当前状态='在库', branch=branch)
+        for inst, expect_spec in ((a, '在用数量:1'), (b, '在库数量:1')):
+            resp = authenticated_client.post(
+                '/api/transfers/recovery',
+                _recovery_payload(item_id, branch, 'FAI-4', qty=1, instances=[inst.pk],
+                                  回收去向='dispose', 处置方式='报废'),
+                format='json',
+            )
+            assert resp.status_code == 201
+            assert _approve(authenticated_client, resp.data['id']).status_code == 200
+            line = TransferLine.objects.get(transfer_id=resp.data['id'])
+            assert line.处置扣列 == expect_spec, f'{inst.内部编号}: {line.处置扣列}'
+        out = StringIO()
+        call_command('check_ledger_consistency', stdout=out)
+        assert '零差异' in out.getvalue()
 
     def test_sold_without_amount_rejected(self, authenticated_client, branch, item_id):
         """后端处置必填：出售缺金额即 400。"""

@@ -212,6 +212,9 @@ class TransferLine(UUIDModel, TimestampedModel):
         related_name='transfer_lines', verbose_name='领用部门',
     )
     存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
+    # 处置扣列快照（recovery-stock-source）：处置行生效时实际扣减的台账列与数量，
+    # 形如 '在用数量:1' / '在用数量:1,在库数量:2'；对账重放与离线回退的唯一事实源
+    处置扣列 = models.CharField('处置扣列快照', max_length=100, blank=True, default='')
     instances = models.ManyToManyField(
         'assets.FixedAsset',
         through='TransferLineInstance',

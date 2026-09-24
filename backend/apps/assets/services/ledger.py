@@ -152,15 +152,33 @@ def _line_plan(transfer, line):
     raise ValidationError({'detail': f'未知单据类型 {action}'})
 
 
+def _dispose_spec(deltas):
+    """处置派生计划 → 扣列快照串：'在用数量:1,在库数量:2'（列序稳定）。"""
+    counts = {}
+    for _branch, _item, column, delta in deltas:
+        if delta < 0:
+            counts[column] = counts.get(column, 0) + (-delta)
+    return ','.join(f'{col}:{n}' for col, n in sorted(counts.items()))
+
+
+def dispose_spec_deltas(from_branch, line, spec):
+    """扣列快照串 → 台账计划（对账重放/离线回退用；空串按旧规则在用×数量）。"""
+    if not spec:
+        return [(from_branch, line.item, COLUMN_IN_USE, -line.数量)]
+    deltas = []
+    for part in spec.split(','):
+        col, _, n = part.partition(':')
+        deltas.append((from_branch, line.item, col, -int(n)))
+    return deltas
+
+
 def line_effective_plan(transfer, line):
     """单行有效台账计划——离线回放口径（数据修复命令的聚合回退用）。
 
-    历史单据按当时生效语义回放：处置向一律扣在用（双源派生是
-    recovery-stock-source-and-cleanup 之后的新单据语义；新单据生效以
-    apply_document 行锁后按实例状态派生为准，不经本函数——退役终态
-    无法事后反推处置前状态，新单据的离线回放不适用）。"""
+    处置行读「处置扣列」快照（生效时事实）；快照缺失（回填前的存量）
+    按旧规则在用×数量。非处置行与 _line_plan 同源。"""
     if transfer.action_type == 'recovery' and transfer.回收去向 == 'dispose':
-        return [(transfer.from_branch, line.item, COLUMN_IN_USE, -line.数量)]
+        return dispose_spec_deltas(transfer.from_branch, line, line.处置扣列)
     return _line_plan(transfer, line)
 
 
@@ -284,6 +302,8 @@ def apply_document(transfer):
                 line_plan = plan
                 if action == 'recovery' and transfer.回收去向 == 'dispose':
                     line_plan = _recovery_dispose_deltas(transfer, line, insts)
+                    line.处置扣列 = _dispose_spec(line_plan)
+                    line.save(update_fields=['处置扣列'])
                 for branch, item, column, delta in line_plan:
                     key = (branch.pk, item.pk)
                     row = locked.get(key)

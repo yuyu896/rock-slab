@@ -14,7 +14,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Count
 
 from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment
-from apps.assets.services.ledger import _line_plan
+from apps.assets.services.ledger import _line_plan, dispose_spec_deltas
 from apps.categories.models import Category
 from apps.transfers.models import Transfer
 
@@ -64,6 +64,11 @@ class Command(BaseCommand):
 
         for t in transfers:
             for line in t.lines.all():
+                # 处置行按「处置扣列」快照重放（生效时事实；缺失按旧规则在用×数量）
+                if t.action_type == 'recovery' and t.回收去向 == 'dispose':
+                    for branch, item, column, delta in dispose_spec_deltas(t.from_branch, line, line.处置扣列):
+                        bump(branch, item, column, delta)
+                    continue
                 for branch, item, column, delta in _line_plan(t, line):
                     bump(branch, item, column, delta)
 
