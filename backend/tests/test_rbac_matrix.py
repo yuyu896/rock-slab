@@ -188,6 +188,15 @@ class TestTransferRBAC:
 @pytest.mark.django_db
 class TestInventoryRBAC:
     def _create_task(self, admin_user, branch):
+        # 台账底数（inventory-checklist-safety：空范围开始会被拦，submit 依赖 in_progress）
+        from apps.categories.models import Category
+        from apps.assets.services import ledger
+        item, _ = Category.objects.get_or_create(
+            asset_code='RBAC-SEED-1',
+            defaults={'asset_category': '测试类目', 'item_category': '测试分类',
+                      'asset_name': 'RBAC 底数品目', 'unit': '个'},
+        )
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 2, '测试造数')
         client = _client_for(admin_user)
         resp = client.post('/api/inventories/', {'name': '测试盘点', 'branch': branch.id})
         assert resp.status_code == 201

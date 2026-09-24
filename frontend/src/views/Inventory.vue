@@ -493,6 +493,8 @@ const handleImportFile = async (event: Event) => {
     } else {
       ElMessage.success(`导入成功：${result.imported} 条`)
     }
+    // 空清单根因提示（inventory-checklist-safety）：清单为空导致的批量不匹配点明病因
+    if (result.hint) ElMessage.warning(result.hint)
     await fetchTasks()
   } catch (error) {
     ElMessage.error(handleApiError(error))

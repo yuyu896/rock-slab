@@ -59,6 +59,15 @@ class TestInventoryApproveIdempotency:
         client = _client_for(admin_user)
         resp = client.post('/api/inventories/', {'name': '状态测试', 'branch': branch.id}, format='json')
         task_id = resp.data['id']
+        # 台账底数（inventory-checklist-safety：空范围开始会被拦）
+        from apps.categories.models import Category
+        from apps.assets.services import ledger
+        item, _ = Category.objects.get_or_create(
+            asset_code='IC-SEED-1',
+            defaults={'asset_category': '测试类目', 'item_category': '测试分类',
+                      'asset_name': '并发底数品目', 'unit': '个'},
+        )
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 2, '测试造数')
         # pending → in_progress（合法）
         assert client.post(f'/api/inventories/{task_id}/start').status_code == 200
         # in_progress → cancelled（合法）

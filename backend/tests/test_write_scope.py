@@ -54,6 +54,8 @@ class TestWriteScopeEnforcement:
         )
         ledger.apply_adjustment(second_branch, item, ledger.COLUMN_STOCK, 5, '造数')
         stock = AssetStock.objects.get(branch=second_branch, item=item)
+        # 任务分公司台账底数（inventory-checklist-safety：空范围开始会被拦）
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 3, '造数')
         client_admin = _client_for(admin_user)
         resp = client_admin.post('/api/inventories/', {'name': '跨范围盘点', 'branch': branch.id})
         assert resp.status_code == 201

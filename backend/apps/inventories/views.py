@@ -73,11 +73,24 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     @audit_log(action='start', resource_type='InventoryTask', description_template='开始盘点')
     def start(self, request, pk=None):
-        """开始盘点: pending -> in_progress"""
+        """开始盘点: pending -> in_progress（空清单拦截：先探测后转换）"""
         task = self.get_object()
         if not task.can_transition('in_progress'):
             return Response(
                 {'detail': f'无法从 {task.get_status_display()} 开始盘点'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # 空清单拦截（inventory-checklist-safety）：开始时刻可盘范围为空即拒，
+        # 任务保持 pending 零副作用——防"开始早于领用审批"类时序事故空盘还锁分公司
+        if self._scope_count(task) == 0:
+            kind_desc = (
+                '实例盘=分公司当前「在用」实例快照' if task.is_instance_inventory else '台账盘=范围内台账行'
+            )
+            return Response(
+                {'detail': (
+                    f'开始失败：盘点范围内无可盘对象（{kind_desc}）。'
+                    f'常见原因：开始盘点早于领用审批——请先完成审批，或调整范围（分公司/类目）后再开始'
+                )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -618,7 +631,12 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         ws.title = '盘点表'
 
         if task.is_instance_inventory:
+            from openpyxl.comments import Comment
+            from openpyxl.worksheet.datavalidation import DataValidation
             ws.append(['序号', '内部编号', '序列号', '品目编号', '品目名称', '使用人', '所属部门', '核对结果', '备注'])
+            ws['H1'].comment = Comment(
+                '只能填：已找到 / 未找到（手工输入其他值导入会报错）；留空 = 未盘，提交时按漏盘规则处理', '磐盘')
+            ws['I1'].comment = Comment('选填；核对异常时填写情况说明', '磐盘')
             entries = task.instance_items.select_related(
                 'instance__item', 'instance__department',
             ).order_by('created_at')
@@ -635,9 +653,19 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     '',  # 核对结果 - 已找到 / 未找到
                     '',  # 备注 - 用户填写
                 ])
+            # 核对结果列数据验证下拉（inventory-checklist-safety：UI 层防手误，后端校验兜底粘贴绕过）
+            if entries:
+                dv = DataValidation(
+                    type='list', formula1='"已找到,未找到"', allow_blank=True, showErrorMessage=True,
+                )
+                dv.error = '只能填：已找到 / 未找到'
+                ws.add_data_validation(dv)
+                dv.add(f'H2:H{entries.count() + 1}')
         else:
-            items = task.items.select_related('stock__item').order_by('created_at')
+            from openpyxl.comments import Comment
             ws.append(['序号', '资产编号', '资产名称', '资产类目', '账面数量', '实盘数量', '备注'])
+            ws['F1'].comment = Comment('填盘点实际数量（整数）；留空 = 未盘，提交时按漏盘规则处理', '磐盘')
+            items = task.items.select_related('stock__item').order_by('created_at')
             for idx, item in enumerate(items, start=1):
                 stock = item.stock
                 ws.append([
@@ -742,7 +770,12 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 entry.save()
                 imported += 1
 
-            return Response({'imported': imported, 'errors': errors})
+            # 空清单根因提示（inventory-checklist-safety）：清单空导致的批量不匹配点明病因
+            payload = {'imported': imported, 'errors': errors}
+            if not task.instance_items.exists() and errors:
+                payload['hint'] = ('本任务清单为空——开始盘点时可盘范围为空'
+                                   '（常见：开始早于领用审批）；请作废重建盘点任务')
+            return Response(payload)
 
         for i, row in enumerate(rows, start=2):
             if not row or not row[1]:
@@ -801,6 +834,25 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         })
 
     # ---- Helpers ----
+
+    def _scope_count(self, task):
+        """可盘范围计数（与清单生成同源条件，inventory-checklist-safety 空清单拦截用）。"""
+        if task.is_instance_inventory:
+            from apps.assets.models import FixedAsset
+            qs = FixedAsset.objects.filter(
+                当前状态=FixedAsset.STATUS_IN_USE, branch=task.branch,
+            )
+            if task.category:
+                qs = qs.filter(item__asset_category=task.category.asset_category)
+            return qs.count()
+        from apps.assets.models import AssetStock
+        column = task_target_column(task)
+        qs = AssetStock.objects.filter(**{f'{column}__gt': 0})
+        if task.branch:
+            qs = qs.filter(branch=task.branch)
+        if task.category:
+            qs = qs.filter(item__asset_category=task.category.asset_category)
+        return qs.count()
 
     def _generate_items(self, task):
         """台账盘：从任务范围内台账行生成盘点项（目标库别列>0，应盘=该列）。"""

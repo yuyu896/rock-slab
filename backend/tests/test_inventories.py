@@ -37,6 +37,15 @@ def category(db):
 @pytest.fixture
 def inventory_task(db, branch, category, admin_user):
     from apps.inventories.models import InventoryTask
+    # 台账盘底数（inventory-checklist-safety：空范围开始会被拦，需有可盘行）
+    from apps.categories.models import Category
+    from apps.assets.services import ledger
+    item, _ = Category.objects.get_or_create(
+        asset_code='IV-SEED-1',
+        defaults={'asset_category': category.asset_category if category else '测试类目',
+                  'item_category': '测试分类', 'asset_name': '盘点底数品目', 'unit': '个'},
+    )
+    ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 5, '测试造数')
     return InventoryTask.objects.create(
         name='测试盘点任务',
         branch=branch,
