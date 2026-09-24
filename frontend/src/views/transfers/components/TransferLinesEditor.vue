@@ -203,6 +203,17 @@ watch(
   },
 )
 
+/** 回收去向切换：行数据按旧向选的品目/实例不再合法，整行失效重置（同领用来源切换先例） */
+watch(
+  () => props.recoveryDest,
+  () => {
+    if (props.type !== 'recovery') return
+    drafts.value.forEach((d, i) => {
+      drafts.value[i] = { ...emptyDraft(), key: d.key }
+    })
+  },
+)
+
 function stockRowOf(code: string): { stock: number; inUse: number } | null {
   const value = stockRowMap.value.get(code)
   return value && value.stock >= 0 ? value : null
