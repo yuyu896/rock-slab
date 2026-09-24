@@ -226,53 +226,50 @@ describe('实例点选跨行去重与面板收口', () => {
     await flushPromises()
   }
 
-  it('他行已选实例不再出现在候选；取消勾选后回到候选', async () => {
+  it('他行已点选实例不再出现在候选；换选后释放回候选', async () => {
     const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '张三', department: 'd' }
     const d2: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '李四', department: 'd' }
     const wrapper = mountAssign(d1, d2)
 
     await openPicker(wrapper, 0)
-    const row1Checks = wrapper.findAll('.picker-panel .picker-row input')
-    await row1Checks[0].setValue(true) // 行 1 勾 fa-1
+    await wrapper.findAll('.picker-panel .picker-row')[0].trigger('click') // 行 1 点选 fa-1
     expect(d1.instances.map((i) => i.id)).toEqual(['fa-1'])
+    expect(d1.数量).toBe(1)
 
     await openPicker(wrapper, 1) // 展开行 2（同时验证互斥收起行 1）
     const codes2 = wrapper.findAll('.picker-panel .picker-row .row-code').map((c) => c.text())
     expect(codes2).toEqual(['NB-001-2', 'NB-001-3']) // fa-1 被他行排除
 
-    // 行 1 取消勾选（经 UI）→ 行 2 候选恢复 fa-1
+    // 行 1 换选 fa-2（点选覆盖；fa-1 仍在候选首位作高亮回显）→ fa-1 释放回行 2 候选
     await openPicker(wrapper, 0)
-    await wrapper.findAll('.picker-panel .picker-row input')[0].setValue(false)
+    await wrapper.findAll('.picker-panel .picker-row')[1].trigger('click')
+    expect(d1.instances.map((i) => i.id)).toEqual(['fa-2'])
     await openPicker(wrapper, 1)
     const codes2After = wrapper.findAll('.picker-panel .picker-row .row-code').map((c) => c.text())
-    expect(codes2After).toEqual(['NB-001-1', 'NB-001-2', 'NB-001-3'])
+    expect(codes2After).toEqual(['NB-001-1', 'NB-001-3'])
   })
 
-  it('本行已选保留勾选回显；完成按钮收起面板；同屏互斥', async () => {
+  it('点选即定收起面板（无完成按钮）；本行已选高亮回显；同屏互斥', async () => {
     const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '张三', department: 'd' }
     const d2: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1, 使用人: '李四', department: 'd' }
     const wrapper = mountAssign(d1, d2)
 
+    // 点选即定：单台上行、数量恒 1、面板自动收起（无「完成」按钮）
     await openPicker(wrapper, 0)
-    const checks1 = wrapper.findAll('.picker-panel .picker-row input')
-    await checks1[0].setValue(true)
-    await checks1[1].setValue(true)
-    expect(d1.数量).toBe(2) // 数量=勾选台数联动
+    expect(wrapper.find('.picker-panel .picker-done').exists()).toBe(false)
+    await wrapper.findAll('.picker-panel .picker-row')[0].trigger('click')
+    expect(d1.instances.map((i) => i.id)).toEqual(['fa-1'])
+    expect(d1.数量).toBe(1)
+    expect(wrapper.findAll('.picker-panel')).toHaveLength(0)
 
-    // 本行已选保留：重开面板仍勾选
-    await wrapper.findAll('.picker-toggle')[0].trigger('click') // 收起
+    // 本行已选高亮回显：重开面板已选项带 picked 样式
     await openPicker(wrapper, 0)
-    const checked = wrapper.findAll('.picker-panel .picker-row input').filter((c) => (c.element as HTMLInputElement).checked)
-    expect(checked).toHaveLength(2)
+    expect(wrapper.findAll('.picker-panel .picker-row.picked')).toHaveLength(1)
 
     // 同屏互斥：展开行 2 → 行 1 面板收起
     await openPicker(wrapper, 1)
     expect(wrapper.findAll('.picker-panel')).toHaveLength(1)
-
-    // 完成按钮收起
-    await wrapper.find('.picker-panel .picker-done').trigger('click')
-    expect(wrapper.findAll('.picker-panel')).toHaveLength(0)
-    expect(wrapper.findAll('.picker-toggle')[1].text()).toContain('选择实例')
+    expect(wrapper.findAll('.picker-toggle')[0].text()).toContain('已选 1 台')
   })
 })
 
@@ -314,12 +311,8 @@ describe('领用行实例单台选择', () => {
     expect(d1.数量).toBe(1)
   })
 
-  it('调拨行保持多选（勾选追加）', async () => {
-    const { getFixedAssets } = await import('@/api/assets')
-    vi.mocked(getFixedAssets).mockResolvedValue({
-      data: { count: 2, results: [inst(1), inst(2)] },
-    } as any)
-    const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 2 }
+  it('调拨行同为单选：一行一台、多台走多行（instance-single-pick）', async () => {
+    const d1: LineDraft = { ...emptyDraft(), item: instItem, 数量: 1 }
     const wrapper = mount(TransferLinesEditor, {
       props: { modelValue: [d1], type: 'transfer', branchName: '北京分公司' },
       global: { stubs: { ItemPicker: { template: '<div class="picker-stub" />' } } },
@@ -327,11 +320,9 @@ describe('领用行实例单台选择', () => {
     await flushPromises()
     await wrapper.find('.picker-toggle').trigger('click')
     await flushPromises()
-    const checks = wrapper.findAll('.picker-row input[type=checkbox]')
-    expect(checks.length).toBeGreaterThan(0) // 多选 checkbox 仍在
-    await checks[0].setValue(true)
-    await checks[1].setValue(true)
-    expect(d1.instances.map((i) => i.id)).toEqual(['fa-1', 'fa-2'])
-    expect(d1.数量).toBe(2)
+    expect(wrapper.findAll('.picker-row input[type=checkbox]')).toHaveLength(0) // 多选 checkbox 已退役
+    await wrapper.findAll('.picker-panel .picker-row')[0].trigger('click')
+    expect(d1.instances.map((i) => i.id)).toEqual(['fa-1'])
+    expect(d1.数量).toBe(1)
   })
 })

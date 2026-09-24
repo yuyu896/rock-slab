@@ -8,6 +8,7 @@ import { getSuppliers, type Supplier } from '@/api/suppliers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
+import { TRANSFER_TYPES } from '@/constants'
 import BasePagination from '@/components/BasePagination.vue'
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -189,6 +190,11 @@ function applyImageUpdate(updated: FixedAsset) {
   const row = assets.value.find(a => a.id === updated.id)
   if (row) row.图片 = updated.图片
   if (editing.value) editing.value = { ...editing.value, 图片: updated.图片 }
+}
+
+/** 生平类型列中文标签（未知动作值兜底原值，防御存量脏数据） */
+function transferTypeLabel(actionType?: string): string {
+  return (TRANSFER_TYPES as Record<string, { label: string }>)[actionType ?? '']?.label ?? actionType ?? '-'
 }
 
 // ── 生平（出生信息 + 关联全部明细行倒序） ──
@@ -513,7 +519,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
     <BasePagination :total="pagination.total" :current-page="pagination.page" :page-size="pagination.pageSize" @change="handlePaginationChange" />
 
     <!-- 行编辑弹窗（双栏：左编辑 右生平） -->
-    <el-dialog v-model="editVisibleProxy" title="编辑实例" width="920px" :close-on-click-modal="false" top="6vh">
+    <el-dialog v-model="editVisibleProxy" title="编辑实例" width="1160px" :close-on-click-modal="false" top="6vh">
       <div v-if="editing" class="edit-dual">
         <!-- 左栏：编辑表单 -->
         <div class="edit-pane">
@@ -571,7 +577,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
                 <tr v-for="row in timeline.timeline" :key="row.transferId + '-' + row.行号">
                   <td><span class="date-text">{{ row.日期 }}</span></td>
                   <td>{{ row.单据编号 || '-' }}</td>
-                  <td>{{ row.actionType }}</td>
+                  <td>{{ transferTypeLabel(row.actionType) }}</td>
                   <td>{{ row.使用人 || '-' }}</td>
                   <td>{{ row.审批状态 }}</td>
                 </tr>
