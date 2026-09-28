@@ -1,5 +1,6 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useQueryFilters } from '@/composables/useQueryFilters'
 import {
   getTransfers,
   approveTransfer as approveTransferApi, rejectTransfer as rejectTransferApi,
@@ -29,6 +30,8 @@ export function useTransferList(type: TransferType) {
 
   // 分页
   const pagination = ref({ page: 1, pageSize: 50, total: 0 })
+  // 筛选与页码持久化到路由 query（详情页往返保留；恢复须先于下方 fetch-watch）
+  useQueryFilters(filters, pagination, { arrayKeys: ['fromBranch', 'toBranch'] })
   const loading = ref(false)
   const transfers = ref<Transfer[]>([])
   const branchOptions = ref<{ value: string; label: string }[]>([])

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { MANAGEMENT_TYPE_LABELS } from '@/constants'
 import { ref, computed, onMounted, watch } from 'vue'
+import { useQueryFilters } from '@/composables/useQueryFilters'
 import { useRoute } from 'vue-router'
 import { getAssetStocks, exportAssetStocks, getFixedAssets } from '@/api/assets'
 import { getBranches } from '@/api/branches'
@@ -70,6 +71,8 @@ const filters = ref({
 })
 
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
+// 筛选与页码持久化到路由 query（详情页往返保留；恢复须先于下方 fetch-watch）
+useQueryFilters(filters, pagination, { arrayKeys: ['branch'] })
 const loading = ref(false)
 const stocks = ref<AssetStock[]>([])
 

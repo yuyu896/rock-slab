@@ -8,6 +8,7 @@ import { getSuppliers, type Supplier } from '@/api/suppliers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
+import { useQueryFilters } from '@/composables/useQueryFilters'
 import { TRANSFER_TYPES } from '@/constants'
 import BasePagination from '@/components/BasePagination.vue'
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
@@ -27,6 +28,8 @@ const filters = ref({
 })
 
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
+// 筛选与页码持久化到路由 query（详情页往返保留；恢复须先于下方 fetch-watch）
+useQueryFilters(filters, pagination, { arrayKeys: ['branch'], boolKeys: ['pendingSerial'] })
 const loading = ref(false)
 const assets = ref<FixedAsset[]>([])
 // 供应商字典选项（实例档案供应商只准选，instance-supplier-dict-select）
@@ -642,7 +645,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .filter-section { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border); flex-shrink: 0; }
 .filter-row { display: flex; gap: var(--space-3); align-items: center; }
 .filter-item { position: relative; }
-.filter-item.search { flex: 1; position: relative; }
+.filter-item.search { flex: 1; max-width: 400px; position: relative; }
 .filter-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-text-tertiary); }
 .filter-input { width: 100%; height: 38px; padding: 0 var(--space-4) 0 38px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); color: var(--color-text-primary); }
 .filter-input:focus { outline: none; border-color: var(--color-primary-400); box-shadow: 0 0 0 3px var(--color-primary-100); }

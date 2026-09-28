@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import { useQueryFilters } from '@/composables/useQueryFilters'
 import { getRecoveryLedger, exportRecoveryLedger } from '@/api/transfers'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
@@ -14,6 +15,8 @@ type LedgerRow = Record<string, string | number | null>
 const filters = ref({ branch: [] as string[], dateFrom: '', dateTo: '', keyword: '' })
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
+// 筛选与页码持久化到路由 query（详情页往返保留；恢复须先于下方 fetch-watch）
+useQueryFilters(filters, pagination, { arrayKeys: ['branch'] })
 const disposalIncome = ref<number | null>(null)
 const loading = ref(false)
 const rows = ref<LedgerRow[]>([])
@@ -168,7 +171,7 @@ onMounted(() => { fetchRows(); fetchBranches() })
 .filter-section { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border); flex-shrink: 0; }
 .filter-row { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .filter-item { position: relative; display: flex; align-items: center; gap: 6px; }
-.filter-item.search { flex: 1; min-width: 220px; }
+.filter-item.search { flex: 1; min-width: 220px; max-width: 400px; }
 .filter-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-text-tertiary); }
 .filter-input { height: 38px; padding: 0 var(--space-4) 0 38px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); color: var(--color-text-primary); }
 .filter-item.search .filter-input { width: 100%; }

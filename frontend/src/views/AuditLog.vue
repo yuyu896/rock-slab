@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useQueryFilters } from '@/composables/useQueryFilters'
 import { ElMessage } from 'element-plus'
 import * as auditApi from '@/api/audit'
 import type { AuditLog, AuditLogStats } from '@/api/audit'
@@ -21,6 +22,8 @@ const filters = ref({
 
 const page = ref(1)
 const pageSize = ref(50)
+// 筛选与页码持久化到路由 query（恢复须先于查询触发）
+useQueryFilters(filters, page, { arrayKeys: ['dateRange'], boolKeys: ['isSuccess'] })
 const total = ref(0)
 
 const actionOptions = [

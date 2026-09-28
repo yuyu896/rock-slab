@@ -158,7 +158,7 @@ function openCreatePage() {
 .stat-label { font-size: var(--text-sm); color: var(--color-text-tertiary); margin-top: var(--space-1); }
 .filter-section { margin-bottom: var(--space-4); flex-shrink: 0; }
 .filter-row { display: flex; gap: var(--space-3); }
-.filter-item.search { flex: 1; position: relative; }
+.filter-item.search { flex: 1; max-width: 400px; position: relative; }
 .filter-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-text-tertiary); }
 .filter-input, .filter-select { height: 38px; padding: 0 var(--space-4); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-card); font-size: var(--text-sm); }
 .filter-item.search .filter-input { width: 100%; padding-left: 38px; }

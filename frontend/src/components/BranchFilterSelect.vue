@@ -37,7 +37,7 @@ const sortedOptions = computed(() => sortBranchesByName(props.options))
 </template>
 
 <style scoped>
-.branch-filter-select { width: 220px; }
+.branch-filter-select { width: 300px; }
 .branch-filter-select :deep(.el-select__wrapper) {
   min-height: 38px;
   background: var(--color-bg-page);

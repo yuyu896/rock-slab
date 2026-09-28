@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useQueryFilters } from '@/composables/useQueryFilters'
 import { useRouter } from 'vue-router'
 import { useInventoryStore } from '@/store/inventory'
 import {
@@ -59,6 +60,8 @@ const reportRef = ref<InstanceType<typeof InventoryReport> | null>(null)
 
 // 筛选条件
 const filters = ref({ status: '', branch: [] as string[], keyword: '' })
+// 筛选与页码持久化到路由 query（详情页往返保留；恢复须先于下方 fetch-watch）
+useQueryFilters(filters, pagination, { arrayKeys: ['branch'] })
 
 // 分公司选项
 const branchOptions = ref<{ value: string; label: string }[]>([])

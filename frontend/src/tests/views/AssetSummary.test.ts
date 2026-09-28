@@ -19,6 +19,7 @@ vi.mock('@/hooks/usePermission', () => ({
 const mockRouteQuery = ref<Record<string, string>>({})
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: mockRouteQuery.value }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
 
 vi.mock('@/api/assets', () => ({
