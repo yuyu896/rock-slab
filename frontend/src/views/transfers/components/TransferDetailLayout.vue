@@ -15,6 +15,12 @@ const props = defineProps<{
 
 const router = useRouter()
 
+/** 返回优先走浏览器历史（带回列表页的 query 筛选与页码）；直达详情无来路时回退 backPath */
+function goBack() {
+  if (window.history.state?.back) router.back()
+  else router.push(props.backPath)
+}
+
 function assignSourceText(source: string) {
   return source === 'recycle_bin' ? '回收库' : '新品库'
 }
@@ -33,7 +39,7 @@ function branchText(doc: TransferDocument) {
 <template>
   <div class="detail-page">
     <div class="page-header">
-      <button class="back-btn" @click="router.push(props.backPath)">
+      <button class="back-btn" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
         返回
       </button>
