@@ -123,7 +123,7 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     let pageStyle = document.getElementById('label-page-size') as HTMLStyleElement
     expect(pageStyle.textContent).toContain('60mm 40mm')
 
-    const a4Btn = [...document.querySelectorAll<HTMLButtonElement>('.paper-switch button')].find(b => b.textContent === 'A4 双列')!
+    const a4Btn = [...document.querySelectorAll<HTMLButtonElement>('.paper-switch button')].find(b => b.textContent === 'A4 三列')!
     a4Btn.click()
     await flushPromises()
     expect(content.className).toContain('paper-a4')
@@ -162,7 +162,7 @@ describe('AssetPrintDialog 标签规范 V1', () => {
       const line = document.querySelector('.print-label .label-name') as HTMLElement
       expect(line.style.fontSize).not.toBe('')
 
-      const a4Btn = [...document.querySelectorAll<HTMLButtonElement>('.paper-switch button')].find(b => b.textContent === 'A4 双列')!
+      const a4Btn = [...document.querySelectorAll<HTMLButtonElement>('.paper-switch button')].find(b => b.textContent === 'A4 三列')!
       a4Btn.click()
       await flushPromises()
       expect(document.querySelector('.modal-content')!.classList.contains('paper-a4')).toBe(true)
@@ -188,6 +188,17 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     expect(dialogSource).toMatch(/\.modal-body \{[^}]*flex:\s*1;[^}]*overflow-y:\s*auto;/s)
     expect(dialogSource).toMatch(/@media print[\s\S]*?\.modal-content \{[^}]*display:\s*block;/s)
     expect(dialogSource).toMatch(/@media print[\s\S]*?\.modal-body \{[^}]*overflow:\s*visible;/s)
+  })
+
+  it('A4 三列成品纸版式（源码契约）：三列 63.8×38、列距 3、边距 15.5/6、打印态行距 0；60×40 通道不受影响', () => {
+    expect(dialogSource).toMatch(/@page \{ size: A4; margin: 15\.5mm 6mm; \}/)
+    expect(dialogSource).toMatch(/grid-template-columns:\s*repeat\(3,\s*63\.8mm\)/)
+    expect(dialogSource).toMatch(/\.paper-a4 \.print-labels \{[^}]*column-gap:\s*3mm;/s)
+    expect(dialogSource).toMatch(/\.paper-a4 \.print-label \{[^}]*width:\s*63\.8mm;[^}]*height:\s*38mm;/s)
+    expect(dialogSource).toMatch(/@media print[\s\S]*?\.paper-a4 \.print-labels \{[^}]*row-gap:\s*0;/s)
+    expect(dialogSource).toMatch(/@page \{ size: 60mm 40mm; margin: 0; \}/)
+    expect(dialogSource).toMatch(/\.paper-60x40 \.print-label \{[^}]*width:\s*60mm;[^}]*height:\s*40mm;/s)
+    expect(dialogSource).not.toContain('18mm')
   })
 
   it('弹窗常驻「实际大小/100%」打印提示，且打印态隐藏', async () => {

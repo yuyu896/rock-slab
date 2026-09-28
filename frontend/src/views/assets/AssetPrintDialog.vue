@@ -31,7 +31,7 @@ function applyPageSize(size: PaperSize) {
   }
   pageStyle.textContent = size === '60x40'
     ? '@page { size: 60mm 40mm; margin: 0; }'
-    : '@page { size: A4; margin: 8mm; }'
+    : '@page { size: A4; margin: 15.5mm 6mm; }'
 }
 
 /* 纸型 class 要等 nextTick 才落到 DOM，缩号必须按新纸型的字号/可用宽测量，否则超宽行按旧几何判定不缩、被 overflow 裁断 */
@@ -146,7 +146,7 @@ onBeforeUnmount(() => {
           <h3>{{ exportMode ? '导出标签图片' : `打印标签（${assets.length} 项）` }}</h3>
           <div v-if="!exportMode" class="paper-switch">
             <button :class="{ active: paper === '60x40' }" @click="switchPaper('60x40')">60×40 标签纸</button>
-            <button :class="{ active: paper === 'a4' }" @click="switchPaper('a4')">A4 双列</button>
+            <button :class="{ active: paper === 'a4' }" @click="switchPaper('a4')">A4 三列</button>
           </div>
           <button class="modal-close" @click="emit('close')">&times;</button>
         </div>
@@ -200,6 +200,8 @@ onBeforeUnmount(() => {
 /* 三段式：标题/内容/操作区，仅内容区滚动（header/footer 常驻，按钮不被长标签列表推走） */
 .modal-content { background: var(--color-bg-elevated); border-radius: 16px; width: 90%; max-width: 640px; max-height: 90vh; display: flex; flex-direction: column; }
 .print-modal { max-width: 800px; }
+/* A4 真尺寸三列宽约 747px，加宽容纳（窄屏回落 width:90% + 列区横滚） */
+.print-modal.paper-a4 { max-width: 860px; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--color-border); gap: 12px; flex-shrink: 0; }
 .modal-header h3 { margin: 0; font-size: 18px; white-space: nowrap; }
 .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--color-text-secondary); }
@@ -235,27 +237,25 @@ onBeforeUnmount(() => {
   border: 0.3mm solid #999; background: #fff; color: #000; overflow: hidden;
 }
 .paper-60x40 .print-label:not(:last-child) { break-after: page; page-break-after: always; }
-/* V2：字号上调、行距收紧；margin-top 上移 0.4mm 校正垂直居中（与 LABEL_SPEC.blockLiftMm 同参） */
-.paper-60x40 .label-info { display: flex; flex-direction: column; gap: 0.5mm; min-width: 0; flex: 1; margin-top: -0.4mm; }
-.paper-60x40 .label-code { font-family: var(--font-mono, monospace); font-size: 3.4mm; font-weight: 700; color: #000; }
-.paper-60x40 .label-sn { font-family: var(--font-mono, monospace); font-size: 3mm; color: #000; }
-.paper-60x40 .label-name { font-size: 3.4mm; font-weight: 600; color: #000; }
-.paper-60x40 .label-aux { font-size: 2.6mm; color: #444; }
-/* V3 英文前缀：辅助级字号灰字（与 LABEL_SPEC.fonts.prefix 同参，前缀词表见该常量） */
-.paper-60x40 .label-prefix { font-family: var(--font-mono, monospace); font-size: 2.6mm; font-weight: 400; color: #444; margin-right: 0.6mm; }
-.paper-60x40 .fit { white-space: nowrap; overflow: hidden; }
 
-/* ── A4 双列（普通打印机）：卡片流式分页 ── */
-.paper-a4 .print-labels { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-.paper-a4 .print-label { border: 1px solid var(--color-border); border-radius: 8px; padding: 12px; display: flex; gap: 12px; align-items: center; }
-.paper-a4 .qr-box { width: 18mm; height: 18mm; }
-.paper-a4 .qr-box :deep(svg) { width: 18mm; height: 18mm; }
-.paper-a4 .label-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.paper-a4 .label-code { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 700; color: var(--color-primary); }
-.paper-a4 .label-sn { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--color-text-secondary); }
-.paper-a4 .label-name { font-size: 14px; font-weight: 600; }
-.paper-a4 .label-aux { font-size: 12px; color: var(--color-text-secondary); }
-.paper-a4 .label-prefix { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--color-text-tertiary); margin-right: 4px; }
+/* ── A4 三列（成品 21 枚不干胶纸）：真实 mm 几何对齐 3×7 裁切位（63.8×38、列距 3、左右边距 6、上下 15.5 居中），QR 沿用共享 13mm+2mm 规范 ── */
+.paper-a4 .print-labels { display: grid; grid-template-columns: repeat(3, 63.8mm); column-gap: 3mm; row-gap: 4mm; overflow-x: auto; }
+.paper-a4 .print-label {
+  width: 63.8mm; height: 38mm; box-sizing: border-box; padding: 1.5mm;
+  display: flex; gap: 1.5mm; align-items: center;
+  border: 0.3mm solid #999; background: #fff; color: #000; overflow: hidden;
+}
+
+/* ── 标签内部规范（双纸型同源，与 LABEL_SPEC 同参，改动需两侧同步）──
+     V2：字号上调、行距收紧；margin-top 上移 0.4mm 校正垂直居中（blockLiftMm） */
+.paper-60x40 .label-info, .paper-a4 .label-info { display: flex; flex-direction: column; gap: 0.5mm; min-width: 0; flex: 1; margin-top: -0.4mm; }
+.paper-60x40 .label-code, .paper-a4 .label-code { font-family: var(--font-mono, monospace); font-size: 3.4mm; font-weight: 700; color: #000; }
+.paper-60x40 .label-sn, .paper-a4 .label-sn { font-family: var(--font-mono, monospace); font-size: 3mm; color: #000; }
+.paper-60x40 .label-name, .paper-a4 .label-name { font-size: 3.4mm; font-weight: 600; color: #000; }
+.paper-60x40 .label-aux, .paper-a4 .label-aux { font-size: 2.6mm; color: #444; }
+/* V3 英文前缀：辅助级字号灰字（与 LABEL_SPEC.fonts.prefix 同参，前缀词表见该常量） */
+.paper-60x40 .label-prefix, .paper-a4 .label-prefix { font-family: var(--font-mono, monospace); font-size: 2.6mm; font-weight: 400; color: #444; margin-right: 0.6mm; }
+.paper-60x40 .fit, .paper-a4 .fit { white-space: nowrap; overflow: hidden; }
 
 /* 打印态：只输出标签（配合下方非 scoped 块隐藏 #app），配色固定值绕开深色模式 */
 @media print {
@@ -266,9 +266,9 @@ onBeforeUnmount(() => {
   .modal-body { padding: 0; overflow: visible; }
   .export-view { display: none !important; }
   .paper-60x40 .print-labels { gap: 0; }
-  .paper-a4 .print-label { break-inside: avoid; page-break-inside: avoid; border-color: #999; background: #fff; }
-  .paper-a4 .label-code { color: #000; }
-  .paper-a4 .label-sn, .paper-a4 .label-aux { color: #444; }
+  /* A4 行距 0 贴齐裁切位；break-inside 防页边界切断单枚 */
+  .paper-a4 .print-labels { row-gap: 0; overflow-x: visible; }
+  .paper-a4 .print-label { break-inside: avoid; page-break-inside: avoid; }
 }
 </style>
 
