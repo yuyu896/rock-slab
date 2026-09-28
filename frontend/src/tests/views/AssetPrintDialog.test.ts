@@ -181,6 +181,15 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     expect(dialogSource).toMatch(/async function switchPaper[\s\S]*?await nextTick\(\)\s*\n\s*fitLabelLines\(\)/)
   })
 
+  it('弹窗三段式布局与打印态复位（源码契约）：仅内容区滚动，打印恢复块级文档流', () => {
+    expect(dialogSource).toMatch(/\.modal-content \{[^}]*display:\s*flex;\s*flex-direction:\s*column;/s)
+    expect(dialogSource).toMatch(/\.modal-header \{[^}]*flex-shrink:\s*0;/s)
+    expect(dialogSource).toMatch(/\.modal-footer \{[^}]*flex-shrink:\s*0;/s)
+    expect(dialogSource).toMatch(/\.modal-body \{[^}]*flex:\s*1;[^}]*overflow-y:\s*auto;/s)
+    expect(dialogSource).toMatch(/@media print[\s\S]*?\.modal-content \{[^}]*display:\s*block;/s)
+    expect(dialogSource).toMatch(/@media print[\s\S]*?\.modal-body \{[^}]*overflow:\s*visible;/s)
+  })
+
   it('弹窗常驻「实际大小/100%」打印提示，且打印态隐藏', async () => {
     const wrapper = await mountInAppShell()
     const hint = document.querySelector('.print-hint')!

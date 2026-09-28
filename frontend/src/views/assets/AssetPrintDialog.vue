@@ -197,17 +197,18 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.modal-content { background: var(--color-bg-elevated); border-radius: 16px; width: 90%; max-width: 640px; max-height: 90vh; overflow-y: auto; }
+/* 三段式：标题/内容/操作区，仅内容区滚动（header/footer 常驻，按钮不被长标签列表推走） */
+.modal-content { background: var(--color-bg-elevated); border-radius: 16px; width: 90%; max-width: 640px; max-height: 90vh; display: flex; flex-direction: column; }
 .print-modal { max-width: 800px; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--color-border); gap: 12px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--color-border); gap: 12px; flex-shrink: 0; }
 .modal-header h3 { margin: 0; font-size: 18px; white-space: nowrap; }
 .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--color-text-secondary); }
 .paper-switch { display: flex; gap: 8px; margin-left: auto; }
 .paper-switch button { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-elevated); cursor: pointer; font-size: 13px; }
 .paper-switch button.active { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-50, transparent); }
-.modal-body { padding: 24px; }
+.modal-body { padding: 24px; flex: 1; min-height: 0; overflow-y: auto; }
 .print-hint { margin: 0 0 16px; font-size: 13px; color: var(--color-warning, #b8860b); }
-.modal-footer { padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 12px; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
 .btn-cancel { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-elevated); cursor: pointer; font-size: 14px; }
 .btn-confirm { padding: 8px 20px; border-radius: 8px; border: none; background: var(--color-primary); color: #fff; cursor: pointer; font-size: 14px; }
 .btn-export { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--color-primary); background: var(--color-bg-elevated); color: var(--color-primary); cursor: pointer; font-size: 14px; }
@@ -259,9 +260,10 @@ onBeforeUnmount(() => {
 /* 打印态：只输出标签（配合下方非 scoped 块隐藏 #app），配色固定值绕开深色模式 */
 @media print {
   .modal-overlay { position: static; background: none; display: block; }
-  .modal-content { max-height: none; overflow: visible; width: 100%; max-width: none; border: none; border-radius: 0; background: #fff; }
+  /* 复位为块级文档流：flex 子项/overflow 容器在浏览器打印分页时会截断多页内容 */
+  .modal-content { max-height: none; overflow: visible; width: 100%; max-width: none; border: none; border-radius: 0; background: #fff; display: block; }
   .modal-header, .modal-footer, .print-hint { display: none; }
-  .modal-body { padding: 0; }
+  .modal-body { padding: 0; overflow: visible; }
   .export-view { display: none !important; }
   .paper-60x40 .print-labels { gap: 0; }
   .paper-a4 .print-label { break-inside: avoid; page-break-inside: avoid; border-color: #999; background: #fff; }
