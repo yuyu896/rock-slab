@@ -90,22 +90,28 @@ const exportMode = ref(false)
 const exportItems = ref<Array<{ id: string; url: string; name: string }>>([])
 const exporting = ref(false)
 const exportError = ref(false)
+/* 导出会话序号：关闭弹窗与开启新导出都会递增作废旧会话（组件常驻挂载，防旧资产结果串场） */
+let exportSession = 0
 
 async function openExport() {
+  const session = ++exportSession
   exporting.value = true
   exportMode.value = true
   exportError.value = false
   exportItems.value = []
   try {
-    exportItems.value = await Promise.all(props.assets.map(async asset => {
+    const items = await Promise.all(props.assets.map(async asset => {
       const shape = asset as unknown as LabelAssetShape
       return { id: String(asset.id), url: await renderLabelDataUrl(shape), name: labelFileName(shape) }
     }))
+    if (session !== exportSession) return
+    exportItems.value = items
   } catch (error) {
+    if (session !== exportSession) return
     console.error('标签图片导出失败', error)
     exportError.value = true
   } finally {
-    exporting.value = false
+    if (session === exportSession) exporting.value = false
   }
 }
 
@@ -128,6 +134,14 @@ function downloadAll() {
 
 watch(() => props.visible, (val) => {
   if (val) renderQrCodes()
+  else {
+    /* 关闭即丢弃导出会话：复位视图态并作废在途渲染（旧资产图片不得写入/干扰） */
+    exportSession++
+    exportMode.value = false
+    exportItems.value = []
+    exportError.value = false
+    exporting.value = false
+  }
 })
 
 onMounted(() => applyPageSize(paper.value))

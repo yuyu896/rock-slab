@@ -360,4 +360,56 @@ describe('AssetPrintDialog 导出图片（第二通道）', () => {
     warnSpy.mockRestore()
     wrapper.unmount()
   })
+
+  it('导出视图关闭弹窗后重开：回到打印预览，导出会话状态复位', async () => {
+    const wrapper = await mountDialog()
+    const exportBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '导出图片')!
+    await exportBtn.click()
+    await flushPromises()
+    expect(document.querySelector('.export-view')).toBeTruthy()
+
+    await wrapper.setProps({ visible: false })
+    await flushPromises()
+    await wrapper.setProps({ visible: true })
+    await flushPromises()
+    expect(document.querySelector('.export-view')).toBeNull()
+    expect(document.getElementById('print-area')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('导出在途时关闭弹窗：旧渲染结果不写入、不干扰新一轮导出', async () => {
+    let releaseFirst!: (v: string) => void
+    renderLabelDataUrlMock.mockImplementationOnce(() => new Promise<string>(r => { releaseFirst = r }))
+    const wrapper = await mountDialog()
+    const exportBtn = () => [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '导出图片')!
+    await exportBtn().click()
+    expect(document.querySelector('.export-loading')).toBeTruthy()
+
+    await wrapper.setProps({ visible: false })
+    await flushPromises()
+
+    let releaseSecond!: (v: string) => void
+    renderLabelDataUrlMock.mockImplementationOnce(() => new Promise<string>(r => { releaseSecond = r }))
+    await wrapper.setProps({ visible: true })
+    await flushPromises()
+    expect(document.querySelector('.export-view')).toBeNull()
+
+    await exportBtn().click()
+    expect(document.querySelector('.export-loading')).toBeTruthy()
+
+    releaseFirst('data:image/png;base64,stale')
+    await flushPromises()
+    expect(document.querySelector('.export-loading')).toBeTruthy()
+    expect(document.querySelectorAll('.export-item img')).toHaveLength(0)
+
+    releaseSecond('data:image/png;base64,fresh')
+    await flushPromises()
+    const srcs = [...document.querySelectorAll<HTMLImageElement>('.export-item img')].map(i => i.getAttribute('src'))
+    expect(srcs).toHaveLength(2)
+    expect(srcs[0]).toBe('data:image/png;base64,fresh')
+    expect(srcs[1]).toContain('fa-2')
+    wrapper.unmount()
+  })
 })
