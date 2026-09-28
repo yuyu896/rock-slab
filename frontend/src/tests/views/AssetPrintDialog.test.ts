@@ -196,6 +196,9 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     expect(dialogSource).toMatch(/\.paper-a4 \.print-labels \{[^}]*column-gap:\s*3mm;/s)
     expect(dialogSource).toMatch(/\.paper-a4 \.print-label \{[^}]*width:\s*63\.8mm;[^}]*height:\s*38mm;/s)
     expect(dialogSource).toMatch(/@media print[\s\S]*?\.paper-a4 \.print-labels \{[^}]*row-gap:\s*0;/s)
+    /* 预览与打印行距同为 0（成品纸贴格，所见即所得）——基础规则不得引入 row-gap */
+    const a4LabelsRule = dialogSource.match(/\.paper-a4 \.print-labels \{[^}]*\}/s)![0]
+    expect(a4LabelsRule).not.toContain('row-gap')
     expect(dialogSource).toMatch(/@page \{ size: 60mm 40mm; margin: 0; \}/)
     expect(dialogSource).toMatch(/\.paper-60x40 \.print-label \{[^}]*width:\s*60mm;[^}]*height:\s*40mm;/s)
     expect(dialogSource).not.toContain('18mm')

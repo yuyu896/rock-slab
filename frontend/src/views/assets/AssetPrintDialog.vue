@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
 .paper-60x40 .print-label:not(:last-child) { break-after: page; page-break-after: always; }
 
 /* ── A4 三列（成品 21 枚不干胶纸）：真实 mm 几何对齐 3×7 裁切位（63.8×38、列距 3、左右边距 6、上下 15.5 居中），QR 沿用共享 13mm+2mm 规范 ── */
-.paper-a4 .print-labels { display: grid; grid-template-columns: repeat(3, 63.8mm); column-gap: 3mm; row-gap: 4mm; overflow-x: auto; }
+.paper-a4 .print-labels { display: grid; grid-template-columns: repeat(3, 63.8mm); column-gap: 3mm; overflow-x: auto; }
 .paper-a4 .print-label {
   width: 63.8mm; height: 38mm; box-sizing: border-box; padding: 1.5mm;
   display: flex; gap: 1.5mm; align-items: center;
