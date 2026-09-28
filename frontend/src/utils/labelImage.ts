@@ -2,6 +2,7 @@ import QRCode from 'qrcode'
 
 /** 标签规范 V1 的导出图片渲染：60×40 @203dpi×2 超采样，版式参数与 AssetPrintDialog 打印 CSS 同源（改动需两侧同步） */
 export interface LabelAssetShape {
+  id?: string
   内部编号: string
   序列号?: string
   资产名称?: string
@@ -193,5 +194,6 @@ export async function renderLabelDataUrl(asset: LabelAssetShape): Promise<string
 }
 
 export function labelFileName(asset: LabelAssetShape): string {
+  if (!asset.内部编号) return `标签_未编号_${String(asset.id ?? '').slice(0, 8)}.png`
   return `标签_${asset.内部编号}.png`
 }

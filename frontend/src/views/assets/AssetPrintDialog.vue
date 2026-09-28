@@ -34,10 +34,12 @@ function applyPageSize(size: PaperSize) {
     : '@page { size: A4; margin: 8mm; }'
 }
 
-function switchPaper(size: PaperSize) {
+/* 纸型 class 要等 nextTick 才落到 DOM，缩号必须按新纸型的字号/可用宽测量，否则超宽行按旧几何判定不缩、被 overflow 裁断 */
+async function switchPaper(size: PaperSize) {
   paper.value = size
   localStorage.setItem(PAPER_KEY, size)
   applyPageSize(size)
+  await nextTick()
   fitLabelLines()
 }
 
@@ -85,19 +87,23 @@ function executePrint() {
 
 // ── 导出图片（第二输出通道：App 生态蓝牙标签机经相册图片打印） ──
 const exportMode = ref(false)
-const exportItems = ref<Array<{ url: string; name: string }>>([])
+const exportItems = ref<Array<{ id: string; url: string; name: string }>>([])
 const exporting = ref(false)
+const exportError = ref(false)
 
 async function openExport() {
   exporting.value = true
   exportMode.value = true
+  exportError.value = false
+  exportItems.value = []
   try {
     exportItems.value = await Promise.all(props.assets.map(async asset => {
       const shape = asset as unknown as LabelAssetShape
-      return { url: await renderLabelDataUrl(shape), name: labelFileName(shape) }
+      return { id: String(asset.id), url: await renderLabelDataUrl(shape), name: labelFileName(shape) }
     }))
-  } catch {
-    exportMode.value = false
+  } catch (error) {
+    console.error('标签图片导出失败', error)
+    exportError.value = true
   } finally {
     exporting.value = false
   }
@@ -164,8 +170,12 @@ onBeforeUnmount(() => {
         <div v-else class="modal-body export-view">
           <p class="print-hint">标签机 App 打印时请选「原尺寸 / 60×40」；手机浏览器可长按图片保存到相册</p>
           <p v-if="exporting" class="export-loading">渲染中…</p>
+          <div v-else-if="exportError" class="export-error">
+            <span>标签图片渲染失败，请重试</span>
+            <button class="btn-cancel" @click="openExport">重试</button>
+          </div>
           <div class="export-list">
-            <div v-for="item in exportItems" :key="item.name" class="export-item">
+            <div v-for="item in exportItems" :key="item.id" class="export-item">
               <img :src="item.url" :alt="item.name" />
               <button class="btn-cancel" @click="triggerDownload(item)">下载</button>
             </div>
@@ -205,6 +215,7 @@ onBeforeUnmount(() => {
 
 /* ── 导出图片视图：标签 PNG 预览 + 逐张/全部下载 ── */
 .export-view .export-loading { color: var(--color-text-secondary); font-size: 14px; }
+.export-error { display: flex; align-items: center; gap: 12px; color: var(--color-text-secondary); font-size: 14px; }
 .export-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .export-item { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .export-item img { width: 240px; border: 1px solid var(--color-border); background: #fff; user-select: element; -webkit-user-select: element; -webkit-touch-callout: default; }

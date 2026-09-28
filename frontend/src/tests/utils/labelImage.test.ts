@@ -84,4 +84,8 @@ describe('labelImage V3 布局计算', () => {
   it('文件名含内部编号', () => {
     expect(labelFileName(asset)).toBe('标签_A-a00008-BJ001-1.png')
   })
+
+  it('空内部编号文件名回退实例 id 短码', () => {
+    expect(labelFileName({ ...asset, 内部编号: '', id: '9f8e7d6c-1111-2222' })).toBe('标签_未编号_9f8e7d6c.png')
+  })
 })

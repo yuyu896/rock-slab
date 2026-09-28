@@ -137,6 +137,50 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     second.unmount()
   })
 
+  it('切纸型后缩号按新纸型重算：fit 在 DOM class 更新后执行，旧 inline 字号被清除', async () => {
+    // jsdom 无真实布局：动态桩——60×40 视为超宽（触发缩号）、A4 视为不超宽（应清除 inline 字号）
+    const fontSizeOf = () => (document.querySelector('.modal-content')?.classList.contains('paper-a4') ? '14px' : '12px')
+    const gcSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation(
+      () => ({ fontSize: fontSizeOf() }) as unknown as CSSStyleDeclaration,
+    )
+    // jsdom 将 scrollWidth/clientWidth 定义在 Element.prototype（不同版本有差异），在所属原型上替换并恢复
+    const owningProto = (prop: string) =>
+      [HTMLElement.prototype, Element.prototype].find(p => Object.getOwnPropertyDescriptor(p, prop))!
+    const swProto = owningProto('scrollWidth')
+    const cwProto = owningProto('clientWidth')
+    const origSW = Object.getOwnPropertyDescriptor(swProto, 'scrollWidth')!
+    const origCW = Object.getOwnPropertyDescriptor(cwProto, 'clientWidth')!
+    Object.defineProperty(swProto, 'scrollWidth', { configurable: true, get: () => 200 })
+    Object.defineProperty(cwProto, 'clientWidth', {
+      configurable: true,
+      get: () => (document.querySelector('.modal-content')?.classList.contains('paper-a4') ? 300 : 100),
+    })
+    try {
+      const wrapper = await mountInAppShell({ visible: false })
+      await wrapper.setProps({ visible: true })
+      await flushPromises()
+      const line = document.querySelector('.print-label .label-name') as HTMLElement
+      expect(line.style.fontSize).not.toBe('')
+
+      const a4Btn = [...document.querySelectorAll<HTMLButtonElement>('.paper-switch button')].find(b => b.textContent === 'A4 双列')!
+      a4Btn.click()
+      await flushPromises()
+      expect(document.querySelector('.modal-content')!.classList.contains('paper-a4')).toBe(true)
+      document.querySelectorAll<HTMLElement>('.print-label .fit').forEach(el => {
+        expect(el.style.fontSize).toBe('')
+      })
+      wrapper.unmount()
+    } finally {
+      gcSpy.mockRestore()
+      Object.defineProperty(swProto, 'scrollWidth', origSW)
+      Object.defineProperty(cwProto, 'clientWidth', origCW)
+    }
+  })
+
+  it('switchPaper 源码契约：await nextTick 先于 fitLabelLines', () => {
+    expect(dialogSource).toMatch(/async function switchPaper[\s\S]*?await nextTick\(\)\s*\n\s*fitLabelLines\(\)/)
+  })
+
   it('弹窗常驻「实际大小/100%」打印提示，且打印态隐藏', async () => {
     const wrapper = await mountInAppShell()
     const hint = document.querySelector('.print-hint')!
@@ -179,12 +223,12 @@ describe('AssetPrintDialog 导出图片（第二通道）', () => {
     document.head.querySelectorAll('#label-page-size').forEach(e => e.remove())
   })
 
-  async function mountDialog() {
+  async function mountDialog(assetsArg: Array<Record<string, any>> = assets) {
     appShell = document.createElement('div')
     appShell.id = 'app'
     document.body.appendChild(appShell)
     const wrapper = mount(AssetPrintDialog, {
-      props: { visible: true, assets },
+      props: { visible: true, assets: assetsArg },
       attachTo: appShell,
     })
     await flushPromises()
@@ -249,6 +293,48 @@ describe('AssetPrintDialog 导出图片（第二通道）', () => {
     expect(document.getElementById('print-area')).toBeTruthy()
     clickSpy.mockRestore()
     vi.useRealTimers()
+    wrapper.unmount()
+  })
+
+  it('导出图片失败：停留导出视图、展示失败提示并 console.error，重试后恢复', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderLabelDataUrlMock.mockRejectedValue(new Error('canvas broken'))
+    const wrapper = await mountDialog()
+    const exportBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '导出图片')!
+    await exportBtn.click()
+    await flushPromises()
+
+    expect(document.querySelector('.export-view')).toBeTruthy()
+    const errBox = document.querySelector('.export-error')!
+    expect(errBox.textContent).toContain('渲染失败')
+    expect(errSpy).toHaveBeenCalled()
+
+    renderLabelDataUrlMock.mockResolvedValue('data:image/png;base64,retry')
+    const retryBtn = [...document.querySelectorAll<HTMLButtonElement>('.export-error button')]
+      .find(b => b.textContent === '重试')!
+    await retryBtn.click()
+    await flushPromises()
+    expect(document.querySelector('.export-error')).toBeNull()
+    expect(document.querySelectorAll('.export-item img')).toHaveLength(2)
+    errSpy.mockRestore()
+    wrapper.unmount()
+  })
+
+  it('导出列表以实例 id 为键：两个空内部编号实例文件名相同也不冲突', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const unnamed = [
+      { id: 'fa-x1', 内部编号: '', 序列号: '', 资产名称: '未编号设备', 分公司: '', 供应商: '', 采购日期: '' },
+      { id: 'fa-x2', 内部编号: '', 序列号: '', 资产名称: '未编号设备', 分公司: '', 供应商: '', 采购日期: '' },
+    ]
+    const wrapper = await mountDialog(unnamed)
+    const exportBtn = [...document.querySelectorAll<HTMLButtonElement>('.modal-footer button')]
+      .find(b => b.textContent === '导出图片')!
+    await exportBtn.click()
+    await flushPromises()
+    expect(document.querySelectorAll('.export-item img')).toHaveLength(2)
+    expect(warnSpy.mock.calls.some(c => String(c[0]).includes('Duplicate keys'))).toBe(false)
+    warnSpy.mockRestore()
     wrapper.unmount()
   })
 })
