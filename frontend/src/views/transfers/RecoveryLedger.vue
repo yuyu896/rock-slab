@@ -112,7 +112,7 @@ onMounted(() => { fetchRows(); fetchBranches() })
           </svg>
           <input v-model="filters.keyword" type="text" placeholder="搜索品目编号、名称、单号..." class="filter-input" />
         </div>
-        <div class="filter-item">
+        <div class="filter-item grow">
           <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
         </div>
         <div class="filter-item">
@@ -171,7 +171,8 @@ onMounted(() => { fetchRows(); fetchBranches() })
 .filter-section { background: var(--color-bg-card); border-radius: 12px; padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border); flex-shrink: 0; }
 .filter-row { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .filter-item { position: relative; display: flex; align-items: center; gap: 6px; }
-.filter-item.search { flex: 1; min-width: 220px; max-width: 400px; }
+.filter-item.search { flex: 1; min-width: 220px; }
+.filter-item.grow { flex: 1; }
 .filter-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-text-tertiary); }
 .filter-input { height: 38px; padding: 0 var(--space-4) 0 38px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); color: var(--color-text-primary); }
 .filter-item.search .filter-input { width: 100%; }

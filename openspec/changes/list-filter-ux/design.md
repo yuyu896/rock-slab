@@ -42,10 +42,12 @@ reset:  手动重置按钮 → filters 归零（watch 自然清空 query）
 
 分批实施：先 `useTransferList` 四页（用户痛点场景）+ `FixedAssetList`，其余页面第二批，降低一次回归面。
 
-### D3：宽度统一走两处全局改点
+### D3：宽度弹性平分（手验反馈修订：行须铺满，非限宽封顶）
 
-- `BranchFilterSelect.vue`：`.branch-filter-select { width: 220px }` → `300px`——所有使用处（含 `AdjustRecordsDialog` 弹窗）自动生效。
-- 各列表页 `.filter-item.search`：加 `max-width: 400px`（flex:1 保留，窄屏仍自适应收窄）。
+首版误将「搜索短一点」实现为 `max-width: 400px` 封顶，宽屏下筛选行右侧留白不铺满；用户定案方案二——**搜索与分公司弹性平分剩余宽度**：
+
+- `BranchFilterSelect.vue`：`width: 100%; min-width: 300px`（min-width 护住非弹性容器里 width:100% 的百分比循环塌缩，如 `AdjustRecordsDialog` 弹窗）。
+- 各列表页：分公司外层 `<div class="filter-item grow">` + `.filter-item.grow { flex: 1 }`；搜索恢复纯 `flex: 1`（去掉 max-width）。两项平分剩余空间，行满铺、分公司显著加长、搜索显著缩短（TransferList 双分公司下拉与搜索三方平分）。
 - 不新建共享样式文件（各页 filter CSS 本就复制式同构，改点机械）。
 
 ## Risks / Trade-offs

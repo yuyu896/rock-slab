@@ -119,7 +119,7 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
             </option>
           </select>
         </div>
-        <div class="filter-item">
+        <div class="filter-item grow">
           <BranchFilterSelect
             :model-value="filters.branch"
             :options="branchOptions"
@@ -218,7 +218,8 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
 .filter-section { margin-bottom: 20px; flex-shrink: 0; }
 .filter-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .filter-item { position: relative; }
-.filter-item.search { flex: 1; min-width: 200px; max-width: 400px; }
+.filter-item.search { flex: 1; min-width: 200px; }
+.filter-item.grow { flex: 1; }
 .filter-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--color-text-secondary); pointer-events: none; }
 .filter-input { width: 100%; padding: 10px 12px 10px 36px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-elevated); outline: none; }
 .filter-input:focus { border-color: var(--color-primary); }

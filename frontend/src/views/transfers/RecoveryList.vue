@@ -60,7 +60,7 @@ function openCreatePage() {
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input v-model="filters.keyword" type="text" placeholder="搜索单号、品目、经办人..." class="filter-input" />
         </div>
-        <div class="filter-item">
+        <div class="filter-item grow">
           <BranchFilterSelect v-model="filters.fromBranch" :options="branchOptions" />
         </div>
         <div class="filter-item">
@@ -139,7 +139,8 @@ function openCreatePage() {
 .stat-label { font-size: var(--text-sm); color: var(--color-text-tertiary); margin-top: var(--space-1); }
 .filter-section { margin-bottom: var(--space-4); flex-shrink: 0; }
 .filter-row { display: flex; gap: var(--space-3); }
-.filter-item.search { flex: 1; max-width: 400px; position: relative; }
+.filter-item.search { flex: 1; position: relative; }
+.filter-item.grow { flex: 1; }
 .filter-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-text-tertiary); }
 .filter-input, .filter-select { height: 38px; padding: 0 var(--space-4); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-card); font-size: var(--text-sm); }
 .filter-item.search .filter-input { width: 100%; padding-left: 38px; }

@@ -230,7 +230,7 @@ onMounted(() => {
             aria-label="搜索台账"
           />
         </div>
-        <div class="filter-item">
+        <div class="filter-item grow">
           <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
         </div>
         <div class="filter-item">
@@ -465,6 +465,10 @@ onMounted(() => {
 .filter-item.search {
   flex: 1;
   position: relative;
+}
+
+.filter-item.grow {
+  flex: 1;
 }
 
 .filter-icon {
