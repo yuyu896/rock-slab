@@ -21,6 +21,7 @@
 - [x] 4.2 各列表页 `.filter-item.search` 加 `max-width: 400px`（含使用处清单核对）
 - [x] 4.3 弹窗内使用处（如 `AdjustRecordsDialog`）目检不溢出（min-width 300 稳定呈现）
 - [x] 4.4 手验衍生：重置按钮升级为描边按钮（38px 同高、卡片底、8px 圆角）+ ↻ 图标，hover 边框/文字转主绿——七页统一（AssetSummary 本就是描边款，补图标与对齐）
+- [x] 4.5 手验衍生（真缺陷）：回收单页漏 import BranchFilterSelect（1ff4a1d 全站替换时遗漏），Vue 静默跳过致分公司筛选栏消失——补 import + 回归测试（findComponent 未解析即红）
 
 ## 5. 验证与收口
 
