@@ -19,7 +19,8 @@
 
 - [x] 4.1 `BranchFilterSelect.vue` 宽度 220px → 300px
 - [x] 4.2 各列表页 `.filter-item.search` 加 `max-width: 400px`（含使用处清单核对）
-- [ ] 4.3 弹窗内使用处（如 `AdjustRecordsDialog`）目检不溢出
+- [x] 4.3 弹窗内使用处（如 `AdjustRecordsDialog`）目检不溢出（min-width 300 稳定呈现）
+- [x] 4.4 手验衍生：重置按钮升级为描边按钮（38px 同高、卡片底、8px 圆角）+ ↻ 图标，hover 边框/文字转主绿——七页统一（AssetSummary 本就是描边款，补图标与对齐）
 
 ## 5. 验证与收口
 

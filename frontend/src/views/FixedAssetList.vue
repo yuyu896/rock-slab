@@ -438,7 +438,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
           <input v-model="filters.pendingSerial" type="checkbox" />
           仅看待补录
         </label>
-        <button class="filter-reset" @click="resetFilters">重置</button>
+        <button class="filter-reset" @click="resetFilters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>重置</button>
       </div>
     </div>
 
@@ -653,8 +653,9 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .filter-select { height: 38px; padding: 0 var(--space-4); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-page); font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; min-width: 120px; }
 .pending-filter { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--color-text-secondary); white-space: nowrap; cursor: pointer; }
 .pending-filter input { width: 15px; height: 15px; cursor: pointer; }
-.filter-reset { height: 38px; padding: 0 var(--space-4); background: transparent; border: none; color: var(--color-text-secondary); font-size: var(--text-sm); cursor: pointer; }
-.filter-reset:hover { color: var(--color-primary-500); }
+.filter-reset { height: 38px; padding: 0 var(--space-4); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-secondary); font-size: var(--text-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.filter-reset svg { width: 14px; height: 14px; }
+.filter-reset:hover { color: var(--color-primary-500); border-color: var(--color-primary-500); }
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow-x: auto; overflow-y: auto; flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-elevated); }
