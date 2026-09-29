@@ -8,8 +8,16 @@ import openpyxl
 import pytest
 from rest_framework import status
 
-MIG_HEAD = '0024_alter_transfer_经办人'
 MIG_PRE_DROP = '0021_rename_采购经办人_transfer_经办人'
+
+
+def _transfers_head() -> str:
+    """动态取 transfers 最新迁移：避免每次新增迁移后此回放测试脱节（0028 曾踩）。"""
+    from django.db.migrations.loader import MigrationLoader
+    return next(name for app, name in MigrationLoader(None).graph.leaf_nodes() if app == 'transfers')
+
+
+MIG_HEAD = _transfers_head()
 
 
 def _xlsx_rows(content):

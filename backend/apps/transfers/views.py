@@ -61,6 +61,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     required_operations = {
         'import_excel': 'manage_assets',
         'approve': 'approve_transfer',
+        'inbound_reject': 'manage_assets',
     }
 
     # 导入模板表头（模板下载与导入表头守卫共用的唯一来源）
@@ -314,6 +315,44 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 locked.备注 = (locked.备注 + '\n' + reason).strip()
             locked.save(update_fields=[
                 '审批状态', '审批人', '审批时间', '备注', 'updated_at',
+            ])
+        return Response(TransferSerializer(locked).data)
+
+    @action(detail=True, methods=['post'], url_path='inbound-reject',
+            permission_classes=[IsAuthenticated, OperationPermission])
+    @audit_log(action='inbound_reject', resource_type='Transfer', description_template='调入方驳回调拨单')
+    def inbound_reject(self, request, pk=None):
+        """调入方驳回通道（transfer-inbound-reject）：待审批调拨单零台账影响地转已驳回。
+
+        反向断言：范围须含调入分公司（调出方走既有 approve）；原因必填；
+        行锁+状态复查与审批并发安全；驳回后创建人可改单重提（既有 resubmit 链路）。
+        """
+        from django.db import transaction
+
+        transfer = self.get_object()
+        if transfer.action_type != Transfer.ACTION_TRANSFER:
+            return Response({'detail': '仅调拨单支持调入方驳回'}, status=status.HTTP_400_BAD_REQUEST)
+        validate_branches_in_scope(request.user, transfer.to_branch)
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'detail': '请填写驳回原因'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(reason) > 200:
+            return Response({'detail': '驳回原因过长（≤200 字）'}, status=status.HTTP_400_BAD_REQUEST)
+        if transfer.审批状态 != '待审批':
+            return Response({'detail': '仅待审批的调拨单可驳回'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # 加锁重取复查，与 approve 并发安全（后到者 400）
+            locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            if locked.审批状态 != '待审批':
+                return Response({'detail': '该记录已处理'}, status=status.HTTP_400_BAD_REQUEST)
+            locked.审批状态 = '已驳回'
+            locked.审批人 = request.user.name or request.user.phone
+            locked.审批时间 = timezone.now()
+            locked.调入方驳回原因 = reason
+            locked.备注 = (locked.备注 + '\n' + f'【调入方驳回】{reason}').strip()
+            locked.save(update_fields=[
+                '审批状态', '审批人', '审批时间', '调入方驳回原因', '备注', 'updated_at',
             ])
         return Response(TransferSerializer(locked).data)
 

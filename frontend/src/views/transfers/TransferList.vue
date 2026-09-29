@@ -3,8 +3,10 @@ import { useRouter } from 'vue-router'
 import { useTransferList } from '@/composables/useTransferList'
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import { handleApiError } from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { inboundRejectTransfer } from '@/api/transfers'
 import { transferDocSummary } from '@/types'
+import type { Transfer } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 
 const {
@@ -17,6 +19,22 @@ const {
 } = useTransferList('transfer')
 
 const router = useRouter()
+
+/** 调入方驳回通道（transfer-inbound-reject）：待审批调拨单零台账影响地转已驳回 */
+async function handleInboundReject(item: Transfer) {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入驳回原因（将通知调出方）', '调入方驳回', {
+      confirmButtonText: '确定驳回',
+      cancelButtonText: '取消',
+      inputValidator: (v: string) => (v && v.trim() ? true : '请输入驳回原因'),
+    })
+    await inboundRejectTransfer(item.id, { reason: value })
+    ElMessage.success('已驳回')
+    await fetchTransfers()
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(handleApiError(error))
+  }
+}
 
 function openCreatePage() {
   router.push('/transfers/transfer/create')
@@ -94,6 +112,7 @@ function openCreatePage() {
                 <button class="action-btn" @click="router.push('/transfers/transfer/' + item.id)">详情</button>
                 <button v-if="item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn reject" @click="handleReject(item)">驳回</button>
+                <button v-if="item.审批状态 === '待审批' && item.canOperate === false && item.canInboundReject" class="action-btn reject" @click="handleInboundReject(item)">驳回</button>
               </div>
             </td>
           </tr>

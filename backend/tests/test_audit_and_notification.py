@@ -36,10 +36,14 @@ class TestNotificationDataScoping:
         assert resp.status_code == 201
         tid = resp.data['id']
         # supervisor_user 对 branch 有授权 → 收到审批通知（P2 明细摘要：首行品目 + 合计数量 + 单据编号）
-        notif = Notification.objects.get(recipient=supervisor_user, related_object_id=tid)
+        notif = Notification.objects.get(recipient=supervisor_user, related_object_id=tid, title__startswith='待审批')
         assert '待审批' in notif.title
         assert notif.extra_data['asset_code'] == 'NOTIF-SCOPE-001'
         assert notif.extra_data['qty'] == 1
         assert notif.extra_data['doc_number'] == resp.data['单据编号']
-        # supervisor_b 对 branch 无授权 → 不收到该调拨的审批通知
+        # 调入方驳回通道（transfer-inbound-reject）：调入分公司持码者也收到「调入待确认」
+        assert Notification.objects.filter(
+            recipient=supervisor_user, related_object_id=tid, title__startswith='调入待确认',
+        ).exists()
+        # supervisor_b 对 branch 无授权 → 两条通知都不收到
         assert not Notification.objects.filter(recipient=supervisor_b, related_object_id=tid).exists()

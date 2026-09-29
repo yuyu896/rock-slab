@@ -66,6 +66,11 @@ export function rejectTransfer(id: string, data: { reason?: string }) {
   return request.post<TransferDocument>(`/api/transfers/${id}/approve`, { approved: false, ...data })
 }
 
+/** 调入方驳回调拨单（待审批阶段，transfer-inbound-reject） */
+export function inboundRejectTransfer(id: string, data: { reason: string }) {
+  return request.post<TransferDocument>(`/api/transfers/${id}/inbound-reject`, data)
+}
+
 /** 提交采购草稿（草稿→待审批） */
 export function submitTransfer(id: string) {
   return request.post<TransferDocument>(`/api/transfers/${id}/submit`)

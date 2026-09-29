@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import TransferDetailLayout from './components/TransferDetailLayout.vue'
-import { getTransfer, approveTransfer, rejectTransfer } from '@/api/transfers'
+import { getTransfer, approveTransfer, rejectTransfer, inboundRejectTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TransferDocument } from '@/types'
@@ -49,6 +49,22 @@ async function handleReject() {
   }
 }
 
+/** 调入方驳回通道（transfer-inbound-reject） */
+async function handleInboundReject() {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入驳回原因（将通知调出方）', '调入方驳回', {
+      confirmButtonText: '确定驳回',
+      cancelButtonText: '取消',
+      inputValidator: (v: string) => (v && v.trim() ? true : '请输入驳回原因'),
+    })
+    await inboundRejectTransfer(route.params.id as string, { reason: value })
+    ElMessage.success('已驳回')
+    await fetchTransfer()
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error(handleApiError(error))
+  }
+}
+
 onMounted(fetchTransfer)
 </script>
 
@@ -61,6 +77,7 @@ onMounted(fetchTransfer)
     :loading="loading"
     @approve="handleApprove"
     @reject="handleReject"
+    @inbound-reject="handleInboundReject"
   >
     <template #extra-view="{ doc }">
       <div class="extra-grid">

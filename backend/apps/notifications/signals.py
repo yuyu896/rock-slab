@@ -115,6 +115,33 @@ def notify_transfer_created(instance):
             },
         )
 
+    # 调入方驳回通道（transfer-inbound-reject）：调拨单同时通知调入方持 manage_assets 者（可驳回拒收）
+    if instance.action_type == Transfer.ACTION_TRANSFER and instance.调入分公司:
+        inbound_managers = _users_with_operation_access(
+            instance.调入分公司, 'manage_assets', include_admin=False,
+        )
+        for manager in inbound_managers:
+            if instance.创建人 and manager.name == instance.创建人:
+                continue
+            Notification.objects.create(
+                recipient=manager,
+                notification_type='approval',
+                title=f'调入待确认：{summary["asset_name"]}',
+                content=f'{instance.调出分公司} 向贵公司调拨 {summary["qty"]}{summary.get("unit", "")}，如拒收请在审批通过前驳回。',
+                priority='high',
+                related_object_type='transfer',
+                related_object_id=instance.id,
+                extra_data={
+                    'action_type': instance.action_type,
+                    'asset_name': summary['asset_name'],
+                    'asset_code': summary['asset_code'],
+                    'qty': summary['qty'],
+                    'doc_number': instance.单据编号,
+                    'from_branch': instance.调出分公司,
+                    'to_branch': instance.调入分公司,
+                },
+            )
+
 
 @receiver(post_save, sender=Transfer)
 def notify_on_transfer_created(sender, instance, created, **kwargs):

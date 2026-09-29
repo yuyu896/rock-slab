@@ -86,6 +86,8 @@ class Transfer(UUIDModel, TimestampedModel):
     审批状态 = models.CharField('审批状态', max_length=20, choices=APPROVAL_CHOICES, default='待审批', db_index=True)
     审批人 = models.CharField('审批人', max_length=100, blank=True, default='')
     审批时间 = models.DateTimeField('审批时间', null=True, blank=True)
+    # 调入方驳回通道（transfer-inbound-reject）：待审批阶段调入方驳回的留痕，与调出方审批驳回分列
+    调入方驳回原因 = models.CharField('调入方驳回原因', max_length=200, blank=True, default='')
     创建人 = models.CharField('创建人', max_length=100, blank=True, default='')
     action_type = models.CharField(
         '操作类型', max_length=20, choices=ACTION_CHOICES,

@@ -28,6 +28,7 @@ function assignSourceText(source: string) {
 const emit = defineEmits<{
   (e: 'approve'): void
   (e: 'reject'): void
+  (e: 'inboundReject'): void
 }>()
 
 function branchText(doc: TransferDocument) {
@@ -74,6 +75,9 @@ function branchText(doc: TransferDocument) {
           <template v-if="doc.审批状态 === '待审批' && doc.canOperate !== false">
             <button class="btn-approve" @click="emit('approve')">通过</button>
             <button class="btn-reject" @click="emit('reject')">驳回</button>
+          </template>
+          <template v-else-if="doc.审批状态 === '待审批' && doc.canOperate === false && doc.canInboundReject">
+            <button class="btn-reject" @click="emit('inboundReject')">驳回（调入方）</button>
           </template>
         </slot>
       </div>

@@ -46,6 +46,7 @@ class TransferSerializer(serializers.ModelSerializer):
     总数量 = serializers.SerializerMethodField()
     canOperate = serializers.SerializerMethodField()
     canWithdraw = serializers.SerializerMethodField()
+    canInboundReject = serializers.SerializerMethodField()
 
     class Meta:
         model = Transfer
@@ -57,7 +58,8 @@ class TransferSerializer(serializers.ModelSerializer):
             '供应商', '需求部门', '经办人', '用途',
             '回收分类', '回收去向', '处置方式', '处置金额', '出库日期', '领用来源',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
-            'lines', '品项数', '总数量', 'canOperate', 'canWithdraw',
+            'lines', '品项数', '总数量', 'canOperate', 'canWithdraw', 'canInboundReject',
+            '调入方驳回原因',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at', '单据编号']
@@ -82,6 +84,21 @@ class TransferSerializer(serializers.ModelSerializer):
         if scope.all:
             return True
         return obj.from_branch_id in scope.branches
+
+    def get_canInboundReject(self, obj):
+        """调入方驳回入口显隐（transfer-inbound-reject）：调拨单 + 待审批 + 请求者范围含调入分公司
+        （admin 恒真；调出方视角为 False，走既有审批）；无请求上下文（离线序列化）默认 False。"""
+        if obj.action_type != Transfer.ACTION_TRANSFER or obj.审批状态 != '待审批':
+            return False
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user is None or not user.is_authenticated:
+            return False
+        if user.role == 'admin':
+            return True
+        from apps.permissions.scope import resolve_user_scope
+        scope = resolve_user_scope(user)
+        return scope.all or obj.to_branch_id in scope.branches
 
     def get_canWithdraw(self, obj):
         """撤回入口显隐（purchase-withdraw-creator-fk）：账号身份判定，不比对姓名。
