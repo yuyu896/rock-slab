@@ -33,6 +33,7 @@ class TestWriteScopeEnforcement:
         assert resp.status_code == 201
 
     def test_inventory_create_out_of_scope_rejected(self, staff_user, second_branch):
+        _grant_operation(staff_user, 'manage_assets')
         client = _client_for(staff_user)
         resp = client.post('/api/inventories/', {
             'name': '越权盘点',
@@ -44,6 +45,7 @@ class TestWriteScopeEnforcement:
         self, staff_user, admin_user, branch, second_branch,
     ):
         """盘点 check 提交不属于任务分公司的资产 → 404（IDOR 修复）。"""
+        _grant_operation(staff_user, 'manage_assets')
         from apps.assets.models import AssetStock
         from apps.assets.services import ledger
         from apps.categories.models import Category
@@ -80,8 +82,9 @@ class TestWritePermissionBaseline:
     def test_transfer_sensitive_actions_declared(self):
         from apps.transfers.views import TransferViewSet
         required = TransferViewSet.required_operations
-        for action in ('import_excel', 'approve', 'warehouse'):
+        for action in ('import_excel', 'approve'):
             assert action in required, f'transfers.{action} 必须在 required_operations 中声明'
+        assert 'warehouse' not in required, 'transfers.warehouse 为不存在动作的死配置，应清理'
 
     def test_assets_write_endpoints_frozen(self):
         """P1 起 Asset 写接口整体下线（405），无需再声明编辑操作码。"""
@@ -278,6 +281,7 @@ class TestInventoryTaskHardening:
     """盘点任务：branch 必填、branch/status 不可经 PATCH 变更（审计 P0-2）。"""
 
     def test_create_without_branch_rejected(self, staff_user):
+        _grant_operation(staff_user, 'manage_assets')
         resp = _client_for(staff_user).post('/api/inventories/', {'name': '无分公司'}, format='json')
         assert resp.status_code == 400
 
@@ -297,6 +301,7 @@ class TestInventoryTaskHardening:
         assert task.status == 'pending'
 
     def test_create_in_scope_allowed(self, staff_user, branch):
+        _grant_operation(staff_user, 'manage_assets')
         resp = _client_for(staff_user).post(
             '/api/inventories/', {'name': '范围内盘点', 'branch': branch.id}, format='json',
         )

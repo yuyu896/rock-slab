@@ -125,4 +125,7 @@ router.beforeEach((to, _from, next) => {
 })
 
 export { routes }
+/* 权限变更免手动刷新：路由切换时节流重拉（见 store/user.ts refreshOperationsIfStale） */
+router.afterEach(() => { void useUserStore().refreshOperationsIfStale() })
+
 export default router

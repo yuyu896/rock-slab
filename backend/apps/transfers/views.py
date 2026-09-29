@@ -61,7 +61,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     required_operations = {
         'import_excel': 'manage_assets',
         'approve': 'approve_transfer',
-        'warehouse': 'manage_assets',
     }
 
     # 导入模板表头（模板下载与导入表头守卫共用的唯一来源）
@@ -135,6 +134,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             validate_branches_in_scope(user, transfer.from_branch)
         except ValidationError:
             raise ValidationError({'detail': '调入方分公司对此调拨单只读，仅调出方分公司可操作'})
+
+    def _assert_owner_or_admin(self, user, transfer):
+        """单据写操作归属：仅创建人与 admin（update/submit/resubmit/destroy；审批按 approve_transfer 不受限）。"""
+        if user.role == 'admin':
+            return
+        if transfer.created_by_id != user.id:
+            raise ValidationError({'detail': '仅创建人可操作此单据（管理员除外）'})
 
     def _resolve_branches(self, data):
         """外键优先、文字名称兜底解析分公司；解析失败即报错（导入路径依赖）。"""
@@ -317,6 +323,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """提交草稿：将「草稿」转为「待审批」进入审批流。"""
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
+        self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '草稿':
             return Response({'detail': '仅草稿可提交'}, status=status.HTTP_400_BAD_REQUEST)
         transfer.审批状态 = '待审批'
@@ -330,6 +337,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """重新提交：将「已驳回」转为「待审批」重新进入审批流。"""
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
+        self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '已驳回':
             return Response({'detail': '仅已驳回的记录可重新提交'}, status=status.HTTP_400_BAD_REQUEST)
         transfer.审批状态 = '待审批'
@@ -362,6 +370,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         kwargs.pop('partial', False)
         instance = self.get_object()
+        self._assert_owner_or_admin(request.user, instance)
         if instance.审批状态 not in ('已驳回', '草稿'):
             return Response({'detail': '仅已驳回或草稿的记录可编辑'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -447,6 +456,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         """已生效单据是对账流水的事实源，禁删；草稿/待审批/已驳回可删（调拨仅调出方可删）。"""
         self._assert_transfer_operable(self.request.user, instance)
+        self._assert_owner_or_admin(self.request.user, instance)
         if instance.审批状态 in ('已通过', '已入库'):
             raise ValidationError({'detail': '已生效单据不可删除（台账流水的 fact 来源）'})
         instance.delete()

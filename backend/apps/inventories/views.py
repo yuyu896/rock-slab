@@ -32,10 +32,21 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
-    # 审批 / 驳回要求 approve_inventory
+    # 审批 / 驳回要求 approve_inventory；其余写动作（建/改/删/开始/盘点/提交/复盘/作废/导入）要求 manage_assets
     required_operations = {
         'approve': 'approve_inventory',
         'reject': 'approve_inventory',
+        'create': 'manage_assets',
+        'update': 'manage_assets',
+        'partial_update': 'manage_assets',
+        'destroy': 'manage_assets',
+        'start': 'manage_assets',
+        'check': 'manage_assets',
+        'check_instance': 'manage_assets',
+        'submit': 'manage_assets',
+        'recount': 'manage_assets',
+        'cancel': 'manage_assets',
+        'import_result': 'manage_assets',
     }
 
     def get_queryset(self):

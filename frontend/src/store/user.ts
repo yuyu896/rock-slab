@@ -17,14 +17,25 @@ export const useUserStore = defineStore('user', () => {
   /** 是否为超级管理员（走职位，拥有全部权限） */
   const isAdmin = computed(() => profile.value?.role === 'admin')
 
+  let operationsFetchedAt = 0
+
   /** 拉取当前用户的管理权限摘要（登录/刷新后调用） */
   async function fetchMyPermissions() {
     try {
       const { data } = await getMyPermissions()
       operations.value = data.operations || []
+      operationsFetchedAt = Date.now()
     } catch {
       operations.value = []
     }
+  }
+
+  /** 权限变更免手动刷新：距上次拉取 ≥5 分钟则后台静默重拉（失败不打扰） */
+  async function refreshOperationsIfStale() {
+    if (!token.value || Date.now() - operationsFetchedAt < 5 * 60 * 1000) return
+    try {
+      await fetchMyPermissions()
+    } catch { /* 静默 */ }
   }
 
   /** 登录 */
@@ -78,6 +89,7 @@ export const useUserStore = defineStore('user', () => {
     token,
     profile,
     operations,
+    refreshOperationsIfStale,
     isLoggedIn,
     isAdmin,
     login,

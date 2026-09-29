@@ -99,7 +99,7 @@ class TestTransferDestroyScope:
         doc = Transfer.objects.create(
             单据编号='TD-P1', 调拨日期=datetime.date(2026, 9, 28),
             调入分公司=branch.name, to_branch=branch,
-            action_type='purchase', 审批状态='待审批',
+            action_type='purchase', 审批状态='待审批', created_by=supervisor_user,
         )
         client = _client_for(supervisor_user)
         resp = client.delete(f'/api/transfers/{doc.pk}')

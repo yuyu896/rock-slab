@@ -80,6 +80,7 @@ class UserViewSet(viewsets.ModelViewSet):
         target_role = data.get('role', 'manager')
 
         self._validate_role_assignment(creator, target_role)
+        self._validate_target_branch_in_scope(creator, data.get('branch'))
 
         serializer.save(created_by=creator)
 
@@ -97,6 +98,7 @@ class UserViewSet(viewsets.ModelViewSet):
         # Validate role change
         if 'role' in data:
             self._validate_role_assignment(updater, target_role)
+        self._validate_target_branch_in_scope(updater, data.get('branch'))
 
         serializer.save()
 
@@ -114,6 +116,13 @@ class UserViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError(
                 {'role': f'您没有权限分配「{role_display}」角色'}
             )
+
+    def _validate_target_branch_in_scope(self, operator, branch_value):
+        """改挂目标分公司也须在操作者范围（防把用户改挂到范围外；admin 豁免）。"""
+        if operator.role == 'admin' or branch_value is None:
+            return
+        from core.permissions import validate_branches_in_scope
+        validate_branches_in_scope(operator, branch_value)
 
     def _validate_in_scope(self, operator, target_user):
         """Check if the target user is within the operator's granted scope."""

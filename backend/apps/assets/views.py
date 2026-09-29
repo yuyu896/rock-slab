@@ -505,6 +505,9 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
             if inst is None:
                 errors.append(f'{iid}: 实例不存在')
                 continue
+            if inst.branch is None:
+                errors.append(f'{inst.内部编号}: 未归属分公司')
+                continue
             try:
                 validate_branches_in_scope(request.user, inst.branch)
             except ValidationError:
