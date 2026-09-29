@@ -17,5 +17,5 @@
 
 ## 4. 收口
 
-- [ ] 4.1 手验清单：admin 走权限分配页任命/改任正常；director 编辑组织节点（名称/编码）正常；本地验证后自行部署
+- [x] 4.1 手验清单：admin 走权限分配页任命/改任正常；director 编辑组织节点（名称/编码）正常；本地验证后自行部署
 - [ ] 4.2 归档时备注：position-appointment spec 中 manager 模板 8 项陈述由 manager-grants-tighten 归档链修正，勿在本变更重复处理
