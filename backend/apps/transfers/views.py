@@ -445,7 +445,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         raise AssertionError('update 已整体重写，不应走到默认 perform_update')
 
     def perform_destroy(self, instance):
-        """已生效单据是对账流水的事实源，禁删；草稿/待审批/已驳回可删。"""
+        """已生效单据是对账流水的事实源，禁删；草稿/待审批/已驳回可删（调拨仅调出方可删）。"""
+        self._assert_transfer_operable(self.request.user, instance)
         if instance.审批状态 in ('已通过', '已入库'):
             raise ValidationError({'detail': '已生效单据不可删除（台账流水的 fact 来源）'})
         instance.delete()

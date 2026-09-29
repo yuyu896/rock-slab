@@ -506,6 +506,11 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 errors.append(f'{iid}: 实例不存在')
                 continue
             try:
+                validate_branches_in_scope(request.user, inst.branch)
+            except ValidationError:
+                errors.append(f'{inst.内部编号}: 分公司不在授权范围')
+                continue
+            try:
                 with transaction.atomic():
                     if supplier is not None:
                         # 个体覆盖写实例字段（同批共享出生行，写行会连带改全部同行实例）

@@ -187,14 +187,14 @@ async function saveItem() {
   saving.value = true
   try {
     if (item.type === 'region') {
-      const payload = { name: item.name, code: item.code, manager: item.manager || null, status: item.status || 'active' }
+      const payload = { name: item.name, code: item.code, status: item.status || 'active' }
       item.isNew ? await createRegion(payload) : await updateRegion(item.id, payload)
     } else if (item.type === 'team') {
-      const payload = { name: item.name, region: item.region, leader: item.leader || null, status: item.status || 'active' }
+      const payload = { name: item.name, region: item.region, status: item.status || 'active' }
       item.isNew ? await createTeam(payload) : await updateTeam(item.id, payload)
     } else if (item.type === 'branch') {
       if (!item.team) { ElMessage.warning('请选择所属行政组'); return }
-      const payload = { name: item.name, code: item.code, team: item.team, address: item.address || '', phone: item.phone || '', manager: item.manager || null, status: item.status || 'active' }
+      const payload = { name: item.name, code: item.code, team: item.team, address: item.address || '', phone: item.phone || '', status: item.status || 'active' }
       item.isNew ? await createBranch(payload) : await updateBranch(item.id, payload)
     }
     ElMessage.success(item.isNew ? '创建成功' : '保存成功')

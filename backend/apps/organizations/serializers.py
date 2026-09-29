@@ -3,6 +3,22 @@ from django.core.validators import RegexValidator
 from .models import Region, Branch, Team, Company, BRANCH_CODE_REGEX, Department
 
 
+def _assert_appointment_admin_only(serializer, attrs, field):
+    """任命/免任仅 admin：任命即授权，manage_organizations 不隐含任命权（防提权链）。
+
+    值未变（含 null→null）或未携带该字段的普通节点编辑放行。
+    """
+    request = serializer.context.get('request')
+    user = getattr(request, 'user', None)
+    if user is None or not getattr(user, 'is_authenticated', False) or user.role == 'admin':
+        return
+    if field not in attrs:
+        return
+    current = getattr(serializer.instance, field, None) if serializer.instance else None
+    if attrs[field] != current:
+        raise serializers.ValidationError({field: ['任命/免任仅系统管理员可操作']})
+
+
 class RegionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Region
@@ -11,6 +27,10 @@ class RegionSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    def validate(self, attrs):
+        _assert_appointment_admin_only(self, attrs, 'manager')
+        return attrs
 
 
 class BranchSerializer(serializers.ModelSerializer):
@@ -42,6 +62,10 @@ class BranchSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f'分公司编码 {value} 已存在')
         return value
 
+    def validate(self, attrs):
+        _assert_appointment_admin_only(self, attrs, 'manager')
+        return attrs
+
 
 class TeamSerializer(serializers.ModelSerializer):
     region_name = serializers.CharField(source='region.name', read_only=True)
@@ -60,6 +84,10 @@ class TeamSerializer(serializers.ModelSerializer):
     def get_member_count(self, obj):
         from apps.users.models import User
         return User.objects.filter(branch__team=obj).count()
+
+    def validate(self, attrs):
+        _assert_appointment_admin_only(self, attrs, 'leader')
+        return attrs
 
 
 class CompanySerializer(serializers.ModelSerializer):
