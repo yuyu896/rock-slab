@@ -11,10 +11,12 @@ vi.mock('qrcode', () => ({
 vi.mock('@/utils/labelImage', () => ({
   renderLabelDataUrl: renderLabelDataUrlMock,
   labelFileName: (a: Record<string, any>) => `标签_${a.内部编号}.png`,
+  LABEL_SPEC: { fitSafetyRatio: 0.97 },
 }))
 
 import AssetPrintDialog from '@/views/assets/AssetPrintDialog.vue'
 import dialogSource from '@/views/assets/AssetPrintDialog.vue?raw'
+import mainSource from '@/main.ts?raw'
 
 const assets = [
   { id: 'fa-1', 内部编号: 'A-a00008-BJ001-1', 序列号: 'PF3XK2LM', 资产名称: 'ThinkPad T14', 品目编号: 'A-a00008', 分公司: '北京分公司', 供应商: '小熊', 采购日期: '2026-09-16' },
@@ -202,6 +204,15 @@ describe('AssetPrintDialog 标签规范 V1', () => {
     expect(dialogSource).toMatch(/@page \{ size: 60mm 40mm; margin: 0; \}/)
     expect(dialogSource).toMatch(/\.paper-60x40 \.print-label \{[^}]*width:\s*60mm;[^}]*height:\s*40mm;/s)
     expect(dialogSource).not.toContain('18mm')
+  })
+
+  it('字体自托管与缩号余量（源码契约）：fontsource 三字重、fonts.ready 兜底、97% 余量、NO 行 600', () => {
+    for (const w of ['400', '600', '700']) {
+      expect(mainSource).toContain(`@fontsource/jetbrains-mono/latin-${w}.css`)
+    }
+    expect(dialogSource).toMatch(/document\.fonts\.ready\.then\(\(\) => fitLabelLines\(\)\)/)
+    expect(dialogSource).toMatch(/scrollWidth > line\.clientWidth \* LABEL_SPEC\.fitSafetyRatio/)
+    expect(dialogSource).toMatch(/font-weight:\s*600; color: #000; \}\n\.paper-60x40 \.label-sn/)
   })
 
   it('弹窗常驻「实际大小/100%」打印提示，且打印态隐藏', async () => {

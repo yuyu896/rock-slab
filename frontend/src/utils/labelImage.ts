@@ -27,10 +27,12 @@ export const LABEL_SPEC = {
   /** 垂直居中后的整体上移量：抵消行盒下行空隙导致的视觉偏下 */
   blockLiftMm: 0.4,
   fontMinMm: 2.2,
+  /** 缩号安全余量（label-font-robustness）：以可用宽 97% 为目标，打印/导出两侧同参——跨渲染度量微差不裁字 */
+  fitSafetyRatio: 0.97,
   /** V3 英文字段前缀（统一带冒号；换词只改这里；打印 CSS 侧文案与此对齐，测试源码断言把关） */
   prefixes: { code: 'NO:', sn: 'SN:', name: 'ITEM:', branch: 'BRANCH:', vendor: 'VENDOR:', date: 'DATE:' },
   fonts: {
-    code: { sizeMm: 3.4, weight: '700', mono: true, color: '#000' },
+    code: { sizeMm: 3.4, weight: '600', mono: true, color: '#000' },
     sn: { sizeMm: 3.0, weight: '400', mono: true, color: '#000' },
     name: { sizeMm: 3.4, weight: '600', mono: false, color: '#000' },
     aux: { sizeMm: 2.6, weight: '400', mono: false, color: '#444' },
@@ -112,7 +114,7 @@ export function labelTextWidthMm(): number {
 
 export function computeLabelLayout(asset: LabelAssetShape, measure: MeasureFn, pxPerMm: number) {
   const lines = buildLabelLines(asset)
-  fitLines(lines, measure, labelTextWidthMm() * pxPerMm, pxPerMm)
+  fitLines(lines, measure, labelTextWidthMm() * LABEL_SPEC.fitSafetyRatio * pxPerMm, pxPerMm)
   const blockHeightMm = lines.reduce(
     (sum, l) => sum + l.sizeMm * LABEL_SPEC.lineHeightFactor, 0,
   ) + (lines.length - 1) * LABEL_SPEC.lineGapMm

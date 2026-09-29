@@ -85,6 +85,20 @@ describe('labelImage V3 布局计算', () => {
     expect(labelFileName(asset)).toBe('标签_A-a00008-BJ001-1.png')
   })
 
+  it('缩号安全余量与 NO 行字重（label-font-robustness）', () => {
+    expect(LABEL_SPEC.fitSafetyRatio).toBe(0.97)
+    const [codeLine] = buildLabelLines(asset)
+    expect(codeLine.segments[1].weight).toBe('600')
+    // 同一长行：97% 目标宽的缩号结果不大于 100% 目标（余量口径生效）
+    const mk = () => buildLabelLines({ ...asset, 分公司: '超长分公司名称测试专用一二三四五六七八九十' })
+    const full = mk(), safe = mk()
+    const m = (t: string, f: { sizePx: number; mono: boolean }) => t.length * f.sizePx * (f.mono ? 0.55 : 0.6)
+    fitLines(full, m, labelTextWidthMm() * PX_PER_MM, PX_PER_MM)
+    fitLines(safe, m, labelTextWidthMm() * LABEL_SPEC.fitSafetyRatio * PX_PER_MM, PX_PER_MM)
+    const fa = full.at(-1)!.sizeMm, sa = safe.at(-1)!.sizeMm
+    expect(sa).toBeLessThanOrEqual(fa)
+  })
+
   it('空内部编号文件名回退实例 id 短码', () => {
     expect(labelFileName({ ...asset, 内部编号: '', id: '9f8e7d6c-1111-2222' })).toBe('标签_未编号_9f8e7d6c.png')
   })

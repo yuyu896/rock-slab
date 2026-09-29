@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import QRCode from 'qrcode'
-import { labelFileName, renderLabelDataUrl } from '@/utils/labelImage'
+import { labelFileName, renderLabelDataUrl, LABEL_SPEC } from '@/utils/labelImage'
 import type { LabelAssetShape } from '@/utils/labelImage'
 /* 打印对象为字段映射后的宽松形状（内部编号/序列号/品目信息） */
 type Asset = Record<string, any>
@@ -63,13 +63,14 @@ async function renderQrCodes() {
   fitLabelLines()
 }
 
-/** 单签内容不越界：超宽行逐步缩号（下限 2.2mm），保持单行不换行 */
+/** 单签内容不越界：超宽行逐步缩号（下限 2.2mm），保持单行不换行；
+ *  以可用宽 97% 为目标留安全余量（label-font-robustness，与导出通道同参） */
 function fitLabelLines() {
   const minPx = 2.2 * (96 / 25.4)
   document.querySelectorAll<HTMLElement>('.print-label .fit').forEach(line => {
     line.style.fontSize = ''
     let size = parseFloat(getComputedStyle(line).fontSize)
-    while (line.scrollWidth > line.clientWidth && size > minPx) {
+    while (line.scrollWidth > line.clientWidth * LABEL_SPEC.fitSafetyRatio && size > minPx) {
       size -= 0.4
       line.style.fontSize = `${size}px`
     }
@@ -133,7 +134,11 @@ function downloadAll() {
 }
 
 watch(() => props.visible, (val) => {
-  if (val) renderQrCodes()
+  if (val) {
+    renderQrCodes()
+    /* webfont 异步就绪晚于首测时补一次重缩（label-font-robustness） */
+    if (document.fonts) void document.fonts.ready.then(() => fitLabelLines())
+  }
   else {
     /* 关闭即丢弃导出会话：复位视图态并作废在途渲染（旧资产图片不得写入/干扰） */
     exportSession++
@@ -263,7 +268,7 @@ onBeforeUnmount(() => {
 /* ── 标签内部规范（双纸型同源，与 LABEL_SPEC 同参，改动需两侧同步）──
      V2：字号上调、行距收紧；margin-top 上移 0.4mm 校正垂直居中（blockLiftMm） */
 .paper-60x40 .label-info, .paper-a4 .label-info { display: flex; flex-direction: column; gap: 0.5mm; min-width: 0; flex: 1; margin-top: -0.4mm; }
-.paper-60x40 .label-code, .paper-a4 .label-code { font-family: var(--font-mono, monospace); font-size: 3.4mm; font-weight: 700; color: #000; }
+.paper-60x40 .label-code, .paper-a4 .label-code { font-family: var(--font-mono, monospace); font-size: 3.4mm; font-weight: 600; color: #000; }
 .paper-60x40 .label-sn, .paper-a4 .label-sn { font-family: var(--font-mono, monospace); font-size: 3mm; color: #000; }
 .paper-60x40 .label-name, .paper-a4 .label-name { font-size: 3.4mm; font-weight: 600; color: #000; }
 .paper-60x40 .label-aux, .paper-a4 .label-aux { font-size: 2.6mm; color: #444; }
