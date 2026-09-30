@@ -158,6 +158,88 @@ class TestAllDataGrantScope:
 
 
 # ---------------------------------------------------------------------------
+# 岗位权线闸：更新/删除的目标岗位须在操作者可分配岗位内（admin/本人豁免）
+# ---------------------------------------------------------------------------
+
+
+def _role_line_user(phone, role, branch=None):
+    from django.contrib.auth import get_user_model
+    return get_user_model().objects.create_user(
+        phone=phone, name=f'{role}账号', password='test123456',
+        role=role, status='active', branch=branch,
+    )
+
+
+@pytest.mark.django_db
+class TestRoleLineGuard:
+    # --- 越权：低岗位操作者对 admin/director ---
+
+    def test_all_data_manager_cannot_patch_admin(self, all_data_manager, admin_user):
+        client = _client_for(all_data_manager)
+        resp = client.patch(f'/api/users/{admin_user.id}', {'name': '越权改名'})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        admin_user.refresh_from_db()
+        assert admin_user.name != '越权改名'
+
+    def test_all_data_manager_cannot_delete_admin(self, all_data_manager, admin_user):
+        from django.contrib.auth import get_user_model
+        client = _client_for(all_data_manager)
+        resp = client.delete(f'/api/users/{admin_user.id}')
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert get_user_model().objects.filter(id=admin_user.id).exists()
+
+    def test_branch_manager_cannot_patch_same_branch_director(self, manager_user, branch):
+        # 数据范围覆盖（同分公司）不放宽权线：两道闸相互独立
+        director = _role_line_user('13911110001', 'director', branch=branch)
+        client = _client_for(manager_user)
+        resp = client.patch(f'/api/users/{director.id}', {'name': '越权改名'})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_demotion_across_role_line_rejected(self, manager_user, branch):
+        # 降级攻击：请求里带的是权线内角色，仍按目标当前岗位拦截
+        director = _role_line_user('13911110002', 'director', branch=branch)
+        client = _client_for(manager_user)
+        resp = client.patch(f'/api/users/{director.id}', {'role': 'leader'})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        director.refresh_from_db()
+        assert director.role == 'director'
+
+    def test_all_data_director_cannot_patch_admin(self, db):
+        from apps.permissions.models import ManagementScope, OperationGrant
+        director = _role_line_user('13911110003', 'director')
+        ManagementScope.objects.create(user=director, is_all_data=True)
+        OperationGrant.objects.create(user=director, code='manage_users')
+        admin = _role_line_user('13911110004', 'admin')
+        client = _client_for(director)
+        resp = client.patch(f'/api/users/{admin.id}', {'name': '越权改名'})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- 通行：权线内 / 豁免 / 退役岗位归一化 ---
+
+    def test_manager_edits_leader_in_scope(self, manager_user, leader_user):
+        client = _client_for(manager_user)
+        resp = client.patch(f'/api/users/{leader_user.id}', {'name': '权线内改名'})
+        assert resp.status_code == status.HTTP_200_OK
+
+    def test_all_data_manager_deletes_retired_staff(self, all_data_manager, staff_b):
+        # 退役岗位按 migrate_positions 换岗目标（manager）计权线，存量管理关系不冻结
+        client = _client_for(all_data_manager)
+        resp = client.delete(f'/api/users/{staff_b.id}')
+        assert resp.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_admin_patches_director(self, admin_user, branch):
+        director = _role_line_user('13911110005', 'director', branch=branch)
+        client = _client_for(admin_user)
+        resp = client.patch(f'/api/users/{director.id}', {'name': '管理员改名'})
+        assert resp.status_code == status.HTTP_200_OK
+
+    def test_self_patch_exempt(self, all_data_manager):
+        client = _client_for(all_data_manager)
+        resp = client.patch(f'/api/users/{all_data_manager.id}', {'name': '改自己'})
+        assert resp.status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
 # 员工名单只读放开：任何登录用户 list/retrieve 全量可见；写路径隔离不变
 # ---------------------------------------------------------------------------
 

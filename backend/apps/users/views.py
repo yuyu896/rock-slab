@@ -24,12 +24,16 @@ MANAGEABLE_ROLES = {
     'leader': [],
 }
 
+# 退役岗位按 migrate_positions 的换岗目标（manager）计权线：
+# 存量 supervisor/staff 的管理关系不因退役冻结，也不放开对在职高岗位的越权
+_RETIRED_ROLE_LINE = {'supervisor': 'manager', 'staff': 'manager'}
+
 
 def _get_user_queryset(user):
     """Return the queryset of users that the requesting user can see/manage.
 
-    范围由管理授权决定：admin 或「全部数据」授权为全部；其余为授权组织节点
-    （沿树展开为分公司）内 + 自己。
+    范围由管理授权决定：admin 或「全部数据」授权为全部（管理权线由
+    _validate_in_scope 把关）；其余为授权组织节点（沿树展开为分公司）内 + 自己。
     """
     qs = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'created_by')
 
@@ -39,7 +43,7 @@ def _get_user_queryset(user):
     from apps.permissions.scope import resolve_user_scope
     scope = resolve_user_scope(user)
     if scope.all:
-        return qs  # 「全部数据」授权：全部用户（须先于 is_empty 判断）
+        return qs  # 「全部数据」授权：全部用户（须先于 is_empty 判断；权线闸在 _validate_in_scope）
     if scope.is_empty:
         return qs.filter(id=user.id)  # 无授权仅见自己
 
@@ -130,10 +134,19 @@ class UserViewSet(viewsets.ModelViewSet):
             return
         if target_user.id == operator.id:
             return
+        # 权线闸：目标当前岗位须在操作者可分配岗位内（先于 scope.all 执行；
+        # 不带 role 字段的改/删与把高岗位用户降级的请求都在此拦截）
+        op_line = _RETIRED_ROLE_LINE.get(operator.role, operator.role)
+        target_line = _RETIRED_ROLE_LINE.get(target_user.role, target_user.role)
+        if target_line not in MANAGEABLE_ROLES.get(op_line, []):
+            role_display = dict(User.ROLE_CHOICES).get(target_user.role, target_user.role)
+            raise serializers.ValidationError(
+                {'detail': f'您没有权限管理「{role_display}」用户'}
+            )
         from apps.permissions.scope import resolve_user_scope
         scope = resolve_user_scope(operator)
         if scope.all:
-            return  # 「全部数据」授权可管理任何用户
+            return  # 「全部数据」授权可管理权线内的任何用户
         in_branch = bool(target_user.branch_id and target_user.branch_id in scope.branches)
         if not in_branch:
             raise serializers.ValidationError(
