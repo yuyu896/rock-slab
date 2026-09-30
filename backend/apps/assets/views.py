@@ -558,13 +558,23 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='supplement')
     def supplement(self, request, pk=None):
-        """序列号补录：仅 序列号/备注 两字段（manage_instances 权限，渐进录入）。"""
+        """序列号补录：仅 序列号/备注 两字段（manage_instances 权限，渐进录入）。
+        部分更新语义：未提交的字段保持原值（serial-uniqueness）；
+        非空序列号全局查重（显式提交空串=有意退回待补录，合法）。"""
         instance = self.get_object()
         serializer = FixedAssetSupplementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        instance.序列号 = serializer.validated_data.get('序列号', '')
-        instance.备注 = serializer.validated_data.get('备注', '')
-        instance.save(update_fields=['序列号', '备注', 'updated_at'])
+        update_fields = ['updated_at']
+        if '序列号' in serializer.validated_data:
+            sn = (serializer.validated_data['序列号'] or '').strip()
+            if sn and FixedAsset.objects.filter(序列号=sn).exclude(pk=instance.pk).exists():
+                raise ValidationError({'序列号': [f'序列号 {sn} 已被其他实例使用']})
+            instance.序列号 = sn
+            update_fields.insert(0, '序列号')
+        if '备注' in serializer.validated_data:
+            instance.备注 = serializer.validated_data['备注']
+            update_fields.insert(0, '备注')
+        instance.save(update_fields=update_fields)
         return Response(FixedAssetSerializer(instance).data)
 
     # 同 url_path 双 action 会被 DRF 按方法名排序注册成两条 pattern，先注册者

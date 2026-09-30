@@ -121,10 +121,11 @@ class FixedAssetSerializer(serializers.ModelSerializer):
 
 
 class FixedAssetSupplementSerializer(serializers.Serializer):
-    """序列号补录入参：仅 序列号/备注 两字段（状态等经流转单变动）。"""
+    """序列号补录入参：仅 序列号/备注 两字段（状态等经流转单变动）。
+    不设 default——未提交的字段不进 validated_data（部分更新语义，serial-uniqueness）。"""
 
-    序列号 = serializers.CharField(required=False, allow_blank=True, default='')
-    备注 = serializers.CharField(required=False, allow_blank=True, default='')
+    序列号 = serializers.CharField(required=False, allow_blank=True)
+    备注 = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
         unknown = set(self.initial_data) - {'序列号', '备注'}
