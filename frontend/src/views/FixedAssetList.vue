@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getFixedAssets, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets } from '@/api/assets'
+import { getFixedAssets, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets, supplementFixedAsset } from '@/api/assets'
 import type { FixedAsset, FixedAssetTimeline } from '@/types'
 import { getBranches } from '@/api/branches'
 import { getSuppliers, type Supplier } from '@/api/suppliers'
@@ -97,11 +97,15 @@ async function handleEditSave() {
   if (!editing.value) return
   editSaving.value = true
   try {
+    // 序列号/备注走补录接口（serial-uniqueness UI 收口）：支持清空（空=回到待补录）
+    // 与同分公司查重；batch_update 的 空=不改 语义无法清空序列号
+    await supplementFixedAsset(editing.value.id, {
+      序列号: editForm.value.序列号,
+      备注: editForm.value.备注,
+    })
     const hadDate = !!editing.value.采购日期  // 原有个体日期：清空即清除覆盖
     const { data } = await batchUpdateFixedAssets({
       ids: [editing.value.id],
-      序列号列表: [editForm.value.序列号],
-      备注: editForm.value.备注,
       规格: editForm.value.规格,
       供应商: editForm.value.供应商,
       ...(editForm.value.采购日期 || hadDate ? { 采购日期: editForm.value.采购日期 || '' } : {}),
@@ -531,7 +535,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
             <el-form-item label="品目名称">{{ editing.itemName || '-' }}</el-form-item>
             <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
             <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
-            <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入" /></el-form-item>
+            <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入；清空=回到待补录" /></el-form-item>
             <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
             <el-form-item label="供应商">

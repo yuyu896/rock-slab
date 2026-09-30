@@ -153,8 +153,9 @@ describe('FixedAssetList 物品图片', () => {
     expect(fixedAssetListSource).not.toMatch(/\.action-col\s*\{[^}]*display:\s*flex/)
   })
 
-  it('编辑弹窗：上传图片即时生效，保存提交四项字段', async () => {
-    const { batchUpdateFixedAssets } = await import('@/api/assets')
+  it('编辑弹窗：上传图片即时生效，序列号/备注走补录接口，规格/供应商走 batch-update', async () => {
+    const { batchUpdateFixedAssets, supplementFixedAsset } = await import('@/api/assets')
+    vi.mocked(supplementFixedAsset).mockResolvedValue({ data: _inst({}) } as any)
     vi.mocked(batchUpdateFixedAssets).mockResolvedValue({
       data: { updated: 1, results: ['NB-001-1'], errors: [] },
     } as any)
@@ -179,15 +180,19 @@ describe('FixedAssetList 物品图片', () => {
     await flushPromises()
     expect(uploadFixedAssetImage).toHaveBeenCalledWith('fa-1', file)
 
-    // 保存：batch-update 携带 序列号/备注/规格/供应商
+    // 保存：序列号/备注经 supplement（可清空+查重），规格/供应商经 batch-update
     await wrapper.findAll('button').find(b => b.text() === '保存')!.trigger('click')
     await flushPromises()
+    expect(supplementFixedAsset).toHaveBeenCalledWith('fa-1', {
+      序列号: expect.any(String),
+      备注: expect.any(String),
+    })
     expect(batchUpdateFixedAssets).toHaveBeenCalledWith(expect.objectContaining({
       ids: ['fa-1'],
-      序列号列表: [expect.any(String)],
       规格: expect.any(String),
       供应商: expect.any(String),
     }))
+    expect(vi.mocked(batchUpdateFixedAssets).mock.calls[0][0]).not.toHaveProperty('序列号列表')
   })
 })
 
