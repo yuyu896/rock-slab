@@ -300,6 +300,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             if approved:
+                # 盘点锁复查（approve-inventory-lock-recheck）：与创建闸对称——
+                # 联单任一侧分公司盘点锁定期间禁改台账（None 分支自然跳过）
+                self._check_inventory_lock(branch_id=locked.from_branch_id)
+                self._check_inventory_lock(branch_id=locked.to_branch_id)
                 # 五单对称联动：充足性校验与数量变动均在唯一写入口内完成（按明细行迭代），
                 # 不足时抛 ValidationError（LEDGER_INSUFFICIENT）→ 400 并整体回滚
                 locked.审批状态 = (
