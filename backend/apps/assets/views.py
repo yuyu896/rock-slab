@@ -544,9 +544,12 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                     if serials:
                         sn = (serials[pos] or '').strip()
                         # 空 = 不改该字段（编辑弹窗只改其他项时不连带回滚）；
-                        # 非空校验唯一后写入
+                        # 非空校验同分公司唯一后写入（serial-dedup-scope：手机自编编号
+                        # 跨分公司同号合法，全局查重会误伤）
                         if sn:
-                            dup = FixedAsset.objects.filter(序列号=sn).exclude(pk=inst.pk).exists()
+                            dup = FixedAsset.objects.filter(
+                                序列号=sn, branch_id=inst.branch_id,
+                            ).exclude(pk=inst.pk).exists()
                             if dup:
                                 raise ValueError(f'序列号 {sn} 已被其他实例使用')
                             inst.序列号 = sn
@@ -560,14 +563,16 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     def supplement(self, request, pk=None):
         """序列号补录：仅 序列号/备注 两字段（manage_instances 权限，渐进录入）。
         部分更新语义：未提交的字段保持原值（serial-uniqueness）；
-        非空序列号全局查重（显式提交空串=有意退回待补录，合法）。"""
+        非空序列号同分公司查重（显式提交空串=有意退回待补录，合法）。"""
         instance = self.get_object()
         serializer = FixedAssetSupplementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         update_fields = ['updated_at']
         if '序列号' in serializer.validated_data:
             sn = (serializer.validated_data['序列号'] or '').strip()
-            if sn and FixedAsset.objects.filter(序列号=sn).exclude(pk=instance.pk).exists():
+            if sn and FixedAsset.objects.filter(
+                序列号=sn, branch_id=instance.branch_id,
+            ).exclude(pk=instance.pk).exists():
                 raise ValidationError({'序列号': [f'序列号 {sn} 已被其他实例使用']})
             instance.序列号 = sn
             update_fields.insert(0, '序列号')

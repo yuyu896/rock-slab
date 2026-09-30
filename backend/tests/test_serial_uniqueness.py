@@ -96,6 +96,20 @@ class TestSupplementUniqueness:
         inst.refresh_from_db()
         assert inst.序列号 == 'SN-SELF-001'
 
+    def test_cross_branch_same_serial_allowed(self, manager_user, branch, second_branch):
+        """同分公司口径（serial-dedup-scope）：手机自编编号跨分公司同号合法。"""
+        from conftest import _client_for
+        _grant(manager_user)
+        item = _item('SN-UQ-6')
+        _inst(branch, item, 1, serial='办公手机-3')
+        b = _inst(second_branch, item, 2)
+        resp = _client_for(manager_user).patch(
+            f'/api/assets/fixed-assets/{b.id}/supplement',
+            {'序列号': '办公手机-3'}, format='json')
+        assert resp.status_code == status.HTTP_200_OK
+        b.refresh_from_db()
+        assert b.序列号 == '办公手机-3'
+
 
 @pytest.mark.django_db
 class TestReportCommand:
@@ -117,4 +131,15 @@ class TestReportCommand:
         from django.core.management import call_command
         out = StringIO()
         call_command('report_serial_duplicates', stdout=out)
-        assert '无重复序列号' in out.getvalue()
+        assert '无同分公司重复序列号' in out.getvalue()
+
+    def test_cross_branch_same_serial_not_reported(self, branch, second_branch):
+        """跨分公司同号合法，不计入重复（命令与约束同为分公司口径）。"""
+        from io import StringIO
+        from django.core.management import call_command
+        item = _item('SN-CMD-2')
+        _inst(branch, item, 1, serial='SN-X-OVERLAP')
+        _inst(second_branch, item, 2, serial='SN-X-OVERLAP')
+        out = StringIO()
+        call_command('report_serial_duplicates', stdout=out)
+        assert '无同分公司重复序列号' in out.getvalue()
