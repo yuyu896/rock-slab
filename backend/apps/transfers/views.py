@@ -512,14 +512,20 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='instance-occupancy')
     def instance_occupancy(self, request):
         """未生效单据实例占用映射（instance-picker-completeness：点选器候选标注用）。
-        参数 branch（分公司名）与 asset_code（品目编号）收敛查询面。"""
+        参数 branch（分公司名）与 asset_code（品目编号）收敛查询面；
+        读取面收敛到授权范围（instance-occupancy-scoping）：越界 400，未知分公司名 []。"""
         from .services import _pending_occupation_map
         from apps.assets.models import FixedAsset
+        from apps.organizations.models import Branch
+        from core.permissions import validate_branches_in_scope
         branch_name = request.query_params.get('branch') or ''
         asset_code = request.query_params.get('asset_code') or ''
+        branch = Branch.objects.filter(name=branch_name).first() if branch_name else None
+        if branch is not None:
+            validate_branches_in_scope(request.user, branch.id)
         insts = FixedAsset.objects.filter(
-            item__asset_code=asset_code, branch__name=branch_name,
-        ) if (branch_name and asset_code) else FixedAsset.objects.none()
+            item__asset_code=asset_code, branch=branch,
+        ) if branch is not None else FixedAsset.objects.none()
         occupancy = _pending_occupation_map(list(insts.values_list('id', flat=True)))
         id_map = {i.pk: i.内部编号 for i in insts}
         return Response([

@@ -156,3 +156,55 @@ class TestSingleLineContextPrefix:
         detail = str(resp.data['detail'])
         assert detail.count('明细行') == 1  # 单层前缀
         assert '状态 在库 不是 在用' in detail
+
+
+@pytest.mark.django_db
+class TestOccupancyEndpointScoping:
+    """instance-occupancy-scoping：读取面收敛到授权范围（越界 400，未知分公司 []）。"""
+
+    def test_out_of_scope_branch_rejected(self, leader_user, second_branch):
+        from conftest import _client_for
+        client = _client_for(leader_user)
+        resp = client.get('/api/transfers/instance-occupancy', {
+            'branch': second_branch.name, 'asset_code': 'OC-SCOPE',
+        })
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '授权范围' in str(resp.data)
+
+    def test_in_scope_branch_ok(self, leader_user, branch):
+        from conftest import _client_for
+        client = _client_for(leader_user)
+        resp = client.get('/api/transfers/instance-occupancy', {
+            'branch': branch.name, 'asset_code': 'OC-SCOPE',
+        })
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data == []
+
+    def test_unknown_branch_returns_empty(self, leader_user):
+        from conftest import _client_for
+        client = _client_for(leader_user)
+        resp = client.get('/api/transfers/instance-occupancy', {
+            'branch': '不存在的分公司', 'asset_code': 'OC-SCOPE',
+        })
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data == []
+
+    def test_admin_any_branch_ok(self, authenticated_client, second_branch):
+        resp = authenticated_client.get('/api/transfers/instance-occupancy', {
+            'branch': second_branch.name, 'asset_code': 'OC-SCOPE',
+        })
+        assert resp.status_code == status.HTTP_200_OK
+
+    def test_all_data_grant_any_branch_ok(self, db, second_branch):
+        from django.contrib.auth import get_user_model
+        from apps.permissions.models import ManagementScope
+        from conftest import _client_for
+        user = get_user_model().objects.create_user(
+            phone='13933330001', name='全量占用查询', password='test123456',
+            role='manager', status='active',
+        )
+        ManagementScope.objects.create(user=user, is_all_data=True)
+        resp = _client_for(user).get('/api/transfers/instance-occupancy', {
+            'branch': second_branch.name, 'asset_code': 'OC-SCOPE',
+        })
+        assert resp.status_code == status.HTTP_200_OK
