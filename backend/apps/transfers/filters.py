@@ -16,6 +16,8 @@ class TransferFilterSet(django_filters.FilterSet):
     docNumber = django_filters.CharFilter(field_name='单据编号')
     assetCode = django_filters.CharFilter(method='filter_asset_code')
     keyword = django_filters.CharFilter(method='filter_keyword')
+    # 今日操作口径（api-contract-alignment）：camel 命名与 fromBranch 同族
+    createdAtGte = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
 
     ordering = django_filters.OrderingFilter(fields=(
         ('调拨日期', '调拨日期'),

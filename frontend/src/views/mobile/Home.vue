@@ -41,7 +41,7 @@ async function fetchData() {
     const [transfersRes, inventoriesRes, todayOpsRes] = await Promise.all([
       getPendingTransfers({ pageSize: 1 }).catch(() => ({ data: { count: 0 } })),
       getInventoryTasks({ status: 'pending,in_progress', pageSize: 1 }).catch(() => ({ data: { count: 0 } })),
-      getTransfers({ createdAt__gte: today, pageSize: 1 }).catch(() => ({ data: { count: 0 } })),
+      getTransfers({ createdAtGte: today, pageSize: 1 }).catch(() => ({ data: { count: 0 } })),
     ])
     pendingApprovals.value = transfersRes.data?.count || 0
     pendingInventories.value = inventoriesRes.data?.count || 0

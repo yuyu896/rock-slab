@@ -28,12 +28,16 @@ export const useNotificationStore = defineStore('notification', () => {
     return groups
   })
 
-  // 获取通知列表
-  async function fetchNotifications(params?: { isRead?: boolean }) {
+  // 获取通知列表（查询串不经 body parser 转换：snake 参数才命中后端 FilterSet）
+  async function fetchNotifications(params?: { isRead?: boolean; page?: number; pageSize?: number }) {
     loading.value = true
     error.value = null
     try {
-      const { data } = await notificationApi.getNotifications(params)
+      const query: Record<string, unknown> = {}
+      if (params?.isRead !== undefined) query.is_read = params.isRead
+      if (params?.page) query.page = params.page
+      if (params?.pageSize) query.pageSize = params.pageSize
+      const { data } = await notificationApi.getNotifications(query)
       notifications.value = data.results || []
       return data
     } catch (err) {

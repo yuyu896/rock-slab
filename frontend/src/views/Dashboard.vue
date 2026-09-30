@@ -92,13 +92,13 @@ async function fetchDashboardData() {
     // 待办任务：来自流转记录
     const transferTasks = transfersRes.data.results?.slice(0, 4).map((t: any) => ({
       id: t.id,
-      type: getTransferTypeName(t.action_type),
+      type: getTransferTypeName(t.actionType),
       title: t.调出分公司 && t.调入分公司
         ? `${t.调出分公司}→${t.调入分公司} ${transferDocSummary(t).name}`
         : `${transferDocSummary(t).name} ${transferDocSummary(t).qty}件`,
       submitter: t.创建人,
       time: t.createdAt,
-      actionType: t.action_type,
+      actionType: t.actionType,
     })) || []
 
     // 待办任务：来自盘点任务
@@ -116,7 +116,7 @@ async function fetchDashboardData() {
 
     recentActivities.value = transfersRes.data.results?.slice(0, 5).map((t: any) => ({
       id: t.id,
-      action: getTransferTypeName(t.action_type).replace('申请', '').replace('出库', '').replace('归还', '归还'),
+      action: getTransferTypeName(t.actionType).replace('申请', '').replace('出库', '').replace('归还', '归还'),
       asset: transferDocSummary(t).name,
       branch: t.调出分公司 && t.调入分公司 ? `${t.调出分公司}→${t.调入分公司}` : '',
       time: t.createdAt,

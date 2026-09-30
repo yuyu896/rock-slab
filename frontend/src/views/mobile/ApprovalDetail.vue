@@ -109,7 +109,7 @@ onMounted(() => {
       <!-- 状态卡片 -->
       <div class="status-card">
         <div class="status-header">
-          <span class="action-type">{{ actionLabels[transfer.action_type || 'transfer'] }}</span>
+          <span class="action-type">{{ actionLabels[transfer.actionType || 'transfer'] }}</span>
           <span class="status-tag" :style="{ color: statusColors[transfer.审批状态] }">
             {{ transfer.审批状态 }}
           </span>

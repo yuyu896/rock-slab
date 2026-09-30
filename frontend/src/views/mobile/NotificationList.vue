@@ -26,11 +26,17 @@ async function fetchNotifications(loadMore = false) {
   try {
     const result = await notificationStore.fetchNotifications({
       isRead: filterUnreadOnly.value ? false : undefined,
+      page: loadMore ? currentPage.value + 1 : 1,
+      pageSize,
     })
-    if (!loadMore) {
-      notifications.value = result?.results || []
-    }
     const results = result?.results || []
+    if (loadMore) {
+      notifications.value = [...notifications.value, ...results]
+      currentPage.value += 1
+    } else {
+      notifications.value = results
+      currentPage.value = 1
+    }
     hasMore.value = results.length >= pageSize
   } catch {
     ElMessage.error('获取通知列表失败')

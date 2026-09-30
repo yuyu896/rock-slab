@@ -56,7 +56,7 @@ function branchText(doc: TransferDocument) {
         <span class="meta-item"><label>单号</label><span class="mono">{{ doc.单据编号 || '-' }}</span></span>
         <span class="meta-item"><label>日期</label><span class="mono">{{ doc.调拨日期 || '-' }}</span></span>
         <span class="meta-item"><label>分公司</label><span>{{ branchText(doc) }}</span></span>
-        <span v-if="doc.action_type === 'assign' && doc.领用来源" class="meta-item"><label>库存来源</label><span>{{ assignSourceText(doc.领用来源) }}</span></span>
+        <span v-if="doc.actionType === 'assign' && doc.领用来源" class="meta-item"><label>库存来源</label><span>{{ assignSourceText(doc.领用来源) }}</span></span>
         <span class="meta-item"><label>创建人</label><span>{{ doc.创建人 || '-' }}</span></span>
         <span class="meta-item"><label>经办人</label><span>{{ doc.经办人 || doc.创建人 || '-' }}</span></span>
         <span class="meta-item"><label>审批</label><span>{{ doc.审批人 || '-' }}{{ doc.审批时间 ? ` · ${String(doc.审批时间).slice(0, 16).replace('T', ' ')}` : '' }}</span></span>

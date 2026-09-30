@@ -321,7 +321,7 @@ export interface TransferDocument {
   审批人?: string
   审批时间?: string
   创建人: string
-  action_type?: TransferActionType
+  actionType?: TransferActionType
   /** 调拨单调入方只读（修订 3.1）：transfer 类型 = 范围含调出方；其余类型恒 true/缺省 */
   canOperate?: boolean
   /** 撤回入口显隐（服务端按账号身份判定）：采购单且待审批且当前用户为创建账号 */

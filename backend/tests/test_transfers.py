@@ -366,3 +366,36 @@ class TestApproveAssetSync:
         )
         row = AssetStock.objects.get(branch=branch, item__asset_code='AST-SYNC-001')
         assert row.在库数量 == 5 and row.在用数量 == 0
+
+
+@pytest.mark.django_db
+class TestCreatedAtFilter:
+    """api-contract-alignment：createdAtGte 过滤（今日操作口径）。"""
+
+    def test_created_at_gte_filters_old_docs(self, authenticated_client, admin_user, branch):
+        from apps.categories.models import Category
+        from apps.transfers.models import Transfer
+        import datetime
+        from django.utils import timezone
+        item, _ = Category.objects.get_or_create(
+            asset_code='CAG-1',
+            defaults={'asset_category': '契约', 'item_category': '办公',
+                      'asset_name': '过滤品目', 'unit': '件', 'management_type': 'quantity'},
+        )
+        old_id = Transfer.objects.create(
+            action_type='purchase', 调拨日期='2026-09-01', to_branch=branch,
+            审批状态='已入库', 单据编号='CG-CAG-OLD', created_by=admin_user,
+        ).id
+        new_id = Transfer.objects.create(
+            action_type='purchase', 调拨日期='2026-09-30', to_branch=branch,
+            审批状态='已入库', 单据编号='CG-CAG-NEW', created_by=admin_user,
+        ).id
+        today = timezone.now().strftime('%Y-%m-%d')
+        yesterday = (timezone.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        Transfer.objects.filter(id=old_id).update(created_at=yesterday + ' 08:00:00')
+
+        resp = authenticated_client.get('/api/transfers/', {'createdAtGte': today})
+        assert resp.status_code == 200
+        nos = {row['单据编号'] for row in resp.data['results']}
+        assert 'CG-CAG-NEW' in nos
+        assert 'CG-CAG-OLD' not in nos

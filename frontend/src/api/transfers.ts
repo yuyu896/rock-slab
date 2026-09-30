@@ -17,7 +17,7 @@ export function getTransfers(params?: PaginationParams & {
   docNumber?: string
   assetCode?: string
   keyword?: string
-  createdAt__gte?: string
+  createdAtGte?: string
 }) {
   return request.get<PaginatedResponse<TransferDocument>>('/api/transfers/', { params })
 }

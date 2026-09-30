@@ -24,7 +24,7 @@ const actionLabels: Record<string, string> = {
 }
 
 function getActionType(transfer: Transfer): string {
-  return (transfer as any).action_type || 'transfer'
+  return (transfer as any).actionType || 'transfer'
 }
 
 async function fetchPendingApprovals() {
@@ -138,7 +138,7 @@ onMounted(() => {
         class="approval-card"
       >
         <div class="card-header" @click="viewDetail(item)">
-          <span class="type-tag">{{ actionLabels[item.action_type || 'transfer'] }}</span>
+          <span class="type-tag">{{ actionLabels[item.actionType || 'transfer'] }}</span>
           <span class="time">{{ formatTime(item.createdAt) }}</span>
         </div>
 
@@ -177,7 +177,7 @@ onMounted(() => {
         class="approval-card done"
       >
         <div class="card-header">
-          <span class="type-tag">{{ actionLabels[item.action_type || 'transfer'] }}</span>
+          <span class="type-tag">{{ actionLabels[item.actionType || 'transfer'] }}</span>
           <span
             class="status-tag"
             :class="{ passed: item.审批状态 === '已通过', rejected: item.审批状态 === '已驳回' }"

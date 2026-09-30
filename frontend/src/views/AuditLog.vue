@@ -60,14 +60,17 @@ async function fetchLogs() {
   loading.value = true
   try {
     const params: any = {
-    page: page.value,
-    pageSize: pageSize.value,
-    ...filters.value,
+      page: page.value,
+      pageSize: pageSize.value,
+      action: filters.value.action || undefined,
+      resource_type: filters.value.resourceType || undefined,
+      is_success: filters.value.isSuccess,
+      search: filters.value.search || undefined,
     }
     if (filters.value.dateRange && filters.value.dateRange.length === 2) {
-    params.startDate = filters.value.dateRange[0]
-    params.endDate = filters.value.dateRange[1]
-  }
+      params.start_date = filters.value.dateRange[0]
+      params.end_date = filters.value.dateRange[1]
+    }
     const { data } = await auditApi.getAuditLogs(params)
     logs.value = data.results || []
     total.value = data.count || 0
