@@ -2,6 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
 from .models import User
 
@@ -9,11 +10,16 @@ phone_validator = RegexValidator(
     regex=r'^\d{11}$',
     message='手机号必须为11位数字',
 )
+# 显式声明会覆盖自动生成的 UniqueValidator——需一并显式加回（account-safety-hardening：
+# 撞号 400 而非 IntegrityError 500；有 instance 时自动排除自身，改自己手机号不受影响）
+phone_unique_validator = UniqueValidator(
+    queryset=User.objects.all(), message='该手机号已被注册',
+)
 
 
 class UserSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(
-        validators=[phone_validator],
+        validators=[phone_validator, phone_unique_validator],
     )
     password = serializers.CharField(
         write_only=True, required=False,

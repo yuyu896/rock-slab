@@ -153,12 +153,22 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': '您只能管理授权范围内的用户'}
             )
 
-    @action(detail=True, methods=['post'], url_path='avatar', permission_classes=[IsAuthenticated])
-    def upload_avatar(self, request, pk=None):
+    # 同 url_path 双 action 会被 DRF 按方法名排序注册成两条 pattern，先注册者遮蔽
+    # 后者的方法（POST 405 即此坑，见 assets image action 先例），故合一个 action 分流。
+    @action(detail=True, methods=['post', 'delete'], url_path='avatar', permission_classes=[IsAuthenticated])
+    def avatar(self, request, pk=None):
+        """头像维护：POST 上传/覆盖（仅本人或管理员），DELETE 清除自定义头像。"""
         user = self.get_object()
-        # 权限：仅本人或管理员可上传
         if request.user != user and request.user.role != 'admin':
             return Response({'detail': '无权操作'}, status=status.HTTP_403_FORBIDDEN)
+
+        if request.method == 'DELETE':
+            if user.avatar:
+                user.avatar.delete(save=False)
+                user.avatar = None
+                user.save(update_fields=['avatar', 'updated_at'])
+            serializer = UserSerializer(user, context={'request': request})
+            return Response(serializer.data)
 
         if 'avatar' not in request.FILES:
             return Response({'detail': '请上传头像文件'}, status=status.HTTP_400_BAD_REQUEST)
@@ -176,19 +186,6 @@ class UserViewSet(viewsets.ModelViewSet):
         user.avatar = avatar_file
         user.system_avatar = None
         user.save(update_fields=['avatar', 'system_avatar', 'updated_at'])
-        serializer = UserSerializer(user, context={'request': request})
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['delete'], url_path='avatar', permission_classes=[IsAuthenticated])
-    def delete_avatar(self, request, pk=None):
-        user = self.get_object()
-        if request.user != user and request.user.role != 'admin':
-            return Response({'detail': '无权操作'}, status=status.HTTP_403_FORBIDDEN)
-
-        if user.avatar:
-            user.avatar.delete(save=False)
-            user.avatar = None
-            user.save(update_fields=['avatar', 'updated_at'])
         serializer = UserSerializer(user, context={'request': request})
         return Response(serializer.data)
 

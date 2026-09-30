@@ -7,11 +7,15 @@ from django.db import connection
 
 
 def health_check(request):
+    # 免鉴权维持（容器/deploy 探活依赖）；异常原文不下发（可能含连接目标等
+    # 内部信息，account-safety-hardening）——固定响应 + 服务端日志留痕
+    import logging
     try:
         connection.ensure_connection()
         return JsonResponse({'status': 'ok'})
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'detail': str(e)}, status=503)
+    except Exception:
+        logging.getLogger('rock_slab.health').exception('health check failed')
+        return JsonResponse({'status': 'error'}, status=503)
 
 
 urlpatterns = [

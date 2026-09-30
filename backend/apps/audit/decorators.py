@@ -63,6 +63,15 @@ def audit_log(action, resource_type=None, description_template=None):
                 is_success = False
                 error_msg = str(e)
                 raise
+            else:
+                # 业务拒绝也是失败（account-safety-hardening）：视图正常返回但
+                # HTTP >= 400（校验失败/权限不足等）时 is_success=False，
+                # 与 HTTP 语义对齐（改密旧错 400 不再误记成功）
+                status_code = getattr(result, 'status_code', None)
+                if status_code is not None and status_code >= 400:
+                    is_success = False
+                    detail = getattr(result, 'data', None)
+                    error_msg = str(detail) if detail else f"HTTP {status_code}"
             finally:
                 # 记录日志
                 if request and request.user.is_authenticated:

@@ -171,3 +171,41 @@ class TestAccountLockout:
             record_login_failure(phone)
         assert not is_account_locked(phone)  # 累计仍 < 阈值，未锁定
         cache.clear()
+
+
+@pytest.mark.django_db
+class TestAccountSafetyHardening:
+    """account-safety-hardening：计数原子性 / 改密失败审计 / 健康端点。"""
+
+    def test_login_failure_count_atomic_incr(self):
+        from apps.authentication.account_lockout import record_login_failure, FAILURES_THRESHOLD
+        from django.core.cache import cache
+        cache.clear()
+        for _ in range(FAILURES_THRESHOLD):
+            record_login_failure('13866667777')
+        # 10 次原子自增后计数恰为阈值（无丢失），账号进入锁定
+        assert cache.get('rock_slab:login_fail:13866667777') == FAILURES_THRESHOLD
+        assert cache.get('rock_slab:login_lock:13866667777') is True
+
+    def test_change_password_wrong_old_audited_as_failure(self, api_client, staff_user):
+        from apps.audit.models import AuditLog
+        from conftest import _client_for
+        client = _client_for(staff_user)
+        resp = client.put('/api/auth/password/', {
+            'oldPassword': 'wrong-old-pwd', 'newPassword': 'brandnew123456',
+        }, format='json')
+        assert resp.status_code == 400
+        log = AuditLog.objects.filter(
+            action='change_password', user=staff_user,
+        ).order_by('-created_at').first()
+        assert log is not None
+        assert log.is_success is False  # 4xx 记失败（不再误记成功）
+
+    def test_health_error_no_detail_leak(self):
+        from unittest import mock
+        from django.test import Client
+        with mock.patch('django.db.connection.ensure_connection', side_effect=RuntimeError('psql://secret@10.0.0.1:5432 boom')):
+            resp = Client().get('/api/health/')
+        assert resp.status_code == 503
+        assert resp.json() == {'status': 'error'}
+        assert b'secret' not in resp.content

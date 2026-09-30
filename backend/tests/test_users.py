@@ -42,7 +42,6 @@ class TestUserCRUD:
         assert resp.data['phone'] == payload['phone']
         assert resp.data['name'] == payload['name']
 
-    @pytest.mark.xfail(reason='No UniqueValidator on phone field; IntegrityError crashes via audit_log decorator')
     def test_create_user_duplicate_phone(self, authenticated_client, staff_user):
         payload = _user_payload(phone=staff_user.phone)
         resp = authenticated_client.post('/api/users/', payload)
@@ -318,12 +317,8 @@ class TestAutoAssignment:
 # ---------------------------------------------------------------------------
 # Avatar actions
 #
-# NOTE: upload_avatar (POST) and delete_avatar (DELETE) share url_path='avatar'.
-# Due to a DRF router limitation, both generate identical URL regexes.  Django
-# resolves to the first registered pattern (delete_avatar), so POST requests
-# to /api/users/{id}/avatar currently receive 405 Method Not Allowed.  These
-# tests document the intended behaviour with @pytest.mark.xfail so they will
-# start passing once the URL conflict is resolved.
+# NOTE: 头像 POST/DELETE 曾因同 url_path 双 action 的 DRF 路由遮蔽恒 405，
+# 已合并为单 action 方法分流（account-safety-hardening），以下用例转正。
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -335,7 +330,6 @@ class TestUploadAvatar:
             content_type=content_type,
         )
 
-    @pytest.mark.xfail(reason='POST /avatar returns 405 due to router URL conflict with DELETE /avatar')
     def test_upload_own_avatar(self, staff_user):
         client = _client_for(staff_user)
         avatar = self._make_image()
@@ -346,8 +340,9 @@ class TestUploadAvatar:
         )
         assert resp.status_code == status.HTTP_200_OK
 
-    @pytest.mark.xfail(reason='POST /avatar returns 405 due to router URL conflict with DELETE /avatar')
     def test_upload_other_user_avatar_non_admin_forbidden(self, staff_user, admin_user):
+        # 范围外目标（admin 不在 staff 授权范围）经 get_object 404 隐藏存在性，
+        # 先于视图内本人/admin 403 校验——存在性隐藏是写路径一贯口径
         client = _client_for(staff_user)
         avatar = self._make_image()
         resp = client.post(
@@ -355,9 +350,8 @@ class TestUploadAvatar:
             {'avatar': avatar},
             format='multipart',
         )
-        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    @pytest.mark.xfail(reason='POST /avatar returns 405 due to router URL conflict with DELETE /avatar')
     def test_upload_avatar_invalid_file_type(self, staff_user):
         client = _client_for(staff_user)
         bad_file = SimpleUploadedFile(
@@ -370,7 +364,6 @@ class TestUploadAvatar:
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    @pytest.mark.xfail(reason='POST /avatar returns 405 due to router URL conflict with DELETE /avatar')
     def test_upload_avatar_missing_file(self, staff_user):
         client = _client_for(staff_user)
         resp = client.post(
@@ -380,7 +373,6 @@ class TestUploadAvatar:
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    @pytest.mark.xfail(reason='POST /avatar returns 405 due to router URL conflict with DELETE /avatar')
     def test_admin_can_upload_others_avatar(self, admin_user, staff_user):
         client = _client_for(admin_user)
         avatar = self._make_image()

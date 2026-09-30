@@ -7,7 +7,7 @@ from django.core.cache import cache
 from rest_framework.response import Response
 
 FAILURES_THRESHOLD = 10        # 窗口内失败次数阈值
-FAILURES_WINDOW = 5 * 60       # 失败计数窗口（秒）
+FAILURES_WINDOW = 5 * 60       # 失败计数窗口（秒；自首次失败起固定窗——incr 不刷新 TTL）
 LOCKOUT_DURATION = 15 * 60     # 锁定时长（秒）
 
 _FAIL_KEY = 'rock_slab:login_fail:{}'
@@ -33,11 +33,18 @@ def check_account_locked(phone):
 
 
 def record_login_failure(phone):
-    """记录一次失败；达阈值则锁定账号。cache 故障时 fail-open。"""
+    """记录一次失败；达阈值则锁定账号。cache 故障时 fail-open。
+
+    原子自增（account-safety-hardening）：incr 保证并发失败全部计数，
+    消除「读取-计算-写回」下并发少计绕过阈值的窗口；键不存在时初始化为 1。
+    """
     try:
         key = _FAIL_KEY.format(phone)
-        fails = (cache.get(key) or 0) + 1
-        cache.set(key, fails, FAILURES_WINDOW)
+        try:
+            fails = cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, FAILURES_WINDOW)
+            fails = 1
         if fails >= FAILURES_THRESHOLD:
             cache.set(_LOCK_KEY.format(phone), True, LOCKOUT_DURATION)
     except Exception:
