@@ -148,7 +148,7 @@ curl -s https://qhpanpan.top/api/health/         # 公网通吗
   ```bash
   docker compose exec backend python manage.py shell -c "
   from apps.users.models import User
-  u=User.objects.get(phone='13800000001')
+  u=User.objects.get(phone='13800000000')
   print('密码123456:', u.check_password('123456'), '| 状态:', u.status)"
   ```
 - **500 登录报错**：可能是孤儿 token（多表继承残留），清理：
@@ -164,7 +164,7 @@ curl -s https://qhpanpan.top/api/health/         # 公网通吗
   ```bash
   docker compose exec backend python manage.py shell -c "
   from apps.users.models import User
-  u=User.objects.get(phone='13800000001')
+  u=User.objects.get(phone='13800000000')
   u.set_password('新强密码'); u.save(); print('密码已重置')"
   ```
 

@@ -40,7 +40,6 @@ class Command(BaseCommand):
             )
 
         users_data = [
-            ('13800000001', '行政经理', 'manager', None, None),
             ('13800000002', '华东主管', 'supervisor', None, regions['HD'].pk),
             ('13800000003', '上海组长', 'leader', Branch.objects.get(code='SH001').pk, None),
             ('13800000004', '上海专员', 'manager', Branch.objects.get(code='SH001').pk, None),

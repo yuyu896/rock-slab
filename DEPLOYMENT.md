@@ -46,7 +46,6 @@ rock-slab-backend（磐盘后端 Gunicorn，监听 8002，host 网络）
 | 项 | 位置 |
 |----|------|
 | 服务器 SSH | `ssh root@47.97.43.28` |
-| Django 管理员账号 | 手机号 `13800000001`（初始密码 123456，**建议改强密码**） |
 | 后端环境变量 | `/root/rock-slab/.env`（SECRET_KEY / DATABASE_URL / REDIS_URL / ALLOWED_HOSTS / PORT=8002 / SECURE_SSL_REDIRECT=False） |
 | PostgreSQL 连接 | 见 .env 的 DATABASE_URL（库 rock_slab / 用户 rock_slab_user） |
 
@@ -122,7 +121,6 @@ cd /root/rock-slab/frontend && npm install && npm run build
 - [ ] 每周：`certbot certificates` 确认证书未过期
 - [ ] 每周：`ls -lht /root/backups/` 确认备份在自动生成
 - [ ] 每月：`docker system prune` 清理无用镜像（注意别删在用的）
-- [ ] 管理员密码改为强密码（当前 123456）
 - [ ] 关注服务器安全组/防火墙，5432/6379/3306 等数据库端口不应对公网开放
 
 ## 8. P1 台账契约上线步骤（资产模型 V2，一次性）
