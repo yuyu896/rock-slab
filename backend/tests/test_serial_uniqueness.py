@@ -16,8 +16,9 @@ def _item(code):
 
 
 def _inst(branch, item, no, serial=''):
+    code = branch.code if branch else 'NOBR'
     return FixedAsset.objects.create(
-        item=item, 内部编号=f'{item.asset_code}-{branch.code}-{no}',
+        item=item, 内部编号=f'{item.asset_code}-{code}-{no}',
         当前状态='在库', branch=branch, 序列号=serial,
     )
 
@@ -113,12 +114,14 @@ class TestSupplementUniqueness:
 
 @pytest.mark.django_db
 class TestReportCommand:
-    def test_reports_duplicates_and_exits_nonzero(self, branch):
+    def test_reports_duplicates_and_exits_nonzero(self, db):
+        """0029 约束后同分公司重复不可构造；无分公司（branch=NULL）行不受唯一
+        索引约束（NULL 互异）且属真实合法状态——以其验证命令的分组报告逻辑。"""
         from io import StringIO
         from django.core.management import call_command
         item = _item('SN-CMD-1')
-        _inst(branch, item, 1, serial='SN-DUP-X')
-        _inst(branch, item, 2, serial='SN-DUP-X')
+        _inst(None, item, 1, serial='SN-DUP-X')
+        _inst(None, item, 2, serial='SN-DUP-X')
         out = StringIO()
         with pytest.raises(SystemExit) as e:
             call_command('report_serial_duplicates', stdout=out)
@@ -143,3 +146,22 @@ class TestReportCommand:
         out = StringIO()
         call_command('report_serial_duplicates', stdout=out)
         assert '无同分公司重复序列号' in out.getvalue()
+
+
+@pytest.mark.django_db
+class TestDbUniqueConstraint:
+    """阶段二 DB 约束（unique_branch_serial）：应用层查重的最终兜底。"""
+
+    def test_db_rejects_same_branch_duplicate(self, branch):
+        item = _item('SN-DB-1')
+        _inst(branch, item, 1, serial='SN-DB-X')
+        with pytest.raises(Exception) as e:
+            _inst(branch, item, 2, serial='SN-DB-X')
+        assert 'unique' in str(e.value).lower()
+
+    def test_cross_branch_and_empty_not_restricted(self, branch, second_branch):
+        item = _item('SN-DB-2')
+        _inst(branch, item, 1, serial='SN-DB-Y')
+        _inst(second_branch, item, 2, serial='SN-DB-Y')  # 跨分公司同号合法
+        _inst(branch, item, 3, serial='')
+        _inst(branch, item, 4, serial='')  # 空=待补录，多台不受限

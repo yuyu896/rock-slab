@@ -480,18 +480,19 @@ class TestLegacyMigrationSmoke:
         call_command('migrate', 'assets', '0015', verbosity=0)
 
         # 旧形状实例（0015 时期的列）：空闲(供应商/单价待折叠)、在库、未登记编号(须入籍存根)
+        # 序列号逐台唯一（0029 起同分公司非空唯一约束，前滚迁移会校验存量）
         with connection.cursor() as cur:
-            for inner, code, state, supplier, price in [
+            for sn, (inner, code, state, supplier, price) in enumerate([
                 ('NB-OLD-1', 'NB-OLD', '空闲', '联想', 7999),
                 ('NB-OLD-2', 'NB-OLD', '在库', '', None),
                 ('XX-UN-1', 'XX-UN', '在库', '', None),
-            ]:
+            ], start=1):
                 cur.execute(
                     "INSERT INTO assets_fixedasset (id, 内部编号, 资产编号, 资产类目, 资产名称, 序列号, "
                     "供应商, 使用人, 所属部门, 当前状态, 分公司, 分公司编号, branch_id, 入库日期, 备注, "
                     "物品分类, 规格, 是否租用, 数量, 单价, 购入金额, 出库日期, created_at, updated_at) "
-                    "VALUES (%s, %s, %s, '固定', '旧品', 'SN', %s, '张三', '行政部', %s, '迁移分公司', 'MG001', %s, NULL, '原备注', '办公', '', 0, 1, %s, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    [uuid_mod.uuid4().hex, inner, code, supplier, state, branch.id.hex, price])
+                    "VALUES (%s, %s, %s, '固定', '旧品', %s, %s, '张三', '行政部', %s, '迁移分公司', 'MG001', %s, NULL, '原备注', '办公', '', 0, 1, %s, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                    [uuid_mod.uuid4().hex, inner, code, f'SN-{sn}', supplier, state, branch.id.hex, price])
 
         call_command('migrate', verbosity=0)
 

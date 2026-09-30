@@ -62,8 +62,10 @@ class TestYc1ItemCorrection:
         d = _birth_doc(yc, old_item, 3, 'CG20260911-016')
         # 他分公司同品目基准
         _birth_doc(second_branch, old_item, 2, 'CG20260911-099')
-        # 造一条序列号验证保留
-        FixedAsset.objects.filter(branch=yc).update(序列号='SN-KEEP-1')
+        # 造序列号验证保留（逐台唯一——0029 起同分公司非空唯一约束）
+        for n, inst in enumerate(FixedAsset.objects.filter(branch=yc), start=1):
+            inst.序列号 = f'SN-KEEP-{n}'
+            inst.save(update_fields=['序列号'])
 
         out = _run('--apply')
         assert '已写入：3 实例品目+编号更正' in out
@@ -71,7 +73,7 @@ class TestYc1ItemCorrection:
         assert FixedAsset.objects.filter(branch=yc, item=old_item).count() == 0
         news = list(FixedAsset.objects.filter(branch=yc, item=new_item).order_by('内部编号'))
         assert [i.内部编号 for i in news] == ['A-a00011-YC001-1', 'A-a00011-YC001-2', 'A-a00011-YC001-3']
-        assert all(i.序列号 == 'SN-KEEP-1' for i in news)  # 序列号保留
+        assert [i.序列号 for i in news] == ['SN-KEEP-1', 'SN-KEEP-2', 'SN-KEEP-3']  # 序列号保留
         ln = d.lines.first(); ln.refresh_from_db()
         assert ln.item_id == new_item.id  # 出生行更正
         assert AssetStock.objects.filter(branch=yc, item=old_item).count() == 0  # 旧行删

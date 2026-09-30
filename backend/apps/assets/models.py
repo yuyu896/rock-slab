@@ -176,6 +176,16 @@ class FixedAsset(UUIDModel, TimestampedModel):
         ordering = ['内部编号']
         verbose_name = '固定资产实例'
         verbose_name_plural = '固定资产实例'
+        constraints = [
+            # 序列号分公司内唯一（serial-uniqueness 阶段二；空=待补录不受限；
+            # 0006 同名约束曾因老导入五元组去重被 0008 移除，该导入已下线，
+            # 语义定案见 openspec serial-uniqueness：电脑=厂商SN、手机=自编编号）
+            models.UniqueConstraint(
+                fields=['branch', '序列号'],
+                condition=~models.Q(序列号=''),
+                name='unique_branch_serial',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.内部编号} ({self.item.asset_name})'
