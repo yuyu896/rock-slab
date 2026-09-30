@@ -18,6 +18,10 @@
 
 - [x] 4.0 查重口径全局→同分公司（supplement/batch_update/report_serial_duplicates 三处），跨分公司同号放行；定案依据：序列号列=电脑厂商 SN+手机行政自编编号，自编编号跨分公司撞号合法、空序列号合法终态（不设确认缺失流程）
 
+## 4.5 UI 收口（行编辑弹窗，已实施）
+
+- [x] 4.6 FixedAssetList 行编辑弹窗的 序列号/备注 改走补录接口（此前走 batch_update 的 空=不改 语义，**清空序列号在 UI 上不生效**）；规格/供应商/采购日期维持 batch-update；序列号输入提示注明「清空=回到待补录」；vitest 10 passed + npm run build 通过
+
 ## 5. 阶段二（另行变更，存量清理完成后）
 
 - [ ] 5.1 用户按 docs/序列号重复清单_20260930.csv 人工处置 47 台（真没号的清空即合法终态）→ `report_serial_duplicates` exit 0 → 新迁移加 `UniqueConstraint(branch, 序列号, condition=非空)` + 「待补录」规范措辞调为工作清单口吻
