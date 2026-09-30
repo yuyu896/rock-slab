@@ -817,23 +817,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 文件指纹防重传：同上传者同文件 24h 内重传即拒（跨次上传去重，第 30 案）
-        import hashlib
-        from datetime import timedelta
-        from .models import ImportFingerprint
-        file_bytes = file.read()
-        file.seek(0)
-        fp = hashlib.sha1(file_bytes).hexdigest()
-        recent = ImportFingerprint.objects.filter(
-            user=request.user, sha1=fp,
-            created_at__gte=timezone.now() - timedelta(hours=24),
-        ).exists()
-        if recent:
-            return Response(
-                {'detail': '该文件 24 小时内已导入过，请勿重复上传；如确需重导请修改文件内容'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
             wb = openpyxl.load_workbook(file, read_only=True)
             ws = wb.active
@@ -861,6 +844,28 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                            f'（缺失列：{missing or "无"}；多余列：{extra or "无"}）'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # 文件指纹防重传（原子占位，transfer-import-strictness）：同上传者同文件
+        # 24h 内重传即拒。get_or_create 先占位——DB 唯一约束保证并发请求恰一个拿到
+        # 创建权，消除「先查后写」的竞态窗口；窗外旧指纹刷新时间戳开新窗。
+        # 占位不回收：修正错误必改内容=新指纹（与提示文案一致）。
+        import hashlib
+        from datetime import timedelta
+        from .models import ImportFingerprint
+        file_bytes = file.read()
+        file.seek(0)
+        fp = hashlib.sha1(file_bytes).hexdigest()
+        finger, _created = ImportFingerprint.objects.get_or_create(
+            user=request.user, sha1=fp,
+        )
+        if not _created:
+            window_start = timezone.now() - timedelta(hours=24)
+            if finger.created_at >= window_start:
+                return Response(
+                    {'detail': '该文件 24 小时内已导入过，请勿重复上传；如确需重导请修改文件内容'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            ImportFingerprint.objects.filter(pk=finger.pk).update(created_at=timezone.now())
+
         rows = all_rows[1:]
         imported = 0
         imported_lines = 0
@@ -933,9 +938,20 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     errors.append(f'第 {i} 行: 资产编号 {_code} 未在品目字典登记{_hint}')
                     continue
 
-                def _qty(row, col_name, default=1):
+                def _qty(row, col_name):
+                    """数量严格解析（transfer-import-strictness）：空/非数值/非整数
+                    小数/非正数 → None（调用处进 errors）——不再默认 1、不再截断。"""
                     raw = _num(row, col_name)
-                    return int(float(raw)) if raw else default
+                    if raw is None or raw == '':
+                        return None
+                    if isinstance(raw, float) and raw.is_integer():
+                        q = int(raw)
+                    else:
+                        try:
+                            q = int(str(raw).strip())
+                        except (TypeError, ValueError):
+                            return None
+                    return q if q > 0 else None
 
                 with transaction.atomic():
                     # 采购 9 列：日期|分公司|资产编号|规格型号|供应商|数量|单价|需求部门|备注
@@ -951,6 +967,9 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             '备注': _cell(row, '备注'),
                         }
                         qty = _qty(row, '采购数量')
+                        if qty is None:
+                            errors.append(f'第 {i} 行: 采购数量必须为正整数（不支持小数与空值）')
+                            continue
                         price = _num(row, '单价')
                         line_kwargs = {
                             'item': item,
@@ -978,9 +997,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         if dept_name and dept is None:
                             errors.append(f'第 {i} 行: 领用部门「{dept_name}」不存在于部门字典')
                             continue
+                        qty = _qty(row, '领用数量')
+                        if qty is None:
+                            errors.append(f'第 {i} 行: 领用数量必须为正整数（不支持小数与空值）')
+                            continue
                         line_kwargs = {
                             'item': item,
-                            '数量': _qty(row, '领用数量'),
+                            '数量': qty,
                             '使用人': _cell(row, '使用人'),
                             'department': dept,
                         }
@@ -998,7 +1021,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             '经办人': creator,
                             '备注': _cell(row, '备注'),
                         }
-                        line_kwargs = {'item': item, '数量': _qty(row, '调拨数量'), '本批规格': _cell(row, '规格型号')}
+                        qty = _qty(row, '调拨数量')
+                        if qty is None:
+                            errors.append(f'第 {i} 行: 调拨数量必须为正整数（不支持小数与空值）')
+                            continue
+                        line_kwargs = {'item': item, '数量': qty, '本批规格': _cell(row, '规格型号')}
                         action = Transfer.ACTION_TRANSFER
 
                     # 范围校验（与表单路径同源）：调拨只校验调出方（修订 3.1），其余双边
@@ -1091,6 +1118,4 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             imported += 1
 
         wb.close()
-        # 解析成功（未整体 400）即落指纹：后续重传同文件 24h 内被拒
-        ImportFingerprint.objects.get_or_create(user=request.user, sha1=fp)
         return Response({'imported': imported, 'imported_lines': imported_lines, 'errors': errors})
