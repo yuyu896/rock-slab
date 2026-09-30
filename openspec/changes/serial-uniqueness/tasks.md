@@ -22,6 +22,6 @@
 
 - [x] 4.6 FixedAssetList 行编辑弹窗的 序列号/备注 改走补录接口（此前走 batch_update 的 空=不改 语义，**清空序列号在 UI 上不生效**）；规格/供应商/采购日期维持 batch-update；序列号输入提示注明「清空=回到待补录」；vitest 10 passed + npm run build 通过
 
-## 5. 阶段二（另行变更，存量清理完成后）
+## 5. 阶段二（2026-09-30 行政清理完成后同日实施）
 
-- [ ] 5.1 用户按 docs/序列号重复清单_20260930.csv 人工处置 47 台（真没号的清空即合法终态）→ `report_serial_duplicates` exit 0 → 新迁移加 `UniqueConstraint(branch, 序列号, condition=非空)` + 「待补录」规范措辞调为工作清单口吻
+- [x] 5.1 存量清理：行政部署前后清理全部同分公司重复（12 组/47 台 → `report_serial_duplicates` 归零 exit 0）；`UniqueConstraint(branch, 序列号, condition=非空, name='unique_branch_serial')` 经 `assets/0029` 落地（**注意**：makemigrations 自动附加的跨 app 依赖边会使测试建库时 organizations.0009 的 RunPython 状态渲染炸 LookupError，已裁剪为本 app 前序依赖）；「待补录」规范措辞调为工作清单口吻（pending-serial-reminder delta）；测试适配——迁移回放夹具重复序列号改唯一、报告命令用例改用 branch=NULL 行（唯一索引 NULL 互异，真实合法状态）验证分组逻辑（911 passed）
