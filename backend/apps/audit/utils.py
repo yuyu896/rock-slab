@@ -3,6 +3,31 @@
 """
 from .models import AuditLog
 
+# 审计快照中不得落库的敏感键（值替换为掩码）与 Django 内部属性（直接剔除）
+SENSITIVE_KEYS = {'password'}
+_INTERNAL_KEYS = {'_state'}
+_MASK_VALUE = '***'
+
+
+def mask_sensitive(data):
+    """递归脱敏：敏感键值替换为 '***'，剔除 Django 内部属性（原地修改并返回）。
+
+    before_data / after_data 均为 JSON 结构（dict/list 嵌套）；键命中即替换，
+    与值的形态无关，避免按哈希格式探测的假阴性。
+    """
+    if isinstance(data, dict):
+        for key in list(data.keys()):
+            if key in _INTERNAL_KEYS:
+                del data[key]
+            elif key in SENSITIVE_KEYS:
+                data[key] = _MASK_VALUE
+            else:
+                mask_sensitive(data[key])
+    elif isinstance(data, list):
+        for item in data:
+            mask_sensitive(item)
+    return data
+
 
 def get_client_ip(request):
     """获取客户端IP地址"""

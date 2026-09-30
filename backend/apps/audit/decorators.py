@@ -5,7 +5,7 @@
 import json
 from functools import wraps
 from .models import AuditLog
-from .utils import get_request_info
+from .utils import get_request_info, mask_sensitive
 
 
 def audit_log(action, resource_type=None, description_template=None):
@@ -45,10 +45,10 @@ def audit_log(action, resource_type=None, description_template=None):
                 try:
                     instance_before = view.get_object()
                     if hasattr(instance_before, '__dict__'):
-                        before_data = json.loads(json.dumps(
+                        before_data = mask_sensitive(json.loads(json.dumps(
                             instance_before.__dict__,
                             default=str
-                        ))
+                        )))
                 except Exception:
                     pass
 
@@ -78,11 +78,11 @@ def audit_log(action, resource_type=None, description_template=None):
                             resource_id = data.get('id')
                             resource_name = data.get('name') or data.get('资产名称', '') or data.get('title', '')
 
-                            # 深拷贝后数据
+                            # 深拷贝后数据（脱敏：序列化器输出当前无敏感键，收口防未来变化）
                             try:
-                                after_data = json.loads(json.dumps(data, default=str))
+                                after_data = mask_sensitive(json.loads(json.dumps(data, default=str)))
                             except Exception:
-                                after_data = data
+                                after_data = mask_sensitive(data)
 
                     # 如果没有从结果获取到，尝试从实例获取
                     if not resource_id and instance_before:

@@ -319,3 +319,62 @@ class TestAuditLogDecorator:
         # All returned items should belong to admin
         for item in data:
             assert item['user_name'] == admin_user.name
+
+
+# ---------------------------------------------------------------------------
+# 敏感字段脱敏（audit-sensitive-masking）：密码哈希不得入库/出库
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestSensitiveMasking:
+    def test_user_update_snapshot_masks_password(self, authenticated_client, staff_user):
+        import json
+        resp = authenticated_client.patch(f'/api/users/{staff_user.id}', {'name': '脱敏验证'})
+        assert resp.status_code == status.HTTP_200_OK
+        log = AuditLog.objects.filter(
+            action='update', resource_type='User', resource_id=staff_user.id,
+        ).order_by('-created_at').first()
+        assert log is not None
+        # 键保留（「涉及密码字段」仍可审计），值替换为掩码，哈希串不得出现
+        assert log.before_data.get('password') == '***'
+        assert '_state' not in log.before_data
+        assert 'pbkdf2_sha256$' not in json.dumps(log.before_data, default=str)
+        assert 'pbkdf2_sha256$' not in json.dumps(log.after_data or {}, default=str)
+
+    def test_mask_sensitive_nested_and_idempotent(self):
+        from apps.audit.utils import mask_sensitive
+        data = {
+            'password': 'pbkdf2_sha256$260000$salt$hash',
+            '_state': 'django-internal',
+            'profile': {'tokens': [{'password': 'argon2$legacy$secret'}], 'note': 'x'},
+        }
+        out = mask_sensitive(data)
+        assert out['password'] == '***'
+        assert out['profile']['tokens'][0]['password'] == '***'
+        assert out['profile']['note'] == 'x'
+        assert '_state' not in out
+        assert mask_sensitive(out) == out  # 幂等
+
+    def test_backfill_migration_scrubs_legacy_rows(self, db):
+        # 直接调用 0002 迁移的 RunPython 函数本体（SQLite 测试事务内无法反向
+        # 迁移走完整 migrate 路径，接线为标准 RunPython、部署时自然执行）
+        import importlib
+        from django.apps import apps as global_apps
+        migration = importlib.import_module(
+            'apps.audit.migrations.0002_mask_sensitive_fields'
+        )
+        legacy = AuditLog.objects.create(
+            action='update', resource_type='User', resource_name='历史用户',
+            before_data={'password': 'pbkdf2_sha256$legacy$salt$hash', 'name': '张三'},
+            after_data={'password': 'pbkdf2_sha256$legacy2$salt$hash'},
+        )
+        migration.scrub_audit_rows(global_apps, None)
+        log = AuditLog.objects.get(id=legacy.id)
+        assert log.before_data['password'] == '***'
+        assert log.before_data['name'] == '张三'
+        assert log.after_data['password'] == '***'
+        # 幂等：重复清洗结果不变
+        migration.scrub_audit_rows(global_apps, None)
+        log = AuditLog.objects.get(id=legacy.id)
+        assert log.before_data['password'] == '***' and log.before_data['name'] == '张三'
