@@ -26,8 +26,9 @@ def _users_with_operation_access(branch, code, include_admin=True, exclude_admin
     """返回持指定业务操作授权且数据范围覆盖该分公司的活跃用户。
 
     与运行时鉴权同口径：持 OperationGrant 授权（admin 内置全部，可选纳入/排除）。
-    branch 可为 Branch 实例、id 或名称字符串；为空时退化为全量候选
-    （避免因分公司信息缺失而漏发审批通知）。
+    branch 可为 Branch 实例、id 或名称字符串；无法解析时 MUST NOT 广播
+    （notification-routing-accuracy）：仅 admin 与「全部数据」授权者接收——
+    分公司未知时只有全量范围者确定覆盖。
     """
     from django.db.models import Q
     from apps.organizations.models import Branch
@@ -44,19 +45,47 @@ def _users_with_operation_access(branch, code, include_admin=True, exclude_admin
     candidates = User.objects.filter(q, status='active').distinct()
     if exclude_admin:
         candidates = candidates.exclude(role='admin')
-    if branch is None:
-        return list(candidates)
     result = []
     for u in candidates:
         scope = resolve_user_scope(u)
-        if scope.all or branch.id in scope.branches:
+        if scope.all or (branch is not None and branch.id in scope.branches):
             result.append(u)
     return result
 
 
-def get_approvers_for_branch(branch_name):
+def _is_recipient_self(instance, user):
+    """自通知排除：优先 created_by 外键比较，存量无 FK 单据回退姓名。"""
+    if instance.created_by_id:
+        return instance.created_by_id == user.id
+    return bool(instance.创建人) and user.name == instance.创建人
+
+
+def _locate_creator(instance):
+    """创建人定位：created_by 外键优先（精确到人），FK 为空的存量单据回退姓名匹配。"""
+    if instance.created_by_id:
+        return instance.created_by
+    if instance.创建人:
+        return User.objects.filter(name=instance.创建人).first()
+    return None
+
+
+def _routing_branch(instance):
+    """路由分公司：业务分公司 FK 优先（purchase/return=调入方，其余=调出方），
+    文本快照兜底（ORM 直造/存量单据可能只有文本无 FK）。解析失败返回 None。"""
+    branch = instance.业务分公司
+    if branch is not None:
+        return branch
+    from apps.organizations.models import Branch
+    if instance.action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+        text = instance.调入分公司
+    else:
+        text = instance.调出分公司
+    return Branch.objects.filter(name=text).first() if text else None
+
+
+def get_approvers_for_branch(branch):
     """获取对某分公司有数据范围授权的审批人（持 approve_transfer 或 admin）。"""
-    return _users_with_operation_access(branch_name, 'approve_transfer')
+    return _users_with_operation_access(branch, 'approve_transfer')
 
 
 def _doc_summary(instance):
@@ -83,8 +112,10 @@ def notify_transfer_created(instance):
     summary = _doc_summary(instance)
     if summary is None:
         return
-    # 获取有审批权限的用户
-    approvers = get_approvers_for_branch(instance.调出分公司)
+    # 路由口径=业务分公司（notification-routing-accuracy）：采购/归还按调入方，
+    # 领用/调拨/回收按调出方（FK 优先、文本兜底）——
+    # Web 采购调出侧为空导致的全员广播不复存在
+    approvers = get_approvers_for_branch(_routing_branch(instance))
 
     # 动作类型映射
     action_display = dict(Transfer.ACTION_CHOICES).get(
@@ -93,7 +124,7 @@ def notify_transfer_created(instance):
 
     for approver in approvers:
         # 避免自己通知自己
-        if instance.创建人 and approver.name == instance.创建人:
+        if _is_recipient_self(instance, approver):
             continue
 
         Notification.objects.create(
@@ -121,7 +152,7 @@ def notify_transfer_created(instance):
             instance.调入分公司, 'manage_assets', include_admin=False,
         )
         for manager in inbound_managers:
-            if instance.创建人 and manager.name == instance.创建人:
+            if _is_recipient_self(instance, manager):
                 continue
             Notification.objects.create(
                 recipient=manager,
@@ -161,15 +192,14 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
     except Transfer.DoesNotExist:
         return
 
-    # 检测状态从"待审批"变为"已通过"
-    if old_instance.审批状态 == '待审批' and instance.审批状态 == '已通过':
+    # 检测状态从"待审批"变为生效（已通过；采购为已入库——notification-routing-accuracy）
+    if old_instance.审批状态 == '待审批' and instance.审批状态 in ('已通过', '已入库'):
         summary = _doc_summary(instance) or {
             'asset_name': instance.单据编号 or '单据', 'asset_code': '', 'qty': 0,
         }
-        # 1. 通知创建人
-        if instance.创建人:
-            creator = User.objects.filter(name=instance.创建人).first()
-            if creator:
+        # 1. 通知创建人（created_by 外键定位，重名不错发）
+        creator = _locate_creator(instance)
+        if creator:
                 action_display = dict(Transfer.ACTION_CHOICES).get(
                     instance.action_type, instance.action_type,
                 )
@@ -183,10 +213,11 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                     related_object_id=instance.id,
                 )
 
-        # 2. 抄送给对该调拨分公司有授权的行政经理
+        # 2. 抄送给对业务分公司有授权的行政经理
         # 抄送资格 = 持「查看抄送记录」授权（admin 免打扰）
         managers = _users_with_operation_access(
-            instance.调出分公司, 'view_all_notifications', include_admin=False, exclude_admin=True,
+            _routing_branch(instance), 'view_all_notifications',
+            include_admin=False, exclude_admin=True,
         )
 
         action_display = dict(Transfer.ACTION_CHOICES).get(
@@ -230,10 +261,9 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
         summary = _doc_summary(instance) or {
             'asset_name': instance.单据编号 or '单据', 'asset_code': '', 'qty': 0,
         }
-        # 通知创建人
-        if instance.创建人:
-            creator = User.objects.filter(name=instance.创建人).first()
-            if creator:
+        # 通知创建人（created_by 外键定位）
+        creator = _locate_creator(instance)
+        if creator:
                 action_display = dict(Transfer.ACTION_CHOICES).get(
                     instance.action_type, instance.action_type,
                 )
