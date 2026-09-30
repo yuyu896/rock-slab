@@ -136,12 +136,17 @@ class TestCheckItem:
         from apps.assets.models import AssetStock
         from apps.assets.services import ledger
         from apps.categories.models import Category
+        # 品目类目对齐任务的 category 过滤（清单生成按 asset_category 收敛）
+        seed_category = in_progress_task.category.asset_category if in_progress_task.category else '测试类目'
         item, _ = Category.objects.get_or_create(
             asset_code='AST-INV-001',
-            defaults={'asset_category': '测试类目', 'item_category': '测试分类',
+            defaults={'asset_category': seed_category, 'item_category': '测试分类',
                       'asset_name': '盘点测试资产', 'unit': '个'},
         )
         ledger.apply_adjustment(in_progress_task.branch, item, ledger.COLUMN_STOCK, 10, '造数')
+        # 造数对齐真实 start 语义：清单在开始时生成（check 限清单内）
+        from apps.inventories.views import generate_task_checklist
+        generate_task_checklist(in_progress_task)
         stock = AssetStock.objects.get(branch=in_progress_task.branch, item=item)
         payload = {
             'stockId': str(stock.id),

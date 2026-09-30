@@ -240,3 +240,13 @@ class InventoryCheck(UUIDModel, TimestampedModel):
 
     def __str__(self):
         return f'{self.task.name} - {self.stock.item.asset_name} - {self.qty}'
+
+# 盘点锁定状态集（台账冻结口径：流转创建/审批、台账导入确认三路共用）
+INVENTORY_LOCKED_STATUSES = ('in_progress', 'pending_review')
+
+
+def branch_inventory_locked(branch):
+    """分公司是否存在锁定中的盘点任务。"""
+    return InventoryTask.objects.filter(
+        branch=branch, status__in=INVENTORY_LOCKED_STATUSES,
+    ).exists()

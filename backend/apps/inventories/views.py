@@ -8,7 +8,10 @@ from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
-from .models import InventoryTask, InventoryItem, InventoryInstanceItem, InventoryCheck
+from .models import (
+    InventoryTask, InventoryItem, InventoryInstanceItem, InventoryCheck,
+    INVENTORY_LOCKED_STATUSES,
+)
 from .serializers import (
     InventoryTaskSerializer,
     InventoryItemSerializer,
@@ -21,6 +24,40 @@ from .serializers import (
 )
 from .filters import InventoryTaskFilterSet
 from .services import generate_variance_adjustments, task_target_column
+
+
+def generate_task_checklist(task):
+    """生成应盘清单（inventory-checklist-integrity：start 于状态转换事务内调用，幂等）。
+
+    台账盘=非实例管理品目台账行（应盘=总量三列合计，条件=任一列>0，
+    inventory-scope-rework 语义）；实例盘=全部非退役实例快照（一台一行）。
+    """
+    if task.is_instance_inventory:
+        from apps.assets.models import FixedAsset
+        qs = FixedAsset.objects.select_related('item', 'department').filter(
+            branch=task.branch,
+        ).exclude(当前状态=FixedAsset.STATUS_RETIRED)
+        if task.category:
+            qs = qs.filter(item__asset_category=task.category.asset_category)
+        for instance in qs:
+            InventoryInstanceItem.objects.get_or_create(task=task, instance=instance)
+        return
+    from apps.assets.models import AssetStock
+    from django.db.models import Q
+    qs = AssetStock.objects.select_related('item').exclude(
+        item__management_type='instance',
+    ).filter(
+        Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
+    )
+    if task.branch:
+        qs = qs.filter(branch=task.branch)
+    if task.category:
+        qs = qs.filter(item__asset_category=task.category.asset_category)
+    for stock in qs:
+        InventoryItem.objects.get_or_create(
+            task=task, stock=stock,
+            defaults={'expected_qty': stock.总量},
+        )
 
 
 class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
@@ -83,7 +120,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     @audit_log(action='start', resource_type='InventoryTask', description_template='开始盘点')
-    def start(self, request, pk=None):
+    def start(self, request, pk=None):  # noqa: C901
         """开始盘点: pending -> in_progress（空清单拦截：先探测后转换）"""
         task = self.get_object()
         if not task.can_transition('in_progress'):
@@ -109,29 +146,27 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         def _check_and_prep(t):
             # 锁内复查同分公司是否已有进行中盘点，缩小并发窗口
             if t.branch and InventoryTask.objects.filter(
-                branch=t.branch, status__in=['in_progress', 'pending_review'],
+                branch=t.branch, status__in=INVENTORY_LOCKED_STATUSES,
             ).exclude(pk=t.pk).exists():
                 from rest_framework.exceptions import ValidationError
                 raise ValidationError(
                     {'detail': f'分公司「{t.branch.name}」已有进行中的盘点任务，不可同时盘点'}
                 )
             t.started_at = timezone.now()
+            # 清单生成收进状态转换同一事务（inventory-checklist-integrity）：
+            # 生成失败整体回滚、任务保持 pending，「in_progress 空清单锁死分公司」不可达
+            generate_task_checklist(t)
 
         task, err = self._transition(
             pk, 'in_progress', before_save=_check_and_prep, status='in_progress',
         )
         if err:
             return err
-        # 按任务类型生成清单：实例盘=部门在用实例快照；台账盘=范围内台账行
-        if task.is_instance_inventory:
-            self._generate_instance_items(task)
-        else:
-            self._generate_items(task)
         return Response(InventoryTaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
     def check(self, request, pk=None):
-        """盘点单项"""
+        """盘点单项（任务行锁串行；台账盘限开始盘点时生成的清单内，inventory-checklist-integrity）"""
         task = self.get_object()
         if task.is_instance_inventory:
             return Response(
@@ -147,56 +182,66 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer = CheckItemSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        from django.db import transaction
         from apps.assets.models import AssetStock
-        stock = AssetStock.objects.select_related('item').filter(
-            id=serializer.validated_data['stock_id'], branch=task.branch,
-        ).first()
-        if not stock:
-            return Response(
-                {'detail': '台账行不存在或不属于本盘点任务分公司'},
-                status=status.HTTP_404_NOT_FOUND,
+        with transaction.atomic():
+            # 任务行锁：与 submit/approve/cancel 的 _transition 同锁串行，
+            # 消除「核对中单据被提交/审批」竞态
+            locked_task = InventoryTask.objects.select_for_update().get(pk=task.pk)
+            if locked_task.status != 'in_progress':
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'detail': '只有盘点中的任务可以盘点'})
+            stock = AssetStock.objects.select_related('item').filter(
+                id=serializer.validated_data['stock_id'], branch=locked_task.branch,
+            ).first()
+            if not stock:
+                return Response(
+                    {'detail': '台账行不存在或不属于本盘点任务分公司'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            # 应盘范围=开始盘点时的清单快照：清单外台账行不现场建项（对齐实例盘口径）
+            item = InventoryItem.objects.filter(
+                task=locked_task, stock=stock,
+            ).first()
+            if item is None:
+                return Response(
+                    {'detail': '台账行不在本盘点任务清单内（应盘清单于开始盘点时生成）'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            qty = serializer.validated_data['qty']
+            remarks = serializer.validated_data.get('remarks', '')
+
+            # Apply repeat rule
+            if locked_task.repeat_rule == 'last':
+                item.actual_qty = qty
+            else:  # accumulate
+                item.actual_qty = (item.actual_qty or 0) + qty
+
+            item.check_count += 1
+            item.checked_by = request.user
+            item.checked_at = timezone.now()
+            item.remarks = remarks
+
+            # Determine result
+            if item.actual_qty == item.expected_qty:
+                item.result = 'matched'
+            elif item.actual_qty > item.expected_qty:
+                item.result = 'surplus'
+            else:
+                item.result = 'missing'
+            item.save()
+
+            check_record = InventoryCheck.objects.create(
+                task=locked_task, item=item, stock=stock, qty=qty,
+                checked_by=request.user,
             )
-
-        # Get or create the inventory item（应盘数量=任务库别对应列）
-        column = task_target_column(task)
-        item, _ = InventoryItem.objects.get_or_create(
-            task=task, stock=stock,
-            defaults={'expected_qty': getattr(stock, column)},
-        )
-
-        qty = serializer.validated_data['qty']
-        remarks = serializer.validated_data.get('remarks', '')
-
-        # Apply repeat rule
-        if task.repeat_rule == 'last':
-            item.actual_qty = qty
-        else:  # accumulate
-            item.actual_qty = (item.actual_qty or 0) + qty
-
-        item.check_count += 1
-        item.checked_by = request.user
-        item.checked_at = timezone.now()
-        item.remarks = remarks
-
-        # Determine result
-        if item.actual_qty == item.expected_qty:
-            item.result = 'matched'
-        elif item.actual_qty > item.expected_qty:
-            item.result = 'surplus'
-        else:
-            item.result = 'missing'
-        item.save()
-
-        # Create check record
-        check_record = InventoryCheck.objects.create(
-            task=task, item=item, stock=stock, qty=qty,
-            checked_by=request.user,
-        )
         return Response(InventoryCheckSerializer(check_record).data)
 
     @action(detail=True, methods=['post'], url_path='check-instance')
     def check_instance(self, request, pk=None):
-        """实例盘逐台核对：found=true→已找到 / false→未找到（重复核对以最后一次为准）"""
+        """实例盘逐台核对：found=true→已找到 / false→未找到（重复核对以最后一次为准；
+        任务行锁串行，inventory-checklist-integrity）"""
         task = self.get_object()
         if not task.is_instance_inventory:
             return Response(
@@ -212,27 +257,33 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer = CheckInstanceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        entry = (
-            task.instance_items
-            .select_related('instance__item', 'instance__department')
-            .filter(instance_id=serializer.validated_data['instance_id'])
-            .first()
-        )
-        if not entry:
-            return Response(
-                {'detail': '实例不在本盘点任务清单内'},
-                status=status.HTTP_404_NOT_FOUND,
+        from django.db import transaction
+        with transaction.atomic():
+            locked_task = InventoryTask.objects.select_for_update().get(pk=task.pk)
+            if locked_task.status != 'in_progress':
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'detail': '只有盘点中的任务可以核对'})
+            entry = (
+                locked_task.instance_items
+                .select_related('instance__item', 'instance__department')
+                .filter(instance_id=serializer.validated_data['instance_id'])
+                .first()
             )
+            if not entry:
+                return Response(
+                    {'detail': '实例不在本盘点任务清单内'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        found = serializer.validated_data['found']
-        entry.result = 'matched' if found else 'missing'
-        entry.check_count += 1
-        entry.checked_by = request.user
-        entry.checked_at = timezone.now()
-        remarks = serializer.validated_data.get('remarks', '')
-        if remarks:
-            entry.remarks = remarks
-        entry.save()
+            found = serializer.validated_data['found']
+            entry.result = 'matched' if found else 'missing'
+            entry.check_count += 1
+            entry.checked_by = request.user
+            entry.checked_at = timezone.now()
+            remarks = serializer.validated_data.get('remarks', '')
+            if remarks:
+                entry.remarks = remarks
+            entry.save()
         return Response(InventoryInstanceItemSerializer(entry).data)
 
     @action(detail=True, methods=['post'])
@@ -810,11 +861,16 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             if actual_qty_raw is None:
                 continue
 
-            try:
-                actual_qty = int(float(str(actual_qty_raw)))
-            except (ValueError, TypeError):
-                errors.append(f'第 {i} 行: 实盘数量格式错误 "{actual_qty_raw}"')
-                continue
+            # 实盘数量必须为整数（inventory-checklist-integrity）：整数数值格（5.0）
+            # 接受，小数（2.9）与不可解析值明确报错，不再 int(float()) 静默截断
+            if isinstance(actual_qty_raw, float) and actual_qty_raw.is_integer():
+                actual_qty = int(actual_qty_raw)
+            else:
+                try:
+                    actual_qty = int(str(actual_qty_raw).strip())
+                except (ValueError, TypeError):
+                    errors.append(f'第 {i} 行: 实盘数量必须为整数 "{actual_qty_raw}"')
+                    continue
 
             # Find the inventory item by asset code
             try:
@@ -881,38 +937,6 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         if task.category:
             qs = qs.filter(item__asset_category=task.category.asset_category)
         return qs.count()
-
-    def _generate_items(self, task):
-        """台账盘：非实例管理品目的台账行生成盘点项（inventory-scope-rework——实例品目
-        由实例盘专属覆盖；应盘=行总量三列合计，条件=任一列>0）。"""
-        from apps.assets.models import AssetStock
-        from django.db.models import Q
-        qs = AssetStock.objects.select_related('item').exclude(
-            item__management_type='instance',
-        ).filter(
-            Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
-        )
-        if task.branch:
-            qs = qs.filter(branch=task.branch)
-        if task.category:
-            qs = qs.filter(item__asset_category=task.category.asset_category)
-        for stock in qs:
-            InventoryItem.objects.get_or_create(
-                task=task, stock=stock,
-                defaults={'expected_qty': stock.总量},
-            )
-
-    def _generate_instance_items(self, task):
-        """实例盘：生成全部非退役实例快照（在库+在用，一台一行；inventory-scope-rework
-        ——实例盘即实例品目的台账盘点，按档案全量核对）。"""
-        from apps.assets.models import FixedAsset
-        qs = FixedAsset.objects.select_related('item', 'department').filter(
-            branch=task.branch,
-        ).exclude(当前状态=FixedAsset.STATUS_RETIRED)
-        if task.category:
-            qs = qs.filter(item__asset_category=task.category.asset_category)
-        for instance in qs:
-            InventoryInstanceItem.objects.get_or_create(task=task, instance=instance)
 
     def _apply_missed_rule(self, task):
         """Apply missed rule to unchecked items before submission."""

@@ -213,6 +213,19 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         if str(request.data.get('confirm')) in ('1', 'true', 'True'):
+            # 盘点锁（inventory-checklist-integrity）：与流转创建/审批同口径，
+            # 目标分公司盘点锁定期间禁改台账，聚合分公司名一次说清
+            from apps.inventories.models import branch_inventory_locked
+            locked_branches = sorted({
+                d['branch_name'] for d in diffs if branch_inventory_locked(d['branch'])
+            })
+            if locked_branches:
+                names = '、'.join(locked_branches)
+                return Response(
+                    {'detail': f'分公司「{names}」正在进行盘点，暂时无法进行此操作',
+                     'code': 'INVENTORY_LOCKED'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             from .services import ledger
             # 整体事务 + 锁内现值复核（asset-import-atomicity）：任一行失败/漂移全部回滚
             applied = ledger.apply_import_adjustments(diffs, operator=request.user)

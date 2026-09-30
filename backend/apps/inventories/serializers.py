@@ -117,7 +117,7 @@ class InventoryTaskListSerializer(serializers.ModelSerializer):
 class CheckItemSerializer(serializers.Serializer):
     """Serializer for the check action (single item check)."""
     stock_id = serializers.CharField()
-    qty = serializers.IntegerField()
+    qty = serializers.IntegerField(min_value=0)
     remarks = serializers.CharField(required=False, default='')
 
 

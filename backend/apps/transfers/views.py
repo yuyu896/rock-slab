@@ -20,8 +20,8 @@ from .services import (generate_document_number, validate_disposal_fields,
                        validate_line_items_instances)
 from .filters import TransferFilterSet
 
-# Active inventory statuses that lock a branch's transfers
-_INVENTORY_LOCKED_STATUSES = ['in_progress', 'pending_review']
+# Active inventory statuses that lock a branch's transfers（口径与盘点/导入侧共享）
+from apps.inventories.models import INVENTORY_LOCKED_STATUSES as _INVENTORY_LOCKED_STATUSES
 
 
 def _build_lines(transfer, items):
