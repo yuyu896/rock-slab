@@ -36,17 +36,17 @@ class TestAccountLifecycleSecurity:
         user = User.objects.get(phone='13800007777')
         assert user.check_password('123456')
 
-    def test_create_accepts_weak_password(self, admin_user):
-        """建号接受弱口令作为初始密码（不再强度校验）。"""
+    def test_create_rejects_explicit_weak_password(self, admin_user):
+        """显式弱口令建号被拒（2026-09-30 裁决：兜底 123456 保留，显式密码过强度校验）。"""
         from apps.users.models import User
         client = _client_for(admin_user)
         resp = client.post('/api/users/', {
             'phone': '13800007778', 'name': '弱密码', 'role': 'manager',
             'password': '123',
         }, format='json')
-        assert resp.status_code == 201
-        user = User.objects.get(phone='13800007778')
-        assert user.check_password('123')
+        assert resp.status_code == 400
+        assert 'password' in resp.data
+        assert not User.objects.filter(phone='13800007778').exists()
 
     def test_disable_user_revokes_token(self, admin_user, staff_user):
         """停用账号（status=inactive）后旧 token 立即失效。"""

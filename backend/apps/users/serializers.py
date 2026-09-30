@@ -1,3 +1,5 @@
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
 from rest_framework import serializers
 
@@ -15,7 +17,7 @@ class UserSerializer(serializers.ModelSerializer):
     )
     password = serializers.CharField(
         write_only=True, required=False,
-        help_text='用户初始密码（创建时必填；更新时不接受，改密请走 /api/auth/password/）',
+        help_text='用户初始密码（创建时可选，缺省回退默认；需过强度校验；更新时不接受，改密请走 /api/auth/password/）',
     )
     branch_name = serializers.SerializerMethodField()
     region_name = serializers.SerializerMethodField()
@@ -34,9 +36,18 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
-        # 未提供密码时回退默认初始密码 123456（临时策略，员工登录后自行修改；
-        # 后续提案将改为随机密码 + 首登强制改密，见 restore-default-initial-password）
+        # 未提供密码时回退默认初始密码 123456（产品定调兜底，不走强度校验）；
+        # 显式提供则必须通过 AUTH_PASSWORD_VALIDATORS（以 phone/name 做相似性上下文）
+        explicit_password = 'password' in validated_data
         password = validated_data.pop('password', '123456')
+        if explicit_password:
+            try:
+                validate_password(
+                    password,
+                    User(phone=validated_data.get('phone'), name=validated_data.get('name')),
+                )
+            except DjangoValidationError as e:
+                raise serializers.ValidationError({'password': list(e.messages)})
         user = User.objects.create_user(
             phone=validated_data['phone'],
             name=validated_data['name'],

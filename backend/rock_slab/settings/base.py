@@ -135,6 +135,13 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'apps.authentication.validators.MinimumLengthValidator',
         'OPTIONS': {'min_length': 8},
     },
+    {
+        'NAME': 'apps.authentication.validators.NumericPasswordValidator',
+    },
+    {
+        'NAME': 'apps.authentication.validators.UserAttributeSimilarityValidator',
+        'OPTIONS': {'user_attributes': ['phone', 'name']},
+    },
 ]
 
 # Token expiration (days)

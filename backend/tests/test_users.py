@@ -431,3 +431,47 @@ class TestSystemAvatar:
             format='json',
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+# ---------------------------------------------------------------------------
+# 显式密码强度校验（password-strength-validation）：兜底 123456 保留不变
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPasswordStrengthValidation:
+    def test_explicit_short_password_rejected(self, authenticated_client):
+        from django.contrib.auth import get_user_model
+        payload = _user_payload(phone='13822220001', password='123')
+        resp = authenticated_client.post('/api/users/', payload)
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'password' in resp.data
+        assert not get_user_model().objects.filter(phone='13822220001').exists()
+
+    def test_explicit_numeric_password_rejected(self, authenticated_client):
+        payload = _user_payload(phone='13822220002', password='12345678')
+        resp = authenticated_client.post('/api/users/', payload)
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert '密码不能是纯数字' in str(resp.data['password'])
+
+    def test_explicit_password_similar_to_phone_rejected(self, authenticated_client):
+        payload = _user_payload(phone='13822220003', password='13822220003a')
+        resp = authenticated_client.post('/api/users/', payload)
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_explicit_strong_password_accepted(self, authenticated_client):
+        from django.contrib.auth import get_user_model
+        payload = _user_payload(phone='13822220004', password='V3cPwned#2026')
+        resp = authenticated_client.post('/api/users/', payload)
+        assert resp.status_code == status.HTTP_201_CREATED
+        user = get_user_model().objects.get(phone='13822220004')
+        assert user.check_password('V3cPwned#2026')
+
+    def test_missing_password_falls_back_to_default(self, authenticated_client):
+        from django.contrib.auth import get_user_model
+        payload = _user_payload(phone='13822220005')
+        payload.pop('password')
+        resp = authenticated_client.post('/api/users/', payload)
+        assert resp.status_code == status.HTTP_201_CREATED
+        user = get_user_model().objects.get(phone='13822220005')
+        assert user.check_password('123456')
