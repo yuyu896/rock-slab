@@ -19,8 +19,8 @@ supplement（assets/views.py 补录 action）：`instance.序列号 = serializer
 
 ## Decisions
 
-**1. 查重在 supplement 内联（raise 语义），不复用 batch_update 的行级收集。**
-两路径错误形态不同（单对象 400 vs 批量 errors 列表），共享同一判定表达式（`filter(序列号=).exclude(pk=).exists()`）即可，不为三行逻辑造抽象。
+**1. 查重在 supplement 内联（raise 语义），batch_update 行级收集各自保留；两处同为「同分公司」口径。**
+错误形态不同（单对象 400 vs 批量 errors 列表），共享同一判定表达式（`filter(序列号=, branch=).exclude(pk=).exists()`）。口径修订（2026-09-30 探讨定案）：序列号列语义=电脑厂商 SN + 手机行政自编编号——自编编号跨分公司同号合法，全局查重会拦截不同分公司的正常录入，退回历史 0006 的分公司口径；电脑 SN 同分公司撞（同一台录两遍/抄错）与自编编号分公司内编重，恰好都是该拦的错误。空序列号=合法终态（不设确认流程，待补录徽标为被动工作清单）。
 
 **2. 部分更新以 `in validated_data` 判定提交与否。**
 FixedAssetSupplementSerializer 本就只透传提交字段；`'序列号' in validated_data` 是「用户显式提交」的精确信号（显式提交空串=有意清空回待补录，仍属合法操作——待补录是系统原生状态）。查重只对非空值做。
@@ -28,7 +28,7 @@ FixedAssetSupplementSerializer 本就只透传提交字段；`'序列号' in val
 **3. 报告命令非零退出但不进部署门禁。**
 非零退出码便于脚本化验收（清理后跑一次应 exit 0）；不进 deploy.sh/pytest 门禁——清理前的每次部署不该被它卡住。阶段二引入约束时，约束本身就是最终门禁。
 
-**4. 阶段二的约束形态（本设计仅记录）：** `UniqueConstraint(fields=['序列号'], condition=~Q(序列号=''), name='unique_serial_global')`——非空全局唯一。引入前跑一次报告命令确认 exit 0。
+**4. 阶段二的约束形态（本设计仅记录）：** `UniqueConstraint(fields=['branch', '序列号'], condition=~Q(序列号=''), name='unique_branch_serial')`——分公司内非空唯一。引入前跑一次报告命令确认 exit 0。
 
 ## Risks / Trade-offs
 
