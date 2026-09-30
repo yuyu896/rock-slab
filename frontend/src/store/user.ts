@@ -12,6 +12,8 @@ export const useUserStore = defineStore('user', () => {
   const profile = ref<User | null>(null)
   /** 当前用户持有的业务操作授权码集合（admin 恒真，不依赖此集合） */
   const operations = ref<string[]>([])
+  /** profile 是否已就绪（路由守卫等待用；登出重置） */
+  const profileLoaded = ref(false)
 
   const isLoggedIn = computed(() => !!token.value)
   /** 是否为超级管理员（走职位，拥有全部权限） */
@@ -55,6 +57,7 @@ export const useUserStore = defineStore('user', () => {
       token.value = null
       profile.value = null
       operations.value = []
+      profileLoaded.value = false
       localStorage.removeItem(TOKEN_KEY)
     }
   }
@@ -64,6 +67,7 @@ export const useUserStore = defineStore('user', () => {
     const { data } = await authApi.getProfile()
     profile.value = data
     await fetchMyPermissions()
+    profileLoaded.value = true
   }
 
   /** 是否持有某业务操作权限（admin 恒真） */
@@ -88,6 +92,7 @@ export const useUserStore = defineStore('user', () => {
   return {
     token,
     profile,
+    profileLoaded,
     operations,
     refreshOperationsIfStale,
     isLoggedIn,

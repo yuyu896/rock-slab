@@ -60,7 +60,7 @@
                 <input
                   type="checkbox"
                   :checked="draftOps.has(op.code)"
-                  :disabled="isAdminUser"
+                  :disabled="isAdminDraft"
                   @change="onToggleOp(op.code, $event)"
                 />
                 <span>{{ op.label }}</span>
@@ -201,6 +201,8 @@ const teams = ref<Team[]>([])
 
 const selectedUser = computed(() => users.value.find(u => u.id === selectedUserId.value) || null)
 const isAdminUser = computed(() => selectedUser.value?.role === 'admin')
+/** admin 内置特权按保存后岗位判定（降级时勾选可用、预览按授权口径） */
+const isAdminDraft = computed(() => selectedRole.value === 'admin')
 const activeTemplate = computed(() => templates.value.find(t => t.role === selectedRole.value))
 const effectiveRow = computed(() =>
   effectiveRows.value.find(r => r.user === selectedUserId.value) || null)
@@ -232,7 +234,7 @@ const currentOps = computed(() => new Set(grants.value.map(g => g.code)))
 
 /** 操作码勾选集与既有授权存在差集（含增删两个方向） */
 const opsDirty = computed(() => {
-  if (isAdminUser.value) return false
+  if (isAdminDraft.value) return false
   if (draftOps.value.size !== currentOps.value.size) return true
   for (const c of draftOps.value) {
     if (!currentOps.value.has(c)) return true
@@ -246,7 +248,7 @@ const canSave = computed(() =>
 
 /** 岗位外保留的既有授权数（当前勾选中不属于所选模板的项；取消勾选即从保留中移除） */
 const keptExtraCount = computed(() => {
-  if (isAdminUser.value) return 0
+  if (isAdminDraft.value) return 0
   const tpl = activeTemplate.value
   const tplOps = tpl && !tpl.allOperations ? new Set(tpl.operations) : new Set<string>()
   let n = 0
@@ -264,7 +266,7 @@ const previewScopeText = computed(() => {
     const n = appointNodes.value.find(x => x.id === appointNodeId.value)
     if (n) parts.push(`+ 任命「${n.label}」子树`)
   }
-  if (isAdminUser) return '全部（内置）'
+  if (isAdminDraft.value) return '全部（内置）'
   return parts.join(' ')
 })
 
@@ -309,8 +311,9 @@ function onSelectUser() {
 function onPickRole(role: string) {
   selectedRole.value = role
   const tpl = templates.value.find(t => t.role === role)
-  if (tpl && !tpl.allOperations && selectedUser.value?.role !== 'admin') {
-    // 只补不删：模板 ∪ 既有授权 作为初始勾选（与 migrate_positions 命令原则一致）
+  if (tpl && !tpl.allOperations) {
+    // 只补不删：模板 ∪ 既有授权 作为初始勾选（与 migrate_positions 命令原则一致；
+    // admin 源用户既有授权为空 → 并集=模板集，即降级的正确初始态）
     draftOps.value = new Set([...tpl.operations, ...grants.value.map(g => g.code)])
   }
   if (tpl && tpl.scopeType !== 'all') {
@@ -439,21 +442,27 @@ function branchesUnderRegion(regionId: string | null) {
   return branches.value.filter(b => b.region === regionId)
 }
 
+function escHtml(v: string | null | undefined) {
+  return (v ?? '—').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
+  ))
+}
+
 function scopeLabel(s: ManagementScope) {
   const isAll = s.is_all_data ?? (s as any).isAllData
   if (isAll) return '<strong>整个组织架构（全部数据）</strong>'
   if (s.region) {
     const r = regions.value.find(x => x.id === s.region)
     const cnt = branchesUnderRegion(s.region).length
-    return `大区：<strong>${r?.name ?? '—'}</strong>（含 ${cnt} 个分公司）`
+    return `大区：<strong>${escHtml(r?.name)}</strong>（含 ${cnt} 个分公司）`
   }
   if (s.branch) {
     const b = branches.value.find(x => x.id === s.branch)
-    return `分公司：<strong>${b?.name ?? '—'}</strong>`
+    return `分公司：<strong>${escHtml(b?.name)}</strong>`
   }
   if (s.team) {
     const t = teams.value.find(x => x.id === s.team)
-    return `行政组：<strong>${t?.name ?? '—'}</strong>`
+    return `行政组：<strong>${escHtml(t?.name)}</strong>`
   }
   return '—'
 }

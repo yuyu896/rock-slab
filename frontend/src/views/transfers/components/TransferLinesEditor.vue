@@ -55,7 +55,7 @@ function onItemPicked(index: number, item: any) {
     drafts.value[index].instances = []
     drafts.value[index].数量 = 1
   }
-  if (props.type === 'recovery') loadStockRow(item.asset_code)
+  if (props.type === 'recovery' && item) loadStockRow(item.asset_code)
   touch()
 }
 
@@ -97,10 +97,12 @@ function normalizeNum(value: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** 采购行金额留空自动 = 单价 × 数量；手填不覆盖，清空后回到自动 */
+/** 采购行金额自动 = 单价 × 数量：留空时自动填、自动值跟随数量/单价重算；手改后停跟 */
 function autoFillAmount(draft: LineDraft) {
-  if (draft.金额 === null && draft.单价 !== null) {
+  if (draft.单价 === null) return
+  if (draft.金额 === null || draft.金额Auto) {
     draft.金额 = Number((draft.单价 * draft.数量).toFixed(2))
+    draft.金额Auto = true
   }
 }
 
@@ -119,6 +121,7 @@ function onPriceChange(index: number) {
 
 function onAmountChange(index: number) {
   drafts.value[index].金额 = normalizeNum(drafts.value[index].金额)
+  drafts.value[index].金额Auto = false  // 手改即停跟
   touch()
 }
 

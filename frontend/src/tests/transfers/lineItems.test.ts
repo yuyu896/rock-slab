@@ -137,19 +137,26 @@ describe('TransferLinesEditor 增删行与校验', () => {
     expect((wrapper.vm as any).validate()).toBe(false)
   })
 
-  it('采购行金额留空自动 = 单价 × 数量，手填不覆盖，清空回自动', async () => {
+  it('采购金额：留空自动=单价×数量；自动值随数量重算，手填不覆盖，清空回自动', async () => {
     const wrapper = mountEditor()
     const draft: LineDraft = { ...emptyDraft(), item: pickedItem, 数量: 4, 单价: null, 金额: null }
     await wrapper.setProps({ modelValue: [draft] })
     await nextTick()
     const numInputs = wrapper.findAll('input.num') // [单价, 金额]
+    const qtyInput = wrapper.find('input.qty')
 
     await numInputs[0].setValue('12.5')
     await numInputs[0].trigger('change')
     expect(draft.单价).toBe(12.5)
     expect(draft.金额).toBe(50) // 留空自动算
 
-    draft.金额 = 45 // 手填（整批折价）
+    // 自动值跟随数量重算（frontend-interaction-integrity：改数量金额不再留旧值）
+    await qtyInput.setValue('5')
+    await qtyInput.trigger('change')
+    expect(draft.金额).toBe(62.5)
+
+    draft.金额 = 45 // 手填（整批折价；真实路径经金额输入框停跟，此处直接置值并停跟标志）
+    draft.金额Auto = false
     await numInputs[0].setValue('13')
     await numInputs[0].trigger('change')
     expect(draft.金额).toBe(45) // 手填优先不被覆盖
@@ -159,7 +166,7 @@ describe('TransferLinesEditor 增删行与校验', () => {
     expect(draft.金额).toBeNull()
     await numInputs[0].setValue('13')
     await numInputs[0].trigger('change')
-    expect(draft.金额).toBe(52)
+    expect(draft.金额).toBe(65)
   })
 
   it('领用行使用人/部门必填（不分管理方式）', async () => {

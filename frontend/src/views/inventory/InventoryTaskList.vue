@@ -9,6 +9,7 @@ import {
 } from '@/constants'
 import type { MissedRuleType, RepeatRuleType } from '@/types'
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
+import { usePermission } from '@/hooks/usePermission'
 
 const props = defineProps<{
   loading: boolean
@@ -17,6 +18,11 @@ const props = defineProps<{
   filters: { status: string; branch: string[]; keyword: string }
   branchOptions: { value: string; label: string }[]
 }>()
+
+const { can } = usePermission()
+/** 盘点管理操作需 manage_assets；审批需 approve_inventory（后端 403 仍兜底） */
+const canManageInventory = computed(() => can('manage_assets'))
+const canApproveInventory = computed(() => can('approve_inventory'))
 
 const emit = defineEmits<{
   (e: 'update:filters', val: typeof props.filters): void
@@ -60,7 +66,7 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
         <h1 class="page-title">资产盘点</h1>
         <p class="page-desc">管理盘点任务，追踪盘点进度</p>
       </div>
-      <button class="btn-primary" @click="emit('create')">
+      <button v-if="canManageInventory" class="btn-primary" @click="emit('create')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="5" x2="12" y2="19"/>
           <line x1="5" y1="12" x2="19" y2="12"/>
@@ -163,9 +169,9 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
             <td>{{ formatDate(task.createdAt) }}</td>
             <td class="cell-actions">
               <template v-if="task.status === 'pending'">
-                <button class="row-btn danger" title="删除" @click="emit('delete', task)">删除</button>
-                <button class="row-btn secondary" @click="emit('cancel', task)">作废</button>
-                <button class="row-btn primary" @click="emit('start', task)">开始盘点</button>
+                <button v-if="canManageInventory" class="row-btn danger" title="删除" @click="emit('delete', task)">删除</button>
+                <button v-if="canManageInventory" class="row-btn secondary" @click="emit('cancel', task)">作废</button>
+                <button v-if="canManageInventory" class="row-btn primary" @click="emit('start', task)">开始盘点</button>
               </template>
               <template v-else-if="task.status === 'in_progress'">
                 <button class="row-btn secondary" @click="emit('view', task)">查看进度</button>
@@ -176,8 +182,8 @@ const formatDate = (dateStr: string | null | undefined) => dateStr ? dateStr.sli
               </template>
               <template v-else-if="task.status === 'pending_review'">
                 <button class="row-btn secondary" @click="emit('view', task)">查看详情</button>
-                <button class="row-btn danger" @click="emit('reject', task)">驳回</button>
-                <button class="row-btn primary" @click="emit('approve', task)">审批通过</button>
+                <button v-if="canApproveInventory" class="row-btn danger" @click="emit('reject', task)">驳回</button>
+                <button v-if="canApproveInventory" class="row-btn primary" @click="emit('approve', task)">审批通过</button>
               </template>
               <template v-else-if="task.status === 'rejected'">
                 <button class="row-btn secondary" @click="emit('view', task)">查看原因</button>

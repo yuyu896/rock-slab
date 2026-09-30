@@ -41,7 +41,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'transfers/recovery/create', component: () => import('@/views/transfers/RecoveryCreate.vue'), meta: { title: '新建回收' } },
       { path: 'transfers/recovery/:id', component: () => import('@/views/transfers/RecoveryDetail.vue'), meta: { title: '回收详情' } },
       { path: 'inventory', component: () => import('@/views/Inventory.vue'), meta: { title: '盘点管理' } },
-      { path: 'inventory/create', component: () => import('@/views/inventory/InventoryTaskCreate.vue'), meta: { title: '创建盘点任务' } },
+      { path: 'inventory/create', component: () => import('@/views/inventory/InventoryTaskCreate.vue'), meta: { title: '创建盘点任务', operation: 'manage_assets' } },
       { path: 'reconciliation', component: () => import('@/views/Reconciliation.vue'), meta: { title: '对账', requiresAdmin: true } },
       { path: 'organization', component: () => import('@/views/Organization.vue'), meta: { title: '组织架构' } },
       { path: 'admin/permissions', component: () => import('@/views/admin/PermissionAssign.vue'), meta: { title: '权限分配', requiresAdmin: true } },
@@ -99,12 +99,26 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   if (to.meta.requiresAuth) {
     const token = localStorage.getItem(TOKEN_KEY)
     if (!token) {
       next({ path: '/login', query: { redirect: to.fullPath } })
       return
+    }
+  }
+  // 权限判定前等待用户信息就绪（frontend-interaction-integrity）：
+  // 直接刷新管理类路由时 profile 尚未返回，同步判定会误弹回 dashboard。
+  // 一次性等待——profileLoaded 后后续导航零开销；失败按无凭证路径走既有逻辑。
+  if (to.meta.requiresAdmin || to.meta.operation) {
+    const userStore = useUserStore()
+    if (!userStore.profileLoaded) {
+      try {
+        await userStore.fetchProfile()
+      } catch {
+        next({ path: '/login', query: { redirect: to.fullPath } })
+        return
+      }
     }
   }
   // 仅超级管理员可访问的路由

@@ -10,6 +10,8 @@ export interface LineDraft {
   行供应商: string
   单价: number | null
   金额: number | null
+  /** 金额是否为自动计算值（单价×数量）：数量/单价变化时跟随重算，手改后停跟 */
+  金额Auto?: boolean
   使用人: string
   department: string | null
   存放位置: string
@@ -28,6 +30,7 @@ export function emptyDraft(): LineDraft {
     行供应商: '',
     单价: null,
     金额: null,
+    金额Auto: false,
     使用人: '',
     department: null,
     存放位置: '',

@@ -33,7 +33,8 @@ async function fetchOptions() {
       getCategories().catch(() => ({ data: [] as Category[] })),
       getBranches({ scope: 'write' }).catch(() => ({ data: [] as Branch[] })),
     ])
-    categories.value = Array.isArray(catRes.data) ? catRes.data : []
+    const catData: any = catRes.data
+    categories.value = Array.isArray(catData) ? catData : (catData?.results ?? [])
     branches.value = Array.isArray(branchRes.data) ? branchRes.data : []
   } catch {
     // options loading failure is non-fatal
