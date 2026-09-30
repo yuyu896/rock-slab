@@ -4,6 +4,8 @@ import sys
 
 
 def main():
+    # 开发工具：缺省 development 是本地 DX 的刻意选择（shell/migrate 等命令
+    # 免设环境变量）。部署入口是 wsgi.py——其缺省 fail-safe 为 production。
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'rock_slab.settings.development')
     # Production: set DJANGO_SETTINGS_MODULE=rock_slab.settings.production in .env
     try:

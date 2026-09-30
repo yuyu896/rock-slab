@@ -64,3 +64,13 @@ class TestAccountLifecycleSecurity:
         assert not ExpiringToken.objects.filter(user=staff_user).exists()
         # 旧 token 调用 → 401
         assert client_staff.get('/api/auth/profile/').status_code == 401
+
+
+@pytest.mark.django_db
+class TestAdminUserDeregistered:
+    """p3-backend-hardening：User 不注册 Django Admin（写入口唯一化为 API）。"""
+
+    def test_user_not_in_admin_registry(self):
+        from django.contrib import admin
+        from django.contrib.auth import get_user_model
+        assert get_user_model() not in admin.site._registry
