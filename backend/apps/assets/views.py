@@ -214,17 +214,8 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         if str(request.data.get('confirm')) in ('1', 'true', 'True'):
             from .services import ledger
-            applied = 0
-            for d in diffs:
-                ledger.apply_adjustment(
-                    branch=d['branch'],
-                    item=d['item'],
-                    column=ledger.COLUMN_STOCK,
-                    delta=d['变动量'],
-                    reason=f'导入调整（在库 {d["现值"]} → {d["导入值"]}）',
-                    operator=request.user,
-                )
-                applied += 1
+            # 整体事务 + 锁内现值复核（asset-import-atomicity）：任一行失败/漂移全部回滚
+            applied = ledger.apply_import_adjustments(diffs, operator=request.user)
             return Response({'applied': applied, 'errors': errors})
 
         return Response({

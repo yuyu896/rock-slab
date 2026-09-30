@@ -98,6 +98,60 @@ def apply_adjustment(branch, item, column, delta, reason, operator=None,
         )
 
 
+def apply_import_adjustments(entries, operator=None):
+    """台账导入确认入口（asset-import-atomicity）：整体事务 + 锁内现值复核。
+
+    entries 为解析阶段的差异清单（branch/item/现值快照/导入值/变动量/行号）；
+    任一行当前值与快照不符 → IMPORT_STALE（带行号定位）整体回滚，不留部分调整。
+    加锁顺序与 apply_document 全局序一致（分公司×品目排序锁齐，交叉并发不环形等待）。
+    """
+    from apps.transfers.services import generate_document_number
+
+    if not entries:
+        return 0
+
+    keys = sorted({(e['branch'].pk, e['item'].pk) for e in entries})
+    lock_q = Q()
+    for branch_pk, item_pk in keys:
+        lock_q |= Q(branch_id=branch_pk, item_id=item_pk)
+
+    with transaction.atomic():
+        locked = {
+            (r.branch_id, r.item_id): r
+            for r in AssetStock.objects.select_for_update()
+            .filter(lock_q).order_by('branch_id', 'item_id')
+        }
+        applied = 0
+        for e in entries:
+            key = (e['branch'].pk, e['item'].pk)
+            row = locked.get(key)
+            if row is None:
+                row = AssetStock(branch=e['branch'], item=e['item'])
+                locked[key] = row
+            current = getattr(row, COLUMN_STOCK) or 0
+            if current != e['现值']:
+                raise ValidationError({
+                    'detail': (
+                        f'第 {e["row"]} 行（{e["资产编号"]} @ {e["branch_name"]}）：'
+                        f'台账现值已变化（解析时 {e["现值"]}，当前 {current}），请重新上传文件'
+                    ),
+                    'code': 'IMPORT_STALE',
+                })
+            _apply_delta(row, COLUMN_STOCK, e['变动量'])
+            row.save()
+            LedgerAdjustment.objects.create(
+                单据编号=generate_document_number('adjust', timezone.now().date()),
+                branch=e['branch'],
+                item=e['item'],
+                目标列=COLUMN_STOCK,
+                变动量=e['变动量'],
+                事由=f'导入调整（在库 {e["现值"]} → {e["导入值"]}）',
+                经办人=operator,
+            )
+            applied += 1
+        return applied
+
+
 def _line_plan(transfer, line):
     """一条明细行 → [(分公司, 品目, 目标列, 变动量)]，联动矩阵与设计书一字不变。"""
     item = line.item
