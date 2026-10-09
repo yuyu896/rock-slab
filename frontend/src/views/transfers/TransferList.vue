@@ -11,6 +11,8 @@ import BasePagination from '@/components/BasePagination.vue'
 
 const {
   typeLabel,
+  canApproveTransfer,
+  canManageAssets,
   filters, pagination, loading, transfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
   handleApprove, handleReject,
@@ -110,9 +112,9 @@ function openCreatePage() {
             <td>
               <div class="action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/transfer/' + item.id)">详情</button>
-                <button v-if="item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn approve" @click="handleApprove(item)">通过</button>
-                <button v-if="item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn reject" @click="handleReject(item)">驳回</button>
-                <button v-if="item.审批状态 === '待审批' && item.canOperate === false && item.canInboundReject" class="action-btn reject" @click="handleInboundReject(item)">驳回</button>
+                <button v-if="canApproveTransfer && item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn approve" @click="handleApprove(item)">通过</button>
+                <button v-if="canApproveTransfer && item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn reject" @click="handleReject(item)">驳回</button>
+                <button v-if="canManageAssets && item.审批状态 === '待审批' && item.canOperate === false && item.canInboundReject" class="action-btn reject" @click="handleInboundReject(item)">驳回</button>
               </div>
             </td>
           </tr>

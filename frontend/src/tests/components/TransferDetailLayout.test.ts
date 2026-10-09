@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { useUserStore } from '@/store/user'
 import TransferDetailLayout from '@/views/transfers/components/TransferDetailLayout.vue'
 import type { TransferDocument } from '@/types'
 
@@ -19,10 +21,13 @@ function makeDoc(overrides: Partial<TransferDocument> = {}): TransferDocument {
   } as TransferDocument
 }
 
-function mountLayout(doc: TransferDocument | null) {
+function mountLayout(doc: TransferDocument | null, operations = ['approve_transfer', 'manage_assets']) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useUserStore(pinia).operations = operations
   return mount(TransferDetailLayout, {
     props: { title: '调拨详情', backPath: '/transfers/transfer', type: 'transfer', doc },
-    global: { stubs: { teleport: true } },
+    global: { plugins: [pinia], stubs: { teleport: true } },
   })
 }
 
@@ -31,6 +36,12 @@ describe('TransferDetailLayout 调拨单调入方只读（修订 3.1）', () => 
     const wrapper = mountLayout(makeDoc({ canOperate: true }))
     expect(wrapper.find('.btn-approve').exists()).toBe(true)
     expect(wrapper.find('.btn-reject').exists()).toBe(true)
+  })
+
+  it('没有审批流转权限时隐藏通过/驳回按钮', () => {
+    const wrapper = mountLayout(makeDoc({ canOperate: true }), [])
+    expect(wrapper.find('.btn-approve').exists()).toBe(false)
+    expect(wrapper.find('.btn-reject').exists()).toBe(false)
   })
 
   it('canOperate=false（调入方视角）隐藏通过/驳回，详情仍可看', () => {

@@ -19,7 +19,6 @@
             filterable
             placeholder="按姓名 / 手机号搜索…"
             class="user-select"
-            @change="onSelectUser"
           >
             <el-option
               v-for="u in users"
@@ -55,12 +54,13 @@
                 <span class="scope-hint">{{ scopeTypeLabel(t.scopeType) }}</span>
               </label>
             </div>
+            <p v-if="grantsLoading" class="step-desc">正在读取该员工当前授权…</p>
             <div class="op-grid">
               <label v-for="op in operations" :key="op.code" class="op-item">
                 <input
                   type="checkbox"
-                  :checked="draftOps.has(op.code)"
-                  :disabled="isAdminDraft"
+                  :checked="isAdminDraft || draftOps.has(op.code)"
+                  :disabled="isAdminDraft || grantsLoading"
                   @change="onToggleOp(op.code, $event)"
                 />
                 <span>{{ op.label }}</span>
@@ -70,7 +70,7 @@
             <p v-if="keptExtraCount > 0" class="keep-hint">
               将保留岗位外的既有授权 {{ keptExtraCount }} 项（显式取消勾选才删除）
             </p>
-            <button class="btn-primary" :disabled="saving || !canSave" @click="saveRole">
+            <button class="btn-primary" :disabled="saving || grantsLoading || !canSave" @click="saveRole">
               {{ saving ? '保存中…' : '保存岗位' }}
             </button>
           </section>
@@ -151,7 +151,7 @@
             范围：
             {{ previewScopeText }}
           </p>
-          <p class="preview-line">操作：{{ isAdminUser ? '全部（内置）' : opsText([...draftOps]) }}</p>
+          <p class="preview-line">操作：{{ isAdminDraft ? '全部（内置）' : opsText([...draftOps]) }}</p>
         </div>
       </aside>
     </div>
@@ -184,6 +184,7 @@ const scopes = ref<ManagementScope[]>([])
 const grants = ref<OperationGrant[]>([])
 const effectiveRows = ref<EffectivePermissionRow[]>([])
 const saving = ref(false)
+const grantsLoading = ref(false)
 
 const selectedRole = ref('')
 const draftOps = ref<Set<string>>(new Set())
@@ -328,18 +329,19 @@ function onToggleOp(code: string, e: Event) {
   draftOps.value = next
 }
 
-async function refreshGrants() {
-  if (!selectedUserId.value) {
+async function refreshGrants(userId = selectedUserId.value) {
+  if (!userId) {
     scopes.value = []
     grants.value = []
     effectiveRows.value = []
     return
   }
   const [s, g, e] = await Promise.all([
-    getManagementScopes({ user: selectedUserId.value }),
-    getOperationGrants({ user: selectedUserId.value }),
+    getManagementScopes({ user: userId }),
+    getOperationGrants({ user: userId }),
     getEffectivePermissions(),
   ])
+  if (selectedUserId.value !== userId) return
   scopes.value = Array.isArray(s.data) ? s.data : (s.data as any).results ?? []
   grants.value = Array.isArray(g.data) ? g.data : (g.data as any).results ?? []
   effectiveRows.value = Array.isArray(e.data) ? e.data : []
@@ -475,8 +477,25 @@ async function reloadUser() {
   await refreshGrants()
 }
 
-watch(selectedUserId, () => {
-  void refreshGrants().then(() => onSelectUser())
+watch(selectedUserId, userId => {
+  scopes.value = []
+  grants.value = []
+  effectiveRows.value = []
+  draftOps.value = new Set()
+  selectedRole.value = selectedUser.value?.role || ''
+  appointNodeId.value = ''
+  grantsLoading.value = !!userId
+  if (!userId) return
+  void refreshGrants(userId)
+    .then(() => {
+      if (selectedUserId.value === userId) onSelectUser()
+    })
+    .catch(error => {
+      if (selectedUserId.value === userId) ElMessage.error(handleApiError(error))
+    })
+    .finally(() => {
+      if (selectedUserId.value === userId) grantsLoading.value = false
+    })
 })
 
 // 切换授权类型时清空已选节点，避免拿着大区的 id 提交成分公司授权

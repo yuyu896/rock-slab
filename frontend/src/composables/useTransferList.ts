@@ -12,12 +12,16 @@ import { handleApiError } from '@/utils/request'
 import { APPROVAL_STATUS_OPTIONS, APPROVAL_STATUS_COLORS, TRANSFER_TYPES } from '@/constants'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Transfer } from '@/types'
+import { useUserStore } from '@/store/user'
 
 // 流转类型元数据（权威定义在 constants，此处再导出兼容既有导入方）
 export { TRANSFER_TYPES }
 export type TransferType = keyof typeof TRANSFER_TYPES
 
 export function useTransferList(type: TransferType) {
+  const userStore = useUserStore()
+  const canApproveTransfer = computed(() => userStore.can('approve_transfer'))
+  const canManageAssets = computed(() => userStore.can('manage_assets'))
   const { label: typeLabel, color: typeColor } = TRANSFER_TYPES[type]
 
   // 筛选
@@ -211,6 +215,8 @@ export function useTransferList(type: TransferType) {
     type,
     typeLabel,
     typeColor,
+    canApproveTransfer,
+    canManageAssets,
     filters,
     pagination,
     loading,

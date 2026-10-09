@@ -6,7 +6,7 @@ vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: vi.fn() },
 }))
-vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { name: '张三' } }) }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { name: '张三' }, can: () => true }) }))
 vi.mock('@/api/transfers', () => ({
   assignAsset: vi.fn().mockResolvedValue({ data: { id: 'a-1' } }),
   transferAsset: vi.fn().mockResolvedValue({ data: { id: 't-1' } }),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import TransferLinesTable from './TransferLinesTable.vue'
+import { useUserStore } from '@/store/user'
 import type { TransferDocument } from '@/types'
 import type { TransferType } from '@/constants'
 
@@ -14,6 +15,7 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+const userStore = useUserStore()
 
 /** 返回优先走浏览器历史（带回列表页的 query 筛选与页码）；直达详情无来路时回退 backPath */
 function goBack() {
@@ -72,11 +74,11 @@ function branchText(doc: TransferDocument) {
 
       <div class="detail-footer">
         <slot name="footer" :doc="doc">
-          <template v-if="doc.审批状态 === '待审批' && doc.canOperate !== false">
+          <template v-if="userStore.can('approve_transfer') && doc.审批状态 === '待审批' && doc.canOperate !== false">
             <button class="btn-approve" @click="emit('approve')">通过</button>
             <button class="btn-reject" @click="emit('reject')">驳回</button>
           </template>
-          <template v-else-if="doc.审批状态 === '待审批' && doc.canOperate === false && doc.canInboundReject">
+          <template v-else-if="userStore.can('manage_assets') && doc.审批状态 === '待审批' && doc.canOperate === false && doc.canInboundReject">
             <button class="btn-reject" @click="emit('inboundReject')">驳回（调入方）</button>
           </template>
         </slot>

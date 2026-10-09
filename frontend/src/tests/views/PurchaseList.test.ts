@@ -15,6 +15,7 @@ vi.mock('@/api/transfers', () => ({
 vi.mock('@/api/branches', () => ({
   getBranches: vi.fn().mockResolvedValue({ data: [{ id: 'b-1', name: '北京分公司' }] }),
 }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ can: () => true }) }))
 
 import PurchaseList from '@/views/transfers/PurchaseList.vue'
 import { getTransfers } from '@/api/transfers'

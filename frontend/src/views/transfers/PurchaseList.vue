@@ -15,6 +15,7 @@ function itemSummary(item: Transfer) {
 
 const {
   typeLabel,
+  canApproveTransfer,
   filters, pagination, loading, transfers: rawTransfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
   handleApprove, handleReject,
@@ -111,8 +112,8 @@ async function handleSubmitDraft(item: Transfer) {
             <td>
               <div class="action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/purchase/' + item.id)">详情</button>
-                <button v-if="item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
-                <button v-if="item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
+                <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
+                <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
                 <button v-if="item.审批状态 === '草稿'" class="action-btn" @click="handleSubmitDraft(item)">提交</button>
               </div>
             </td>
