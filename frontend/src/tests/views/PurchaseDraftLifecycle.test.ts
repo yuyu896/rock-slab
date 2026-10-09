@@ -9,7 +9,7 @@ vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: vi.fn().mockResolvedValue('confirm'), prompt: vi.fn() },
 }))
-vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { name: '张三' } }) }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { name: '张三' }, can: () => true }) }))
 vi.mock('@/api/transfers', () => ({
   purchaseAsset: vi.fn().mockResolvedValue({ data: { id: 'new-1' } }),
   getTransfer: vi.fn().mockResolvedValue({

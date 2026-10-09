@@ -24,6 +24,7 @@ vi.mock('@/api/transfers', () => ({
 vi.mock('@/api/branches', () => ({
   getBranches: vi.fn().mockResolvedValue({ data: [] }),
 }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ can: () => true }) }))
 
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import RecoveryList from '@/views/transfers/RecoveryList.vue'

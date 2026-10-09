@@ -211,6 +211,21 @@ class TestRepairScrapRemoved:
 class TestApproveFlow:
     """审批流程"""
 
+    def test_approve_denied_without_approve_transfer_grant(self, authenticated_client, admin_user):
+        from apps.permissions.models import OperationGrant
+
+        admin_user.role = 'manager'
+        admin_user.save(update_fields=['role'])
+        OperationGrant.objects.filter(user=admin_user, code='approve_transfer').delete()
+
+        resp = authenticated_client.post(
+            _action_url('approve', '00000000-0000-0000-0000-000000000000'),
+            {'approved': True},
+            format='json',
+        )
+
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
     def _create_pending_transfer(self, client, item_id):
         payload = {
             '调拨日期': '2026-01-15',

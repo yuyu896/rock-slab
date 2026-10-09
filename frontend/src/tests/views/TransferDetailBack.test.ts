@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
+import { createPinia } from 'pinia'
 import TransferDetailLayout from '@/views/transfers/components/TransferDetailLayout.vue'
 
 const props = {
@@ -27,7 +28,7 @@ describe('单据详情返回保留列表筛选（query 持久化配套）', () =
     await router.isReady()
     const backSpy = vi.spyOn(router, 'back').mockImplementation(() => {})
     window.history.replaceState({ back: '/transfers/purchase?status=pending' }, '')
-    const wrapper = mount(TransferDetailLayout, { props, global: { plugins: [router] } })
+    const wrapper = mount(TransferDetailLayout, { props, global: { plugins: [router, createPinia()] } })
     await wrapper.find('.back-btn').trigger('click')
     expect(backSpy).toHaveBeenCalledTimes(1)
     wrapper.unmount()
@@ -41,7 +42,7 @@ describe('单据详情返回保留列表筛选（query 持久化配套）', () =
     await router.isReady()
     const pushSpy = vi.spyOn(router, 'push').mockResolvedValue(undefined as never)
     window.history.replaceState({}, '')
-    const wrapper = mount(TransferDetailLayout, { props, global: { plugins: [router] } })
+    const wrapper = mount(TransferDetailLayout, { props, global: { plugins: [router, createPinia()] } })
     await wrapper.find('.back-btn').trigger('click')
     expect(pushSpy).toHaveBeenCalledWith('/transfers/purchase')
     wrapper.unmount()

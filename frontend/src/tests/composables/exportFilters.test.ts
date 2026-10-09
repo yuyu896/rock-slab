@@ -58,6 +58,7 @@ vi.mock('@/hooks/usePermission', () => ({
     can: () => true,
   }),
 }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ can: () => true }) }))
 
 import { useTransferList } from '@/composables/useTransferList'
 import FixedAssetList from '@/views/FixedAssetList.vue'

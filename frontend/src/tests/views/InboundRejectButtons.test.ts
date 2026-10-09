@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { useUserStore } from '@/store/user'
 import TransferDetailLayout from '@/views/transfers/components/TransferDetailLayout.vue'
 
 vi.mock('vue-router', () => ({
@@ -14,9 +16,12 @@ const baseDoc = {
 } as any
 
 function mountLayout(doc: any) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useUserStore(pinia).operations = ['approve_transfer', 'manage_assets']
   return mount(TransferDetailLayout, {
     props: { title: '调拨详情', backPath: '/transfers/transfer', doc, type: 'transfer' as const },
-    global: { stubs: { TransferLinesTable: true } },
+    global: { plugins: [pinia], stubs: { TransferLinesTable: true } },
   })
 }
 
