@@ -4,6 +4,24 @@ set -e
 PROJECT_DIR="/root/rock-slab"
 cd "$PROJECT_DIR"
 
+# Routine deployments reuse Docker and npm caches. Set FORCE_REBUILD=1 only
+# when dependency layers must be rebuilt from scratch.
+FORCE_REBUILD="${FORCE_REBUILD:-0}"
+GIT_PULL_TIMEOUT="${GIT_PULL_TIMEOUT:-5m}"
+BACKEND_BUILD_TIMEOUT="${BACKEND_BUILD_TIMEOUT:-10m}"
+FRONTEND_INSTALL_TIMEOUT="${FRONTEND_INSTALL_TIMEOUT:-10m}"
+FRONTEND_BUILD_TIMEOUT="${FRONTEND_BUILD_TIMEOUT:-10m}"
+
+run_with_timeout() {
+    local duration="$1"
+    shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --signal=TERM --kill-after=30s "$duration" "$@"
+    else
+        "$@"
+    fi
+}
+
 echo "========== 磐盘部署开始 =========="
 
 # 0. 记录部署前锚点（commit SHA）+ 磁盘检查
@@ -20,17 +38,24 @@ echo "      备份文件: $PRE_DEPLOY_BACKUP"
 # 2. Pull latest code
 echo "[2/9] 拉取最新代码..."
 SELF_HASH_BEFORE=$(sha1sum deploy.sh | cut -d' ' -f1)
-git pull origin main
+run_with_timeout "$GIT_PULL_TIMEOUT" \
+  git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 pull --ff-only origin main
 SELF_HASH_AFTER=$(sha1sum deploy.sh | cut -d' ' -f1)
 # 若 deploy.sh 自身被本次 pull 更新，重新执行新版（继承部署前锚点，避免运行旧版）
 if [ "$SELF_HASH_BEFORE" != "$SELF_HASH_AFTER" ]; then
     echo "      deploy.sh 已更新，重新执行新版..."
-    exec env PRE_DEPLOY_COMMIT="$PRE_DEPLOY_COMMIT" bash "$0" "$@"
+    exec env PRE_DEPLOY_COMMIT="$PRE_DEPLOY_COMMIT" FORCE_REBUILD="$FORCE_REBUILD" GIT_PULL_TIMEOUT="$GIT_PULL_TIMEOUT" BACKEND_BUILD_TIMEOUT="$BACKEND_BUILD_TIMEOUT" FRONTEND_INSTALL_TIMEOUT="$FRONTEND_INSTALL_TIMEOUT" FRONTEND_BUILD_TIMEOUT="$FRONTEND_BUILD_TIMEOUT" bash "$0" "$@"
 fi
 
 # 3. Install backend dependencies
 echo "[3/9] 安装后端依赖..."
-docker compose build --no-cache backend
+if [ "$FORCE_REBUILD" = "1" ]; then
+    echo "      Force rebuilding backend image without cache..."
+    run_with_timeout "$BACKEND_BUILD_TIMEOUT" docker compose build --no-cache backend
+else
+    echo "      Building backend image with Docker cache..."
+    run_with_timeout "$BACKEND_BUILD_TIMEOUT" docker compose build backend
+fi
 
 # 4. Run database migrations
 echo "[4/9] 执行数据库迁移..."
@@ -55,13 +80,13 @@ docker compose run --rm backend python manage.py collectstatic --noinput
 # 7. Build frontend
 echo "[7/9] 构建前端..."
 cd frontend
-npm install
-npm run build
+run_with_timeout "$FRONTEND_INSTALL_TIMEOUT" npm install --prefer-offline --no-audit --no-fund
+run_with_timeout "$FRONTEND_BUILD_TIMEOUT" npm run build
 cd ..
 
 # 8. Restart backend container
 echo "[8/9] 重启后端容器..."
-docker compose up -d backend
+docker compose up -d --no-build backend
 
 # 9. Reload Nginx
 echo "[9/9] 重载 Nginx 配置..."
@@ -87,5 +112,5 @@ echo ""
 echo "========== 回滚锚点（如需回滚请参考）=========="
 echo "部署前 commit : $PRE_DEPLOY_COMMIT"
 echo "部署前备份    : $PRE_DEPLOY_BACKUP"
-echo "代码回滚: git reset --hard $PRE_DEPLOY_COMMIT && docker compose build backend && (cd frontend && npm run build && cd ..) && docker compose up -d backend && docker exec root-nginx-1 nginx -s reload"
+echo "代码回滚: git reset --hard $PRE_DEPLOY_COMMIT && docker compose build backend && (cd frontend && npm run build && cd ..) && docker compose up -d --no-build backend && docker exec root-nginx-1 nginx -s reload"
 echo "数据回滚: docker compose stop backend && gunzip -c $PRE_DEPLOY_BACKUP | docker exec -i root-db-1 psql -U rock_slab_user -d rock_slab && git reset --hard $PRE_DEPLOY_COMMIT && docker compose up -d backend"
