@@ -31,7 +31,7 @@ const emit = defineEmits<{
             <select v-model="category.资产类目" class="form-select">
               <option value="">请选择</option>
               <option value="固定资产类">固定资产类</option>
-              <option value="低值易耗品">低值易耗品</option>
+              <option value="低值易耗品类">低值易耗品类</option>
               <option value="无形资产类">无形资产类</option>
               <option value="文档资料类">文档资料类</option>
               <option value="特殊设备类">特殊设备类</option>
