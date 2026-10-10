@@ -5,6 +5,10 @@ __pycache__
 .Python
 db.sqlite3
 *.sqlite3
+*.sqlite3.*
+*.bak*
+*.sql
+*.sql.gz
 .env
 .venv
 venv/
