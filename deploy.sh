@@ -26,14 +26,27 @@ run_with_timeout() {
 echo "========== 磐盘部署开始 =========="
 
 # 0. 记录部署前锚点（commit SHA）+ 磁盘检查
-PRE_DEPLOY_COMMIT="${PRE_DEPLOY_COMMIT:-$(git rev-parse HEAD)}"
+CURRENT_COMMIT="$(git rev-parse HEAD)"
+PRE_DEPLOY_COMMIT="${PRE_DEPLOY_COMMIT:-$CURRENT_COMMIT}"
+# Older script versions re-exec without passing a marker after pulling updates.
+if [ "$DEPLOY_REEXEC" != "1" ] && [ "$PRE_DEPLOY_COMMIT" != "$CURRENT_COMMIT" ]; then
+    DEPLOY_REEXEC=1
+fi
 echo "[0/9] 部署前 commit: $PRE_DEPLOY_COMMIT"
 echo "      磁盘空间:" && df -h / | tail -1
 
 # 1. 部署前即时数据库备份（区别于每日 03:07 自动备份，确保有"部署前那一刻"快照）
 echo "[1/9] 部署前即时数据库备份..."
-if [ "$DEPLOY_REEXEC" = "1" ] && [ -n "${PRE_DEPLOY_BACKUP:-}" ]; then
-    echo "      Reusing deployment backup: $PRE_DEPLOY_BACKUP"
+if [ "$DEPLOY_REEXEC" = "1" ]; then
+    if [ -z "${PRE_DEPLOY_BACKUP:-}" ]; then
+        PRE_DEPLOY_BACKUP=$(ls -t /root/backups/rock_slab_*.sql.gz | head -1)
+    fi
+    if [ -n "${PRE_DEPLOY_BACKUP:-}" ] && [ -f "$PRE_DEPLOY_BACKUP" ]; then
+        echo "      Reusing deployment backup: $PRE_DEPLOY_BACKUP"
+    else
+        /root/backup_db.sh
+        PRE_DEPLOY_BACKUP=$(ls -t /root/backups/rock_slab_*.sql.gz | head -1)
+    fi
 else
     /root/backup_db.sh
     PRE_DEPLOY_BACKUP=$(ls -t /root/backups/rock_slab_*.sql.gz | head -1)
