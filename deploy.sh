@@ -11,6 +11,7 @@ GIT_PULL_TIMEOUT="${GIT_PULL_TIMEOUT:-5m}"
 BACKEND_BUILD_TIMEOUT="${BACKEND_BUILD_TIMEOUT:-10m}"
 FRONTEND_INSTALL_TIMEOUT="${FRONTEND_INSTALL_TIMEOUT:-10m}"
 FRONTEND_BUILD_TIMEOUT="${FRONTEND_BUILD_TIMEOUT:-10m}"
+DEPLOY_REEXEC="${DEPLOY_REEXEC:-0}"
 
 run_with_timeout() {
     local duration="$1"
@@ -31,20 +32,28 @@ echo "      磁盘空间:" && df -h / | tail -1
 
 # 1. 部署前即时数据库备份（区别于每日 03:07 自动备份，确保有"部署前那一刻"快照）
 echo "[1/9] 部署前即时数据库备份..."
-/root/backup_db.sh
-PRE_DEPLOY_BACKUP=$(ls -t /root/backups/rock_slab_*.sql.gz | head -1)
+if [ "$DEPLOY_REEXEC" = "1" ] && [ -n "${PRE_DEPLOY_BACKUP:-}" ]; then
+    echo "      Reusing deployment backup: $PRE_DEPLOY_BACKUP"
+else
+    /root/backup_db.sh
+    PRE_DEPLOY_BACKUP=$(ls -t /root/backups/rock_slab_*.sql.gz | head -1)
+fi
 echo "      备份文件: $PRE_DEPLOY_BACKUP"
 
 # 2. Pull latest code
 echo "[2/9] 拉取最新代码..."
-SELF_HASH_BEFORE=$(sha1sum deploy.sh | cut -d' ' -f1)
-run_with_timeout "$GIT_PULL_TIMEOUT" \
-  git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 pull --ff-only origin main
-SELF_HASH_AFTER=$(sha1sum deploy.sh | cut -d' ' -f1)
+if [ "$DEPLOY_REEXEC" = "1" ]; then
+    echo "      Code already pulled; skipping duplicate pull..."
+else
+    SELF_HASH_BEFORE=$(sha1sum deploy.sh | cut -d' ' -f1)
+    run_with_timeout "$GIT_PULL_TIMEOUT" \
+      git -c http.version=HTTP/1.1 -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 pull --ff-only origin main
+    SELF_HASH_AFTER=$(sha1sum deploy.sh | cut -d' ' -f1)
 # 若 deploy.sh 自身被本次 pull 更新，重新执行新版（继承部署前锚点，避免运行旧版）
-if [ "$SELF_HASH_BEFORE" != "$SELF_HASH_AFTER" ]; then
+    if [ "$SELF_HASH_BEFORE" != "$SELF_HASH_AFTER" ]; then
     echo "      deploy.sh 已更新，重新执行新版..."
-    exec env PRE_DEPLOY_COMMIT="$PRE_DEPLOY_COMMIT" FORCE_REBUILD="$FORCE_REBUILD" GIT_PULL_TIMEOUT="$GIT_PULL_TIMEOUT" BACKEND_BUILD_TIMEOUT="$BACKEND_BUILD_TIMEOUT" FRONTEND_INSTALL_TIMEOUT="$FRONTEND_INSTALL_TIMEOUT" FRONTEND_BUILD_TIMEOUT="$FRONTEND_BUILD_TIMEOUT" bash "$0" "$@"
+        exec env PRE_DEPLOY_COMMIT="$PRE_DEPLOY_COMMIT" PRE_DEPLOY_BACKUP="$PRE_DEPLOY_BACKUP" DEPLOY_REEXEC=1 FORCE_REBUILD="$FORCE_REBUILD" GIT_PULL_TIMEOUT="$GIT_PULL_TIMEOUT" BACKEND_BUILD_TIMEOUT="$BACKEND_BUILD_TIMEOUT" FRONTEND_INSTALL_TIMEOUT="$FRONTEND_INSTALL_TIMEOUT" FRONTEND_BUILD_TIMEOUT="$FRONTEND_BUILD_TIMEOUT" bash "$0" "$@"
+        fi
 fi
 
 # 3. Install backend dependencies
