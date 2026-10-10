@@ -83,4 +83,20 @@ describe('sortEmployeesByRole', () => {
     ])
     expect(sorted.map(u => u.id)).toEqual(['c', 'a', 'b'])
   })
+
+  it('同岗位先按所属分公司、再按姓名排序，未挂分公司置后', () => {
+    const branches: Branch[] = [
+      makeBranch({ id: 'branch-z', name: '南昌分公司', region: 'r1', team: 't1' }),
+      makeBranch({ id: 'branch-a', name: '杭州分公司', region: 'r1', team: 't1' }),
+    ]
+    const sorted = sortEmployeesByRole([
+      makeUser({ id: 'manager-z', role: 'manager', name: '甲', branch: 'branch-z' }),
+      makeUser({ id: 'manager-a-2', role: 'manager', name: '乙', branch: 'branch-a' }),
+      makeUser({ id: 'manager-none', role: 'manager', name: '丙' }),
+      makeUser({ id: 'manager-a-1', role: 'manager', name: '甲', branch: 'branch-a' }),
+    ], branches)
+    expect(sorted.map(u => u.id)).toEqual([
+      'manager-a-1', 'manager-a-2', 'manager-z', 'manager-none',
+    ])
+  })
 })
