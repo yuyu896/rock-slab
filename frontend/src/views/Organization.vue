@@ -60,7 +60,7 @@ const employees = computed(() => {
   const list = kw
     ? users.value.filter(u => u.name.toLowerCase().includes(kw) || (u.phone || '').includes(kw))
     : (selectedNode.value ? filterEmployeesByNode(selectedNode.value, nodeData()) : [])
-  return sortEmployeesByRole(list)
+  return sortEmployeesByRole(list, branches.value)
 })
 
 function nodeCount(node: TreeNode): number {

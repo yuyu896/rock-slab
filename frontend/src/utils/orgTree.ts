@@ -55,12 +55,23 @@ export function filterEmployeesByNode(
   )
 }
 
-/** 按职级排序（高职级在前），同职级按姓名。 */
-export function sortEmployeesByRole(list: User[]): User[] {
+/** 按职级排序（高职级在前），同职级按分公司和姓名排序。 */
+export function sortEmployeesByRole(list: User[], branches: Branch[] = []): User[] {
+  const branchNames = new Map(branches.map(branch => [branch.id, branch.name]))
+
   return [...list].sort((a, b) => {
     const la = ROLE_LEVELS[a.role] ?? 99
     const lb = ROLE_LEVELS[b.role] ?? 99
     if (la !== lb) return la - lb
+
+    const branchA = branchNames.get(a.branch || '') || a.branchName || ''
+    const branchB = branchNames.get(b.branch || '') || b.branchName || ''
+    // 未挂分公司的负责人账号放在同岗位的末尾。
+    if (!branchA && branchB) return 1
+    if (branchA && !branchB) return -1
+    const branchOrder = branchA.localeCompare(branchB, 'zh')
+    if (branchOrder !== 0) return branchOrder
+
     return (a.name || '').localeCompare(b.name || '')
   })
 }
