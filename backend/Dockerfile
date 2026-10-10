@@ -5,8 +5,17 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies. The production host has a slow route to the
+# default Debian CDN, so keep the mirror configurable and use the verified
+# mainland mirror by default.
+ARG DEBIAN_MIRROR=https://mirrors.163.com/debian
+ARG DEBIAN_SECURITY_MIRROR=https://mirrors.163.com/debian-security
+RUN sed -i \
+      -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+      -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+      /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update \
+    && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
