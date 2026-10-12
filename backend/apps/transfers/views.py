@@ -173,7 +173,14 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         serializer = TransferActionSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            # 临时调试日志：记录采购入库验证失败的详细信息
+            if action_type == Transfer.ACTION_PURCHASE:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f'采购入库验证失败 - 请求数据: {request.data}')
+                logger.error(f'采购入库验证失败 - 错误详情: {serializer.errors}')
+            raise ValidationError(serializer.errors)
         data = serializer.validated_data
         items = data.pop('items')
         if not data.get('创建人'):
