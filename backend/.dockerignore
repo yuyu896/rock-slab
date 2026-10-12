@@ -16,6 +16,9 @@ media/
 staticfiles/
 demo_media/
 .pytest-tmp-*/
+.pytest_cache/
+__pycache__/
+*.py[cod]
 scripts/seed_reconciliation_demo*.py
 *.egg-info
 dist/
