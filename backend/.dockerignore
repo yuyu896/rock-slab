@@ -14,6 +14,9 @@ db.sqlite3
 venv/
 media/
 staticfiles/
+demo_media/
+.pytest-tmp-*/
+scripts/seed_reconciliation_demo*.py
 *.egg-info
 dist/
 build/

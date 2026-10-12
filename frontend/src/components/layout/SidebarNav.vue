@@ -98,7 +98,7 @@ const navItems = computed<NavItem[]>(() => [
     path: '/inventory',
     ...(inventoryCount.value > 0 ? { badge: inventoryCount.value } : {})
   },
-  // 对账模块占位（reconciliation-nav-placeholder）：功能本体另行立项，占位期仅 admin 可见
+  // 对账模块仅管理员可见
   ...(userStore.isAdmin ? [{
     icon: 'reconcile',
     label: '对账',

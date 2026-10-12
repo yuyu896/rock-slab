@@ -58,3 +58,17 @@ describe('generateCategoryTemplate（sheet 名定管理方式）', () => {
     expect(revokeObjectURLSpy).toHaveBeenCalled()
   })
 })
+
+describe('generateReconciliationTemplate', () => {
+  it('按对账解析器要求的列顺序生成租赁订单模板', async () => {
+    const { generateReconciliationTemplate } = await import('@/utils/importTemplate')
+    await generateReconciliationTemplate()
+
+    expect(worksheetLog).toHaveLength(1)
+    expect(worksheetLog[0].title).toBe('租赁订单')
+    expect(worksheetLog[0].rows[0]).toEqual([
+      '订单号', '序列号', '分公司', '起租日期', '记账日期', '记账天数', '月租金', '本月金额',
+    ])
+    expect(clickSpy).toHaveBeenCalled()
+  })
+})
