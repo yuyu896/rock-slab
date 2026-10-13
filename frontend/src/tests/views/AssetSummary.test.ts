@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { computed, ref } from 'vue'
 
+const mockIsAdmin = { value: true }
+
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: vi.fn() },
@@ -13,6 +15,7 @@ vi.mock('@/hooks/usePermission', () => ({
   usePermission: () => ({
     canManageAssets: computed(() => true),
     can: () => true,
+    isAdmin: computed(() => mockIsAdmin.value),
   }),
 }))
 
@@ -88,6 +91,7 @@ function mountSummary() {
 describe('AssetSummary 页面（P1 台账契约）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsAdmin.value = true
   })
 
   it('表头 15 列（P3 加操作列：行内调整），序号为分页连续序号', async () => {
@@ -158,6 +162,18 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     expect(badges[0].classes()).toContain('ok')
     expect(badges[1].text()).toBe('否')
     expect(badges[1].classes()).toContain('low')
+  })
+
+  it('非系统管理员不显示批量导入和行内调整入口', async () => {
+    mockIsAdmin.value = false
+    vi.mocked(getAssetStocks).mockResolvedValue({
+      data: { count: 1, next: null, previous: null, results: [_stock({})] },
+    } as any)
+    const wrapper = await mountSummary()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('增量导入')
+    expect(wrapper.find('tbody .drill-btn').exists()).toBe(false)
   })
 
   it('报表下钻：?sufficient=0 预置仅不足筛选并随查询下发', async () => {
