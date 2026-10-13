@@ -57,9 +57,9 @@ function goTimeline(code: string) {
   window.open(`/fixed-assets?keyword=${encodeURIComponent(code)}`, '_self')
 }
 
-const { can } = usePermission()
-const canImport = can('adjust_ledger') || can('manage_assets')
-const canAdjust = can('adjust_ledger')
+const { isAdmin } = usePermission()
+const canImport = isAdmin
+const canAdjust = isAdmin
 
 // 报表"库存不足"下钻：/assets/summary?sufficient=0 预置仅不足
 const route = useRoute()
