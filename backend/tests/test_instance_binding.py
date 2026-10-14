@@ -205,8 +205,15 @@ class TestDocumentInstanceMatrix:
 
     def test_purchase_sequence_continues(self, authenticated_client, branch):
         item = _item('IM-P-002')
-        _seed(branch, item, stock=1)
-        _make_instances(branch, item, '在库', 2)  # 既有 IM-P-002-1/2
+        _seed(branch, item, stock=2)
+        for suffix in (1, 2):
+            FixedAsset.objects.create(
+                item=item,
+                内部编号=f'{item.asset_code}-{branch.code}-{suffix}',
+                当前状态='在库',
+                branch=branch,
+            )
+        InstanceSequence.objects.create(item=item, branch=branch, last_no=2)
         resp = authenticated_client.post('/api/transfers/purchase', {
             '调拨日期': '2026-08-23', '调入分公司': branch.name,
             'items': [{'item': str(item.id), '数量': 1}],
@@ -214,6 +221,58 @@ class TestDocumentInstanceMatrix:
         assert resp.status_code == 201
         _approve(authenticated_client, resp.data['id'])
         assert FixedAsset.objects.filter(内部编号='IM-P-002-CS001-3').exists()
+
+    def test_purchase_fills_gaps_before_appending(self, authenticated_client, branch):
+        item = _item('IM-P-GAP')
+        _seed(branch, item, stock=2)
+        FixedAsset.objects.create(
+            item=item, 内部编号=f'{item.asset_code}-{branch.code}-1',
+            当前状态='在库', branch=branch,
+        )
+        FixedAsset.objects.create(
+            item=item, 内部编号=f'{item.asset_code}-{branch.code}-3',
+            当前状态='在库', branch=branch,
+        )
+        InstanceSequence.objects.create(item=item, branch=branch, last_no=3)
+
+        resp = authenticated_client.post('/api/transfers/purchase', {
+            '调拨日期': '2026-08-23', '调入分公司': branch.name,
+            'items': [{'item': str(item.id), '数量': 2}],
+        }, format='json')
+        assert resp.status_code == 201
+        assert _approve(authenticated_client, resp.data['id']).status_code == 200
+
+        created = FixedAsset.objects.filter(item=item).order_by('内部编号')
+        assert [asset.内部编号 for asset in created] == [
+            f'{item.asset_code}-{branch.code}-1',
+            f'{item.asset_code}-{branch.code}-2',
+            f'{item.asset_code}-{branch.code}-3',
+            f'{item.asset_code}-{branch.code}-4',
+        ]
+        assert InstanceSequence.objects.get(item=item, branch=branch).last_no == 4
+
+    def test_purchase_repairs_missing_or_stale_sequence_from_existing_codes(
+        self, authenticated_client, branch,
+    ):
+        item = _item('IM-P-STALE')
+        _seed(branch, item, stock=2)
+        for suffix in (1, 2):
+            FixedAsset.objects.create(
+                item=item, 内部编号=f'{item.asset_code}-{branch.code}-{suffix}',
+                当前状态='在库', branch=branch,
+            )
+
+        resp = authenticated_client.post('/api/transfers/purchase', {
+            '调拨日期': '2026-08-23', '调入分公司': branch.name,
+            'items': [{'item': str(item.id), '数量': 1}],
+        }, format='json')
+        assert resp.status_code == 201
+        assert _approve(authenticated_client, resp.data['id']).status_code == 200
+
+        assert FixedAsset.objects.filter(
+            内部编号=f'{item.asset_code}-{branch.code}-3',
+        ).exists()
+        assert InstanceSequence.objects.get(item=item, branch=branch).last_no == 3
 
     def test_assign_stock_binds_user(self, authenticated_client, branch):
         from apps.organizations.models import Department

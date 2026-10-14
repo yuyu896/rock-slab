@@ -3,7 +3,7 @@
 多实例行场景的点删（应用之逆细化到行数量粒度）：
   按出生行分组 → 行数量减去该行被删实例数 → 删行-实例关联与目标实例 →
   台账在库同额直减。流水重算/存储值/实例镜像三处同步，如同该批少购入被删数。
-发号序列保留（空号不回收）。沿用 prod-data-remediation 能力口径。
+保留序列高水位；后续采购/调拨优先补最小空号，不重编号存量。
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -100,7 +100,8 @@ class Command(BaseCommand):
                 f'数量 {birth_line.数量} → {birth_line.数量 - len(group)}（删 {names}）'
             )
         self.stdout.write(
-            f'  台账在库 {row.在库数量} → {row.在库数量 - n_total}；发号序列保留（空号不回收）'
+            f'  台账在库 {row.在库数量} → {row.在库数量 - n_total}；'
+            '序列高水位保留（后续采购/调拨优先补最小空号）'
         )
 
         if apply:

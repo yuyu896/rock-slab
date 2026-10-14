@@ -104,8 +104,7 @@ def check_line_instances(transfer, line, instances):
             )
 
 
-def _next_seq(item, branch):
-    """品目 × 分公司锁行自增：每分公司每品目各自起号（编号带分公司代码保持全局唯一）。"""
+def _locked_sequence(item, branch):
     row = InstanceSequence.objects.select_for_update().filter(item=item, branch=branch).first()
     if row is None:
         try:
@@ -113,32 +112,62 @@ def _next_seq(item, branch):
                 row = InstanceSequence.objects.create(item=item, branch=branch)
         except IntegrityError:
             row = InstanceSequence.objects.select_for_update().get(item=item, branch=branch)
-    row.last_no += 1
-    row.save(update_fields=['last_no', 'updated_at'])
-    return row.last_no
+    return row
+
+
+def _existing_instance_numbers(item, branch, exclude_instance_ids=()):
+    prefix = f'{item.asset_code}-{branch.code}-'
+    existing = set()
+    assets = FixedAsset.objects.filter(item=item, branch=branch)
+    if exclude_instance_ids:
+        assets = assets.exclude(pk__in=exclude_instance_ids)
+    for (code,) in assets.values_list('内部编号'):
+        if not code.startswith(prefix):
+            continue
+        tail = code[len(prefix):]
+        if tail.isascii() and tail.isdigit():
+            existing.add(int(tail))
+    return existing
+
+
+def _first_free_number(existing):
+    candidate = 1
+    while candidate in existing:
+        candidate += 1
+    return candidate
+
+
+def next_available_instance_number(item, branch, exclude_instance_ids=()):
+    """Return the lowest reusable serial without changing the sequence row."""
+    return _first_free_number(
+        _existing_instance_numbers(item, branch, exclude_instance_ids)
+    )
+
+
+def _allocate_no_gap_aware(item, branch, count):
+    """按品目×分公司锁行分配最小空号；采购和调拨共用，退役档案仍占号。"""
+    row = _locked_sequence(item, branch)
+    existing = _existing_instance_numbers(item, branch)
+
+    high_water = max(row.last_no, max(existing, default=0))
+    numbers = []
+    candidate = 1
+    for _ in range(count):
+        while candidate in existing:
+            candidate += 1
+        numbers.append(candidate)
+        existing.add(candidate)
+    if numbers:
+        high_water = max(high_water, numbers[-1])
+    if row.last_no != high_water:
+        row.last_no = high_water
+        row.save(update_fields=['last_no', 'updated_at'])
+    return numbers
 
 
 def _next_no_gap_aware(item, branch):
-    """空号补位取号（调拨换号）：与出生发号共锁串行，优先顶 {1..last_no} 最小空缺号
-    （last_no 不动）；无空缺才 last_no+1。禁止以编号字符串比较推断（字符串序 9 > 101）。"""
-    row = InstanceSequence.objects.select_for_update().filter(item=item, branch=branch).first()
-    if row is None:
-        try:
-            with transaction.atomic():
-                row = InstanceSequence.objects.create(item=item, branch=branch)
-        except IntegrityError:
-            row = InstanceSequence.objects.select_for_update().get(item=item, branch=branch)
-    existing = set()
-    for (code,) in FixedAsset.objects.filter(item=item, branch=branch).values_list('内部编号'):
-        tail = code.rsplit('-', 1)[-1]
-        if tail.isdigit():
-            existing.add(int(tail))
-    for no in range(1, row.last_no + 1):
-        if no not in existing:
-            return no
-    row.last_no += 1
-    row.save(update_fields=['last_no', 'updated_at'])
-    return row.last_no
+    """返回一个最小空号；多件采购通过批量分配避免重复扫描档案。"""
+    return _allocate_no_gap_aware(item, branch, 1)[0]
 
 
 def generate_instances(line, branch):
@@ -150,8 +179,8 @@ def generate_instances(line, branch):
     if line.item.management_type != 'instance':
         return []
     created = []
-    for _ in range(int(line.数量 or 0)):
-        seq = _next_seq(line.item, branch)
+    numbers = _allocate_no_gap_aware(line.item, branch, int(line.数量 or 0))
+    for seq in numbers:
         instance = FixedAsset.objects.create(
             item=line.item,
             内部编号=f'{line.item.asset_code}-{branch.code}-{seq}',
