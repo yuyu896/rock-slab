@@ -168,6 +168,11 @@ class Command(BaseCommand):
                     else:
                         amount_after = (line.单价 * remaining_quantity).quantize(CENT)
 
+            next_serial = next_available_instance_number(
+                inst.item,
+                branch,
+                target_ids_by_item[inst.item_id],
+            )
             plans.append({
                 'instance': inst,
                 'line': line,
@@ -185,14 +190,7 @@ class Command(BaseCommand):
                 'sequence_last_no': InstanceSequence.objects.filter(
                     item=inst.item, branch=branch,
                 ).values_list('last_no', flat=True).first(),
-                'next_internal_code': (
-                    f'{inst.item.asset_code}-{branch.code}-'
-                    f'{next_available_instance_number(
-                        inst.item,
-                        branch,
-                        target_ids_by_item[inst.item_id],
-                    )}'
-                ),
+                'next_internal_code': f'{inst.item.asset_code}-{branch.code}-{next_serial}',
             })
 
         if errors:
