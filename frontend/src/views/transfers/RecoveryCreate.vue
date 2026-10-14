@@ -13,7 +13,7 @@ import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
 import { useUserStore } from '@/store/user'
 
-const DISPOSAL_METHODS = ['出售', '报废', '捐赠']
+const DISPOSAL_METHODS = ['出售', '报废', '捐赠', '退租']
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -23,7 +23,7 @@ const branchOptions = ref<{ value: string; label: string; id?: string }[]>([])
 const form = ref({
   调拨日期: '',
   回收去向: 'restock' as 'restock' | 'dispose',
-  处置方式: '' as '' | '出售' | '报废' | '捐赠',
+  处置方式: '' as '' | '出售' | '报废' | '捐赠' | '退租',
   处置金额: undefined as number | undefined,
   调出分公司: '',
   调出部门: '',

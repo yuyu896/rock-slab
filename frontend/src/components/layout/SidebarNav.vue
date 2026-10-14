@@ -89,7 +89,7 @@ const navItems = computed<NavItem[]>(() => [
     path: '/transfers/recovery',
     children: [
       { icon: '', label: '回收单', path: '/transfers/recovery' },
-      { icon: '', label: '回收台账', path: '/transfers/recovery/ledger' },
+      { icon: '', label: '物资处置台账', path: '/transfers/recovery/ledger' },
     ],
   },
   {
@@ -142,7 +142,7 @@ const navLeafPaths = computed(() => {
 
 const isActive = (path: string) => {
   if (activeMenu.value === path) return true
-  // 前缀匹配仅当无更深导航项承接（如回收台账是回收单子路径时，回收单不随台账亮）
+  // 前缀匹配仅当无更深导航项承接（如物资处置台账是回收单子路径时，回收单不随台账亮）
   const hasDeeperNav = navLeafPaths.value.some(p => p !== path && p.startsWith(path + '/'))
   if (hasDeeperNav) return false
   return activeMenu.value.startsWith(path + '/')

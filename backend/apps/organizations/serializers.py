@@ -93,8 +93,8 @@ class TeamSerializer(serializers.ModelSerializer):
 class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
-        fields = ['id', 'name', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at']
+        fields = ['id', 'name', 'wechat_qr_code', 'created_at', 'updated_at']
+        read_only_fields = ['wechat_qr_code', 'created_at', 'updated_at']
 
 
 class DepartmentSerializer(serializers.ModelSerializer):

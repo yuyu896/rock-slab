@@ -312,7 +312,7 @@ export interface TransferDocument {
   回收分类?: string
   回收去向?: 'restock' | 'dispose' | 'recycle_bin'
   领用来源?: 'stock' | 'recycle_bin'
-  处置方式?: '出售' | '报废' | '捐赠' | ''
+  处置方式?: '出售' | '报废' | '捐赠' | '退租' | ''
   处置金额?: number
   出库日期?: string
   经办人?: string
@@ -447,6 +447,12 @@ export interface FixedAsset {
   图片?: string | null
   createdAt: string
   updatedAt: string
+  /** Backend serializer names retained for endpoints without response key conversion. */
+  item_code?: string
+  item_name?: string
+  item_spec?: string
+  branch_name?: string | null
+  department_name?: string | null
 }
 
 /** 实例生平（出生信息 + 关联全部明细行倒序） */
@@ -459,6 +465,7 @@ export interface FixedAssetTimeline {
     供应商: string
     单价: number | null
     采购日期: string
+    transfer_id?: string
   } | null
   timeline: {
     transferId: string
@@ -472,6 +479,8 @@ export interface FixedAssetTimeline {
     部门: string
     本批规格: string
     审批状态: string
+    transfer_id?: string
+    action_type?: string
   }[]
 }
 

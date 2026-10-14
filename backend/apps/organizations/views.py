@@ -1,10 +1,12 @@
 from rest_framework import viewsets, status
+from rest_framework.parsers import MultiPartParser
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db.models import ProtectedError
 from apps.permissions.permissions import OperationPermission
 from apps.permissions.scope import resolve_user_scope
+from core.permissions import IsAdmin
 from .models import Region, Branch, Team, Company
 from .serializers import RegionSerializer, BranchSerializer, TeamSerializer, CompanySerializer
 from .filters import RegionFilterSet, BranchFilterSet
@@ -120,3 +122,34 @@ class CompanyView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class CompanyWechatQrView(APIView):
+    """集团联系二维码：登录员工可查看，只有系统管理员可替换。"""
+    permission_classes = [IsAuthenticated, IsAdmin]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        from core.upload_validation import UploadValidationError, validate_image_upload
+
+        upload = request.FILES.get('wechat_qr_code')
+        if upload is None:
+            return Response({'detail': '请上传微信二维码图片'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_image_upload(upload)
+        except UploadValidationError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        company = Company.get_singleton()
+        old_name = company.wechat_qr_code.name if company.wechat_qr_code else None
+        storage = company.wechat_qr_code.storage
+        upload.name = {
+            'image/jpeg': 'wechat.jpg',
+            'image/png': 'wechat.png',
+            'image/webp': 'wechat.webp',
+        }[upload.content_type]
+        company.wechat_qr_code = upload
+        company.save(update_fields=['wechat_qr_code', 'updated_at'])
+        if old_name and old_name != company.wechat_qr_code.name:
+            storage.delete(old_name)
+        return Response(CompanySerializer(company).data)

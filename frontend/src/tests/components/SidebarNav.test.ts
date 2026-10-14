@@ -70,3 +70,11 @@ describe('SidebarNav 实例档案待补录徽标（P3 刀三）', () => {
     expect(findInstanceItem(wrapper)!.find('.nav-badge').exists()).toBe(false)
   })
 })
+
+describe('SidebarNav 物资处置台账入口', () => {
+  it('显示物资处置台账子入口', () => {
+    const wrapper = mountNav()
+    const item = wrapper.findAll('.nav-submenu-item').find(a => a.text().includes('物资处置台账'))
+    expect(item).toBeTruthy()
+  })
+})

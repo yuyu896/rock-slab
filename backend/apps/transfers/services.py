@@ -183,6 +183,6 @@ def _validate_recovery_stock(action_type, from_branch, items, recovery_dest):
 def validate_disposal_fields(dest, method, amount):
     """处置必填校验（建单/编辑统一收口）：dispose→处置方式必填；出售→金额必填。"""
     if dest == 'dispose' and not method:
-        raise ValidationError({'detail': '直接处置必须选择处置方式（出售/报废/捐赠）'})
+        raise ValidationError({'detail': '直接处置必须选择处置方式（出售/报废/捐赠/退租）'})
     if method == '出售' and (amount is None or amount == ''):
         raise ValidationError({'detail': '处置方式为出售时必须填写处置金额'})

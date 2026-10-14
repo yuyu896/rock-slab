@@ -52,6 +52,7 @@ class Transfer(UUIDModel, TimestampedModel):
         ('出售', '出售'),
         ('报废', '报废'),
         ('捐赠', '捐赠'),
+        ('退租', '退租'),
     ]
 
     单据编号 = models.CharField('单据编号', max_length=32, unique=True, null=True, blank=True, db_index=True)

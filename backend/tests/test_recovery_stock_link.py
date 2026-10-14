@@ -151,6 +151,30 @@ class TestRecoveryDirectDispose:
         assert resp.status_code == 201
         assert resp.data['处置方式'] == '报废'
 
+    def test_lease_return_is_an_allowed_disposal_method_without_amount(
+        self, authenticated_client, branch, item_id,
+    ):
+        _seed_ledger(branch, 'RC-4-LEASE', in_use=0, stock=1)
+        resp = authenticated_client.post(
+            '/api/transfers/recovery',
+            _recovery_payload(
+                item_id, branch, 'RC-4-LEASE', qty=1,
+                回收去向='dispose', 处置方式='退租',
+            ),
+            format='json',
+        )
+        assert resp.status_code == 201
+        assert resp.data['处置方式'] == '退租'
+        assert resp.data['处置金额'] is None
+
+        approved = _approve(authenticated_client, resp.data['id'])
+        assert approved.status_code == 200
+        ledger = authenticated_client.get('/api/transfers/recovery-ledger')
+        assert ledger.status_code == 200
+        row = next(row for row in ledger.data['results'] if row['品目编号'] == 'RC-4-LEASE')
+        assert row['处置方式'] == '退租'
+        assert str(ledger.data['disposal_income']) == '0'
+
     def test_dispose_without_method_rejected(self, authenticated_client, branch, item_id):
         """后端处置必填（建单收口）：dispose 缺处置方式即 400。"""
         _seed_ledger(branch, 'RC-4B', in_use=0, stock=3)
@@ -456,9 +480,105 @@ class TestRecoveryDisposalLedger:
         inst_rows = [r for r in rows if r['品目编号'] == 'DL-1']
         assert sorted(r['内部编号'] for r in inst_rows) == ['DL-1-1', 'DL-1-2']
         assert all(r['数量'] == 1 and r['处置方式'] == '出售' and r['处置金额'] == 500 for r in inst_rows)
+        assert all(r['实例ID'] for r in inst_rows)
         qty_row = next(r for r in rows if r['品目编号'] == 'DL-2')
-        assert qty_row['数量'] == 5 and qty_row['内部编号'] == '' and qty_row['处置方式'] == '报废'
+        assert (
+            qty_row['数量'] == 5
+            and qty_row['内部编号'] == ''
+            and qty_row['实例ID'] == ''
+            and qty_row['处置方式'] == '报废'
+        )
         assert str(resp.data['disposal_income']) == '500'  # 出售金额加总（合计卡数据源）
+
+    def test_disposed_instances_hidden_from_list_and_export_but_readable(self, authenticated_client, branch):
+        import openpyxl
+        from io import BytesIO
+        from apps.assets.models import FixedAsset
+        from apps.transfers.models import Transfer, TransferLine, TransferLineInstance
+
+        self._make_disposed(authenticated_client, branch)
+        disposed = FixedAsset.objects.get(内部编号='DL-1-1')
+        legacy_retired = FixedAsset.objects.create(
+            item=disposed.item, 内部编号='DL-1-legacy', 当前状态='退役', branch=branch,
+        )
+        pending = FixedAsset.objects.create(
+            item=disposed.item, 内部编号='DL-1-pending', 当前状态='在用', branch=branch,
+        )
+        pending_doc = Transfer.objects.create(
+            单据编号='HS20260823-PENDING', 调拨日期='2026-08-23',
+            调出分公司=branch.name, from_branch=branch, action_type='recovery',
+            回收去向='dispose', 审批状态='待审批',
+        )
+        pending_line = TransferLine.objects.create(
+            transfer=pending_doc, item=disposed.item, 行号=1, 数量=1,
+        )
+        TransferLineInstance.objects.create(line=pending_line, instance=pending)
+
+        consumable = _ensure_item('DL-C', 'consumable')
+        consumable_doc = Transfer.objects.create(
+            单据编号='HS20260823-CONSUMABLE', 调拨日期='2026-08-23',
+            调出分公司=branch.name, from_branch=branch, action_type='recovery',
+            回收去向='dispose', 审批状态='已通过',
+        )
+        TransferLine.objects.create(
+            transfer=consumable_doc, item=consumable, 行号=1, 数量=2,
+        )
+
+        listed = authenticated_client.get('/api/assets/fixed-assets?branch=' + branch.name)
+        assert listed.status_code == 200
+        assert all(row['内部编号'] not in {'DL-1-1', 'DL-1-2'} for row in listed.data['results'])
+        listed_codes = {row['内部编号'] for row in listed.data['results']}
+        assert {'DL-1-legacy', 'DL-1-pending'} <= listed_codes
+        assert FixedAsset.objects.filter(pk=disposed.pk, 内部编号='DL-1-1').exists()
+
+        detail = authenticated_client.get(f'/api/assets/fixed-assets/{disposed.pk}')
+        timeline = authenticated_client.get(f'/api/assets/fixed-assets/{disposed.pk}/timeline')
+        assert detail.status_code == 200
+        assert timeline.status_code == 200
+        assert any(row['action_type'] == 'recovery' for row in timeline.data['timeline'])
+
+        exported = authenticated_client.get('/api/assets/fixed-assets/export?branch=' + branch.name)
+        assert exported.status_code == 200
+        ws = openpyxl.load_workbook(BytesIO(exported.content)).active
+        exported_codes = [ws.cell(row=row, column=3).value for row in range(2, ws.max_row + 1)]
+        assert 'DL-1-1' not in exported_codes and 'DL-1-2' not in exported_codes
+        assert 'DL-1-legacy' in exported_codes and 'DL-1-pending' in exported_codes
+
+        ledger = authenticated_client.get('/api/transfers/recovery-ledger')
+        assert ledger.status_code == 200
+        assert all(row['品目编号'] != 'DL-C' for row in ledger.data['results'])
+
+        readonly = authenticated_client.patch(
+            f'/api/assets/fixed-assets/{disposed.pk}/supplement',
+            {'序列号': 'MUST-NOT-WRITE'}, format='json',
+        )
+        assert readonly.status_code == 400
+        disposed.refresh_from_db()
+        assert disposed.序列号 == ''
+
+        batch = authenticated_client.post(
+            '/api/assets/fixed-assets/batch-update',
+            {'ids': [str(disposed.pk)], '备注': '不可修改'}, format='json',
+        )
+        assert batch.status_code == 200
+        assert batch.data['updated'] == 0
+        assert any('已直接处置' in error for error in batch.data['errors'])
+        image_delete = authenticated_client.delete(
+            f'/api/assets/fixed-assets/{disposed.pk}/image',
+        )
+        assert image_delete.status_code == 400
+        assert image_delete.data['detail'] == '已直接处置的实例档案只读'
+        disposed.refresh_from_db()
+        assert disposed.备注 == ''
+
+    def test_disposal_ledger_respects_branch_scope(
+        self, authenticated_client, branch, supervisor_b,
+    ):
+        self._make_disposed(authenticated_client, branch)
+        scoped_client = _client_for(supervisor_b)
+        ledger = scoped_client.get('/api/transfers/recovery-ledger')
+        assert ledger.status_code == 200
+        assert ledger.data['count'] == 0
 
     def test_ledger_excludes_pending_and_filters(self, authenticated_client, branch):
         from apps.assets.models import FixedAsset

@@ -22,14 +22,12 @@ describe('InstallQrCard 工作台移动端盘点入口二维码卡片', () => {
     wrapper.unmount()
   })
 
-  it('卡片文案以盘点为目的，不出现安装话术', async () => {
+  it('显示简短盘点标题，不暴露安装话术或内部地址', async () => {
     const wrapper = mount(InstallQrCard)
     await flushPromises()
     expect(wrapper.text()).toContain('移动端盘点')
-    expect(wrapper.text()).toContain('微信扫码使用移动端进行盘点')
-    expect(wrapper.text()).toContain('首次使用需登录，登录后选择盘点任务')
     expect(wrapper.text()).not.toContain('安装')
-    expect(wrapper.text()).toContain('/mobile/inventory')
+    expect(wrapper.text()).not.toContain('/mobile/inventory')
     wrapper.unmount()
   })
 
