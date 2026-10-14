@@ -401,6 +401,33 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         qs = qs.order_by('branch__name', 'item__asset_code', Length('内部编号').asc(), '内部编号')
         return self.get_scoped_queryset(qs)
 
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if getattr(self, 'action', None) in ('list', 'export_excel'):
+            from django.db.models import Exists, OuterRef
+            from apps.transfers.models import Transfer, TransferLineInstance
+
+            effective_disposals = TransferLineInstance.objects.filter(
+                instance_id=OuterRef('pk'),
+                line__transfer__action_type=Transfer.ACTION_RECOVERY,
+                line__transfer__回收去向=Transfer.DISPOSE,
+                line__transfer__审批状态__in=['已通过', '已入库'],
+            )
+            queryset = queryset.annotate(
+                _has_effective_disposal=Exists(effective_disposals),
+            ).filter(_has_effective_disposal=False)
+        return queryset
+
+    @staticmethod
+    def _is_effectively_disposed(instance):
+        from apps.transfers.models import Transfer
+
+        return instance.line_links.filter(
+            line__transfer__action_type=Transfer.ACTION_RECOVERY,
+            line__transfer__回收去向=Transfer.DISPOSE,
+            line__transfer__审批状态__in=['已通过', '已入库'],
+        ).exists()
+
     def _frozen(self, request):
         return Response(
             {'detail': '实例变动请经流转单（出生=采购入库单，存量=系统迁移）；'
@@ -510,12 +537,15 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 errors.append(f'{iid}: 实例不存在')
                 continue
             if inst.branch is None:
-                errors.append(f'{inst.内部编号}: 未归属分公司')
+                errors.append(f'{iid}: 未归属分公司')
                 continue
             try:
                 validate_branches_in_scope(request.user, inst.branch)
             except ValidationError:
-                errors.append(f'{inst.内部编号}: 分公司不在授权范围')
+                errors.append(f'{iid}: 分公司不在授权范围')
+                continue
+            if self._is_effectively_disposed(inst):
+                errors.append(f'{inst.内部编号}: 已直接处置，档案只读')
                 continue
             try:
                 with transaction.atomic():
@@ -565,6 +595,11 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         部分更新语义：未提交的字段保持原值（serial-uniqueness）；
         非空序列号同分公司查重（显式提交空串=有意退回待补录，合法）。"""
         instance = self.get_object()
+        if self._is_effectively_disposed(instance):
+            return Response(
+                {'detail': '已直接处置的实例档案只读'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = FixedAssetSupplementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         update_fields = ['updated_at']
@@ -594,6 +629,11 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         from core.upload_validation import validate_image_upload, UploadValidationError
 
         instance = self.get_object()
+        if self._is_effectively_disposed(instance):
+            return Response(
+                {'detail': '已直接处置的实例档案只读'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if request.method == 'DELETE':
             if instance.image:
                 instance.image.delete(save=False)

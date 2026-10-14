@@ -675,7 +675,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         )
         return response
 
-    # ---- 回收台账（处置明细流水；单据派生只读，不新增存储，铁律 1）----
+    # ---- 固定物资回收台账（处置明细流水；单据派生只读，不新增存储，铁律 1）----
 
     DISPOSAL_LEDGER_HEADERS = [
         '日期', '单据编号', '分公司', '品目编号', '品目名称', '规格',
@@ -712,33 +712,72 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     '规格': spec,
                 }
                 links = list(line.instance_links.select_related('instance'))
-                if links:
+                if line.item.management_type == 'instance':
                     for link in links:
                         rows.append({
                             **common,
                             '数量': 1,
                             '内部编号': link.instance.内部编号,
+                            '实例ID': str(link.instance_id),
+                            '单据ID': str(t.pk),
                         })
-                else:
-                    rows.append({**common, '数量': line.数量, '内部编号': ''})
+                elif line.item.management_type == 'quantity':
+                    rows.append({
+                        **common, '数量': line.数量, '内部编号': '',
+                        '实例ID': '', '单据ID': str(t.pk),
+                    })
         return rows
 
-    @action(detail=False, methods=['get'], url_path='recovery-ledger')
-    def recovery_ledger(self, request):
-        """回收台账：直接处置的物资明细流水（管理层查账；筛选分公司/品目/日期）。"""
-        queryset = self.filter_queryset(self.get_queryset())
+    def _recovery_ledger_queryset(self, request):
+        queryset = self.get_queryset().filter(
+            action_type=Transfer.ACTION_RECOVERY,
+            回收去向=Transfer.DISPOSE,
+            审批状态__in=['已通过', '已入库'],
+            lines__item__management_type__in=['instance', 'quantity'],
+        )
+        branches = [
+            value.strip() for value in request.query_params.get('fromBranch', '').split(',')
+            if value.strip()
+        ]
+        if branches:
+            queryset = queryset.filter(调出分公司__in=branches)
         date_from = request.query_params.get('dateFrom')
         date_to = request.query_params.get('dateTo')
         if date_from:
             queryset = queryset.filter(调拨日期__gte=date_from)
         if date_to:
             queryset = queryset.filter(调拨日期__lte=date_to)
+        return queryset.distinct()
 
-        rows = self._disposal_rows(queryset)
+    @staticmethod
+    def _filter_recovery_ledger_rows(rows, request):
+        keyword = (
+            request.query_params.get('keyword')
+            or request.query_params.get('assetCode')
+            or ''
+        ).strip().casefold()
+        if not keyword:
+            return rows
+        fields = ('品目编号', '品目名称', '规格', '单据编号')
+        return [
+            row for row in rows
+            if any(keyword in str(row.get(field) or '').casefold() for field in fields)
+        ]
+
+    @action(detail=False, methods=['get'], url_path='recovery-ledger')
+    def recovery_ledger(self, request):
+        """回收台账：直接处置的物资明细流水（管理层查账；筛选分公司/品目/日期）。"""
+        queryset = self._recovery_ledger_queryset(request)
+        all_rows = self._disposal_rows(queryset)
+        rows = self._filter_recovery_ledger_rows(all_rows, request)
         page_size = min(int(request.query_params.get('pageSize', 20) or 20), 100)
         page = int(request.query_params.get('page', 1) or 1)
         start = (page - 1) * page_size
-        disposal_income = queryset.filter(处置方式='出售').aggregate(
+        matching_doc_ids = {row['单据ID'] for row in rows}
+        income_queryset = queryset.filter(处置方式='出售')
+        if request.query_params.get('keyword') or request.query_params.get('assetCode'):
+            income_queryset = income_queryset.filter(pk__in=matching_doc_ids)
+        disposal_income = income_queryset.aggregate(
             v=Sum('处置金额'))['v'] or 0
         return Response({
             'count': len(rows),
@@ -752,21 +791,22 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         import openpyxl
         from django.http import HttpResponse
 
-        queryset = self.filter_queryset(self.get_queryset())
-        date_from = request.query_params.get('dateFrom')
-        date_to = request.query_params.get('dateTo')
-        if date_from:
-            queryset = queryset.filter(调拨日期__gte=date_from)
-        if date_to:
-            queryset = queryset.filter(调拨日期__lte=date_to)
+        queryset = self._recovery_ledger_queryset(request)
+        rows = self._filter_recovery_ledger_rows(
+            self._disposal_rows(queryset), request,
+        )
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = '回收台账'
+        ws.title = '固定物资回收台账'
         ws.append(self.DISPOSAL_LEDGER_HEADERS)
-        for row in self._disposal_rows(queryset):
+        for row in rows:
             ws.append([row[h] for h in self.DISPOSAL_LEDGER_HEADERS])
-        disposal_income = queryset.filter(处置方式='出售').aggregate(
+        matching_doc_ids = {row['单据ID'] for row in rows}
+        income_queryset = queryset.filter(处置方式='出售')
+        if request.query_params.get('keyword') or request.query_params.get('assetCode'):
+            income_queryset = income_queryset.filter(pk__in=matching_doc_ids)
+        disposal_income = income_queryset.aggregate(
             v=Sum('处置金额'))['v'] or 0
         ws.append([])
         ws.append(['处置收入合计（出售）'] + [''] * (len(self.DISPOSAL_LEDGER_HEADERS) - 4)
@@ -780,7 +820,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         response['Content-Disposition'] = (
-            f'attachment; filename="recovery_ledger'
+            f'attachment; filename="fixed_material_recovery_ledger'
             f'_{timezone.now().strftime("%Y%m%d")}.xlsx"'
         )
         return response

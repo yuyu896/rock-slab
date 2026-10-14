@@ -62,11 +62,36 @@ class TestBatchUpdateScope:
         }, format='json')
         assert resp.status_code == 200
         assert resp.data['updated'] == 1
-        assert resp.data['errors'] == [f'{other.内部编号}: 分公司不在授权范围']
+        assert resp.data['errors'] == [f'{other.pk}: 分公司不在授权范围']
         own.refresh_from_db()
         other.refresh_from_db()
         assert own.备注 == 'x'
         assert (other.备注 or '') == ''
+
+    def test_out_of_scope_disposed_instance_does_not_reveal_disposal_state(
+        self, supervisor_user, branch, second_branch, item_instance,
+    ):
+        _grant(supervisor_user, 'manage_instances')
+        from apps.transfers.models import TransferLineInstance
+
+        other = _instance(second_branch, item_instance, 'AS-S3', 'AS-S3')
+        disposal = Transfer.objects.create(
+            单据编号='HS20260928-S3', 调拨日期=datetime.date(2026, 9, 28),
+            调出分公司=second_branch.name, from_branch=second_branch,
+            action_type='recovery', 回收去向='dispose', 审批状态='已通过',
+        )
+        disposal_line = TransferLine.objects.create(
+            transfer=disposal, item=item_instance, 行号=1, 数量=1,
+        )
+        TransferLineInstance.objects.create(line=disposal_line, instance=other)
+
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(other.pk)], '备注': '越权写入',
+        }, format='json')
+        assert resp.status_code == 200
+        assert resp.data['errors'] == [f'{other.pk}: 分公司不在授权范围']
+        assert '已直接处置' not in str(resp.data['errors'])
 
     def test_admin_updates_across_branches(self, admin_user, branch, second_branch, item_instance):
         own = _instance(branch, item_instance, 'AS-A1', 'AS-A1')

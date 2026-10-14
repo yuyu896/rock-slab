@@ -108,7 +108,24 @@ export function exportTransfers(params?: Record<string, string>) {
   return request.get<Blob>('/api/transfers/export', { params, responseType: 'blob' })
 }
 
-/** 回收台账：直接处置的物资明细流水（只读，单据派生） */
+export interface RecoveryLedgerRow {
+  日期: string
+  单据编号: string
+  分公司: string
+  品目编号: string
+  品目名称: string
+  规格: string
+  数量: number
+  内部编号: string
+  处置方式: string
+  处置金额: number | string | null
+  经办人: string
+  备注: string
+  实例ID: string | null
+  单据ID: string
+}
+
+/** 物资处置台账：直接处置的物资明细流水（只读，单据派生） */
 export function getRecoveryLedger(params?: {
   page?: number
   pageSize?: number
@@ -118,12 +135,17 @@ export function getRecoveryLedger(params?: {
   dateFrom?: string
   dateTo?: string
 }) {
-  return request.get<{ count: number; results: Record<string, unknown>[] }>(
+  return request.get<{
+    count: number
+    results: RecoveryLedgerRow[]
+    disposal_income?: number | string
+    disposalIncome?: number | string
+  }>(
     '/api/transfers/recovery-ledger', { params },
   )
 }
 
-/** 回收台账导出（遵循筛选） */
+/** 物资处置台账导出（遵循筛选） */
 export function exportRecoveryLedger(params?: Record<string, string>) {
   return request.get<Blob>('/api/transfers/recovery-ledger/export', { params, responseType: 'blob' })
 }

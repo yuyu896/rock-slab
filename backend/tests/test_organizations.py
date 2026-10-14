@@ -368,3 +368,55 @@ class TestCompany:
     def test_staff_cannot_update_company(self, staff_client):
         resp = staff_client.patch('/api/company/', {'name': '违规改名'})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_admin_can_upload_and_replace_wechat_qr(self, authenticated_client, settings, tmp_path):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+
+        settings.MEDIA_ROOT = tmp_path
+
+        def png_upload(name):
+            image = BytesIO()
+            Image.new('RGB', (2, 2), color='white').save(image, format='PNG')
+            return SimpleUploadedFile(name, image.getvalue(), content_type='image/png')
+
+        first = authenticated_client.post(
+            '/api/company/wechat-qr/', {'wechat_qr_code': png_upload('first.png')}, format='multipart',
+        )
+        assert first.status_code == status.HTTP_200_OK
+        first_name = first.data['wechat_qr_code']
+        assert first_name.startswith('/media/company/contact/')
+
+        second = authenticated_client.post(
+            '/api/company/wechat-qr/', {'wechat_qr_code': png_upload('second.png')}, format='multipart',
+        )
+        assert second.status_code == status.HTTP_200_OK
+        assert second.data['wechat_qr_code'] != first_name
+        assert not (tmp_path / first_name.removeprefix('/media/')).exists()
+
+    def test_non_admin_cannot_upload_wechat_qr(self, staff_client, settings, tmp_path):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+
+        settings.MEDIA_ROOT = tmp_path
+        image = BytesIO()
+        Image.new('RGB', (2, 2), color='white').save(image, format='PNG')
+        upload = SimpleUploadedFile('wechat.png', image.getvalue(), content_type='image/png')
+
+        upload_response = staff_client.post(
+            '/api/company/wechat-qr/', {'wechat_qr_code': upload}, format='multipart',
+        )
+        assert upload_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_wechat_qr_upload_rejects_unsupported_file(self, authenticated_client):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile('qr.gif', b'not-an-image', content_type='image/gif')
+        response = authenticated_client.post(
+            '/api/company/wechat-qr/', {'wechat_qr_code': upload}, format='multipart',
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
