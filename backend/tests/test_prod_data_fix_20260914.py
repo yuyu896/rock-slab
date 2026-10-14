@@ -104,21 +104,21 @@ class TestWenzhouWipe:
         assert (r1.在库数量, r2.在库数量, rq.在库数量) == (0, 0, 5)
         _check_consistent()
 
-    def test_reimport_numbering_continues(self, wenzhou):
-        """发号序列保留：清空后重导，编号在原序号上自增不重号。"""
+    def test_reimport_reuses_lowest_freed_numbers(self, wenzhou):
+        """保留高水位但优先补空号：删除全部实例后，新采购从最小空号开始。"""
         i1 = _item('WZ-I3')
         _purchase(wenzhou, i1, 3, 'CG20250901-010')
-        old_numbers = set(
-            FixedAsset.objects.filter(branch=wenzhou, item=i1).values_list('内部编号', flat=True)
-        )
         _run('--apply')
-        t = _purchase(wenzhou, i1, 2, 'CG20250901-011')
+        _purchase(wenzhou, i1, 2, 'CG20250901-011')
         new_numbers = set(
             FixedAsset.objects.filter(branch=wenzhou, item=i1).values_list('内部编号', flat=True)
         )
-        assert len(new_numbers) == 2
-        assert not (new_numbers & old_numbers)  # 无重号
-        assert all(n > max(old_numbers) for n in new_numbers)  # 序号自增
+        assert new_numbers == {
+            f'{i1.asset_code}-{wenzhou.code}-1',
+            f'{i1.asset_code}-{wenzhou.code}-2',
+        }
+        from apps.assets.models import InstanceSequence
+        assert InstanceSequence.objects.get(item=i1, branch=wenzhou).last_no == 3
         _check_consistent()
 
     def test_precondition_mirror_mismatch_aborts(self, wenzhou):

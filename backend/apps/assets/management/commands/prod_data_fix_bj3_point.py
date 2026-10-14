@@ -1,7 +1,7 @@
 """生产数据纠错（2026-09-18）：北京三分手动点删（单实例行形态），默认 dry-run，--apply 执行。
 
 点删的单实例行细化：出生行数量归零时删行、单据空行时连单删（含通知）；
-台账同额直减、镜像同减。发号序列保留（空号不回收，重新入库不撞号）。
+台账同额直减、镜像同减。保留序列高水位；后续采购/调拨优先补最小空号，不重编号存量。
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -85,7 +85,7 @@ class Command(BaseCommand):
             self.stdout.write(f'  {t.单据编号} 行{ln.行号} 数量归零 → 删行（单据其余 {doc_lines - 1} 行保留）')
         else:
             self.stdout.write(f'  {t.单据编号} 行{ln.行号} 数量 {qty} → {qty - 1}')
-        self.stdout.write('  发号序列保留（空号不回收，重新入库新号不撞）')
+        self.stdout.write('  序列高水位保留（后续采购/调拨优先补最小空号，不重编号存量）')
 
         if apply:
             with transaction.atomic():
