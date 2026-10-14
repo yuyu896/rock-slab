@@ -139,8 +139,7 @@ class Command(BaseCommand):
                 errors.append(f'{inst.内部编号} 存在出生采购单以外的单据关联')
             if InventoryInstanceItem.objects.filter(instance=inst).exists():
                 errors.append(f'{inst.内部编号} 已有盘点记录，停止删除以保留盘点历史')
-            if self._has_reconciliation_history(inst.pk):
-                errors.append(f'{inst.内部编号} 已有关联对账记录，停止删除以保留对账历史')
+            reconciliation_history = self._reconciliation_history(inst.pk)
 
             stock = AssetStock.objects.filter(branch=branch, item=inst.item).first()
             instance_stock = FixedAsset.objects.filter(
@@ -187,6 +186,7 @@ class Command(BaseCommand):
                 'approval_cc_count': ApprovalCC.objects.filter(
                     transfer=transfer,
                 ).count() if document_will_delete else 0,
+                'reconciliation_history': reconciliation_history,
                 'sequence_last_no': InstanceSequence.objects.filter(
                     item=inst.item, branch=branch,
                 ).values_list('last_no', flat=True).first(),
@@ -201,11 +201,11 @@ class Command(BaseCommand):
         return plans
 
     @staticmethod
-    def _has_reconciliation_history(instance_id):
+    def _reconciliation_history(instance_id):
         if not apps.is_installed('apps.reconciliation'):
-            return False
+            return []
         comparison = apps.get_model('reconciliation', 'ReconciliationComparison')
-        return comparison.objects.filter(system_instance_id=instance_id).exists()
+        return list(comparison.objects.filter(system_instance_id=instance_id))
 
     @staticmethod
     def _lock_target_rows():
@@ -256,6 +256,10 @@ class Command(BaseCommand):
                 f'    编号序列 last_no 保持 {plan["sequence_last_no"]}；'
                 f'删除后下一件采购将使用 {plan["next_internal_code"]}（如未被其他操作先占用）'
             )
+            if plan['reconciliation_history']:
+                self.stdout.write(
+                    f'    保留 {len(plan["reconciliation_history"])} 条对账历史快照及待处理问题'
+                )
         self.stdout.write('  审计日志保留。')
 
     def _apply_plans(self, plans):
@@ -266,6 +270,11 @@ class Command(BaseCommand):
             transfer = plan['transfer']
             key = (inst.branch_id, inst.item_id)
             stock_deltas[key] = stock_deltas.get(key, 0) + 1
+
+            for comparison in plan['reconciliation_history']:
+                if not comparison.internal_code:
+                    comparison.internal_code = inst.内部编号
+                    comparison.save(update_fields=['internal_code'])
 
             TransferLineInstance.objects.filter(instance=inst).delete()
             inst.delete()
