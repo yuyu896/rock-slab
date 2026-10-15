@@ -47,7 +47,7 @@ vi.mock('@/api/categories', () => ({
 
 import AssetSummary from '@/views/assets/AssetSummary.vue'
 import SummaryImportDialog from '@/views/assets/SummaryImportDialog.vue'
-import { getAssetStocks, importAssetStocks } from '@/api/assets'
+import { exportAssetStocks, getAssetStocks, importAssetStocks } from '@/api/assets'
 import type { AssetStock } from '@/types'
 
 const BasePaginationStub = {
@@ -92,6 +92,8 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAdmin.value = true
+    ;(URL as any).createObjectURL = vi.fn(() => 'blob:mock')
+    ;(URL as any).revokeObjectURL = vi.fn()
   })
 
   it('表头 15 列（P3 加操作列：行内调整），序号为分页连续序号', async () => {
@@ -110,16 +112,52 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     // 第 1 页首行序号为 1，默认每页 50 条
     expect(wrapper.find('tbody tr td').text()).toBe('1')
     expect(getAssetStocks).toHaveBeenCalledWith(
-      expect.objectContaining({ page: 1, pageSize: 50 }),
+      expect.objectContaining({
+        page: 1,
+        pageSize: 50,
+        positive_column: '在库数量,在用数量,回收库数量',
+      }),
     )
 
     // 翻到第 2 页 → 序号从 51 开始
     await wrapper.find('.stub-go-page2').trigger('click')
     await flushPromises()
     expect(getAssetStocks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ page: 2, pageSize: 50 }),
+      expect.objectContaining({
+        page: 2,
+        pageSize: 50,
+        positive_column: '在库数量,在用数量,回收库数量',
+      }),
     )
     expect(wrapper.find('tbody tr td').text()).toBe('51')
+  })
+
+  it('列表与导出使用相同数量条件，导出保留当前关键词和类目筛选', async () => {
+    vi.mocked(getAssetStocks).mockResolvedValue({
+      data: { count: 1, next: null, previous: null, results: [_stock({})] },
+    } as any)
+    vi.mocked(exportAssetStocks).mockResolvedValue({ data: new Blob(['xlsx']) } as any)
+    const wrapper = await mountSummary()
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="搜索台账"]').setValue('SUM')
+    await wrapper.find('select[aria-label="筛选类目"]').setValue('固定资产')
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('导出'))!.trigger('click')
+    await flushPromises()
+
+    expect(getAssetStocks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        keyword: 'SUM',
+        category: '固定资产',
+        positive_column: '在库数量,在用数量,回收库数量',
+      }),
+    )
+    expect(exportAssetStocks).toHaveBeenCalledWith(expect.objectContaining({
+      keyword: 'SUM',
+      category: '固定资产',
+      positive_column: '在库数量,在用数量,回收库数量',
+    }))
   })
 
   it('四列数量直显（在库/在用/回收库/总量）', async () => {

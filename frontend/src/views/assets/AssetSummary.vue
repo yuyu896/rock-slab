@@ -17,6 +17,8 @@ import AdjustDialog from './AdjustDialog.vue'
 import AdjustRecordsDialog from './AdjustRecordsDialog.vue'
 import type { FixedAsset } from '@/types'
 
+const POSITIVE_STOCK_COLUMNS = '在库数量,在用数量,回收库数量'
+
 // ── 台账调整（P3：行内开调整单 + 调整记录；数量变动唯一合规出口之一） ──
 const adjustVisible = ref(false)
 const adjustStock = ref<AssetStock | null>(null)
@@ -89,6 +91,7 @@ async function fetchStocks() {
       category: filters.value.category || undefined,
       keyword: filters.value.keyword || undefined,
       sufficient: filters.value.sufficient || undefined,
+      positive_column: POSITIVE_STOCK_COLUMNS,
     })
     stocks.value = data.results
     pagination.value.total = data.count
@@ -141,6 +144,7 @@ async function handleExport() {
       branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
       category: filters.value.category || undefined,
       keyword: filters.value.keyword || undefined,
+      positive_column: POSITIVE_STOCK_COLUMNS,
     } as Record<string, string>)
     const url = URL.createObjectURL(data)
     const link = document.createElement('a')

@@ -34,14 +34,30 @@ class TestStockExportFilters:
             )
             ledger.apply_adjustment(br, item, ledger.COLUMN_STOCK, 1, '造数')
 
+        zero_item, _ = Category.objects.get_or_create(
+            asset_code='EF-0',
+            defaults={'asset_category': '固定资产', 'item_category': '办公设备',
+                      'asset_name': '办公椅零库存', 'unit': '件'},
+        )
+        from apps.assets.models import AssetStock
+        AssetStock.objects.create(branch=branch, item=zero_item)
+        in_use_item, _ = Category.objects.get_or_create(
+            asset_code='EF-4',
+            defaults={'asset_category': '固定资产', 'item_category': '办公设备',
+                      'asset_name': '办公椅丁', 'unit': '件'},
+        )
+        ledger.apply_adjustment(branch, in_use_item, ledger.COLUMN_IN_USE, 2, '造数')
+
         client = _client_for(supervisor_user)
         resp = client.get('/api/assets/summary/export', {
             'branch': branch.name, 'category': '固定资产', 'keyword': '办公椅',
+            'positive_column': '在库数量,在用数量,回收库数量',
         })
         assert resp.status_code == 200
         rows = _xlsx_rows(resp.content)
         codes = [r[2] for r in rows[1:]]  # 第 3 列为资产编号
-        assert codes == ['EF-1']
+        assert codes == ['EF-1', 'EF-4']
+        assert 'EF-0' not in codes
 
 
 
