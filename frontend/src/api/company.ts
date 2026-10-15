@@ -4,7 +4,7 @@ import request from '@/utils/request'
 export interface Company {
   id: string
   name: string
-  wechat_qr_code: string | null
+  wechatQrCode: string | null
 }
 
 export function getCompany() {

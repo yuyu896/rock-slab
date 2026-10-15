@@ -21,13 +21,13 @@ describe('ContactWechatQrCard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.isAdmin = true
-    mocks.getCompany.mockResolvedValue({ data: { wechat_qr_code: null } })
-    mocks.uploadCompanyWechatQr.mockResolvedValue({ data: { wechat_qr_code: '/media/company/contact/wechat-new.png' } })
+    mocks.getCompany.mockResolvedValue({ data: { wechatQrCode: null } })
+    mocks.uploadCompanyWechatQr.mockResolvedValue({ data: { wechatQrCode: '/media/company/contact/wechat-new.png' } })
   })
 
   it('显示已配置的联系二维码，普通员工没有上传入口', async () => {
     mocks.isAdmin = false
-    mocks.getCompany.mockResolvedValue({ data: { wechat_qr_code: '/media/company/contact/wechat.png' } })
+    mocks.getCompany.mockResolvedValue({ data: { wechatQrCode: '/media/company/contact/wechat.png' } })
 
     const wrapper = mount(ContactWechatQrCard)
     await flushPromises()
