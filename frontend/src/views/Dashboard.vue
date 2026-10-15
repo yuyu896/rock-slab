@@ -383,7 +383,7 @@ onMounted(() => {
 <style scoped>
 .dashboard { width: 100%; max-width: 1600px; margin: 0 auto; }
 .welcome-section { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); }
-.welcome-qr-inline { display: flex; align-items: flex-start; gap: var(--space-3); flex-shrink: 0; }
+.welcome-qr-inline { display: flex; align-items: flex-start; gap: var(--space-3); flex-shrink: 0; margin-right: clamp(280px, 28vw, 400px); }
 .welcome-title { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-primary); margin: 0 0 var(--space-2) 0; }
 .welcome-subtitle { font-size: var(--text-base); color: var(--color-text-secondary); margin: 0; }
 .welcome-actions { display: flex; gap: var(--space-3); }
@@ -462,5 +462,5 @@ onMounted(() => {
 .activity-branch { color: var(--color-text-tertiary); }
 .activity-time { font-size: var(--text-sm); color: var(--color-text-tertiary); }
 @media (max-width: 1200px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } .main-grid { grid-template-columns: 1fr; } }
-@media (max-width: 768px) { .welcome-section { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .welcome-qr-inline { flex-direction: column; gap: var(--space-4); } .stats-grid { grid-template-columns: 1fr; } }
+@media (max-width: 768px) { .welcome-section { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .welcome-qr-inline { flex-direction: column; gap: var(--space-4); margin-right: 0; } .stats-grid { grid-template-columns: 1fr; } }
 </style>
