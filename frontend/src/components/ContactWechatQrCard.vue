@@ -17,7 +17,7 @@ const maxFileSize = 2 * 1024 * 1024
 async function loadQrCode() {
   try {
     const { data } = await getCompany()
-    qrCodeUrl.value = data.wechat_qr_code || null
+    qrCodeUrl.value = data.wechatQrCode || null
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -48,7 +48,7 @@ async function uploadImage(event: Event) {
   uploading.value = true
   try {
     const { data } = await uploadCompanyWechatQr(file)
-    qrCodeUrl.value = data.wechat_qr_code || null
+    qrCodeUrl.value = data.wechatQrCode || null
     ElMessage.success('微信二维码已更新')
   } catch (error) {
     ElMessage.error(handleApiError(error))
