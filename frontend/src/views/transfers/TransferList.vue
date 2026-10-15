@@ -8,6 +8,7 @@ import { inboundRejectTransfer } from '@/api/transfers'
 import { transferDocSummary } from '@/types'
 import type { Transfer } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
+import TransferLifecycleActions from './components/TransferLifecycleActions.vue'
 
 const {
   typeLabel,
@@ -115,6 +116,7 @@ function openCreatePage() {
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批' && item.canOperate !== false" class="action-btn reject" @click="handleReject(item)">驳回</button>
                 <button v-if="canManageAssets && item.审批状态 === '待审批' && item.canOperate === false && item.canInboundReject" class="action-btn reject" @click="handleInboundReject(item)">驳回</button>
+                <TransferLifecycleActions compact :doc="item" type="transfer" @changed="fetchTransfers" />
               </div>
             </td>
           </tr>

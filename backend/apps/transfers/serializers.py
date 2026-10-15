@@ -46,6 +46,7 @@ class TransferSerializer(serializers.ModelSerializer):
     总数量 = serializers.SerializerMethodField()
     canOperate = serializers.SerializerMethodField()
     canWithdraw = serializers.SerializerMethodField()
+    canEditDraft = serializers.SerializerMethodField()
     canInboundReject = serializers.SerializerMethodField()
 
     class Meta:
@@ -58,7 +59,8 @@ class TransferSerializer(serializers.ModelSerializer):
             '供应商', '需求部门', '经办人', '用途',
             '回收分类', '回收去向', '处置方式', '处置金额', '出库日期', '领用来源',
             'from_branch', 'to_branch', 'from_branch_name', 'to_branch_name',
-            'lines', '品项数', '总数量', 'canOperate', 'canWithdraw', 'canInboundReject',
+            'lines', '品项数', '总数量', 'canOperate', 'canWithdraw', 'canEditDraft',
+            'canInboundReject',
             '调入方驳回原因',
             'created_at', 'updated_at',
         ]
@@ -101,17 +103,40 @@ class TransferSerializer(serializers.ModelSerializer):
         return scope.all or obj.to_branch_id in scope.branches
 
     def get_canWithdraw(self, obj):
-        """撤回入口显隐（purchase-withdraw-creator-fk）：账号身份判定，不比对姓名。
+        """撤回入口显隐：账号身份判定，不比对姓名。
 
-        采购单且待审批且请求者为创建账号；无请求上下文（离线序列化）默认 False。
+        五类流转单均可由创建账号撤回待审批单；无请求上下文（离线序列化）默认
+        False。接口仍会独立执行相同的状态与权限校验。
         """
-        if obj.action_type != Transfer.ACTION_PURCHASE or obj.审批状态 != '待审批':
+        if obj.action_type not in (
+            Transfer.ACTION_PURCHASE,
+            Transfer.ACTION_ASSIGN,
+            Transfer.ACTION_RETURN,
+            Transfer.ACTION_TRANSFER,
+            Transfer.ACTION_RECOVERY,
+        ) or obj.审批状态 != '待审批':
             return False
         request = self.context.get('request')
         user = getattr(request, 'user', None) if request else None
         if user is None or not user.is_authenticated:
             return False
+        if obj.action_type == Transfer.ACTION_TRANSFER and not self.get_canOperate(obj):
+            return False
         return obj.created_by_id == user.id
+
+    def get_canEditDraft(self, obj):
+        """草稿/驳回单编辑入口：本人或管理员；调拨还需当前用户可操作调出方。"""
+        if obj.审批状态 not in ('草稿', '已驳回'):
+            return False
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user is None or not user.is_authenticated:
+            return False
+        if user.role != 'admin' and obj.created_by_id != user.id:
+            return False
+        if obj.action_type == Transfer.ACTION_TRANSFER:
+            return self.get_canOperate(obj)
+        return True
 
 
 class TransferLineInputSerializer(serializers.Serializer):

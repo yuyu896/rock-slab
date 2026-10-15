@@ -6,6 +6,7 @@ import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { transferDocSummary } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
+import TransferLifecycleActions from './components/TransferLifecycleActions.vue'
 
 const {
   typeLabel,
@@ -103,6 +104,7 @@ function openCreatePage() {
                 <button class="action-btn" @click="router.push('/transfers/assign/' + item.id)">详情</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
+                <TransferLifecycleActions compact :doc="item" type="assign" @changed="fetchTransfers" />
               </div>
             </td>
           </tr>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import TransferLinesTable from './TransferLinesTable.vue'
+import TransferLifecycleActions from './TransferLifecycleActions.vue'
 import { useUserStore } from '@/store/user'
 import type { TransferDocument } from '@/types'
 import type { TransferType } from '@/constants'
@@ -31,6 +32,7 @@ const emit = defineEmits<{
   (e: 'approve'): void
   (e: 'reject'): void
   (e: 'inboundReject'): void
+  (e: 'lifecycleChanged'): void
 }>()
 
 function branchText(doc: TransferDocument) {
@@ -73,6 +75,12 @@ function branchText(doc: TransferDocument) {
       <slot name="extra-edit" :doc="doc" />
 
       <div class="detail-footer">
+        <TransferLifecycleActions
+          v-if="props.type !== 'purchase'"
+          :doc="doc"
+          :type="props.type"
+          @changed="emit('lifecycleChanged')"
+        />
         <slot name="footer" :doc="doc">
           <template v-if="userStore.can('approve_transfer') && doc.审批状态 === '待审批' && doc.canOperate !== false">
             <button class="btn-approve" @click="emit('approve')">通过</button>
