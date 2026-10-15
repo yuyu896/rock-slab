@@ -461,6 +461,6 @@ onMounted(() => {
 .activity-asset { color: var(--color-text-primary); }
 .activity-branch { color: var(--color-text-tertiary); }
 .activity-time { font-size: var(--text-sm); color: var(--color-text-tertiary); }
-@media (max-width: 1200px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } .main-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1200px) { .welcome-section { flex-wrap: wrap; } .welcome-qr-inline { margin-right: 0; } .stats-grid { grid-template-columns: repeat(2, 1fr); } .main-grid { grid-template-columns: 1fr; } }
 @media (max-width: 768px) { .welcome-section { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .welcome-qr-inline { flex-direction: column; gap: var(--space-4); margin-right: 0; } .stats-grid { grid-template-columns: 1fr; } }
 </style>
