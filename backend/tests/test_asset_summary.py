@@ -119,6 +119,31 @@ class TestAssetStockList:
         codes = {r['资产编号'] for r in resp.data['results']}
         assert codes == {'SUM-F-001'}
 
+    def test_explicit_positive_columns_hide_zero_rows_and_default_keeps_them(
+        self, authenticated_client, branch,
+    ):
+        from apps.assets.models import AssetStock
+
+        zero = _make_stock(branch, 'SUM-Z-000', stock=0, in_use=0, recycle=0)
+        _make_stock(branch, 'SUM-Z-STOCK', stock=2)
+        _make_stock(branch, 'SUM-Z-INUSE', stock=0, in_use=3)
+        _make_stock(branch, 'SUM-Z-RECYCLE', stock=0, recycle=4)
+        params = {'positive_column': '在库数量,在用数量,回收库数量'}
+
+        filtered = authenticated_client.get(SUMMARY_URL, params)
+        assert filtered.status_code == 200
+        assert filtered.data['count'] == 3
+        assert {row['资产编号'] for row in filtered.data['results']} == {
+            'SUM-Z-STOCK', 'SUM-Z-INUSE', 'SUM-Z-RECYCLE',
+        }
+
+        unfiltered = authenticated_client.get(SUMMARY_URL)
+        assert unfiltered.data['count'] == 4
+        assert 'SUM-Z-000' in {row['资产编号'] for row in unfiltered.data['results']}
+        zero.refresh_from_db()
+        assert (zero.在库数量, zero.在用数量, zero.回收库数量) == (0, 0, 0)
+        assert AssetStock.objects.filter(pk=zero.pk).exists()
+
     def test_list_keyword_matches_item_code_or_name(self, authenticated_client, branch):
         _make_stock(branch, 'SUM-K-001')
         resp = authenticated_client.get(SUMMARY_URL, {'keyword': 'SUM-K'})
