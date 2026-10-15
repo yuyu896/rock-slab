@@ -92,6 +92,19 @@ describe('PurchaseDetail 撤回直达编辑', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('撤回成功后自动进入编辑态', async () => {
+    vi.mocked(getTransfer)
+      .mockResolvedValueOnce({
+        data: {
+          id: 't-1', 审批状态: '待审批', canWithdraw: true, canEditDraft: false,
+          调拨日期: '2026-09-22', lines: [],
+        },
+      } as any)
+      .mockResolvedValueOnce({
+        data: {
+          id: 't-1', 审批状态: '草稿', canWithdraw: false, canEditDraft: true,
+          调拨日期: '2026-09-22', lines: [],
+        },
+      } as any)
     const wrapper = mount(PurchaseDetail, {
       global: { stubs: { TransferDetailLayout: layoutStub as any, TransferLinesEditor: { template: '<div />' } } },
     })
@@ -101,6 +114,34 @@ describe('PurchaseDetail 撤回直达编辑', () => {
     expect(withdrawTransfer).toHaveBeenCalledWith('t-1')
     expect(getTransfer).toHaveBeenCalledTimes(2) // 初次加载 + 撤回后刷新
     expect(wrapper.text()).toContain('保存并提交')
+  })
+})
+
+describe('PurchaseDetail 草稿/驳回编辑权限', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it.each(['草稿', '已驳回'])('服务端 canEditDraft=false 时隐藏%s单据的编辑入口', async (status) => {
+    vi.mocked(getTransfer).mockResolvedValue({
+      data: { id: 't-1', 审批状态: status, canEditDraft: false, lines: [] },
+    } as any)
+    const wrapper = mount(PurchaseDetail, {
+      global: { stubs: { TransferDetailLayout: layoutStub as any, TransferLinesEditor: { template: '<div />' } } },
+    })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('修改')
+    expect(wrapper.text()).not.toContain('提交审批')
+  })
+
+  it('服务端 canEditDraft=true 时显示草稿修改和提交入口', async () => {
+    vi.mocked(getTransfer).mockResolvedValue({
+      data: { id: 't-1', 审批状态: '草稿', canEditDraft: true, lines: [] },
+    } as any)
+    const wrapper = mount(PurchaseDetail, {
+      global: { stubs: { TransferDetailLayout: layoutStub as any, TransferLinesEditor: { template: '<div />' } } },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('修改')
+    expect(wrapper.text()).toContain('提交审批')
   })
 })
 

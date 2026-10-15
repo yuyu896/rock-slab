@@ -65,6 +65,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'inventory/:taskId', component: () => import('@/views/MobileScan.vue'), meta: { title: '扫码盘点' } },
       { path: 'approval', component: () => import('@/views/mobile/ApprovalList.vue'), meta: { title: '审批中心' } },
       { path: 'approval/:id', component: () => import('@/views/mobile/ApprovalDetail.vue'), meta: { title: '审批详情' } },
+      { path: 'my-transfers', component: () => import('@/views/mobile/MyTransfers.vue'), meta: { title: '我的申请' } },
       { path: 'notifications', component: () => import('@/views/mobile/NotificationList.vue'), meta: { title: '通知中心' } },
       { path: 'purchase', component: () => import('@/views/mobile/MobilePurchase.vue'), meta: { title: '提交入库' } },
       { path: 'submit/transfer', component: () => import('@/views/mobile/MobileTransfer.vue'), meta: { title: '提交调拨' } },

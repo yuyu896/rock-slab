@@ -18,6 +18,7 @@ export function getTransfers(params?: PaginationParams & {
   assetCode?: string
   keyword?: string
   createdAtGte?: string
+  mine?: boolean
 }) {
   return request.get<PaginatedResponse<TransferDocument>>('/api/transfers/', { params })
 }
@@ -37,22 +38,22 @@ export function purchaseAsset(data: TransferPayload & { draft?: boolean }) {
 }
 
 /** 资产领用 */
-export function assignAsset(data: TransferPayload) {
+export function assignAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/assign', data)
 }
 
 /** 资产归还 */
-export function returnAsset(data: TransferPayload) {
+export function returnAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/return', data)
 }
 
 /** 资产调拨 */
-export function transferAsset(data: TransferPayload) {
+export function transferAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/transfer', data)
 }
 
 /** 资产回收（统一走审批流：待审批 → 审批通过生效；行内即时通道已下线） */
-export function recoverAsset(data: TransferPayload) {
+export function recoverAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/recovery', data)
 }
 

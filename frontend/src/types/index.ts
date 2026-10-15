@@ -326,6 +326,8 @@ export interface TransferDocument {
   canOperate?: boolean
   /** 撤回入口显隐（服务端按账号身份判定）：采购单且待审批且当前用户为创建账号 */
   canWithdraw?: boolean
+  /** 草稿/驳回后编辑和提交权限，由服务端按账号、状态和可操作范围计算 */
+  canEditDraft?: boolean
   canInboundReject?: boolean
   调入方驳回原因?: string
   lines: TransferLine[]

@@ -89,6 +89,10 @@ function viewDetail(transfer: Transfer) {
   router.push(`/mobile/approval/${transfer.id}`)
 }
 
+function openMyApplications() {
+  router.push('/mobile/my-transfers')
+}
+
 function formatTime(dateStr: string): string {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleDateString('zh-CN', {
@@ -110,6 +114,7 @@ onMounted(() => {
     <!-- 头部 -->
     <div class="page-header">
       <h1>审批中心</h1>
+      <button class="my-applications-btn" @click="openMyApplications">我的申请</button>
       <span class="pending-count">{{ pendingApprovals.length }} 条待处理</span>
     </div>
 
@@ -224,6 +229,18 @@ onMounted(() => {
 .pending-count {
   font-size: 13px;
   color: var(--color-primary-500);
+}
+
+.my-applications-btn {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .tab-bar {

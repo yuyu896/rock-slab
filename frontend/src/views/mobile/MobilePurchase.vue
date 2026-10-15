@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { purchaseAsset } from '@/api/transfers'
+import { useRoute, useRouter } from 'vue-router'
+import { getTransfer, purchaseAsset, resubmitTransfer, submitTransfer, updateTransfer } from '@/api/transfers'
 import { lookupCategoryByCode } from '@/api/categories'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
@@ -10,6 +10,7 @@ import { ElMessage } from 'element-plus'
 import type { Category, Branch } from '@/types'
 
 const router = useRouter()
+const route = useRoute()
 
 const form = ref({
   资产编号: '',
@@ -25,6 +26,10 @@ const categories = ref<Category[]>([])
 const branches = ref<Branch[]>([])
 const loading = ref(false)
 const submitting = ref(false)
+const editingId = ref<string | null>(null)
+const editingStatus = ref<'草稿' | '已驳回' | null>(null)
+const requestedEditId = typeof route.query.id === 'string' ? route.query.id : ''
+const documentDate = ref(new Date().toISOString().slice(0, 10))
 
 async function fetchOptions() {
   loading.value = true
@@ -43,7 +48,42 @@ async function fetchOptions() {
   }
 }
 
-async function handleSubmit() {
+async function loadExisting() {
+  const id = requestedEditId
+  if (!id) return
+  try {
+    const { data } = await getTransfer(id)
+    if (!data.canEditDraft || !['草稿', '已驳回'].includes(data.审批状态)) {
+      ElMessage.warning('当前账号无权编辑此单据，或单据状态已变化')
+      return
+    }
+    const line = data.lines?.[0]
+    editingId.value = id
+    editingStatus.value = data.审批状态 as '草稿' | '已驳回'
+    documentDate.value = data.调拨日期 || documentDate.value
+    form.value = {
+      资产编号: line?.itemCode || '',
+      资产名称: line?.itemName || '',
+      资产类目: line?.assetCategory || '',
+      物品分类: line?.itemCategory || '',
+      数量: line?.数量 || 1,
+      分公司: data.调出分公司 || data.调入分公司 || '',
+      备注: data.备注 || '',
+    }
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  }
+}
+
+async function handleSubmit(asDraft = false) {
+  if (requestedEditId && editingId.value !== requestedEditId) {
+    ElMessage.warning('单据未能加载或无权编辑，未执行提交')
+    return
+  }
+  if (asDraft && editingStatus.value === '已驳回') {
+    ElMessage.warning('已驳回单据需要修改后重新提交')
+    return
+  }
   const code = form.value.资产编号.trim()
   if (!code) {
     ElMessage.warning('请输入资产编号')
@@ -58,13 +98,21 @@ async function handleSubmit() {
   try {
     // 编号户籍：反查字典品目，未登记拒绝（P1 契约）
     const { data: category } = await lookupCategoryByCode(code)
-    await purchaseAsset({
-      调拨日期: new Date().toISOString().slice(0, 10),
+    const payload = {
+      调拨日期: documentDate.value,
       调出分公司: form.value.分公司,
       备注: form.value.备注,
       items: [{ item: category.id, 数量: form.value.数量 }],
-    })
-    ElMessage.success('采购单已提交，待审批后入库')
+    }
+    if (editingId.value) {
+      await updateTransfer(editingId.value, payload)
+      if (!asDraft) {
+        await (editingStatus.value === '已驳回' ? resubmitTransfer(editingId.value) : submitTransfer(editingId.value))
+      }
+    } else {
+      await purchaseAsset({ ...payload, draft: asDraft || undefined })
+    }
+    ElMessage.success(asDraft && editingStatus.value !== '已驳回' ? '已保存为草稿' : editingStatus.value === '已驳回' ? '已修改并重新提交' : '采购单已提交，待审批后入库')
     router.back()
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -79,6 +127,7 @@ function goBack() {
 
 onMounted(() => {
   fetchOptions()
+  loadExisting()
 })
 </script>
 
@@ -91,7 +140,7 @@ onMounted(() => {
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <h1>提交入库</h1>
+      <h1>{{ editingId ? '编辑入库' : '提交入库' }}</h1>
       <span class="header-spacer"></span>
     </div>
 
@@ -169,9 +218,12 @@ onMounted(() => {
 
     <!-- 提交按钮 -->
     <div class="submit-section">
-      <button class="submit-btn" @click="handleSubmit" :disabled="submitting">
-        {{ submitting ? '提交中...' : '提交入库' }}
-      </button>
+      <div class="submit-actions">
+        <button class="draft-btn" @click="handleSubmit(true)" :disabled="submitting || editingStatus === '已驳回'">保存草稿</button>
+        <button class="submit-btn" @click="handleSubmit(false)" :disabled="submitting">
+          {{ submitting ? '提交中...' : editingStatus === '已驳回' ? '保存并重新提交' : '提交入库' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -331,6 +383,11 @@ onMounted(() => {
   font-weight: 500;
   cursor: pointer;
 }
+
+.submit-actions { display: flex; gap: var(--space-3); }
+.draft-btn { flex: 1; height: 48px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg-card); color: var(--color-text-primary); font-size: 15px; cursor: pointer; }
+.submit-btn { flex: 1; }
+.draft-btn:disabled { opacity: .5; }
 
 .submit-btn:disabled {
   opacity: 0.5;

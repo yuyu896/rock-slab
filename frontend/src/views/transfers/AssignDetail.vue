@@ -59,6 +59,7 @@ onMounted(fetchTransfer)
     type="assign"
     :doc="transfer"
     :loading="loading"
+    @lifecycle-changed="fetchTransfer"
     @approve="handleApprove"
     @reject="handleReject"
   >

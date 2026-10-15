@@ -90,6 +90,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = self.get_scoped_queryset(qs)
+        if self.request.query_params.get('mine', '').strip().lower() == 'true':
+            qs = qs.filter(created_by=self.request.user)
         # 列表统一排序（branch-order-and-multi-filter）：待审批→草稿→其余 + 日期倒序，
         # 跨分页一致；状态为等值比较无中文 collation 依赖，分公司名不作排序键
         return qs.annotate(
@@ -389,20 +391,28 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return Response(TransferSerializer(transfer).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
-    @audit_log(action='withdraw', resource_type='Transfer', description_template='撤回采购单至草稿')
+    @audit_log(action='withdraw', resource_type='Transfer', description_template='撤回流转单至草稿')
     def withdraw(self, request, pk=None):
-        """撤回：创建人将「待审批」采购单拉回「草稿」，自行修改后重新提交。"""
+        """创建人将任一类型的「待审批」流转单拉回「草稿」。"""
+        from django.db import transaction
+
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
-        if transfer.action_type != Transfer.ACTION_PURCHASE:
-            return Response({'detail': '仅采购入库单支持撤回'}, status=status.HTTP_400_BAD_REQUEST)
         if transfer.审批状态 != '待审批':
-            return Response({'detail': '仅待审批的记录可撤回'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': '仅待审批单据可撤回'}, status=status.HTTP_400_BAD_REQUEST)
         if transfer.created_by_id != request.user.id:
             return Response({'detail': '仅创建人可撤回自己的单据'}, status=status.HTTP_400_BAD_REQUEST)
-        transfer.审批状态 = '草稿'
-        transfer.save(update_fields=['审批状态', 'updated_at'])
-        return Response(TransferSerializer(transfer).data)
+
+        with transaction.atomic():
+            # 与审批动作使用相同的行锁，确保并发时只完成一个状态转换。
+            locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            if locked.审批状态 != '待审批':
+                return Response({'detail': '该单据已处理，当前状态不可撤回'}, status=status.HTTP_400_BAD_REQUEST)
+            if locked.created_by_id != request.user.id:
+                return Response({'detail': '仅创建人可撤回自己的单据'}, status=status.HTTP_400_BAD_REQUEST)
+            locked.审批状态 = '草稿'
+            locked.save(update_fields=['审批状态', 'updated_at'])
+        return Response(TransferSerializer(locked, context=self.get_serializer_context()).data)
 
     def update(self, request, *args, **kwargs):
         """已驳回/草稿单据编辑：单头字段更新 + items 整体替换（原子、行号重排）。

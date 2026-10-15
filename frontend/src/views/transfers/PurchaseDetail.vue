@@ -55,6 +55,7 @@ async function withdrawDoc(doc: TransferDocument) {
 }
 
 async function submitDraft(doc: TransferDocument) {
+  if (doc.canEditDraft !== true) return
   try {
     await submitTransfer(doc.id)
     ElMessage.success('已提交审批')
@@ -65,7 +66,7 @@ async function submitDraft(doc: TransferDocument) {
 }
 
 function startEdit(from: 'rejected' | 'draft') {
-  if (!transfer.value) return
+  if (transfer.value?.canEditDraft !== true) return
   editFrom.value = from
   editForm.value = { ...transfer.value }
   editLines.value = draftsFromLines(transfer.value.lines ?? [])
@@ -134,10 +135,10 @@ onMounted(fetchTransfer)
       <template v-if="!editing && doc.canWithdraw">
         <button class="btn-cancel" @click="withdrawDoc(doc)">撤回</button>
       </template>
-      <template v-if="!editing && doc.审批状态 === '已驳回'">
+      <template v-if="!editing && doc.canEditDraft === true && doc.审批状态 === '已驳回'">
         <button class="btn-primary" @click="startEdit('rejected')">修改</button>
       </template>
-      <template v-if="!editing && doc.审批状态 === '草稿'">
+      <template v-if="!editing && doc.canEditDraft === true && doc.审批状态 === '草稿'">
         <button class="btn-cancel" @click="startEdit('draft')">修改</button>
         <button class="btn-primary" @click="submitDraft(doc)">提交审批</button>
       </template>
