@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from apps.categories.models import Category
 from .models import AssetStock, FixedAsset, LedgerAdjustment
 
@@ -70,7 +71,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         read_only=True,
     )
     待补录 = serializers.SerializerMethodField()
-    图片 = serializers.ImageField(source='image', read_only=True)
+    图片 = serializers.SerializerMethodField()
     供应商 = serializers.SerializerMethodField()
     单价 = serializers.SerializerMethodField()
     采购日期 = serializers.SerializerMethodField()
@@ -89,6 +90,20 @@ class FixedAssetSerializer(serializers.ModelSerializer):
 
     def get_待补录(self, obj):
         return not (obj.序列号 or '').strip()
+
+    def get_图片(self, obj):
+        if not obj.image:
+            return None
+
+        url = obj.image.url
+        request = self.context.get('request')
+        if request is not None:
+            url = request.build_absolute_uri(url)
+
+        parts = urlsplit(url)
+        query = [(key, value) for key, value in parse_qsl(parts.query) if key != 'v']
+        query.append(('v', str(obj.image_version)))
+        return urlunsplit(parts._replace(query=urlencode(query)))
 
     def get_item_spec(self, obj):
         """规格三级：实例个体覆盖 → 出生日.本批规格 → 品目字典。"""

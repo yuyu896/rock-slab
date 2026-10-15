@@ -1,5 +1,13 @@
+import os
+import uuid
+
 from django.db import models
 from core.models import UUIDModel, TimestampedModel
+
+
+def fixed_asset_image_upload_to(instance, filename):
+    extension = os.path.splitext(filename)[1].lower()
+    return f'fixed_assets/{instance.pk}/{uuid.uuid4().hex}{extension}'
 
 
 class AssetStock(UUIDModel, TimestampedModel):
@@ -169,7 +177,10 @@ class FixedAsset(UUIDModel, TimestampedModel):
     供应商 = models.CharField('供应商（个体覆盖，空=批次口径）', max_length=200, blank=True, default='')
     规格 = models.CharField('规格（个体覆盖，空=批次口径）', max_length=200, blank=True, default='')
     采购日期 = models.DateField('采购日期（个体覆盖，空=出生单日期）', null=True, blank=True)
-    image = models.ImageField('物品图片', upload_to='fixed_assets/', blank=True, null=True)
+    image = models.ImageField(
+        '物品图片', upload_to=fixed_asset_image_upload_to, blank=True, null=True,
+    )
+    image_version = models.PositiveBigIntegerField('图片版本', default=0)
 
     class Meta:
         db_table = 'assets_fixedasset'

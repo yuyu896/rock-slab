@@ -160,10 +160,39 @@ def _image_file(name='photo.jpg', content_type='image/jpeg', size_kb=1):
     )
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestInstanceImage:
+    @pytest.fixture(autouse=True)
+    def isolate_media_root(self, tmp_path):
+        from django.test import override_settings
+
+        with override_settings(MEDIA_ROOT=tmp_path):
+            yield
+
+    def test_existing_image_uses_version_zero_url(self, supervisor_user, inst):
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
+        from urllib.parse import parse_qs, urlsplit
+
+        _grant(supervisor_user, 'manage_instances')
+        legacy_name = default_storage.save(
+            'fixed_assets/legacy.jpg', ContentFile(b'legacy image'),
+        )
+        inst.image = legacy_name
+        inst.save(update_fields=['image'])
+
+        response = _client_for(supervisor_user).get(
+            f'/api/assets/fixed-assets/{inst.pk}',
+        )
+
+        assert response.status_code == 200
+        assert parse_qs(urlsplit(response.data['图片']).query)['v'] == ['0']
+        assert response.data['图片'].split('?')[0].endswith('/fixed_assets/legacy.jpg')
+        assert default_storage.exists(legacy_name)
+
     def test_upload_image_success(self, supervisor_user, inst):
         from django.core.files.storage import default_storage
+        from urllib.parse import parse_qs, urlsplit
         _grant(supervisor_user, 'manage_instances')
         client = _client_for(supervisor_user)
         resp = client.post(
@@ -172,9 +201,18 @@ class TestInstanceImage:
         )
         assert resp.status_code == 200
         assert '/media/fixed_assets/' in resp.data['图片']
+        assert parse_qs(urlsplit(resp.data['图片']).query)['v'] == ['1']
         inst.refresh_from_db()
-        assert inst.image.name.startswith('fixed_assets/')
+        assert inst.image.name.startswith(f'fixed_assets/{inst.pk}/')
+        assert inst.image_version == 1
         assert default_storage.exists(inst.image.name)
+
+        response = client.patch(
+            f'/api/assets/fixed-assets/{inst.pk}/supplement', {'备注': '仅修改档案字段'},
+        )
+        assert response.status_code == 200
+        inst.refresh_from_db()
+        assert inst.image_version == 1
 
     def test_upload_rejects_bad_content_type(self, supervisor_user, inst):
         _grant(supervisor_user, 'manage_instances')
@@ -208,21 +246,118 @@ class TestInstanceImage:
 
     def test_overwrite_cleans_old_file(self, supervisor_user, inst):
         from django.core.files.storage import default_storage
+        from urllib.parse import parse_qs, urlsplit
         _grant(supervisor_user, 'manage_instances')
         client = _client_for(supervisor_user)
-        resp = client.post(
+        first = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
-            {'image': _image_file('a.jpg')},
+            {'image': _image_file('same-name.jpg')},
         )
-        old_name = resp.data['图片'].split('/media/')[-1]
-        resp = client.post(
+        assert first.status_code == 200
+        first_url = first.data['图片']
+        inst.refresh_from_db()
+        old_name = inst.image.name
+
+        second = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
-            {'image': _image_file('b.jpg')},
+            {'image': _image_file('same-name.jpg')},
         )
-        assert resp.status_code == 200
+        assert second.status_code == 200
+        assert second.data['图片'] != first_url
+        assert parse_qs(urlsplit(second.data['图片']).query)['v'] == ['2']
         assert not default_storage.exists(old_name)
         inst.refresh_from_db()
+        assert inst.image.name != old_name
+        assert inst.image_version == 2
         assert default_storage.exists(inst.image.name)
+
+        detail = client.get(f'/api/assets/fixed-assets/{inst.pk}')
+        assert detail.status_code == 200
+        assert detail.data['图片'] == second.data['图片']
+
+    def test_database_failure_preserves_old_image_and_cleans_new_file(
+        self, supervisor_user, inst, monkeypatch,
+    ):
+        from django.core.files.storage import default_storage
+        from apps.assets.models import FixedAsset
+
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('same-name.jpg')},
+        )
+        assert first.status_code == 200
+        inst.refresh_from_db()
+        old_name = inst.image.name
+        old_version = inst.image_version
+
+        storage = inst._meta.get_field('image').storage
+        saved_names = []
+        original_storage_save = storage.save
+
+        def track_storage_save(name, content, max_length=None):
+            saved_name = original_storage_save(name, content, max_length=max_length)
+            saved_names.append(saved_name)
+            return saved_name
+
+        original_model_save = FixedAsset.save
+
+        def fail_image_update(self, *args, **kwargs):
+            if 'image_version' in (kwargs.get('update_fields') or ()):
+                raise RuntimeError('simulated database failure')
+            return original_model_save(self, *args, **kwargs)
+
+        monkeypatch.setattr(storage, 'save', track_storage_save)
+        monkeypatch.setattr(FixedAsset, 'save', fail_image_update)
+        client.raise_request_exception = False
+        response = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('same-name.jpg')},
+        )
+
+        assert response.status_code == 500
+        assert len(saved_names) == 1
+        inst.refresh_from_db()
+        assert inst.image.name == old_name
+        assert inst.image_version == old_version
+        assert default_storage.exists(old_name)
+        assert not default_storage.exists(saved_names[0])
+
+    def test_storage_failure_cleans_partial_new_file(self, supervisor_user, inst, monkeypatch):
+        from django.core.files.storage import default_storage
+
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('old.jpg')},
+        )
+        assert first.status_code == 200
+        inst.refresh_from_db()
+        old_name = inst.image.name
+        storage = inst._meta.get_field('image').storage
+        original_storage_save = storage.save
+        written_names = []
+
+        def write_then_fail(name, content, max_length=None):
+            written_name = original_storage_save(name, content, max_length=max_length)
+            written_names.append(written_name)
+            raise OSError('simulated storage failure')
+
+        monkeypatch.setattr(storage, 'save', write_then_fail)
+        client.raise_request_exception = False
+        response = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('new.jpg')},
+        )
+
+        assert response.status_code == 500
+        assert len(written_names) == 1
+        inst.refresh_from_db()
+        assert inst.image.name == old_name
+        assert default_storage.exists(old_name)
+        assert not default_storage.exists(written_names[0])
 
     def test_delete_image(self, supervisor_user, inst):
         from django.core.files.storage import default_storage
@@ -239,7 +374,41 @@ class TestInstanceImage:
         assert resp.data['图片'] is None
         inst.refresh_from_db()
         assert not inst.image
+        assert inst.image_version == 2
         assert not default_storage.exists(name)
+
+    def test_delete_then_upload_increments_version_and_uses_new_url(self, supervisor_user, inst):
+        from django.core.files.storage import default_storage
+        from urllib.parse import parse_qs, urlsplit
+
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('photo.jpg')},
+        )
+        assert first.status_code == 200
+        first_url = first.data['图片']
+        inst.refresh_from_db()
+        first_name = inst.image.name
+
+        removed = client.delete(f'/api/assets/fixed-assets/{inst.pk}/image')
+        assert removed.status_code == 200
+        assert removed.data['图片'] is None
+        assert not default_storage.exists(first_name)
+        inst.refresh_from_db()
+        assert inst.image_version == 2
+
+        second = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('photo.jpg')},
+        )
+        assert second.status_code == 200
+        assert second.data['图片'] != first_url
+        assert parse_qs(urlsplit(second.data['图片']).query)['v'] == ['3']
+        inst.refresh_from_db()
+        assert inst.image_version == 3
+        assert inst.image.name != first_name
 
     def test_image_endpoints_denied_without_operation(self, supervisor_user, inst):
         client = _client_for(supervisor_user)

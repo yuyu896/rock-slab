@@ -1,4 +1,5 @@
 import io
+import logging
 from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -18,6 +19,16 @@ from .serializers import (
     LedgerAdjustmentSerializer,
 )
 from .filters import AssetStockFilterSet, FixedAssetFilterSet
+
+
+logger = logging.getLogger(__name__)
+
+
+def _delete_fixed_asset_image(storage, name):
+    try:
+        storage.delete(name)
+    except Exception:
+        logger.exception('Failed to delete fixed asset image %s', name)
 
 
 class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
@@ -394,6 +405,17 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     }
 
     def get_queryset(self):
+        if getattr(self, 'action', None) == 'image':
+            from apps.permissions.scope import resolve_user_scope
+
+            qs = FixedAsset.objects.select_for_update()
+            scope = resolve_user_scope(self.request.user)
+            if scope.all:
+                return qs
+            if not scope.branches:
+                return qs.none()
+            return qs.filter(branch_id__in=scope.branches)
+
         from django.db.models.functions import Length
         qs = super().get_queryset()
         # 排序：分公司 → 品目编号 → 内部编号自然序（尾段数字无补零，字符串序会
@@ -402,6 +424,9 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         return self.get_scoped_queryset(qs)
 
     def filter_queryset(self, queryset):
+        if getattr(self, 'action', None) == 'image':
+            return queryset
+
         queryset = super().filter_queryset(queryset)
         if getattr(self, 'action', None) in ('list', 'export_excel'):
             from django.db.models import Exists, OuterRef
@@ -624,35 +649,72 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         """物品图片维护：POST 上传/覆盖、DELETE 删除。
 
         档案属性非数量变动（铁律 2 不管图片），manage_instances 权限；
-        覆盖/删除即清旧存储文件，退役实例图片随档案永久保留。
+        替换/删除在数据库提交后清理旧文件，退役实例图片随档案永久保留。
         """
         from core.upload_validation import validate_image_upload, UploadValidationError
 
-        instance = self.get_object()
-        if self._is_effectively_disposed(instance):
-            return Response(
-                {'detail': '已直接处置的实例档案只读'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if request.method == 'DELETE':
-            if instance.image:
-                instance.image.delete(save=False)
-                instance.image = None
-                instance.save(update_fields=['image', 'updated_at'])
-            return Response(FixedAssetSerializer(instance, context={'request': request}).data)
-
-        if 'image' not in request.FILES:
-            return Response({'detail': '请上传图片文件'}, status=status.HTTP_400_BAD_REQUEST)
-        upload = request.FILES['image']
+        upload = None
+        extension = None
+        storage = None
+        candidate_name = None
+        new_name = None
         try:
-            validate_image_upload(upload)
-        except UploadValidationError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            with transaction.atomic():
+                instance = self.get_object()
+                if self._is_effectively_disposed(instance):
+                    return Response(
+                        {'detail': '已直接处置的实例档案只读'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-        if instance.image:
-            instance.image.delete(save=False)
-        instance.image = upload
-        instance.save(update_fields=['image', 'updated_at'])
+                if request.method != 'DELETE':
+                    if 'image' not in request.FILES:
+                        return Response(
+                            {'detail': '请上传图片文件'},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    upload = request.FILES['image']
+                    try:
+                        validate_image_upload(upload)
+                    except UploadValidationError as exc:
+                        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+                    extension = {
+                        'image/jpeg': '.jpg',
+                        'image/png': '.png',
+                        'image/webp': '.webp',
+                    }[upload.content_type]
+
+                image_field = instance._meta.get_field('image')
+                storage = image_field.storage
+                old_name = instance.image.name if instance.image else None
+
+                if request.method == 'DELETE':
+                    if old_name:
+                        instance.image = None
+                        instance.image_version += 1
+                        instance.save(update_fields=['image', 'image_version', 'updated_at'])
+                        transaction.on_commit(
+                            lambda: _delete_fixed_asset_image(storage, old_name),
+                            robust=True,
+                        )
+                else:
+                    candidate_name = image_field.generate_filename(
+                        instance, f'image{extension}',
+                    )
+                    new_name = storage.save(candidate_name, upload)
+                    instance.image = new_name
+                    instance.image_version += 1
+                    instance.save(update_fields=['image', 'image_version', 'updated_at'])
+                    if old_name and old_name != new_name:
+                        transaction.on_commit(
+                            lambda: _delete_fixed_asset_image(storage, old_name),
+                            robust=True,
+                        )
+        except Exception:
+            for name in {candidate_name, new_name} - {None}:
+                _delete_fixed_asset_image(storage, name)
+            raise
+
         return Response(FixedAssetSerializer(instance, context={'request': request}).data)
 
     @action(detail=True, methods=['get'], url_path='timeline')

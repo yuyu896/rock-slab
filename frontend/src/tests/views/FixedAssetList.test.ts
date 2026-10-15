@@ -160,10 +160,10 @@ describe('FixedAssetList 物品图片', () => {
       data: { updated: 1, results: ['NB-001-1'], errors: [] },
     } as any)
     vi.mocked(getFixedAssets).mockResolvedValue({
-      data: { count: 1, results: [_inst({})] },
+      data: { count: 1, results: [_inst({ 图片: '/media/fixed_assets/fa-1/old.jpg?v=1' })] },
     } as any)
     vi.mocked(uploadFixedAssetImage).mockResolvedValue({
-      data: _inst({ 图片: '/media/fixed_assets/new.jpg' }),
+      data: _inst({ 图片: '/media/fixed_assets/fa-1/new.jpg?v=2' }),
     } as any)
     const wrapper = await _mount()
     const editBtn = wrapper.findAll('.action-btn').find(b => b.attributes('title') === '编辑')
@@ -179,6 +179,10 @@ describe('FixedAssetList 物品图片', () => {
     await input.trigger('change')
     await flushPromises()
     expect(uploadFixedAssetImage).toHaveBeenCalledWith('fa-1', file)
+    expect(wrapper.findAll('.el-image-stub').map(image => image.attributes('src'))).toEqual([
+      '/media/fixed_assets/fa-1/new.jpg?v=2',
+      '/media/fixed_assets/fa-1/new.jpg?v=2',
+    ])
 
     // 保存：序列号/备注经 supplement（可清空+查重），规格/供应商经 batch-update
     await wrapper.findAll('button').find(b => b.text() === '保存')!.trigger('click')
