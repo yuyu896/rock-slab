@@ -197,6 +197,9 @@ describe('物资处置台账处置收入合计卡', () => {
     expect(wrapper.text()).not.toContain('保存')
     expect(getFixedAsset).toHaveBeenCalledWith('fa-1')
     expect(getFixedAssetTimeline).toHaveBeenCalledWith('fa-1')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.detail-dialog').exists()).toBe(false)
   })
 
   it('生平读取失败时保留详情窗口并显示失败状态', async () => {

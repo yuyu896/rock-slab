@@ -135,6 +135,42 @@ describe('FixedAssetList 物品图片', () => {
     expect(rows[1].find('.thumb-empty').text()).toBe('—')
   })
 
+  it('接受超过 2MB 的实例照片', async () => {
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 1, results: [_inst({})] },
+    } as any)
+    vi.mocked(uploadFixedAssetImage).mockResolvedValue({ data: _inst({ 图片: '/large.jpg' }) } as any)
+    const wrapper = await _mount()
+    await wrapper.findAll('.action-btn').find(b => b.attributes('title') === '编辑')!.trigger('click')
+    await flushPromises()
+
+    const input = wrapper.find('input[type=file]')
+    const file = new File([new Uint8Array(3 * 1024 * 1024)], 'photo.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(uploadFixedAssetImage).toHaveBeenCalledWith('fa-1', file)
+  })
+
+  it('拒绝超过 10MB 的实例照片并显示上限', async () => {
+    const { ElMessage } = await import('element-plus')
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 1, results: [_inst({})] },
+    } as any)
+    const wrapper = await _mount()
+    await wrapper.findAll('.action-btn').find(b => b.attributes('title') === '编辑')!.trigger('click')
+    await flushPromises()
+
+    const input = wrapper.find('input[type=file]')
+    const file = new File([new Uint8Array(11 * 1024 * 1024)], 'photo.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+
+    expect(uploadFixedAssetImage).not.toHaveBeenCalled()
+    expect(ElMessage.error).toHaveBeenCalledWith('图片大小不能超过 10MB')
+  })
+
   it('无 manage_instances 权限时图片操作按钮不渲染', async () => {
     mockCan.mockImplementation((code?: string) => code !== 'manage_instances')
     vi.mocked(getFixedAssets).mockResolvedValue({

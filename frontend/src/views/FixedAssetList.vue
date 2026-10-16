@@ -175,8 +175,8 @@ function handleEditImageSelect(e: Event) {
     input.value = ''
     return
   }
-  if (file.size > 2 * 1024 * 1024) {
-    ElMessage.error('图片大小不能超过 2MB')
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('图片大小不能超过 10MB')
     input.value = ''
     return
   }
@@ -556,6 +556,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
                   <el-button size="small" @click="editImageInput?.click()">{{ imagePreviewFor(editing) ? '更换图片' : '上传图片' }}</el-button>
                   <el-button v-if="imagePreviewFor(editing)" size="small" @click="handleEditImageDelete">删除</el-button>
                 </div>
+                <span class="image-size-hint">JPG、PNG、WebP，单张不超过 10MB</span>
               </div>
             </el-form-item>
           </el-form>
@@ -682,6 +683,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .edit-image-large { width: 160px; height: 120px; border-radius: 8px; display: block; }
 .edit-image-empty { width: 160px; height: 120px; border-radius: 8px; border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--text-sm); }
 .edit-image-actions { display: flex; gap: 8px; }
+.image-size-hint { color: var(--color-text-tertiary); font-size: var(--text-xs); }
 @media (max-width: 768px) { .edit-dual { grid-template-columns: 1fr; } .timeline-pane { border-left: none; padding-left: 0; border-top: 1px solid var(--color-border); padding-top: 12px; } }
 .image-cell { width: 56px; }
 .check-col { width: 36px; text-align: center; }

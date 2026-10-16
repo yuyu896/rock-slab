@@ -675,7 +675,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                         )
                     upload = request.FILES['image']
                     try:
-                        validate_image_upload(upload)
+                        validate_image_upload(upload, max_size_mb=10)
                     except UploadValidationError as exc:
                         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
                     extension = {

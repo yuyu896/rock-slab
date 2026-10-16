@@ -166,7 +166,10 @@ class TestInstanceImage:
     def isolate_media_root(self, tmp_path):
         from django.test import override_settings
 
-        with override_settings(MEDIA_ROOT=tmp_path):
+        with override_settings(
+            MEDIA_ROOT=tmp_path,
+            DATA_UPLOAD_MAX_MEMORY_SIZE=60 * 1024 * 1024,
+        ):
             yield
 
     def test_existing_image_uses_version_zero_url(self, supervisor_user, inst):
@@ -226,15 +229,28 @@ class TestInstanceImage:
         inst.refresh_from_db()
         assert not inst.image
 
-    def test_upload_rejects_oversize(self, supervisor_user, inst):
+    def test_upload_accepts_photo_over_2mb(self, supervisor_user, inst):
+        from django.core.files.storage import default_storage
         _grant(supervisor_user, 'manage_instances')
         client = _client_for(supervisor_user)
         resp = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
             {'image': _image_file(size_kb=3 * 1024)},
         )
+        assert resp.status_code == 200
+        inst.refresh_from_db()
+        assert inst.image
+        assert default_storage.exists(inst.image.name)
+
+    def test_upload_rejects_oversize(self, supervisor_user, inst):
+        _grant(supervisor_user, 'manage_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file(size_kb=11 * 1024)},
+        )
         assert resp.status_code == 400
-        assert '2MB' in resp.data['detail']
+        assert '10MB' in resp.data['detail']
         inst.refresh_from_db()
         assert not inst.image
 

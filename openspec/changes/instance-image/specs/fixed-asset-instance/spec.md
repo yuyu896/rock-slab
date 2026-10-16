@@ -44,7 +44,7 @@ FixedAsset MUST 为四态实例档案：字段含 `item`（→品目字典，PRO
 
 ### Requirement: 实例物品图片端点
 
-系统 MUST 提供实例物品图片维护端点：`POST /api/assets/fixed-assets/{id}/image`（multipart，文件字段 `image`，上传或覆盖）与 `DELETE /api/assets/fixed-assets/{id}/image`（删除图片）。两端点均 MUST 要求 `manage_instances` 操作码，无权限 MUST 拒绝。上传校验 MUST 与头像口径一致：Content-Type 白名单（image/jpeg、image/png、image/webp）、大小 ≤2MB，违规返回 400。覆盖与删除时 MUST 清理旧存储文件（不留孤儿文件）。成功响应 MUST 返回更新后的实例序列化数据（含 `图片` URL）。
+系统 MUST 提供实例物品图片维护端点：`POST /api/assets/fixed-assets/{id}/image`（multipart，文件字段 `image`，上传或覆盖）与 `DELETE /api/assets/fixed-assets/{id}/image`（删除图片）。两端点均 MUST 要求 `manage_instances` 操作码，无权限 MUST 拒绝。上传校验 MUST 使用 Content-Type 白名单（image/jpeg、image/png、image/webp），实例图片大小上限为 10MB，违规返回 400。覆盖与删除时 MUST 清理旧存储文件（不留孤儿文件）。成功响应 MUST 返回更新后的实例序列化数据（含 `图片` URL）。
 
 #### Scenario: 上传物品图片
 
@@ -58,8 +58,13 @@ FixedAsset MUST 为四态实例档案：字段含 `item`（→品目字典，PRO
 
 #### Scenario: 超大文件被拒
 
-- **WHEN** 上传 3MB 的 PNG 文件
-- **THEN** 返回 400 提示大小上限 2MB，实例图片无变化
+- **WHEN** 上传 11MB 的 PNG 文件
+- **THEN** 返回 400 提示大小上限 10MB，实例图片无变化
+
+#### Scenario: 接受超过旧上限的手机照片
+
+- **WHEN** 上传 3MB 的 JPG 文件
+- **THEN** 返回 200 并更新实例图片
 
 #### Scenario: 覆盖图片清理旧文件
 

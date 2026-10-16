@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useQueryFilters } from '@/composables/useQueryFilters'
 import { getRecoveryLedger, exportRecoveryLedger, type RecoveryLedgerRow } from '@/api/transfers'
 import { getFixedAsset, getFixedAssetTimeline } from '@/api/assets'
@@ -81,6 +81,13 @@ function closeInstanceDetail() {
   detailError.value = ''
 }
 
+function handleDetailKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && detailVisible.value) {
+    event.preventDefault()
+    closeInstanceDetail()
+  }
+}
+
 function transferTypeLabel(actionType: string) {
   return TRANSFER_TYPES[actionType as keyof typeof TRANSFER_TYPES]?.label || actionType || '-'
 }
@@ -127,7 +134,12 @@ const handlePaginationChange = (page: number, pageSize: number) => {
 }
 
 watch(filters, () => { pagination.value.page = 1; fetchRows() }, { deep: true })
-onMounted(() => { fetchRows(); fetchBranches() })
+onMounted(() => {
+  fetchRows()
+  fetchBranches()
+  window.addEventListener('keydown', handleDetailKeydown)
+})
+onUnmounted(() => window.removeEventListener('keydown', handleDetailKeydown))
 </script>
 
 <template>
