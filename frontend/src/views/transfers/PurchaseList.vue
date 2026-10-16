@@ -99,7 +99,7 @@ function openCreatePage() {
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
             <td>{{ item.经办人 || item.创建人 || '-' }}</td>
             <td>
-              <div class="action-buttons">
+              <div class="action-buttons transfer-action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/purchase/' + item.id)">详情</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>

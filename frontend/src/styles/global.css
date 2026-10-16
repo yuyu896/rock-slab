@@ -94,6 +94,18 @@ textarea:focus-visible {
    ================================ */
 .action-buttons { display: flex; }
 .action-btn + .action-btn { margin-left: 8px; }
+.transfer-action-buttons { align-items: center; flex-wrap: wrap; gap: 8px; }
+.transfer-action-buttons .action-btn + .action-btn { margin-left: 0; }
+.transfer-action-buttons .action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: var(--text-xs);
+  line-height: 1;
+}
 .action-btn {
   padding: 8px 16px;
   border: 1px solid var(--color-border);

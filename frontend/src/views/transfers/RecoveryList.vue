@@ -101,7 +101,7 @@ function openCreatePage() {
               <span class="remark-text" :title="item.备注 || '-'">{{ item.备注 || '-' }}</span>
             </td>
             <td class="action-column">
-              <div class="action-buttons">
+              <div class="action-buttons transfer-action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/recovery/' + item.id)">详情</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>

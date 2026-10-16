@@ -6,11 +6,14 @@ import { submitTransfer, withdrawTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import type { TransferDocument, TransferActionType } from '@/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   doc: TransferDocument
   type: TransferActionType
   compact?: boolean
-}>()
+  showWithdraw?: boolean
+}>(), {
+  showWithdraw: false,
+})
 
 const emit = defineEmits<{ (event: 'changed'): void }>()
 const router = useRouter()
@@ -60,7 +63,7 @@ async function withdraw() {
   <button v-if="doc.审批状态 === '草稿' && doc.canEditDraft === true" class="lifecycle-btn primary" :class="{ compact }" @click="submitDraft">
     提交审批
   </button>
-  <button v-if="doc.canWithdraw" class="lifecycle-btn warning" :class="{ compact }" @click="withdraw">
+  <button v-if="props.showWithdraw && doc.canWithdraw" class="lifecycle-btn warning" :class="{ compact }" @click="withdraw">
     撤回
   </button>
 </template>
@@ -69,6 +72,6 @@ async function withdraw() {
 .lifecycle-btn { min-height: 36px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-card); color: var(--color-text-primary); cursor: pointer; white-space: nowrap; }
 .lifecycle-btn.primary { border-color: var(--color-primary-500); background: var(--color-primary-500); color: #fff; }
 .lifecycle-btn.warning { border-color: var(--color-warning); color: var(--color-warning); }
-.lifecycle-btn.compact { min-height: 30px; padding: 0 8px; font-size: var(--text-xs); }
+.lifecycle-btn.compact { height: 30px; min-height: 30px; padding: 0 8px; font-size: var(--text-xs); line-height: 1; }
 .lifecycle-btn:focus-visible { outline: 2px solid var(--color-primary-500); outline-offset: 2px; }
 </style>

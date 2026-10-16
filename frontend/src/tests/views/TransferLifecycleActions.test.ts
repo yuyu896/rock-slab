@@ -25,11 +25,23 @@ describe('TransferLifecycleActions', () => {
 
   it('只按服务端 canWithdraw 显示撤回并调用接口', async () => {
     const wrapper = mount(TransferLifecycleActions, {
-      props: { doc: baseDoc, type: 'assign' },
+      props: { doc: baseDoc, type: 'assign', showWithdraw: true },
     })
     expect(wrapper.text()).toContain('撤回')
     await wrapper.get('button').trigger('click')
     expect(withdrawTransfer).toHaveBeenCalledWith('t-1')
+  })
+
+  it('hides withdraw by default and shows it only when enabled on details', () => {
+    const listWrapper = mount(TransferLifecycleActions, {
+      props: { doc: baseDoc, type: 'assign' },
+    })
+    expect(listWrapper.find('.lifecycle-btn.warning').exists()).toBe(false)
+
+    const detailWrapper = mount(TransferLifecycleActions, {
+      props: { doc: baseDoc, type: 'assign', showWithdraw: true },
+    })
+    expect(detailWrapper.find('.lifecycle-btn.warning').exists()).toBe(true)
   })
 
   it('草稿显示提交审批和编辑入口', async () => {

@@ -79,6 +79,7 @@ function branchText(doc: TransferDocument) {
           v-if="props.type !== 'purchase'"
           :doc="doc"
           :type="props.type"
+          :show-withdraw="true"
           @changed="emit('lifecycleChanged')"
         />
         <slot name="footer" :doc="doc">
@@ -111,7 +112,7 @@ function branchText(doc: TransferDocument) {
 .mono { font-family: var(--font-mono); }
 .status-text { font-weight: 600; }
 .lines-title { font-size: 15px; font-weight: 600; margin: 0; }
-.detail-footer { display: flex; justify-content: flex-end; gap: var(--space-3); }
+.detail-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); }
 .btn-approve { height: 40px; padding: 0 20px; border-radius: 8px; border: none; background: var(--color-primary-500); color: #fff; cursor: pointer; font-size: var(--text-sm); }
 .btn-reject { height: 40px; padding: 0 20px; border-radius: 8px; border: none; background: oklch(0.92 0.10 25); color: var(--color-danger); cursor: pointer; font-size: var(--text-sm); }
 </style>
