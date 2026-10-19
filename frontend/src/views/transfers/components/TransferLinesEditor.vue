@@ -294,6 +294,7 @@ defineExpose({ validate, validateMessage })
         <span v-if="type === 'purchase'">金额</span>
         <span v-if="type === 'assign'">使用人 <span class="req">*</span></span>
         <span v-if="type === 'assign'">领用部门 <span class="req">*</span></span>
+        <span v-if="type === 'assign'">备注</span>
         <span v-if="type === 'recovery'">存放位置</span>
         <span v-if="hasInstanceColumn">实例（实例管理品目必选）</span>
         <span></span>
@@ -307,7 +308,6 @@ defineExpose({ validate, validateMessage })
             :exclude-consumable="excludeConsumable"
             @change="(item) => onItemPicked(index, item)"
           />
-          <div v-if="draft.item" class="picked-meta">{{ draft.item.asset_name }}{{ draft.item.specification ? ` · ${draft.item.specification}` : '' }}{{ draft.item.unit ? ` · ${draft.item.unit}` : '' }}</div>
           <div v-if="draft.item?.managementType === 'consumable'" class="picked-meta consumable-meta">
             消耗品{{ type === 'assign' ? '：领出即耗用（在库扣减、总量降），不进在用、不可回收' : '' }}
           </div>
@@ -346,6 +346,7 @@ defineExpose({ validate, validateMessage })
             <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
           </select>
         </div>
+        <div v-if="type === 'assign'" class="cell note-cell"><textarea v-model="draft.备注" class="row-input line-note" rows="1" placeholder="设备备注" @change="touch"></textarea></div>
         <div v-if="type === 'recovery'" class="cell"><input v-model="draft.存放位置" type="text" class="row-input" placeholder="存放位置" @change="touch" /></div>
         <div v-if="hasInstanceColumn" class="cell instance-cell">
           <template v-if="isInstanceRow(draft) && draft.item">
@@ -377,21 +378,23 @@ defineExpose({ validate, validateMessage })
 .section-title { font-size: 15px; font-weight: 600; margin: 0; }
 .req { color: var(--color-danger); }
 .add-row-btn { padding: 6px 12px; background: var(--color-primary-50); border: 1px solid var(--color-primary-200); border-radius: 6px; color: var(--color-primary-600); font-size: 13px; cursor: pointer; }
-.lines-table { border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+.lines-table { border: 1px solid var(--color-border); border-radius: 8px; overflow: auto; }
 .lines-header, .lines-row { display: grid; gap: 8px; padding: 8px 12px; align-items: center; }
 .lines-header { background: var(--color-bg-elevated); font-size: 13px; color: var(--color-text-secondary); }
 .lines-row { border-top: 1px solid var(--color-border); }
 .lines-header[data-type='purchase'] , .lines-row[data-type='purchase'] { grid-template-columns: 2fr 0.55fr 1fr 1fr 0.85fr 0.85fr 56px; }
-.lines-header[data-type='assign'] , .lines-row[data-type='assign'] { grid-template-columns: 2fr 0.55fr 1fr 1.1fr 1.6fr 56px; }
+.lines-header[data-type='assign'] , .lines-row[data-type='assign'] { min-width: 930px; grid-template-columns: minmax(170px, 2fr) minmax(56px, 0.55fr) minmax(100px, 1fr) minmax(125px, 1.1fr) minmax(150px, 1.3fr) minmax(135px, 1.2fr) 56px; }
 .lines-header[data-type='transfer'] , .lines-row[data-type='transfer'] { grid-template-columns: 2.2fr 0.6fr 1.1fr 1.5fr 56px; }
 .lines-header[data-type='recovery'] , .lines-row[data-type='recovery'] { grid-template-columns: 1.9fr 0.55fr 0.9fr 1fr 1.5fr 56px; }
 .cell { min-width: 0; }
+.note-cell { display: flex; align-items: center; }
 .item-cell { display: flex; flex-direction: column; gap: 4px; }
 .instance-cell { display: flex; flex-direction: column; gap: 4px; }
 .instance-none { color: var(--color-text-tertiary); text-align: center; }
 .picked-meta { font-size: 12px; color: var(--color-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .consumable-meta { color: var(--color-warning, #b8860b); white-space: normal; }
 .row-input { width: 100%; height: 36px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 6px; font-size: 13px; background: var(--color-bg-page); outline: none; box-sizing: border-box; }
+.row-input.line-note { height: 36px; min-height: 36px; max-height: 36px; padding: 6px 8px; resize: none; overflow: auto; line-height: 20px; }
 .row-input:disabled { opacity: 0.7; cursor: not-allowed; background: var(--color-bg-elevated); }
 .row-input.qty, .row-input.num { text-align: center; }
 .in-use { font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
@@ -400,7 +403,7 @@ defineExpose({ validate, validateMessage })
 .remove-btn:hover { border-color: var(--color-danger); }
 @media (max-width: 768px) {
   .lines-header { display: none; }
-  .lines-header[data-type] , .lines-row[data-type] { grid-template-columns: 1fr; }
+  .lines-header[data-type] , .lines-row[data-type] { min-width: 0; grid-template-columns: 1fr; }
   .lines-row { position: relative; padding-bottom: 32px; }
   .cell.ops { position: absolute; right: 12px; bottom: 8px; width: 64px; }
 }

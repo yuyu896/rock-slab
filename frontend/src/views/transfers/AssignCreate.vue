@@ -17,7 +17,7 @@ const route = useRoute()
 const userStore = useUserStore()
 const creating = ref(false)
 const branchOptions = ref<{ value: string; label: string }[]>([])
-const form = ref({ 调拨日期: '', fromBranch: '', 领用来源: 'stock' as 'stock' | 'recycle_bin', 经办人: userStore.profile?.name || '', 备注: '' })
+const form = ref({ 调拨日期: '', fromBranch: '', 领用来源: 'stock' as 'stock' | 'recycle_bin', 经办人: userStore.profile?.name || '' })
 const lines = ref<LineDraft[]>([emptyDraft()])
 const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 const editingId = ref<string | null>(null)
@@ -55,7 +55,6 @@ async function loadExisting() {
       fromBranch: data.from_branch || branchOptions.value.find((b) => b.label === data.调出分公司)?.value || '',
       领用来源: data.领用来源 || 'stock',
       经办人: data.经办人 || userStore.profile?.name || '',
-      备注: data.备注 || '',
     }
     lines.value = draftsFromLines(data.lines || [])
   } catch (error) {
@@ -93,7 +92,6 @@ async function submit(asDraft = false) {
       fromBranch: f.fromBranch,
       领用来源: f.领用来源,
       经办人: f.经办人,
-      备注: f.备注,
       items,
     }
     if (editingId.value) {
@@ -149,12 +147,10 @@ async function submit(asDraft = false) {
       :assign-source="form.领用来源"
     />
 
-    <div class="form-item full remark-item"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
   </TransferCreateLayout>
 </template>
 
 <style scoped>
-.remark-item { margin-top: var(--space-4); }
 .source-hint { font-size: 12px; color: var(--color-text-secondary); margin-top: 4px; line-height: 1.5; }
 .btn-draft { height: 40px; padding: 0 var(--space-5); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-primary); cursor: pointer; }
 .btn-draft:disabled { opacity: .6; cursor: not-allowed; }

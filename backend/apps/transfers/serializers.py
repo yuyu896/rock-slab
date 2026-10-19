@@ -24,7 +24,7 @@ class TransferLineSerializer(serializers.ModelSerializer):
             'id', '行号', 'item', 'item_code', 'item_name', 'item_spec', 'unit',
             'asset_category', 'item_category', 'management_type',
             '数量', '本批规格', '供应商', '单价', '金额', '使用人',
-            'department', 'department_name', '存放位置', 'instances',
+            'department', 'department_name', '备注', '存放位置', 'instances',
         ]
         read_only_fields = ['id', '行号']
 
@@ -71,6 +71,12 @@ class TransferSerializer(serializers.ModelSerializer):
 
     def get_总数量(self, obj):
         return sum(line.数量 for line in obj.lines.all())
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if instance.action_type == Transfer.ACTION_ASSIGN:
+            data.pop('用途', None)
+        return data
 
     def get_canOperate(self, obj):
         """调拨单调入方只读（修订 3.1）：transfer 类型要求范围含调出方；
@@ -156,6 +162,7 @@ class TransferLineInputSerializer(serializers.Serializer):
     department = serializers.PrimaryKeyRelatedField(
         queryset=Department.objects.all(), required=False, allow_null=True,
     )
+    备注 = serializers.CharField(required=False, default='', allow_blank=True)
     存放位置 = serializers.CharField(required=False, default='', allow_blank=True)
     instances = serializers.PrimaryKeyRelatedField(
         queryset=FixedAsset.objects.all(), many=True, required=False, default=[],

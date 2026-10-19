@@ -289,6 +289,61 @@ class TestDeleteAndUpdateContract:
         assert patch.data['lines'][0]['数量'] == 5
         assert [line['行号'] for line in patch.data['lines']] == [1]  # 行号重排
 
+    def test_assign_line_metadata_and_preserves_approval_note_on_edit(
+        self, authenticated_client, branch, item_id, department,
+    ):
+        payload = {
+            '调拨日期': '2026-08-07',
+            '调出分公司': branch.name,
+            '调出部门': '旧式单头部门',
+            '用途': '旧式单头用途',
+            '备注': '旧式单头设备备注',
+            'items': [
+                _line(
+                    item_id, 'AST-TEST-001', 1,
+                    使用人='张三', department=str(department.id),
+                    用途='已取消的旧字段', 备注='行级备注',
+                ),
+            ],
+        }
+        created = authenticated_client.post(_action_url('assign'), payload, format='json')
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.data['调出部门'] == ''
+        assert '用途' not in created.data
+        assert '用途' not in created.data['lines'][0]
+        assert created.data['lines'][0]['备注'] == '行级备注'
+        assert created.data['备注'] == ''
+
+        rejected = authenticated_client.post(
+            _action_url('approve', created.data['id']),
+            {'approved': False, 'reason': '请补充备注说明'},
+            format='json',
+        )
+        assert rejected.status_code == status.HTTP_200_OK
+        approval_note = rejected.data['备注']
+
+        edited = authenticated_client.patch(
+            f'{TRANSFER_LIST_URL}{created.data["id"]}',
+            {
+                '调出部门': '不应写回单头',
+                '用途': '不应写回单头',
+                '备注': '',
+                'items': [
+                    _line(
+                        item_id, 'AST-TEST-001', 1,
+                        使用人='张三', department=str(department.id),
+                        用途='仍应忽略', 备注='修正后的行备注',
+                    ),
+                ],
+            },
+            format='json',
+        )
+        assert edited.status_code == status.HTTP_200_OK
+        assert edited.data['调出部门'] == '' and '用途' not in edited.data
+        assert edited.data['备注'] == approval_note
+        assert '用途' not in edited.data['lines'][0]
+        assert edited.data['lines'][0]['备注'] == '修正后的行备注'
+
 
 @pytest.mark.django_db
 class TestMigrationConsistency:

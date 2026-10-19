@@ -62,6 +62,11 @@ async function loadExisting() {
       ElMessage.warning('当前账号无权编辑此单据，或单据状态已变化')
       return
     }
+    if (data.lines?.length !== 1) {
+      ElMessage.warning('该单据包含多条明细，请使用完整领用编辑页')
+      router.replace({ path: '/transfers/assign/create', query: { id } })
+      return
+    }
     const line = data.lines?.[0]
     editingId.value = id
     editingStatus.value = data.审批状态 as '草稿' | '已驳回'
@@ -72,7 +77,7 @@ async function loadExisting() {
       fromBranch: data.from_branch || data.调出分公司 || '',
       调拨数量: line?.数量 || 1,
       使用人: line?.使用人 || '',
-      备注: data.备注 || '',
+      备注: line?.备注 || '',
     }
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -104,11 +109,11 @@ async function handleSubmit(asDraft = false) {
     const payload = {
       调拨日期: form.value.调拨日期 || new Date().toISOString().slice(0, 10),
       fromBranch: form.value.fromBranch || undefined,
-      备注: form.value.备注,
       items: [{
         item: item.id,
         数量: form.value.调拨数量,
         使用人: form.value.使用人 || undefined,
+        备注: form.value.备注 || undefined,
       }],
     }
     if (editingId.value) {
@@ -207,8 +212,8 @@ onMounted(() => {
         <textarea
           v-model="form.备注"
           class="form-textarea"
-          placeholder="请输入备注信息"
-          rows="2"
+          placeholder="请输入设备备注"
+          rows="1"
         ></textarea>
       </div>
     </div>
@@ -239,7 +244,7 @@ onMounted(() => {
 .form-input, .form-select, .form-textarea { width: 100%; height: 44px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-card); font-size: 15px; color: var(--color-text-primary); box-sizing: border-box; }
 .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--color-primary-500); }
 .form-select { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L6 6L11 1' stroke='%23999' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
-.form-textarea { height: auto; padding: var(--space-3); resize: vertical; line-height: 1.5; }
+.form-textarea { height: 44px; min-height: 44px; max-height: 44px; padding: 0 var(--space-3); resize: none; overflow: auto; line-height: 20px; }
 .qty-input-group { display: flex; align-items: center; gap: var(--space-3); }
 .qty-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 10px; font-size: 20px; font-weight: 500; color: var(--color-text-primary); cursor: pointer; flex-shrink: 0; }
 .qty-input { text-align: center; flex: 1; }

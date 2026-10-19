@@ -214,6 +214,8 @@ class TransferLine(UUIDModel, TimestampedModel):
         'organizations.Department', on_delete=models.PROTECT, null=True, blank=True,
         related_name='transfer_lines', verbose_name='领用部门',
     )
+    用途 = models.CharField('用途', max_length=200, blank=True, default='')
+    备注 = models.TextField('备注', blank=True, default='')
     存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
     # 处置扣列快照（recovery-stock-source）：处置行生效时实际扣减的台账列与数量，
     # 形如 '在用数量:1' / '在用数量:1,在库数量:2'；对账重放与离线回退的唯一事实源

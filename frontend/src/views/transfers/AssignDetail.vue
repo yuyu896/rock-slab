@@ -64,19 +64,16 @@ onMounted(fetchTransfer)
     @reject="handleReject"
   >
     <template #extra-view="{ doc }">
-      <div class="extra-grid">
-        <span class="extra-item"><label>调出部门</label><span>{{ doc.调出部门 || '-' }}</span></span>
-        <span class="extra-item"><label>用途</label><span>{{ doc.用途 || '-' }}</span></span>
-        <span class="extra-item full"><label>备注</label><span>{{ doc.备注 || '-' }}</span></span>
+      <div v-if="doc.备注" class="history-note">
+        <label>历史/审批信息</label>
+        <span>{{ doc.备注 }}</span>
       </div>
     </template>
   </TransferDetailLayout>
 </template>
 
 <style scoped>
-.extra-grid { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); }
-.extra-item { display: inline-flex; align-items: baseline; gap: 6px; font-size: var(--text-sm); }
-.extra-item label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
-.extra-item span { color: var(--color-text-primary); }
-.extra-item.full { flex-basis: 100%; }
+.history-note { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-note label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
+.history-note span { color: var(--color-text-primary); }
 </style>

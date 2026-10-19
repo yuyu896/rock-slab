@@ -149,9 +149,20 @@ onMounted(() => {
             <span class="value">{{ transfer.调拨原因 }}</span>
           </div>
           <div v-if="transfer.备注" class="info-item">
-            <span class="label">备注</span>
+            <span class="label">{{ transfer.actionType === 'assign' ? '历史/审批信息' : '备注' }}</span>
             <span class="value">{{ transfer.备注 }}</span>
           </div>
+        </div>
+      </div>
+
+      <div v-if="transfer.actionType === 'assign'" class="info-section">
+        <h3 class="section-title">领用明细</h3>
+        <div v-for="line in transfer.lines || []" :key="line.id" class="line-info">
+          <div class="line-heading">{{ line.itemName }} <span class="asset-code">{{ line.itemCode }}</span></div>
+          <div class="line-field"><span class="label">数量</span><span class="value">{{ line.数量 }}</span></div>
+          <div class="line-field"><span class="label">使用人</span><span class="value">{{ line.使用人 || '-' }}</span></div>
+          <div class="line-field"><span class="label">领用部门</span><span class="value">{{ line.departmentName || '-' }}</span></div>
+          <div class="line-field line-field-note"><span class="label">备注</span><span class="value" :title="line.备注 || ''">{{ line.备注 || '-' }}</span></div>
         </div>
       </div>
 
@@ -332,6 +343,13 @@ onMounted(() => {
   color: var(--color-text-primary);
   font-weight: 500;
 }
+
+.line-info { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-border-light); }
+.line-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); padding-bottom: var(--space-2); font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.line-heading .asset-code { margin: 0; }
+.line-field { display: flex; justify-content: space-between; gap: var(--space-3); padding: 4px 0; }
+.line-field .value { text-align: right; overflow-wrap: anywhere; }
+.line-field-note .value { display: block; flex: 0 1 70%; height: 20px; line-height: 20px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .reject-section {
   background: var(--color-bg-card);

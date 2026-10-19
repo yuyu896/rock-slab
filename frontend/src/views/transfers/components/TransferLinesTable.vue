@@ -41,6 +41,7 @@ function goTimeline(code: string) {
           <th v-if="type === 'purchase'">供应商</th>
           <th v-if="type === 'assign'" class="col-user">使用人</th>
           <th v-if="type === 'assign'" class="col-user">领用部门</th>
+          <th v-if="type === 'assign'">备注</th>
           <th v-if="type === 'purchase'">单价</th>
           <th v-if="type === 'purchase'">金额</th>
           <th v-if="type === 'recovery'" class="col-loc">存放位置</th>
@@ -59,6 +60,7 @@ function goTimeline(code: string) {
           <td v-if="type === 'purchase'">{{ line.供应商 || props.headerSupplier || '-' }}</td>
           <td v-if="type === 'assign'">{{ line.使用人 || '-' }}</td>
           <td v-if="type === 'assign'">{{ line.departmentName || '-' }}</td>
+          <td v-if="type === 'assign'" class="line-remark"><div class="line-remark-content" :title="line.备注 || ''">{{ line.备注 || '-' }}</div></td>
           <td v-if="type === 'purchase'">{{ line.单价 ?? '-' }}</td>
           <td v-if="type === 'purchase'">{{ line.金额 ?? '-' }}</td>
           <td v-if="type === 'recovery'">{{ line.存放位置 || '-' }}</td>
@@ -99,6 +101,8 @@ th.col-qty, td.qty { text-align: right; }
 .total-row td { background: var(--color-bg-elevated); font-weight: 600; }
 .total-label { text-align: right; color: var(--color-text-secondary); }
 .col-user, .col-loc { min-width: 90px; }
+.line-remark { min-width: 150px; }
+.line-remark-content { height: 20px; line-height: 20px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .col-inst { min-width: 110px; }
 .inst-link { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary-600); cursor: pointer; margin-right: 6px; }
 .inst-link:hover { text-decoration: underline; }

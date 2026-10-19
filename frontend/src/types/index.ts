@@ -274,6 +274,7 @@ export interface TransferLine {
   使用人?: string
   department?: string | null
   departmentName?: string
+  备注?: string
   存放位置?: string
   /** 行关联实例（实例管理品目）：内部编号列表，可跳转实例生平 */
   instances?: { id: string; code: string; 前编号?: string }[]
@@ -288,6 +289,7 @@ export interface TransferLineInput {
   金额?: number | null
   使用人?: string
   department?: string | null
+  备注?: string
   存放位置?: string
   instances?: string[]
 }

@@ -73,7 +73,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             'filename': 'purchase_template.xlsx',
         },
         'assign': {
-            'headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '用途', '备注'],
+            'headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '备注'],
             'sheet': '领用出库',
             'filename': 'assign_template.xlsx',
         },
@@ -178,6 +178,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         items = data.pop('items')
+        if action_type == Transfer.ACTION_ASSIGN:
+            # 领用部门和设备备注属于明细；单头备注留给审批历史信息。
+            data.pop('调出部门', None)
+            data.pop('用途', None)
+            data.pop('备注', None)
         if not data.get('创建人'):
             data['创建人'] = request.user.name or request.user.phone
         if not data.get('经办人'):
@@ -432,6 +437,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         provided = set(request.data.keys())
         data = {k: v for k, v in serializer.validated_data.items() if k in provided}
         items = data.pop('items', None)
+        if instance.action_type == Transfer.ACTION_ASSIGN:
+            # 历史/审批单头备注保持原值，领用部门和设备备注只从明细读写。
+            data.pop('调出部门', None)
+            data.pop('用途', None)
+            data.pop('备注', None)
 
         from_branch = data.pop('from_branch', None)
         to_branch = data.pop('to_branch', None)
@@ -610,30 +620,33 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         elif template_type == 'assign':
             ws.title = '领用出库'
-            headers = ['分公司', '日期', '资产编号', '物品名称', '领用数量', '使用人', '领用部门', '用途',
+            headers = ['分公司', '日期', '资产编号', '物品名称', '领用数量', '使用人', '领用部门',
                        '部门累计领用', '当前库存', '是否核对', '经办人', '备注']
             ws.append(headers)
 
-            dept_counts = dict(
-                Transfer.objects.filter(
-                    action_type=Transfer.ACTION_ASSIGN,
-                    审批状态__in=['已通过', '已入库'],
-                ).values('调出分公司', '调出部门').annotate(cnt=Count('id')).values_list('调出分公司', '调出部门', 'cnt')
-            )
-            dept_count_map = {(k[0], k[1]): k[2] for k in dept_counts}
+            dept_count_map = {
+                (branch_name, department_id): count
+                for branch_name, department_id, count in TransferLine.objects.filter(
+                    transfer__action_type=Transfer.ACTION_ASSIGN,
+                    transfer__审批状态__in=['已通过', '已入库'],
+                ).values('transfer__调出分公司', 'department_id').annotate(
+                    cnt=Count('transfer_id', distinct=True),
+                ).values_list('transfer__调出分公司', 'department_id', 'cnt')
+            }
             stocks = AssetStock.objects.select_related('branch', 'item')
             stock_map = {(s.branch.name, s.item.asset_code): s.在库数量 for s in stocks}
 
             for t in queryset:
-                dept_total = dept_count_map.get((t.调出分公司, t.调出部门), 0)
                 for line in t.lines.all():
+                    dept_name = line.department.name if line.department_id else ''
+                    dept_total = dept_count_map.get((t.调出分公司, line.department_id), 0)
                     current_stock = stock_map.get((t.调出分公司, line.item.asset_code), 0)
                     ws.append([
                         t.调出分公司,
                         str(t.调拨日期) if t.调拨日期 else '',
                         line.item.asset_code, line.item.asset_name, line.数量,
-                        line.使用人, t.调出部门, t.用途,
-                        dept_total, current_stock, '待核对', t.经办人 or t.创建人, t.备注,
+                        line.使用人, dept_name,
+                        dept_total, current_stock, '待核对', t.经办人 or t.创建人, line.备注,
                     ])
 
         elif template_type == 'recovery':
@@ -885,7 +898,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         all_rows = list(ws.iter_rows(values_only=True))
         header_cells = [str(c).strip() for c in (all_rows[0] if all_rows else []) if c is not None and str(c).strip()]
         expected_headers = self.TYPE_TEMPLATES.get(template_type, {}).get('headers', [])
-        if set(header_cells) != set(expected_headers):
+        accepted_header_sets = [set(expected_headers)]
+        if template_type == 'assign':
+            # 旧领用模板可能含用途列；兼容上传但不再读取该字段。
+            accepted_header_sets.append(set(expected_headers) | {'用途'})
+        if set(header_cells) not in accepted_header_sets:
             missing = [h for h in expected_headers if h not in header_cells]
             extra = [h for h in header_cells if h not in expected_headers]
             wb.close()
@@ -1031,21 +1048,27 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         }
                         action = Transfer.ACTION_PURCHASE
 
-                    # 领用 8 列：分公司|日期|资产编号|数量|使用人|领用部门|用途|备注
+                    # 领用列：分公司|日期|资产编号|数量|使用人|领用部门|备注
                     elif template_type == 'assign':
                         branch_name = _cell(row, '分公司')
                         header = {
                             '调拨日期': _parse_date(_num(row, '日期')),
                             '调出分公司': branch_name,
-                            '用途': _cell(row, '用途'),
-                            '调出部门': _cell(row, '领用部门'),
-                            '备注': _cell(row, '备注'),
                         }
-                        # 领用部门：文本照写单头 + 按部门名解析行级外键（全集团扁平字典）；留空由预检口报"必须选择领用部门"
+                        # 部门和备注属于导入源行对应的领用明细。
+                        user_name = _cell(row, '使用人')
+                        if not user_name:
+                            errors.append(f'第 {i} 行: 使用人不能为空')
+                            continue
                         dept_name = _cell(row, '领用部门')
+                        if not dept_name:
+                            errors.append(f'第 {i} 行: 分公司「{branch_name}」的领用部门不能为空')
+                            continue
                         dept = _resolve_dept(branch_name, dept_name)
-                        if dept_name and dept is None:
-                            errors.append(f'第 {i} 行: 领用部门「{dept_name}」不存在于部门字典')
+                        if dept is None:
+                            errors.append(
+                                f'第 {i} 行: 分公司「{branch_name}」的领用部门「{dept_name}」不存在于部门字典'
+                            )
                             continue
                         qty = _qty(row, '领用数量')
                         if qty is None:
@@ -1054,8 +1077,9 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         line_kwargs = {
                             'item': item,
                             '数量': qty,
-                            '使用人': _cell(row, '使用人'),
+                            '使用人': user_name,
                             'department': dept,
+                            '备注': _cell(row, '备注'),
                         }
                         action = Transfer.ACTION_ASSIGN
 
@@ -1114,7 +1138,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         else:
                             group_key = (
                                 header['调拨日期'], header.get('调出分公司', ''),
-                                header.get('用途', ''),
                             )
                         bucket = doc_groups.setdefault(group_key, {'action': action, 'header': header, 'lines': []})
                         bucket['lines'].append(line_kwargs)
