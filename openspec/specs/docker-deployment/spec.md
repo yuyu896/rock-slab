@@ -47,7 +47,7 @@ TBD - created by archiving change deploy-to-alibaba-cloud. Update Purpose after 
 系统 SHALL 提供 `backend/gunicorn.conf.py`，配置：
 - worker 数量：`2 * CPU核心 + 1`（2核服务器 = 5 workers）
 - worker 类：`gthread`
-- threads：2
+- threads：3
 - timeout：120 秒
 - max-requests：1000（定期重启 worker 防止内存泄漏）
 - bind：`0.0.0.0:8000`

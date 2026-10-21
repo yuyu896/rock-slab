@@ -79,7 +79,6 @@ function toggleExpand(key: string) {
 
 // ===== 弹窗（组织 / 员工 通用） =====
 type EditType = 'region' | 'team' | 'branch' | 'user'
-const showModal = ref(false)
 const saving = ref(false)
 const editingItem = ref<Record<string, any> | null>(null)
 const editingEmployee = ref<Record<string, any> | null>(null)
@@ -127,12 +126,11 @@ function addItem(type: EditType) {
   if (type === 'team') base.region = currentRegionId.value
   if (type === 'branch') base.team = currentTeamId.value
   editingItem.value = base
-  showModal.value = true
 }
 
-function editRegion(r: Region | undefined) { if (!r) return; editingItem.value = { type: 'region', isNew: false, id: r.id, name: r.name, code: r.code, manager: r.manager, status: r.status } ; showModal.value = true }
-function editTeam(t: Team | undefined) { if (!t) return; editingItem.value = { type: 'team', isNew: false, id: t.id, name: t.name, region: t.region, leader: t.leader, status: t.status } ; showModal.value = true }
-function editBranch(b: Branch | undefined) { if (!b) return; editingItem.value = { type: 'branch', isNew: false, id: b.id, name: b.name, code: b.code, team: b.team, address: b.address, phone: b.phone, manager: b.manager, status: b.status } ; showModal.value = true }
+function editRegion(r: Region | undefined) { if (!r) return; editingItem.value = { type: 'region', isNew: false, id: r.id, name: r.name, code: r.code, manager: r.manager, status: r.status } }
+function editTeam(t: Team | undefined) { if (!t) return; editingItem.value = { type: 'team', isNew: false, id: t.id, name: t.name, region: t.region, leader: t.leader, status: t.status } }
+function editBranch(b: Branch | undefined) { if (!b) return; editingItem.value = { type: 'branch', isNew: false, id: b.id, name: b.name, code: b.code, team: b.team, address: b.address, phone: b.phone, manager: b.manager, status: b.status } }
 function editUser(u: User) {
   editingEmployee.value = { isNew: false, id: u.id, name: u.name, phone: u.phone, role: u.role, branch: u.branch || '', status: u.status }
 }
@@ -198,7 +196,6 @@ async function saveItem() {
       item.isNew ? await createBranch(payload) : await updateBranch(item.id, payload)
     }
     ElMessage.success(item.isNew ? '创建成功' : '保存成功')
-    showModal.value = false
     editingItem.value = null
     await loadAll()
   } catch (e) {
@@ -497,7 +494,7 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
           </div>
         </div>
         <div class="modal-footer">
-          <button class="action-btn" :disabled="saving" @click="showModal = false">取消</button>
+          <button class="action-btn" :disabled="saving" @click="editingItem = null">取消</button>
           <button class="action-btn primary" :disabled="saving" @click="saveItem">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
