@@ -21,9 +21,11 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/assets', () => ({
   getFixedAssets: vi.fn(),
+  getFixedAsset: vi.fn(),
   exportFixedAssets: vi.fn(),
   supplementFixedAsset: vi.fn(),
   getFixedAssetTimeline: vi.fn(),
+  changeFixedAssetAssignee: vi.fn(),
   uploadFixedAssetImage: vi.fn(),
   deleteFixedAssetImage: vi.fn(),
   batchUpdateFixedAssets: vi.fn(),
@@ -31,6 +33,9 @@ vi.mock('@/api/assets', () => ({
 
 vi.mock('@/api/branches', () => ({
   getBranches: vi.fn().mockResolvedValue({ data: [] }),
+}))
+vi.mock('@/api/departments', () => ({
+  getDepartmentOptions: vi.fn().mockResolvedValue({ data: [] }),
 }))
 vi.mock('@/api/suppliers', () => ({
   getSuppliers: vi.fn().mockResolvedValue({
@@ -43,7 +48,11 @@ vi.mock('@/api/suppliers', () => ({
 
 import FixedAssetList from '@/views/FixedAssetList.vue'
 import fixedAssetListSource from '@/views/FixedAssetList.vue?raw'
-import { getFixedAssets, uploadFixedAssetImage } from '@/api/assets'
+import {
+  getFixedAssets, getFixedAsset, getFixedAssetTimeline, uploadFixedAssetImage,
+  supplementFixedAsset, batchUpdateFixedAssets, changeFixedAssetAssignee,
+} from '@/api/assets'
+import { getDepartmentOptions } from '@/api/departments'
 import type { FixedAsset } from '@/types'
 
 function _inst(overrides: Partial<FixedAsset>): FixedAsset {
@@ -70,7 +79,8 @@ const stubs = {
   'el-image': { props: ['src'], template: '<img class="el-image-stub" :src="src" />' },
   'el-form': { template: '<div><slot /></div>' },
   'el-form-item': { template: '<div><slot /></div>' },
-  'el-input': { props: ['modelValue'], emits: ['update:modelValue'], template: `<input class="el-input-stub" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" />` },
+  'el-input': { props: ['modelValue', 'placeholder'], emits: ['update:modelValue'], template: `<input class="el-input-stub" :placeholder="placeholder" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" />` },
+  'el-date-picker': { props: ['modelValue', 'placeholder'], emits: ['update:modelValue'], template: `<input class="el-date-picker-stub" :placeholder="placeholder" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" />` },
   'el-select': { name: 'ElSelect', props: ['modelValue', 'placeholder'], emits: ['update:modelValue', 'clear'], template: `<div class="el-select-stub" :data-ph="placeholder" />` },
   'el-option': { name: 'ElOption', props: ['value', 'label'], template: '<div class="el-option-stub" />' },
   'el-button': { template: '<button><slot /></button>' },
@@ -313,5 +323,140 @@ describe('实例档案供应商只准选（instance-supplier-dict-select）', ()
 
   it('批量供应商提交前确认影响行数与回落语义', () => {
     expect(fixedAssetListSource).toContain('ElMessageBox.confirm(`将更新 ${ids.length} 台实例的供应商')
+  })
+})
+
+describe('实例使用人单次保存', () => {
+  const original = _inst({
+    当前状态: '在用', 使用人: '张三', department: 'd1', departmentName: '行政部', 采购日期: null,
+  })
+  const changed = _inst({
+    ...original, 使用人: '李四', department: 'd2', departmentName: '技术部',
+  })
+  const departments = [
+    { id: 'd1', name: '行政部' },
+    { id: 'd2', name: '技术部' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCan.mockReturnValue(true)
+    vi.mocked(getFixedAssets).mockResolvedValue({
+      data: { count: 1, results: [{ ...original }] },
+    } as any)
+    vi.mocked(getFixedAsset).mockResolvedValue({ data: { ...original } } as any)
+    vi.mocked(getFixedAssetTimeline).mockResolvedValue({
+      data: { instance: { ...original }, birth: null, timeline: [] },
+    } as any)
+    vi.mocked(getDepartmentOptions).mockResolvedValue({ data: departments } as any)
+    vi.mocked(supplementFixedAsset).mockResolvedValue({ data: original } as any)
+    vi.mocked(batchUpdateFixedAssets).mockResolvedValue({
+      data: { updated: 1, results: [original.内部编号], errors: [] },
+    } as any)
+    vi.mocked(changeFixedAssetAssignee).mockResolvedValue({
+      data: { asset: changed, changed: true },
+    } as any)
+  })
+
+  async function openEditor() {
+    const wrapper = await _mount()
+    const edit = wrapper.findAll('button').find((button) => button.attributes('title') === '编辑')
+    expect(edit).toBeTruthy()
+    await edit!.trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('使用同一个保存按钮依次保存档案和使用人部门', async () => {
+    const wrapper = await openEditor()
+    await wrapper.find('input[placeholder="请输入使用人姓名"]').setValue('李四')
+    const department = wrapper.findAllComponents({ name: 'ElSelect' })
+      .find((select) => select.props('placeholder') === '请选择部门')
+    expect(department).toBeTruthy()
+    department!.vm.$emit('update:modelValue', 'd2')
+    await flushPromises()
+
+    const save = wrapper.findAll('.el-dialog button').find((button) => button.text() === '保存')
+    expect(save).toBeTruthy()
+    await save!.trigger('click')
+    await flushPromises()
+
+    expect(supplementFixedAsset).toHaveBeenCalledOnce()
+    expect(batchUpdateFixedAssets).toHaveBeenCalledOnce()
+    expect(changeFixedAssetAssignee).toHaveBeenCalledWith('fa-1', {
+      使用人: '李四', department: 'd2',
+    })
+    expect((supplementFixedAsset as any).mock.invocationCallOrder[0]).toBeLessThan((batchUpdateFixedAssets as any).mock.invocationCallOrder[0])
+    expect((batchUpdateFixedAssets as any).mock.invocationCallOrder[0]).toBeLessThan((changeFixedAssetAssignee as any).mock.invocationCallOrder[0])
+    expect(wrapper.find('.el-dialog').exists()).toBe(false)
+  })
+
+  it('生平保持五列表格并显示交接后的使用人和部门', async () => {
+    vi.mocked(getFixedAssetTimeline).mockResolvedValue({
+      data: {
+        instance: { ...original },
+        birth: null,
+        timeline: [
+          {
+            kind: 'assignee_change', event_id: 'assignee-change-1',
+            时间: '2026-10-21T03:07:00Z', 旧使用人: '张三', 新使用人: '李四',
+            旧部门: '行政部', 新部门: '技术部', 操作账号: '', 操作人: '', 原因: '',
+          },
+          {
+            kind: 'transfer', event_id: 'transfer-1', transferId: 'tr-1',
+            单据编号: 'CG20260911-020', actionType: 'purchase', 日期: '2026-09-11',
+            时间: '2026-09-11T00:00:00Z', 行号: 1, 品目编号: 'NB-001', 数量: 1,
+            使用人: '张三', 部门: '行政部', 本批规格: '', 审批状态: '已入库',
+          },
+        ],
+      },
+    } as any)
+
+    const wrapper = await openEditor()
+    const table = wrapper.find('.timeline-table')
+    expect(table.findAll('thead th').map((header) => header.text())).toEqual([
+      '日期', '单据', '类型', '使用人', '状态',
+    ])
+    const rows = table.findAll('tbody tr')
+    expect(rows[0].findAll('td').map((cell) => cell.text())).toEqual([
+      '2026-10-21', '-', '使用人变更', '李四 / 技术部', '已生效',
+    ])
+    expect(rows[1].findAll('td')[0].text()).toBe('2026-09-11')
+    expect(rows[1].findAll('td')[1].text()).toBe('CG20260911-020')
+    expect(rows[1].findAll('td')[3].text()).toBe('张三 / 行政部')
+    expect(rows[1].findAll('td')[1].classes()).toContain('timeline-document-cell')
+  })
+
+  it('交接失败后按实例刷新档案基线，筛选结果为空时仍提交清空采购日期', async () => {
+    const persisted = _inst({ ...original, 采购日期: '2026-10-20' })
+    vi.mocked(getFixedAsset).mockResolvedValue({ data: persisted } as any)
+    vi.mocked(getFixedAssets)
+      .mockResolvedValueOnce({ data: { count: 1, results: [original] } } as any)
+      .mockResolvedValue({ data: { count: 0, results: [] } } as any)
+    vi.mocked(changeFixedAssetAssignee)
+      .mockRejectedValueOnce({ response: { data: { detail: '交接失败' } } })
+      .mockResolvedValueOnce({ data: { asset: changed, changed: true } } as any)
+
+    const wrapper = await openEditor()
+    await wrapper.find('input[placeholder="请输入使用人姓名"]').setValue('李四')
+    const department = wrapper.findAllComponents({ name: 'ElSelect' })
+      .find((select) => select.props('placeholder') === '请选择部门')
+    department!.vm.$emit('update:modelValue', 'd2')
+    await wrapper.find('input[placeholder="空=沿用出生单日期"]').setValue('2026-10-20')
+    await flushPromises()
+
+    const save = () => wrapper.findAll('.el-dialog button').find((button) => button.text() === '保存')!
+    await save().trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.el-dialog').exists()).toBe(true)
+
+    await wrapper.find('input[placeholder="空=沿用出生单日期"]').setValue('')
+    await save().trigger('click')
+    await flushPromises()
+
+    expect(batchUpdateFixedAssets).toHaveBeenNthCalledWith(1, expect.objectContaining({ 采购日期: '2026-10-20' }))
+    expect(batchUpdateFixedAssets).toHaveBeenNthCalledWith(2, expect.objectContaining({ 采购日期: '' }))
+    expect(getFixedAsset).toHaveBeenCalledWith('fa-1')
+    expect(wrapper.find('.el-dialog').exists()).toBe(false)
   })
 })

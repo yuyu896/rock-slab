@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from apps.categories.models import Category
+from apps.organizations.models import Department
 from .models import AssetStock, FixedAsset, LedgerAdjustment
 
 
@@ -148,4 +149,22 @@ class FixedAssetSupplementSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'detail': f'补录仅支持 序列号/备注，多余字段：{"、".join(sorted(unknown))}'}
             )
+        return attrs
+
+
+class FixedAssetAssigneeChangeSerializer(serializers.Serializer):
+    """Dedicated handoff request; assignee remains free text, department is dictionary-bound."""
+
+    使用人 = serializers.CharField(max_length=100, trim_whitespace=True)
+    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all())
+    原因 = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
+
+    def validate(self, attrs):
+        unknown = set(self.initial_data) - {'使用人', 'department', '原因'}
+        if unknown:
+            raise serializers.ValidationError({
+                'detail': f'更换使用人仅支持 使用人/department/原因，多余字段：{"、".join(sorted(unknown))}'
+            })
+        if not attrs['使用人']:
+            raise serializers.ValidationError({'使用人': ['新使用人不能为空']})
         return attrs

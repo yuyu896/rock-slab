@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getFixedAssets, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets, supplementFixedAsset } from '@/api/assets'
+import { getFixedAssets, getFixedAsset, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, changeFixedAssetAssignee, batchUpdateFixedAssets, supplementFixedAsset } from '@/api/assets'
 import type { FixedAsset, FixedAssetTimeline } from '@/types'
 import { getBranches } from '@/api/branches'
 import { getSuppliers, type Supplier } from '@/api/suppliers'
+import { getDepartmentOptions, type Department } from '@/api/departments'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
@@ -76,10 +77,37 @@ async function handleExport() {
 const editing = ref<FixedAsset | null>(null)
 const editForm = ref<{ 序列号: string; 备注: string; 规格: string; 供应商: string; 采购日期: string | null }>({ 序列号: '', 备注: '', 规格: '', 供应商: '', 采购日期: null })
 const editSaving = ref(false)
+const assigneeForm = ref({ 使用人: '', department: '', 原因: '' })
+const assigneeDepartments = ref<Department[]>([])
+const assigneeDepartmentsLoading = ref(false)
+const assigneeDirty = computed(() => {
+  const asset = editing.value
+  if (!asset || asset.当前状态 !== '在用') return false
+  return assigneeForm.value.使用人.trim() !== (asset.使用人 || '').trim()
+    || assigneeForm.value.department !== (asset.department || '')
+})
 const editVisibleProxy = computed({
   get: () => editing.value !== null,
-  set: (v: boolean) => { if (!v) editing.value = null },
+  set: (v: boolean) => { if (!v) closeEditDialog() },
 })
+
+function closeEditDialog() {
+  editing.value = null
+  clearTimeline()
+}
+
+async function refreshEditedAsset(assetId: string) {
+  try {
+    const { data } = await getFixedAsset(assetId)
+    if (editing.value?.id === assetId) editing.value = { ...editing.value, ...data }
+    const row = assets.value.find((item) => item.id === assetId)
+    if (row) Object.assign(row, data)
+  } catch {
+    await fetchAssets()
+    const latest = assets.value.find((item) => item.id === assetId)
+    if (latest && editing.value?.id === assetId) editing.value = { ...editing.value, ...latest }
+  }
+}
 
 function openEdit(asset: FixedAsset) {
   editing.value = asset
@@ -90,36 +118,110 @@ function openEdit(asset: FixedAsset) {
     供应商: asset.供应商 || '',
     采购日期: asset.采购日期 || null,
   }
+  assigneeForm.value = {
+    使用人: asset.使用人 || '',
+    department: asset.department || '',
+    原因: '',
+  }
+  assigneeDepartments.value = []
+  if (canSupplement.value && asset.当前状态 === '在用') void fetchAssigneeDepartments()
   openTimeline(asset)  // 右栏生平并行拉取（不阻塞左栏编辑）
 }
 
+async function fetchAssigneeDepartments() {
+  assigneeDepartmentsLoading.value = true
+  try {
+    const { data } = await getDepartmentOptions()
+    assigneeDepartments.value = data
+  } catch {
+    assigneeDepartments.value = []
+  } finally {
+    assigneeDepartmentsLoading.value = false
+  }
+}
+
 async function handleEditSave() {
-  if (!editing.value) return
+  const asset = editing.value
+  if (!asset) return
+
+  const shouldChangeAssignee = assigneeDirty.value
+  let assigneeName = ''
+  let assigneeDepartment: Department | undefined
+  if (shouldChangeAssignee) {
+    assigneeName = assigneeForm.value.使用人.trim()
+    if (!assigneeName) {
+      ElMessage.warning('请输入使用人姓名')
+      return
+    }
+    assigneeDepartment = assigneeDepartments.value.find((item) => item.id === assigneeForm.value.department)
+    if (!assigneeDepartment) {
+      ElMessage.warning('请选择有效部门')
+      return
+    }
+  }
+
   editSaving.value = true
+  let metadataPartiallySaved = false
+  let metadataSaved = false
   try {
     // 序列号/备注走补录接口（serial-uniqueness UI 收口）：支持清空（空=回到待补录）
     // 与同分公司查重；batch_update 的 空=不改 语义无法清空序列号
-    await supplementFixedAsset(editing.value.id, {
+    await supplementFixedAsset(asset.id, {
       序列号: editForm.value.序列号,
       备注: editForm.value.备注,
     })
-    const hadDate = !!editing.value.采购日期  // 原有个体日期：清空即清除覆盖
+    metadataPartiallySaved = true
+    const hadDate = !!asset.采购日期  // 原有个体日期：清空即清除覆盖
     const { data } = await batchUpdateFixedAssets({
-      ids: [editing.value.id],
+      ids: [asset.id],
       规格: editForm.value.规格,
       供应商: editForm.value.供应商,
       ...(editForm.value.采购日期 || hadDate ? { 采购日期: editForm.value.采购日期 || '' } : {}),
     })
     const errs = data.errors || []
     if (errs.length) {
-      ElMessage.warning(`保存部分失败：${errs[0]}${errs.length > 1 ? ' 等' : ''}`)
+      const assigneeNote = shouldChangeAssignee ? '；使用人和部门未变更' : ''
+      ElMessage.warning(`保存部分失败：${errs[0]}${errs.length > 1 ? ' 等' : ''}${assigneeNote}`)
+      await refreshEditedAsset(asset.id)
       return  // 弹窗保留，供修正重试
     }
+    metadataSaved = true
+    if (editing.value?.id === asset.id) {
+      editing.value = {
+        ...editing.value,
+        采购日期: editForm.value.采购日期 || null,
+      }
+    }
+    await refreshEditedAsset(asset.id)
+
+    if (shouldChangeAssignee && assigneeDepartment) {
+      const { data: changeData } = await changeFixedAssetAssignee(asset.id, {
+        使用人: assigneeName,
+        department: assigneeDepartment.id,
+        ...(assigneeForm.value.原因.trim() ? { 原因: assigneeForm.value.原因.trim() } : {}),
+      })
+      const updated = {
+        ...asset,
+        ...changeData.asset,
+        使用人: changeData.asset.使用人 || assigneeName,
+        department: changeData.asset.department || assigneeDepartment.id,
+        departmentName: changeData.asset.departmentName || changeData.asset.department_name || assigneeDepartment.name,
+      }
+      applyAssigneeUpdate(updated)
+    }
     ElMessage.success('已保存')
-    editing.value = null
+    closeEditDialog()
     await fetchAssets()
   } catch (error) {
-    ElMessage.error(handleApiError(error))
+    const message = handleApiError(error)
+    if (metadataPartiallySaved) await refreshEditedAsset(asset.id)
+    if (shouldChangeAssignee && metadataSaved) {
+      ElMessage.error(`档案信息已保存，但使用人和部门变更失败：${message}`)
+    } else if (shouldChangeAssignee && metadataPartiallySaved) {
+      ElMessage.error(`档案信息可能已部分保存，使用人和部门未变更：${message}`)
+    } else {
+      ElMessage.error(message)
+    }
   } finally {
     editSaving.value = false
   }
@@ -199,6 +301,16 @@ function applyImageUpdate(updated: FixedAsset) {
   if (editing.value) editing.value = { ...editing.value, 图片: updated.图片 }
 }
 
+function applyAssigneeUpdate(updated: FixedAsset) {
+  const row = assets.value.find((item) => item.id === updated.id)
+  if (row) Object.assign(row, updated)
+  if (editing.value?.id === updated.id) editing.value = { ...editing.value, ...updated }
+}
+
+function formatTimelineDate(value?: string): string {
+  return value ? value.slice(0, 10) : '-'
+}
+
 /** 生平类型列中文标签（未知动作值兜底原值，防御存量脏数据） */
 function transferTypeLabel(actionType?: string): string {
   return (TRANSFER_TYPES as Record<string, { label: string }>)[actionType ?? '']?.label ?? actionType ?? '-'
@@ -207,22 +319,39 @@ function transferTypeLabel(actionType?: string): string {
 // ── 生平（出生信息 + 关联全部明细行倒序） ──
 const timeline = ref<FixedAssetTimeline | null>(null)
 const timelineLoading = ref(false)
-const timelineVisibleProxy = computed({
-  get: () => timeline.value !== null || timelineLoading.value,
-  set: (v: boolean) => { if (!v) timeline.value = null },
-})
+const timelineAsset = ref<FixedAsset | null>(null)
+const timelineError = ref('')
+let timelineRequestToken = 0
+
+function clearTimeline() {
+  timelineRequestToken += 1
+  timeline.value = null
+  timelineAsset.value = null
+  timelineLoading.value = false
+  timelineError.value = ''
+}
 
 async function openTimeline(asset: FixedAsset) {
+  const requestToken = ++timelineRequestToken
+  timelineAsset.value = asset
   timeline.value = null
+  timelineError.value = ''
   timelineLoading.value = true
   try {
     const { data } = await getFixedAssetTimeline(asset.id)
-    timeline.value = data
+    if (requestToken === timelineRequestToken) timeline.value = data
   } catch (error) {
-    ElMessage.error(handleApiError(error))
+    if (requestToken === timelineRequestToken) {
+      timelineError.value = handleApiError(error)
+      ElMessage.error(timelineError.value)
+    }
   } finally {
-    timelineLoading.value = false
+    if (requestToken === timelineRequestToken) timelineLoading.value = false
   }
+}
+
+function retryTimeline() {
+  if (timelineAsset.value) void openTimeline(timelineAsset.value)
 }
 
 // ── 标签打印（单行 + 勾选批量） ──
@@ -395,7 +524,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">固定资产实例</h1>
-        <p class="page-desc">一物一档 · 共{{ pagination.total }}台 · 变动经流转单</p>
+        <p class="page-desc">一物一档 · 共{{ pagination.total }}台 · 责任人变更留有记录</p>
       </div>
       <div class="header-actions">
         <div v-if="canSupplement" class="batch-wrap">
@@ -526,15 +655,41 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
     <BasePagination :total="pagination.total" :current-page="pagination.page" :page-size="pagination.pageSize" @change="handlePaginationChange" />
 
     <!-- 行编辑弹窗（双栏：左编辑 右生平） -->
-    <el-dialog v-model="editVisibleProxy" title="编辑实例" width="1160px" :close-on-click-modal="false" top="6vh">
+    <el-dialog v-model="editVisibleProxy" class="asset-edit-dialog" title="编辑实例" width="min(1240px, calc(100vw - 32px))" :close-on-click-modal="false" top="4vh">
       <div v-if="editing" class="edit-dual">
-        <!-- 左栏：编辑表单 -->
-        <div class="edit-pane">
-          <el-form label-width="72px">
+        <div class="edit-form-scroll">
+          <el-form label-width="110px">
             <el-form-item label="内部编号"><span class="asset-code">{{ editing.内部编号 }}</span></el-form-item>
             <el-form-item label="品目名称">{{ editing.itemName || '-' }}</el-form-item>
-            <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
-            <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
+            <div class="assignee-section">
+              <div class="assignee-section-title">使用人和部门</div>
+              <template v-if="editing.当前状态 === '在用'">
+                <el-form-item label="使用人">
+                  <el-input v-model="assigneeForm.使用人" placeholder="请输入使用人姓名" :disabled="editSaving" />
+                </el-form-item>
+                <el-form-item label="部门">
+                  <el-select
+                    v-model="assigneeForm.department"
+                    placeholder="请选择部门"
+                    filterable
+                    :loading="assigneeDepartmentsLoading"
+                    :disabled="assigneeDepartmentsLoading || assigneeDepartments.length === 0 || editSaving"
+                    style="width: 100%"
+                  >
+                    <el-option v-for="department in assigneeDepartments" :key="department.id" :label="department.name" :value="department.id" />
+                  </el-select>
+                  <span v-if="!assigneeDepartmentsLoading && assigneeDepartments.length === 0" class="assignee-department-error">部门选项不可用，请关闭后重试</span>
+                </el-form-item>
+                <el-form-item label="原因（可选）">
+                  <el-input v-model="assigneeForm.原因" type="textarea" :rows="2" placeholder="填写交接原因" :disabled="editSaving" />
+                </el-form-item>
+              </template>
+              <template v-else>
+                <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
+                <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
+                <p class="assignee-readonly-hint">仅在用实例可更换使用人和部门</p>
+              </template>
+            </div>
             <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入；清空=回到待补录" /></el-form-item>
             <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
@@ -561,43 +716,55 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
             </el-form-item>
           </el-form>
         </div>
-        <!-- 右栏：实例生平 -->
-        <div class="edit-pane timeline-pane">
-          <div v-if="timelineLoading" class="timeline-empty">生平加载中...</div>
-          <div v-else-if="!timeline" class="timeline-empty">暂无生平数据</div>
-          <template v-else>
-            <div class="timeline-head">
-              <div class="timeline-code">{{ timeline.instance.内部编号 }}</div>
-              <div class="timeline-meta">
-                {{ timeline.instance.itemCode }} · {{ timeline.instance.itemName }} ·
-                <StatusBadge :status="timeline.instance.当前状态" />
-              </div>
-              <div class="timeline-meta dim">
-                供应商：{{ timeline.birth?.供应商 || '（存量档案）' }}
-                <template v-if="timeline.birth?.采购日期"> · 采购日期：{{ timeline.birth.采购日期 }}</template>
-              </div>
+        <section class="timeline-pane" aria-label="资产生平">
+          <h3 class="timeline-pane-title">资产生平</h3>
+          <div class="timeline-scroll">
+            <div v-if="timelineLoading" class="timeline-empty">生平加载中...</div>
+            <div v-else-if="timelineError" class="timeline-empty">
+              {{ timelineError }}
+              <el-button size="small" @click="retryTimeline">重试</el-button>
             </div>
-            <table class="data-table timeline-table">
-              <thead>
-                <tr><th>日期</th><th>单据</th><th>类型</th><th>使用人</th><th>状态</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in timeline.timeline" :key="row.transferId + '-' + row.行号">
-                  <td><span class="date-text">{{ row.日期 }}</span></td>
-                  <td>{{ row.单据编号 || '-' }}</td>
-                  <td>{{ transferTypeLabel(row.actionType) }}</td>
-                  <td>{{ row.使用人 || '-' }}</td>
-                  <td>{{ row.审批状态 }}</td>
-                </tr>
-                <tr v-if="timeline.timeline.length === 0"><td colspan="5" class="empty-cell">暂无流转记录</td></tr>
-              </tbody>
-            </table>
-          </template>
-        </div>
+            <template v-else-if="timeline">
+              <div class="timeline-summary">
+                <div class="timeline-summary-code">{{ timeline.instance.内部编号 }}</div>
+                <div class="timeline-summary-meta">
+                  {{ timeline.instance.itemCode }} · {{ timeline.instance.itemName }} ·
+                  <StatusBadge :status="timeline.instance.当前状态" />
+                </div>
+                <div class="timeline-summary-meta dim">
+                  供应商：{{ timeline.birth?.供应商 || '（存量档案）' }}
+                  <template v-if="timeline.birth?.采购日期"> · 采购日期：{{ timeline.birth.采购日期 }}</template>
+                </div>
+              </div>
+              <div class="timeline-table-scroll">
+                <table class="data-table timeline-table">
+                  <thead>
+                    <tr><th>日期</th><th>单据</th><th>类型</th><th>使用人</th><th>状态</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in timeline.timeline" :key="row.event_id">
+                      <td><span class="date-text">{{ formatTimelineDate(row.kind === 'assignee_change' ? row.时间 : row.日期) }}</span></td>
+                      <td class="timeline-document-cell">{{ row.kind === 'transfer' ? (row.单据编号 || '-') : '-' }}</td>
+                      <td>{{ row.kind === 'assignee_change' ? '使用人变更' : transferTypeLabel(row.actionType) }}</td>
+                      <td>
+                        <template v-if="row.kind === 'assignee_change'">
+                          {{ row.新使用人 || '-' }}<span v-if="row.新部门"> / {{ row.新部门 }}</span>
+                        </template>
+                        <template v-else>{{ row.使用人 || '-' }}<span v-if="row.部门"> / {{ row.部门 }}</span></template>
+                      </td>
+                      <td>{{ row.kind === 'assignee_change' ? '已生效' : row.审批状态 }}</td>
+                    </tr>
+                    <tr v-if="timeline.timeline.length === 0"><td colspan="5" class="empty-cell">暂无流转记录</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
+        </section>
       </div>
       <template #footer>
-        <el-button @click="editing = null">取消</el-button>
-        <el-button type="primary" :loading="editSaving" @click="handleEditSave">保存</el-button>
+        <el-button :disabled="editSaving" @click="closeEditDialog">取消</el-button>
+        <el-button type="primary" :loading="editSaving" :disabled="assigneeDirty && assigneeDepartmentsLoading" @click="handleEditSave">保存</el-button>
       </template>
     </el-dialog>
 
@@ -671,20 +838,35 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .asset-code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-primary-600); background: var(--color-primary-50); padding: 2px 8px; border-radius: 4px; }
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; }
 .pending-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: var(--text-xs); color: var(--color-warning, #b45309); background: var(--color-warning-bg, #fef3c7); }
-/* 编辑弹窗双栏 */
-.edit-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-.edit-pane { min-width: 0; }
-.timeline-pane { max-height: 62vh; overflow-y: auto; padding-left: 16px; border-left: 1px solid var(--color-border); }
-.timeline-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.timeline-code { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--color-primary-600); }
-.timeline-meta { font-size: var(--text-sm); color: var(--color-text-secondary); }
-.timeline-meta.dim { color: var(--color-text-tertiary); font-size: var(--text-xs); }
-.edit-image-block { display: flex; flex-direction: column; gap: 8px; }
-.edit-image-large { width: 160px; height: 120px; border-radius: 8px; display: block; }
-.edit-image-empty { width: 160px; height: 120px; border-radius: 8px; border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--text-sm); }
+:global(.asset-edit-dialog) { margin-bottom: 0; }
+.edit-dual { display: grid; grid-template-columns: minmax(360px, .43fr) minmax(520px, .57fr); gap: var(--space-6); align-items: start; }
+.edit-form-scroll { max-height: 74vh; overflow-y: auto; overflow-x: hidden; padding: 0 8px 0 0; }
+.edit-image-block { display: flex; flex-direction: column; gap: 8px; width: min(160px, 100%); max-width: 100%; }
+.edit-image-large, .edit-image-empty { width: 100%; max-width: 160px; aspect-ratio: 4 / 3; height: auto; border-radius: 8px; }
+.edit-image-large { display: block; }
+.edit-image-empty { border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--text-sm); }
 .edit-image-actions { display: flex; gap: 8px; }
-.image-size-hint { color: var(--color-text-tertiary); font-size: var(--text-xs); }
-@media (max-width: 768px) { .edit-dual { grid-template-columns: 1fr; } .timeline-pane { border-left: none; padding-left: 0; border-top: 1px solid var(--color-border); padding-top: 12px; } }
+.assignee-section { margin: var(--space-2) 0 var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.assignee-section-title { margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
+.assignee-department-error, .assignee-readonly-hint { display: block; margin-top: 6px; color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.timeline-pane { min-width: 0; border-left: 1px solid var(--color-border); padding-left: var(--space-6); }
+.timeline-pane-title { margin: 0 0 var(--space-3); color: var(--color-text-primary); font-size: var(--text-base); font-weight: 600; }
+.timeline-scroll { max-height: 74vh; overflow-y: auto; overflow-x: hidden; padding-right: 8px; }
+.timeline-summary { margin-bottom: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.timeline-summary-code { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--color-primary-600); }
+.timeline-summary-meta { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--color-text-secondary); }
+.timeline-summary-meta.dim { font-size: var(--text-xs); color: var(--color-text-tertiary); }
+.timeline-table th, .timeline-table td { padding: var(--space-2) var(--space-3); }
+.timeline-table th:first-child { width: 108px; }
+.timeline-document-cell { white-space: nowrap; }
+.timeline-table-scroll { width: 100%; overflow-x: auto; }
+.timeline-empty { text-align: center; color: var(--color-text-tertiary); padding: var(--space-8); }
+@media (max-width: 980px) {
+  .edit-dual { grid-template-columns: minmax(0, 1fr); max-height: calc(100dvh - 180px); overflow-y: auto; overflow-x: hidden; }
+  .edit-form-scroll { max-height: none; overflow: visible; padding-right: 0; }
+  .timeline-pane { border-left: 0; border-top: 1px solid var(--color-border); padding: var(--space-5) 0 0; }
+  .timeline-scroll { max-height: none; overflow: visible; padding-right: 0; }
+}
 .image-cell { width: 56px; }
 .check-col { width: 36px; text-align: center; }
 .batch-wrap { position: relative; }
@@ -708,11 +890,5 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .action-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-right: var(--space-1); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; color: var(--color-text-secondary); }
 .action-btn:hover { border-color: var(--color-primary-300); color: var(--color-primary-600); }
 .action-btn svg { width: 15px; height: 15px; }
-.timeline-head { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4); }
-.timeline-code { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--color-primary-600); }
-.timeline-meta { font-size: var(--text-sm); color: var(--color-text-secondary); }
-.timeline-meta.dim { color: var(--color-text-tertiary); font-size: var(--text-xs); }
-.timeline-table th, .timeline-table td { padding: var(--space-2) var(--space-3); }
-.timeline-empty { text-align: center; color: var(--color-text-tertiary); padding: var(--space-8); }
 @media (max-width: 768px) { .page-header { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .filter-row { flex-wrap: wrap; } .filter-item.search { flex: 1 1 100%; } }
 </style>

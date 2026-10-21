@@ -96,6 +96,15 @@ export function getFixedAssetTimeline(id: string) {
   return request.get<import('@/types').FixedAssetTimeline>(`/api/assets/fixed-assets/${id}/timeline`)
 }
 
+/** 专用单实例使用人交接，与通用档案保存分离 */
+export function changeFixedAssetAssignee(id: string, data: {
+  使用人: string
+  department: string
+  原因?: string
+}) {
+  return request.post<{ asset: FixedAsset; changed: boolean }>(`/api/assets/fixed-assets/${id}/change-assignee`, data)
+}
+
 /** 导出固定资产 Excel（遵循页面筛选） */
 export function exportFixedAssets(params?: Record<string, string>) {
   return request.get<Blob>('/api/assets/fixed-assets/export', { params, responseType: 'blob' })

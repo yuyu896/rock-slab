@@ -459,7 +459,39 @@ export interface FixedAsset {
   department_name?: string | null
 }
 
-/** 实例生平（出生信息 + 关联全部明细行倒序） */
+export interface FixedAssetTransferTimelineEvent {
+  kind: 'transfer'
+  event_id: string
+  transferId: string
+  单据编号: string
+  actionType: string
+  日期: string
+  时间: string
+  行号: number
+  品目编号: string
+  数量: number
+  使用人: string
+  部门: string
+  本批规格: string
+  审批状态: string
+  transfer_id?: string
+  action_type?: string
+}
+
+export interface FixedAssetAssigneeChangeTimelineEvent extends Partial<Omit<FixedAssetTransferTimelineEvent, 'kind' | 'event_id'>> {
+  kind: 'assignee_change'
+  event_id: string
+  时间: string
+  旧使用人: string
+  新使用人: string
+  旧部门: string
+  新部门: string
+  操作账号: string
+  操作人: string
+  原因?: string
+}
+
+/** 实例生平：采购出生信息、流转行与专用使用人交接事件按时间倒序 */
 export interface FixedAssetTimeline {
   instance: FixedAsset
   birth: {
@@ -471,21 +503,7 @@ export interface FixedAssetTimeline {
     采购日期: string
     transfer_id?: string
   } | null
-  timeline: {
-    transferId: string
-    单据编号: string
-    actionType: string
-    日期: string
-    行号: number
-    品目编号: string
-    数量: number
-    使用人: string
-    部门: string
-    本批规格: string
-    审批状态: string
-    transfer_id?: string
-    action_type?: string
-  }[]
+  timeline: (FixedAssetTransferTimelineEvent | FixedAssetAssigneeChangeTimelineEvent)[]
 }
 
 /** 盘点记录 */

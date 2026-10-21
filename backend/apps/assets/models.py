@@ -202,6 +202,39 @@ class FixedAsset(UUIDModel, TimestampedModel):
         return f'{self.内部编号} ({self.item.asset_name})'
 
 
+class FixedAssetAssigneeChange(UUIDModel):
+    """不可变实例交接事件，保留发生时的人名、部门与操作账号快照。"""
+
+    instance = models.ForeignKey(
+        FixedAsset,
+        on_delete=models.PROTECT,
+        related_name='assignee_changes',
+        verbose_name='固定资产实例',
+    )
+    old_assignee = models.CharField('原使用人', max_length=100, blank=True, default='')
+    new_assignee = models.CharField('新使用人', max_length=100)
+    old_department_name = models.CharField('原部门', max_length=100, blank=True, default='')
+    new_department_name = models.CharField('新部门', max_length=100)
+    operator = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fixed_asset_assignee_changes',
+        verbose_name='操作账号',
+    )
+    operator_account = models.CharField('操作账号快照', max_length=20, blank=True, default='')
+    operator_name = models.CharField('操作人姓名快照', max_length=100, blank=True, default='')
+    changed_at = models.DateTimeField('变更时间', db_index=True)
+    reason = models.TextField('变更原因', blank=True, default='')
+
+    class Meta:
+        db_table = 'assets_fixedassetassigneechange'
+        ordering = ['-changed_at', '-id']
+        verbose_name = '实例使用人变更记录'
+        verbose_name_plural = '实例使用人变更记录'
+
+
 class InstanceSequence(UUIDModel, TimestampedModel):
     """实例内部编号计数行：品目 × 分公司一行，锁行自增杜绝并发重号（同 DocumentSequence 模式）。
 

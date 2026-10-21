@@ -16,6 +16,7 @@ from .serializers import (
     AssetStockSerializer,
     FixedAssetSerializer,
     FixedAssetSupplementSerializer,
+    FixedAssetAssigneeChangeSerializer,
     LedgerAdjustmentSerializer,
 )
 from .filters import AssetStockFilterSet, FixedAssetFilterSet
@@ -387,8 +388,8 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
 class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     """固定资产实例视图 —— P2 第二刀重塑：冻结只读 + 序列号补录 + 生平查询。
 
-    实例出生 = 采购单（或存量迁移），状态/使用人/分公司变动经流转单
-    （services/instances.py 由台账唯一写入口同事务调用，架构测试执法）。
+    实例出生 = 采购单（或存量迁移）；状态/分公司变动经流转单，使用人/部门变更
+    仅经专用交接操作（services/instances.py，架构测试执法）。
     """
     queryset = FixedAsset.objects.select_related(
         'branch', 'department', 'item', 'birth_line__transfer',
@@ -402,6 +403,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         'supplement': 'manage_instances',
         'image': 'manage_instances',
         'batch_update': 'manage_instances',
+        'change_assignee': 'manage_instances',
     }
 
     def get_queryset(self):
@@ -614,6 +616,27 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 errors.append(f'{inst.内部编号 if inst else iid}: {e}')
         return Response({'updated': len(results), 'results': results, 'errors': errors})
 
+    @action(detail=True, methods=['post'], url_path='change-assignee')
+    def change_assignee(self, request, pk=None):
+        """Directly hand off this in-use instance without creating a transfer document."""
+        from .services.instances import change_assignee
+
+        self.get_object()
+        serializer = FixedAssetAssigneeChangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        instance, changed = change_assignee(
+            instance_id=pk,
+            assignee=values['使用人'],
+            department=values['department'],
+            operator=request.user,
+            reason=values.get('原因', ''),
+        )
+        return Response({
+            'asset': FixedAssetSerializer(instance, context={'request': request}).data,
+            'changed': changed,
+        })
+
     @action(detail=True, methods=['patch'], url_path='supplement')
     def supplement(self, request, pk=None):
         """序列号补录：仅 序列号/备注 两字段（manage_instances 权限，渐进录入）。
@@ -743,6 +766,10 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
             line = link.line
             transfer = line.transfer
             rows.append({
+                'event_id': f'transfer-{link.pk}',
+                'kind': 'transfer',
+                '时间': line.created_at,
+                '发生时间': line.created_at,
                 'transfer_id': str(transfer.pk),
                 '单据编号': transfer.单据编号,
                 'action_type': transfer.action_type,
@@ -755,6 +782,23 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 '本批规格': line.本批规格,
                 '审批状态': transfer.审批状态,
             })
+
+        for event in instance.assignee_changes.select_related('operator').all():
+            rows.append({
+                'event_id': f'assignee-change-{event.pk}',
+                'kind': 'assignee_change',
+                '时间': event.changed_at,
+                '发生时间': event.changed_at,
+                '旧使用人': event.old_assignee,
+                '新使用人': event.new_assignee,
+                '旧部门': event.old_department_name,
+                '新部门': event.new_department_name,
+                '操作账号': event.operator_account,
+                '操作人': event.operator_name,
+                '原因': event.reason,
+            })
+
+        rows.sort(key=lambda row: (row['发生时间'], row['event_id']), reverse=True)
 
         return Response({
             'instance': FixedAssetSerializer(instance).data,

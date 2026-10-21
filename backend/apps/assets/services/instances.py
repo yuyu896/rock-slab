@@ -13,9 +13,10 @@
     回收直接处置 → 退役（终态，档案永久保留，绝不物理删除）
 """
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from apps.assets.models import FixedAsset, InstanceSequence
+from apps.assets.models import FixedAsset, FixedAssetAssigneeChange, InstanceSequence
 from apps.transfers.models import Transfer, TransferLineInstance
 
 # 需要绑定既有实例的单据类型（采购为生成制，不在此列）
@@ -24,6 +25,78 @@ BINDING_ACTIONS = ('assign', 'return', 'transfer', 'recovery')
 
 def _err(detail):
     return ValidationError({'detail': detail, 'code': 'INSTANCE_INVALID'})
+
+
+def change_assignee(*, instance_id, assignee, department, operator, reason=''):
+    """Change one in-use instance assignee and append its handoff event atomically."""
+    from apps.permissions.scope import resolve_user_scope
+
+    assignee = (assignee or '').strip()
+    if not assignee:
+        raise ValidationError({'detail': '新使用人不能为空', 'code': 'INSTANCE_INVALID'})
+    if len(assignee) > 100:
+        raise ValidationError({'detail': '新使用人姓名不能超过 100 个字符', 'code': 'INSTANCE_INVALID'})
+
+    with transaction.atomic():
+        try:
+            instance = (
+                FixedAsset.objects.select_for_update(of=('self',))
+                .select_related('branch', 'department')
+                .get(pk=instance_id)
+            )
+        except FixedAsset.DoesNotExist:
+            raise ValidationError({'detail': '实例不存在', 'code': 'INSTANCE_INVALID'})
+
+        scope = resolve_user_scope(operator)
+        label = instance.内部编号
+        if instance.branch_id is None:
+            raise ValidationError({'detail': f'{label}: 未归属分公司', 'code': 'INSTANCE_INVALID'})
+        if not scope.all and instance.branch_id not in scope.branches:
+            raise ValidationError({'detail': f'{label}: 分公司不在授权范围', 'code': 'INSTANCE_INVALID'})
+        if instance.当前状态 != FixedAsset.STATUS_IN_USE:
+            raise ValidationError({
+                'detail': f'{label}: 当前状态为{instance.当前状态}，只有在用实例可更换使用人',
+                'code': 'INSTANCE_INVALID',
+            })
+
+        occupied = TransferLineInstance.objects.filter(
+            instance_id=instance.pk,
+            line__transfer__审批状态__in=('草稿', '待审批'),
+            line__transfer__action_type__in=BINDING_ACTIONS,
+        ).select_related('line__transfer')
+        link = occupied.order_by('line__transfer__created_at').first()
+        if link:
+            raise ValidationError({
+                'detail': (
+                    f'{label}: 已被{link.line.transfer.审批状态}单 '
+                    f'{link.line.transfer.单据编号 or link.line.transfer_id} 占用'
+                ),
+                'code': 'INSTANCE_INVALID',
+            })
+
+        old_assignee = instance.使用人 or ''
+        old_department_name = instance.department.name if instance.department_id else ''
+        new_department_name = department.name
+        if old_assignee == assignee and old_department_name == new_department_name:
+            return instance, False
+
+        changed_at = timezone.now()
+        FixedAssetAssigneeChange.objects.create(
+            instance=instance,
+            old_assignee=old_assignee,
+            new_assignee=assignee,
+            old_department_name=old_department_name,
+            new_department_name=new_department_name,
+            operator=operator,
+            operator_account=operator.phone or '',
+            operator_name=operator.name or '',
+            changed_at=changed_at,
+            reason=reason or '',
+        )
+        instance.使用人 = assignee
+        instance.department = department
+        instance.save(update_fields=['使用人', 'department', 'updated_at'])
+        return instance, True
 
 
 def expected_state(action_type, assign_source='stock', recovery_dest='restock'):
