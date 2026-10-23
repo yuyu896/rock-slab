@@ -303,6 +303,7 @@ defineExpose({ validate, validateMessage })
         <div class="cell item-cell">
           <ItemPicker
             :model-value="draft.item?.id ?? ''"
+            :selected-item="draft.item"
             :branch="branchName"
             :stock-column="itemStockColumn"
             :exclude-consumable="excludeConsumable"

@@ -18,6 +18,8 @@ const props = defineProps<{
   stockColumn?: string
   /** 剔除消耗品（回收库来源：领出即耗用品目不得走回收库） */
   excludeConsumable?: boolean
+  /** 当前明细已选品目，用于首次渲染时将 UUID 解析为可读标签 */
+  selectedItem?: ItemSummary | null
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
@@ -37,6 +39,11 @@ const COLUMN_LABELS: Record<string, string> = {
 const usesLedger = computed(() => Boolean(props.stockColumn))
 const columnLabel = computed(() => COLUMN_LABELS[props.stockColumn ?? ''] ?? '')
 const disabled = computed(() => usesLedger.value && !props.branch)
+const selectedItemLabel = computed(() => {
+  const selected = props.selectedItem
+  if (!selected || selected.id !== props.modelValue) return ''
+  return [selected.asset_code, selected.asset_name].filter(Boolean).join(' ')
+})
 const placeholder = computed(() => {
   if (disabled.value) return '请先选择分公司'
   return props.placeholder || '输入编号或名称检索品目'
@@ -122,6 +129,9 @@ function onChange(value: string) {
     @change="onChange"
     @visible-change="(open: boolean) => open && !options.length && remoteSearch('')"
   >
+    <template #label="{ label }">
+      <span>{{ selectedItemLabel || label }}</span>
+    </template>
     <ElOption v-for="opt in options" :key="opt.id" :value="opt.id" :label="`${opt.asset_code} ${opt.asset_name}`">
       <div class="item-option">
         <span class="item-code">{{ opt.asset_code }}</span>

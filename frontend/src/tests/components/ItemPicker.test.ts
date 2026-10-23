@@ -47,6 +47,69 @@ describe('ItemPicker 双数据源（写单表单选项收口）', () => {
     expect(state(wrapper).options[0]).toMatchObject({ id: 'c1', asset_code: 'NB-001' })
   })
 
+  it('已有品目在首次渲染时显示编号和名称，不等待远程检索', async () => {
+    const selectedItem = {
+      id: 'c1', asset_code: 'NB-001', asset_name: '笔记本', specification: '14寸', unit: '台',
+    }
+    const wrapper = mount(ItemPicker, {
+      props: { modelValue: 'c1', selectedItem },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('NB-001 笔记本')
+    expect(getCategories).not.toHaveBeenCalled()
+    expect(state(wrapper).options).toEqual([])
+    expect(state(wrapper).selectedItemLabel).toBe('NB-001 笔记本')
+  })
+
+  it('当前品目不进入远程候选，分公司切换时仍保留标签', async () => {
+    const selectedItem = { id: 'existing-item', asset_code: 'OLD-001', asset_name: '既有设备' }
+    const wrapper = mount(ItemPicker, {
+      props: {
+        modelValue: selectedItem.id,
+        selectedItem,
+        branch: '分公司A',
+        stockColumn: '在库数量',
+      },
+    })
+
+    state(wrapper).remoteSearch('设备')
+    await flushPromises()
+    expect(state(wrapper).options.some((item: any) => item.id === selectedItem.id)).toBe(false)
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
+
+    await wrapper.setProps({ branch: '分公司B' })
+    expect(state(wrapper).options).toHaveLength(0)
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
+  })
+
+  it('已选品目变化时更新标签', async () => {
+    const firstItem = { id: 'c1', asset_code: 'NB-001', asset_name: '笔记本' }
+    const nextItem = { id: 'c2', asset_code: 'MS-002', asset_name: '鼠标' }
+    const wrapper = mount(ItemPicker, {
+      props: { modelValue: firstItem.id, selectedItem: firstItem },
+    })
+
+    await wrapper.setProps({ modelValue: nextItem.id, selectedItem: nextItem })
+    await flushPromises()
+
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('MS-002 鼠标')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('选择远程候选仍提交品目 UUID', async () => {
+    const wrapper = mount(ItemPicker, { props: { modelValue: '' } })
+    state(wrapper).remoteSearch('笔')
+    await flushPromises()
+
+    const select = wrapper.findComponent({ name: 'ElSelect' })
+    select.vm.$emit('update:modelValue', 'c1')
+    select.vm.$emit('change', 'c1')
+
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['c1'])
+    expect(wrapper.emitted('change')?.[0]).toEqual([state(wrapper).options[0]])
+  })
+
   it('有 stockColumn 走台账检索并携带可用数量', async () => {
     const wrapper = mount(ItemPicker, {
       props: { modelValue: '', branch: '分公司A', stockColumn: '在库数量' },

@@ -148,6 +148,23 @@ describe('TransferLinesEditor 增删行与校验', () => {
     })
   }
 
+  it('把草稿的当前品目摘要传给选择器用于标签回显', () => {
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [{ ...emptyDraft(), item: pickedItem }], type: 'purchase' },
+      global: {
+        stubs: {
+          ItemPicker: {
+            name: 'ItemPicker',
+            props: ['modelValue', 'selectedItem'],
+            template: '<div class="picker-stub" />',
+          },
+        },
+      },
+    })
+
+    expect(wrapper.findComponent({ name: 'ItemPicker' }).props('selectedItem')).toEqual(pickedItem)
+  })
+
   it('采购行供应商为字典下拉（只准选，选中落名称）', async () => {
     const wrapper = mountEditor()
     await flushPromises()
