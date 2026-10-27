@@ -31,6 +31,10 @@ vi.mock('@/api/assets', () => ({
   batchUpdateFixedAssets: vi.fn(),
 }))
 
+vi.mock('@/utils/compressFixedAssetImage', () => ({
+  compressFixedAssetImage: vi.fn(async (file: File) => file),
+}))
+
 vi.mock('@/api/branches', () => ({
   getBranches: vi.fn().mockResolvedValue({ data: [] }),
 }))
@@ -54,6 +58,7 @@ import {
 } from '@/api/assets'
 import { getDepartmentOptions } from '@/api/departments'
 import type { FixedAsset } from '@/types'
+import { compressFixedAssetImage } from '@/utils/compressFixedAssetImage'
 
 function _inst(overrides: Partial<FixedAsset>): FixedAsset {
   return {
@@ -76,7 +81,7 @@ const stubs = {
   AssetPrintDialog: { props: ['assets', 'visible'], template: '<div class="print-stub">{{ assets.length }}-{{ visible }}</div>' },
   'el-dialog': { props: ['modelValue', 'title'], template: `<div v-if="modelValue" class="el-dialog"><div class="dlg-title">{{ title }}</div><slot /><slot name="footer" /></div>` },
   'el-drawer': { props: ['modelValue'], template: '<div><slot /></div>' },
-  'el-image': { props: ['src'], template: '<img class="el-image-stub" :src="src" />' },
+  'el-image': { props: ['src', 'previewSrcList', 'lazy'], template: '<img class="el-image-stub" :src="src" :data-preview-src="previewSrcList?.[0]" :loading="lazy ? \'lazy\' : \'eager\'" />' },
   'el-form': { template: '<div><slot /></div>' },
   'el-form-item': { template: '<div><slot /></div>' },
   'el-input': { props: ['modelValue', 'placeholder'], emits: ['update:modelValue'], template: `<input class="el-input-stub" :placeholder="placeholder" :value="modelValue" @input="$emit('update:modelValue', $event.target.value)" />` },
@@ -130,26 +135,32 @@ describe('FixedAssetList 物品图片', () => {
     expect(wrapper.find('.print-stub').text()).toBe('2-true')
   })
 
-  it('已挂图显示缩略图、未挂图显示占位', async () => {
+  it('列表懒加载缩略图，预览用主图；无缩略图时回退主图', async () => {
     vi.mocked(getFixedAssets).mockResolvedValue({
-      data: { count: 2, results: [
-        _inst({ id: 'fa-1', 图片: '/media/fixed_assets/a.jpg' }),
-        _inst({ id: 'fa-2', 图片: null }),
+      data: { count: 3, results: [
+        _inst({ id: 'fa-1', 图片: '/media/fixed_assets/a.webp', 缩略图: '/media/fixed_assets/a-thumb.webp' }),
+        _inst({ id: 'fa-2', 图片: '/media/fixed_assets/b.jpg' }),
+        _inst({ id: 'fa-3', 图片: null }),
       ] },
     } as any)
     const wrapper = await _mount()
     const rows = wrapper.findAll('.data-table tbody tr')
     expect(rows[0].find('.row-thumb').exists()).toBe(true)
-    expect(rows[0].find('.row-thumb').attributes('src')).toBe('/media/fixed_assets/a.jpg')
-    expect(rows[1].find('.row-thumb').exists()).toBe(false)
-    expect(rows[1].find('.thumb-empty').text()).toBe('—')
+    expect(rows[0].find('.row-thumb').attributes('src')).toBe('/media/fixed_assets/a-thumb.webp')
+    expect(rows[0].find('.row-thumb').attributes('data-preview-src')).toBe('/media/fixed_assets/a.webp')
+    expect(rows[0].find('.row-thumb').attributes('loading')).toBe('lazy')
+    expect(rows[1].find('.row-thumb').attributes('src')).toBe('/media/fixed_assets/b.jpg')
+    expect(rows[2].find('.row-thumb').exists()).toBe(false)
+    expect(rows[2].find('.thumb-empty').text()).toBe('—')
   })
 
-  it('接受超过 2MB 的实例照片', async () => {
+  it('上传前压缩可接受范围内的大图', async () => {
     vi.mocked(getFixedAssets).mockResolvedValue({
       data: { count: 1, results: [_inst({})] },
     } as any)
     vi.mocked(uploadFixedAssetImage).mockResolvedValue({ data: _inst({ 图片: '/large.jpg' }) } as any)
+    const compressedFile = new File(['compressed'], 'photo.webp', { type: 'image/webp' })
+    vi.mocked(compressFixedAssetImage).mockResolvedValueOnce(compressedFile)
     const wrapper = await _mount()
     await wrapper.findAll('.action-btn').find(b => b.attributes('title') === '编辑')!.trigger('click')
     await flushPromises()
@@ -160,7 +171,8 @@ describe('FixedAssetList 物品图片', () => {
     await input.trigger('change')
     await flushPromises()
 
-    expect(uploadFixedAssetImage).toHaveBeenCalledWith('fa-1', file)
+    expect(compressFixedAssetImage).toHaveBeenCalledWith(file)
+    expect(uploadFixedAssetImage).toHaveBeenCalledWith('fa-1', compressedFile)
   })
 
   it('拒绝超过 10MB 的实例照片并显示上限', async () => {

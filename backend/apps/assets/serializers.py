@@ -73,6 +73,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
     )
     待补录 = serializers.SerializerMethodField()
     图片 = serializers.SerializerMethodField()
+    缩略图 = serializers.SerializerMethodField()
     供应商 = serializers.SerializerMethodField()
     单价 = serializers.SerializerMethodField()
     采购日期 = serializers.SerializerMethodField()
@@ -85,18 +86,18 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             'item', 'item_code', 'item_name', 'item_spec',
             'asset_category', 'item_category', 'management_type',
             '入库日期', '供应商', '单价', '采购日期',
-            '备注', '图片', '采购日期', 'created_at', 'updated_at',
+            '备注', '图片', '缩略图', '采购日期', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 
     def get_待补录(self, obj):
         return not (obj.序列号 or '').strip()
 
-    def get_图片(self, obj):
-        if not obj.image:
+    def _get_versioned_image_url(self, obj, image_file):
+        if not image_file:
             return None
 
-        url = obj.image.url
+        url = image_file.url
         request = self.context.get('request')
         if request is not None:
             url = request.build_absolute_uri(url)
@@ -105,6 +106,12 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         query = [(key, value) for key, value in parse_qsl(parts.query) if key != 'v']
         query.append(('v', str(obj.image_version)))
         return urlunsplit(parts._replace(query=urlencode(query)))
+
+    def get_图片(self, obj):
+        return self._get_versioned_image_url(obj, obj.image)
+
+    def get_缩略图(self, obj):
+        return self._get_versioned_image_url(obj, obj.thumbnail)
 
     def get_item_spec(self, obj):
         """规格三级：实例个体覆盖 → 出生日.本批规格 → 品目字典。"""

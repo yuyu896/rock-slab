@@ -449,6 +449,8 @@ export interface FixedAsset {
   备注?: string
   /** 物品图片 URL（未上传为空） */
   图片?: string | null
+  /** 列表缩略图 URL；存量图片回填前可能为空 */
+  缩略图?: string | null
   createdAt: string
   updatedAt: string
   /** Backend serializer names retained for endpoints without response key conversion. */

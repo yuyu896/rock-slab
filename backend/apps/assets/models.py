@@ -10,6 +10,10 @@ def fixed_asset_image_upload_to(instance, filename):
     return f'fixed_assets/{instance.pk}/{uuid.uuid4().hex}{extension}'
 
 
+def fixed_asset_thumbnail_upload_to(instance, filename):
+    return fixed_asset_image_upload_to(instance, filename)
+
+
 class AssetStock(UUIDModel, TimestampedModel):
     """资产汇总台账 —— 库存唯一事实源，一行 = 分公司 × 品目。
 
@@ -181,6 +185,9 @@ class FixedAsset(UUIDModel, TimestampedModel):
         '物品图片', upload_to=fixed_asset_image_upload_to, blank=True, null=True,
     )
     image_version = models.PositiveBigIntegerField('图片版本', default=0)
+    thumbnail = models.ImageField(
+        '物品缩略图', upload_to=fixed_asset_thumbnail_upload_to, blank=True, null=True,
+    )
 
     class Meta:
         db_table = 'assets_fixedasset'

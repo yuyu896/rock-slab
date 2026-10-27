@@ -154,9 +154,25 @@ class TestSupplement:
 
 
 def _image_file(name='photo.jpg', content_type='image/jpeg', size_kb=1):
+    from io import BytesIO
+
     from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image
+
+    image_format = {
+        'image/jpeg': 'JPEG',
+        'image/png': 'PNG',
+        'image/webp': 'WEBP',
+    }.get(content_type, 'JPEG')
+    output = BytesIO()
+    Image.new('RGB', (120, 80), (30, 90, 150)).save(output, format=image_format)
+    content = output.getvalue()
+    target_size = size_kb * 1024
+    if target_size > len(content):
+        content += b'\0' * (target_size - len(content))
+
     return SimpleUploadedFile(
-        name, b'\xff' * (size_kb * 1024), content_type=content_type,
+        name, content, content_type=content_type,
     )
 
 
@@ -305,7 +321,7 @@ class TestInstanceImage:
         )
         assert first.status_code == 200
         inst.refresh_from_db()
-        old_name = inst.image.name
+        old_names = (inst.image.name, inst.thumbnail.name)
         old_version = inst.image_version
 
         storage = inst._meta.get_field('image').storage
@@ -333,12 +349,12 @@ class TestInstanceImage:
         )
 
         assert response.status_code == 500
-        assert len(saved_names) == 1
+        assert len(saved_names) == 2
         inst.refresh_from_db()
-        assert inst.image.name == old_name
+        assert (inst.image.name, inst.thumbnail.name) == old_names
         assert inst.image_version == old_version
-        assert default_storage.exists(old_name)
-        assert not default_storage.exists(saved_names[0])
+        assert all(default_storage.exists(name) for name in old_names)
+        assert all(not default_storage.exists(name) for name in saved_names)
 
     def test_storage_failure_cleans_partial_new_file(self, supervisor_user, inst, monkeypatch):
         from django.core.files.storage import default_storage

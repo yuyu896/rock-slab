@@ -669,18 +669,29 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     # 遮蔽后者的方法（users 头像 POST 405 即此坑），故合一个 action 内分流。
     @action(detail=True, methods=['post', 'delete'], parser_classes=[MultiPartParser], url_path='image')
     def image(self, request, pk=None):
-        """物品图片维护：POST 上传/覆盖、DELETE 删除。
-
-        档案属性非数量变动（铁律 2 不管图片），manage_instances 权限；
-        替换/删除在数据库提交后清理旧文件，退役实例图片随档案永久保留。
-        """
+        """Upload or delete an instance image and its matching thumbnail."""
+        from django.core.files.base import ContentFile
         from core.upload_validation import validate_image_upload, UploadValidationError
+        from .services.image_processing import ImageProcessingError, normalize_uploaded_image
 
-        upload = None
-        extension = None
-        storage = None
-        candidate_name = None
-        new_name = None
+        image_files = None
+        if request.method != 'DELETE':
+            if 'image' not in request.FILES:
+                return Response(
+                    {'detail': '请上传图片文件'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            upload = request.FILES['image']
+            try:
+                validate_image_upload(upload, max_size_mb=10)
+                image_files = normalize_uploaded_image(upload)
+            except UploadValidationError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            except ImageProcessingError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        candidate_files = []
+        saved_files = []
         try:
             with transaction.atomic():
                 instance = self.get_object()
@@ -690,51 +701,67 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                if request.method != 'DELETE':
-                    if 'image' not in request.FILES:
-                        return Response(
-                            {'detail': '请上传图片文件'},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    upload = request.FILES['image']
-                    try:
-                        validate_image_upload(upload, max_size_mb=10)
-                    except UploadValidationError as exc:
-                        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-                    extension = {
-                        'image/jpeg': '.jpg',
-                        'image/png': '.png',
-                        'image/webp': '.webp',
-                    }[upload.content_type]
-
                 image_field = instance._meta.get_field('image')
-                storage = image_field.storage
-                old_name = instance.image.name if instance.image else None
+                thumbnail_field = instance._meta.get_field('thumbnail')
+                old_files = []
+                if instance.image:
+                    old_files.append((image_field.storage, instance.image.name))
+                if instance.thumbnail:
+                    old_files.append((thumbnail_field.storage, instance.thumbnail.name))
 
                 if request.method == 'DELETE':
-                    if old_name:
+                    if old_files:
                         instance.image = None
+                        instance.thumbnail = None
                         instance.image_version += 1
-                        instance.save(update_fields=['image', 'image_version', 'updated_at'])
-                        transaction.on_commit(
-                            lambda: _delete_fixed_asset_image(storage, old_name),
-                            robust=True,
-                        )
+                        instance.save(update_fields=[
+                            'image', 'thumbnail', 'image_version', 'updated_at',
+                        ])
+                        for storage, name in old_files:
+                            transaction.on_commit(
+                                lambda storage=storage, name=name: _delete_fixed_asset_image(
+                                    storage, name,
+                                ),
+                                robust=True,
+                            )
                 else:
-                    candidate_name = image_field.generate_filename(
-                        instance, f'image{extension}',
+                    main_storage = image_field.storage
+                    thumbnail_storage = thumbnail_field.storage
+                    candidate_main = image_field.generate_filename(instance, 'image.webp')
+                    candidate_thumbnail = thumbnail_field.generate_filename(
+                        instance, 'thumbnail.webp',
                     )
-                    new_name = storage.save(candidate_name, upload)
-                    instance.image = new_name
+                    candidate_files.extend([
+                        (main_storage, candidate_main),
+                        (thumbnail_storage, candidate_thumbnail),
+                    ])
+
+                    main_name = main_storage.save(
+                        candidate_main, ContentFile(image_files[0], name='image.webp'),
+                    )
+                    saved_files.append((main_storage, main_name))
+                    thumbnail_name = thumbnail_storage.save(
+                        candidate_thumbnail,
+                        ContentFile(image_files[1], name='thumbnail.webp'),
+                    )
+                    saved_files.append((thumbnail_storage, thumbnail_name))
+
+                    instance.image = main_name
+                    instance.thumbnail = thumbnail_name
                     instance.image_version += 1
-                    instance.save(update_fields=['image', 'image_version', 'updated_at'])
-                    if old_name and old_name != new_name:
+                    instance.save(update_fields=[
+                        'image', 'thumbnail', 'image_version', 'updated_at',
+                    ])
+                    for storage, name in old_files:
                         transaction.on_commit(
-                            lambda: _delete_fixed_asset_image(storage, old_name),
+                            lambda storage=storage, name=name: _delete_fixed_asset_image(
+                                storage, name,
+                            ),
                             robust=True,
                         )
         except Exception:
-            for name in {candidate_name, new_name} - {None}:
+            # Storage is outside the database transaction; remove any new files on rollback.
+            for storage, name in saved_files + candidate_files:
                 _delete_fixed_asset_image(storage, name)
             raise
 

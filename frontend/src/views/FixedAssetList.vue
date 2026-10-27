@@ -16,6 +16,7 @@ import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
 import { INSTANCE_STATUS_OPTIONS } from '@/constants'
+import { compressFixedAssetImage } from '@/utils/compressFixedAssetImage'
 
 const { can } = usePermission()
 const canSupplement = computed(() => can('manage_instances'))
@@ -267,7 +268,7 @@ function imagePreviewFor(asset: FixedAsset): string {
 }
 
 const editImageInput = ref<HTMLInputElement | null>(null)
-function handleEditImageSelect(e: Event) {
+async function handleEditImageSelect(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file || !editing.value) return
@@ -282,8 +283,14 @@ function handleEditImageSelect(e: Event) {
     input.value = ''
     return
   }
-  uploadImage(file)
-  input.value = ''
+  try {
+    const uploadFile = await compressFixedAssetImage(file)
+    await uploadImage(uploadFile)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '图片处理失败，请重新选择文件')
+  } finally {
+    input.value = ''
+  }
 }
 
 async function handleEditImageDelete() {
@@ -297,8 +304,11 @@ async function handleEditImageDelete() {
 /** 响应即最新档案：就地更新列表行，免整页刷新 */
 function applyImageUpdate(updated: FixedAsset) {
   const row = assets.value.find(a => a.id === updated.id)
-  if (row) row.图片 = updated.图片
-  if (editing.value) editing.value = { ...editing.value, 图片: updated.图片 }
+  if (row) {
+    row.图片 = updated.图片
+    row.缩略图 = updated.缩略图
+  }
+  if (editing.value) editing.value = { ...editing.value, 图片: updated.图片, 缩略图: updated.缩略图 }
 }
 
 function applyAssigneeUpdate(updated: FixedAsset) {
@@ -608,10 +618,11 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
             <td class="image-cell">
               <el-image
                 v-if="item.图片"
-                :src="item.图片"
+                :src="item.缩略图 || item.图片"
                 :preview-src-list="[item.图片]"
                 preview-teleported
                 fit="cover"
+                :lazy="true"
                 class="row-thumb"
               />
               <span v-else class="thumb-empty">—</span>

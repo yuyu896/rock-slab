@@ -110,7 +110,7 @@ export function exportFixedAssets(params?: Record<string, string>) {
   return request.get<Blob>('/api/assets/fixed-assets/export', { params, responseType: 'blob' })
 }
 
-/** 上传/覆盖物品图片（manage_instances 权限；JPG/PNG/WebP ≤2MB） */
+/** 上传/覆盖物品图片（manage_instances 权限；JPG/PNG/WebP ≤10MB） */
 export function uploadFixedAssetImage(id: string, file: File) {
   const formData = new FormData()
   formData.append('image', file)
