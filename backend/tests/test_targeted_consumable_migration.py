@@ -316,6 +316,44 @@ def test_active_branch_inventory_lock_blocks_migration(tmp_path, branch):
 
 
 @pytest.mark.django_db
+def test_apply_with_explicit_inventory_lock_override_preserves_task_and_clears_balances(
+    tmp_path, branch,
+):
+    items = _make_items()
+    target = items[0]
+    ledger.apply_adjustment(branch, target, ledger.COLUMN_STOCK, 10, '娴嬭瘯鍒濆鍖?')
+    ledger.apply_adjustment(branch, target, ledger.COLUMN_IN_USE, 3, '娴嬭瘯鍒濆鍖?')
+    ledger.apply_adjustment(branch, target, ledger.COLUMN_RECYCLE, 2, '娴嬭瘯鍒濆鍖?')
+    task = InventoryTask.objects.create(
+        name='娴嬭瘯娲诲姩鐩樼偣', branch=branch, status='in_progress',
+    )
+    source = _xlsx(tmp_path / 'codes.xlsx', [item.asset_code for item in items])
+    output = tmp_path / 'override.xlsx'
+
+    _run(source, output, '--apply', '--ignore-inventory-locks')
+
+    target.refresh_from_db()
+    task.refresh_from_db()
+    stock = AssetStock.objects.get(branch=branch, item=target)
+    assert target.management_type == Category.MANAGEMENT_CONSUMABLE
+    assert (
+        getattr(stock, '\u5728\u5e93\u6570\u91cf'),
+        getattr(stock, '\u5728\u7528\u6570\u91cf'),
+        getattr(stock, '\u56de\u6536\u5e93\u6570\u91cf'),
+    ) == (10, 0, 0)
+    assert task.status == 'in_progress'
+    assert task.branch_id == branch.pk
+    assert ConsumableMigrationRun.objects.count() == 1
+
+    workbook = load_workbook(output, read_only=True, data_only=True)
+    overview = list(workbook.worksheets[0].iter_rows(values_only=True))
+    overview_values = {row[0]: row[1] for row in overview[1:] if row and row[0]}
+    assert overview_values['Active inventory override'] == 'enabled'
+    assert str(task.pk) in overview_values['Active inventory tasks at run']
+    workbook.close()
+
+
+@pytest.mark.django_db
 def test_fixed_asset_records_block_migration(tmp_path, branch):
     items = _make_items()
     target = items[0]

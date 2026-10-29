@@ -10,7 +10,7 @@ from pathlib import Path
 from django.db import transaction
 from django.db import connections
 from django.db.utils import DEFAULT_DB_ALIAS
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -19,7 +19,12 @@ from openpyxl.utils import get_column_letter
 from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment
 from apps.assets.services import ledger
 from apps.categories.models import Category, ConsumableMigrationRun
-from apps.inventories.models import branch_inventory_locked, lock_branch_inventory_rows
+from apps.inventories.models import (
+    INVENTORY_LOCKED_STATUSES,
+    InventoryTask,
+    branch_inventory_locked,
+    lock_branch_inventory_rows,
+)
 from apps.organizations.models import Branch
 from apps.transfers.models import Transfer, TransferLine
 
@@ -181,6 +186,7 @@ def _pending_state(rows):
 def build_snapshot(
     codes, input_issues=None, lock_rows=False, locked_branch_ids=None,
     run_id=None, mode='DRY_RUN', expected_snapshot=None,
+    ignore_inventory_locks=False,
 ):
     input_issues = input_issues or []
     code_set = set(codes)
@@ -257,6 +263,18 @@ def build_snapshot(
         branch_id for branch_id, branch in branches.items()
         if branch_inventory_locked(branch)
     }
+    active_inventory_tasks = [
+        {
+            'id': str(task.pk),
+            'status': task.status,
+            'branch_id': str(task.branch_id or ''),
+            'branch': task.branch.name if task.branch_id else '全集团',
+        }
+        for task in InventoryTask.objects.filter(
+            Q(branch_id__in=relevant_branch_ids) | Q(branch_id__isnull=True),
+            status__in=INVENTORY_LOCKED_STATUSES,
+        ).select_related('branch').order_by('created_at', 'id')
+    ]
     if len(codes) != EXPECTED_CODE_COUNT:
         message = f'清单应包含 {EXPECTED_CODE_COUNT} 个编号，实际为 {len(codes)}'
         if message not in blockers:
@@ -274,12 +292,12 @@ def build_snapshot(
         if item.pk in fixed_asset_item_ids:
             item_issues[item.asset_code].append('存在固定资产实例档案')
         for stock in stocks_by_item[item.asset_code]:
-            if str(stock.branch_id) in active_branch_inventory_ids:
+            if str(stock.branch_id) in active_branch_inventory_ids and not ignore_inventory_locks:
                 item_issues[item.asset_code].append(f'{stock.branch.name}正在盘点')
 
     for pending in pending_rows:
         for branch_key in (pending['from_branch_id'], pending['to_branch_id']):
-            if branch_key and branch_key in active_branch_inventory_ids:
+            if branch_key and branch_key in active_branch_inventory_ids and not ignore_inventory_locks:
                 item_issues[pending['asset_code']].append(
                     f'{branches[branch_key].name}正在盘点（有关联待审批单）'
                 )
@@ -304,7 +322,11 @@ def build_snapshot(
             branch_id = str(stock.branch_id) if stock else ''
             branch = stock.branch if stock else None
             row_reasons = list(dict.fromkeys(item_issues.get(code, [])))
-            if stock and branch_id in active_branch_inventory_ids and not any(branch.name in reason for reason in row_reasons):
+            if (
+                stock and branch_id in active_branch_inventory_ids
+                and not ignore_inventory_locks
+                and not any(branch.name in reason for reason in row_reasons)
+            ):
                 row_reasons.append(f'{branch.name}正在盘点')
             onhand = int(stock.在库数量 or 0) if stock else 0
             in_use = int(stock.在用数量 or 0) if stock else 0
@@ -338,6 +360,7 @@ def build_snapshot(
     if expected_snapshot is not None and (
         _impact_state(impact_rows) != _impact_state(expected_snapshot['impact_rows'])
         or _pending_state(pending_rows) != _pending_state(expected_snapshot['pending_rows'])
+        or active_inventory_tasks != expected_snapshot.get('active_inventory_tasks', [])
     ):
         blockers.append('事务预检期间影响范围或余额发生变化，请重新预演并重新审阅')
 
@@ -356,6 +379,8 @@ def build_snapshot(
         'matched_count': len(item_by_code),
         'branch_count': len(all_branch_ids),
         'branch_ids': sorted(all_branch_ids),
+        'ignore_inventory_locks': bool(ignore_inventory_locks),
+        'active_inventory_tasks': active_inventory_tasks,
         'blockers': list(dict.fromkeys(blockers)),
         'impact_rows': impact_rows,
         'pending_rows': pending_rows,
@@ -399,11 +424,12 @@ def _actualize_snapshot(snapshot):
     return snapshot
 
 
-def apply_migration(codes, input_issues, source_path, source_sha256):
+def apply_migration(codes, input_issues, source_path, source_sha256, ignore_inventory_locks=False):
     run_id = uuid.uuid4()
     try:
         discovered = build_snapshot(
             codes, input_issues=input_issues, mode='APPLIED',
+            ignore_inventory_locks=ignore_inventory_locks,
         )
         if discovered['blockers']:
             raise MigrationBlocked(discovered)
@@ -416,6 +442,7 @@ def apply_migration(codes, input_issues, source_path, source_sha256):
                 codes, input_issues=input_issues, lock_rows=True,
                 locked_branch_ids=locked_branches,
                 run_id=run_id, mode='APPLIED', expected_snapshot=discovered,
+                ignore_inventory_locks=ignore_inventory_locks,
             )
             if snapshot['blockers']:
                 raise MigrationBlocked(snapshot)
@@ -452,7 +479,7 @@ def apply_migration(codes, input_issues, source_path, source_sha256):
                         target_column,
                         -int(before_value),
                         f'{RUN_REASON_PREFIX} {run_id}：清零{label}余额',
-                        check_inventory_lock=True,
+                        check_inventory_lock=not ignore_inventory_locks,
                     )
 
             updated = Category.objects.filter(
@@ -515,6 +542,11 @@ def make_workbook(snapshot):
     pending = workbook.create_sheet('待审批明细')
 
     summary = [
+        ('Active inventory override', 'enabled' if snapshot.get('ignore_inventory_locks') else 'disabled'),
+        ('Active inventory tasks at run', '; '.join(
+            f"{task['id']}|{task['status']}|{task['branch']}"
+            for task in snapshot.get('active_inventory_tasks', [])
+        ) or 'none'),
         ('运行标识', snapshot['run_id']),
         ('运行模式', '预演（未写入）' if snapshot['mode'] == 'DRY_RUN' else '已执行'),
         ('运行状态', snapshot['status']),

@@ -28,8 +28,15 @@ class Command(BaseCommand):
         parser.add_argument('--force', action='store_true', help='显式覆盖已存在的输出文件')
         parser.add_argument('--run-id', help='只读重导已执行的迁移工作簿，不重复写入业务数据')
 
+        parser.add_argument(
+            '--ignore-inventory-locks', action='store_true',
+            help='Explicitly ignore active inventory tasks for this migration while retaining branch barriers.',
+        )
+
     def handle(self, *args, **options):
         if options['run_id']:
+            if options['ignore_inventory_locks']:
+                raise CommandError('--run-id cannot be combined with --ignore-inventory-locks')
             return self._export_existing_run(options)
         if options['expected_sha256'] and not options['apply']:
             raise CommandError('--expected-sha256 仅适用于 --apply')
@@ -60,7 +67,13 @@ class Command(BaseCommand):
             if source_sha256 != expected_sha256:
                 raise CommandError('输入文件 SHA-256 与已审阅预演不一致；未执行迁移')
             try:
-                run = apply_migration(codes, input_issues, input_path, source_sha256)
+                run = apply_migration(
+                    codes,
+                    input_issues,
+                    input_path,
+                    source_sha256,
+                    ignore_inventory_locks=options['ignore_inventory_locks'],
+                )
             except MigrationBlocked as exc:
                 snapshot = exc.snapshot
                 snapshot.update({
@@ -91,7 +104,12 @@ class Command(BaseCommand):
             ))
             return
 
-        snapshot = build_snapshot(codes, input_issues=input_issues, mode='DRY_RUN')
+        snapshot = build_snapshot(
+            codes,
+            input_issues=input_issues,
+            mode='DRY_RUN',
+            ignore_inventory_locks=options['ignore_inventory_locks'],
+        )
         snapshot.update({
             'source_filename': input_path.name,
             'source_sha256': source_sha256,
