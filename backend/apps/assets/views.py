@@ -379,6 +379,7 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 delta=delta,
                 reason=reason,
                 operator=request.user,
+                check_inventory_lock=True,
             )
         except ValidationError as e:
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)

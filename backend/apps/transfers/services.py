@@ -6,6 +6,38 @@ from rest_framework.exceptions import ValidationError
 
 from .models import DocumentSequence
 
+
+def lock_categories(category_ids):
+    """Lock and reread categories before validating or writing transfer lines."""
+    from django.db import connections
+    from django.db.utils import DEFAULT_DB_ALIAS
+    from apps.categories.models import Category
+
+    category_ids = set(category_ids)
+    if not category_ids:
+        return {}
+    queryset = Category.objects
+    if connections[DEFAULT_DB_ALIAS].features.has_select_for_no_key_update:
+        queryset = queryset.select_for_update(no_key=True)
+    else:
+        queryset = queryset.select_for_update()
+    categories = {
+        category.pk: category
+        for category in queryset.filter(pk__in=category_ids).order_by('asset_code')
+    }
+    if set(categories) != category_ids:
+        raise ValidationError({'detail': '单据中的品目已不存在，请刷新后重试'})
+    return categories
+
+
+def lock_line_item_categories(items):
+    """Replace serializer-cached Category objects with locked current rows."""
+    categories = lock_categories(entry['item'].pk for entry in items)
+    for entry in items:
+        entry['item'] = categories[entry['item'].pk]
+    return categories
+
+
 DOC_NUMBER_PREFIXES = {
     'purchase': 'CG',
     'assign': 'LY',

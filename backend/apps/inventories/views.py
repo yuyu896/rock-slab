@@ -1,4 +1,5 @@
 from django.utils import timezone
+from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
@@ -10,7 +11,7 @@ from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
 from .models import (
     InventoryTask, InventoryItem, InventoryInstanceItem, InventoryCheck,
-    INVENTORY_LOCKED_STATUSES,
+    INVENTORY_LOCKED_STATUSES, lock_branch_inventory_rows,
 )
 from .serializers import (
     InventoryTaskSerializer,
@@ -95,6 +96,17 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         validate_branches_in_scope(self.request.user, serializer.validated_data.get('branch'))
         serializer.save(created_by=self.request.user)
 
+    @staticmethod
+    def _lock_branch_inventory_barrier(task):
+        lock_branch_inventory_rows([task.branch_id] if task.branch_id else None)
+
+    @staticmethod
+    def _active_branch_inventory_exists(task):
+        active = InventoryTask.objects.filter(status__in=INVENTORY_LOCKED_STATUSES).exclude(pk=task.pk)
+        if task.branch_id:
+            active = active.filter(Q(branch_id=task.branch_id) | Q(branch__isnull=True))
+        return active.exists()
+
     def _transition(self, pk, target_status, before_save=None, **field_updates):
         """状态机转换：事务内锁定任务行 + 二次状态校验后应用转换，防并发竞态
         （如双 approve 导致库存双扣）。before_save(task) 在锁内、字段写入前调用，
@@ -144,14 +156,16 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         def _check_and_prep(t):
-            # 锁内复查同分公司是否已有进行中盘点，缩小并发窗口
-            if t.branch and InventoryTask.objects.filter(
-                branch=t.branch, status__in=INVENTORY_LOCKED_STATUSES,
-            ).exclude(pk=t.pk).exists():
+            self._lock_branch_inventory_barrier(t)
+            if self._active_branch_inventory_exists(t):
                 from rest_framework.exceptions import ValidationError
+                branch_name = t.branch.name if t.branch_id else '全集团'
                 raise ValidationError(
-                    {'detail': f'分公司「{t.branch.name}」已有进行中的盘点任务，不可同时盘点'}
+                    {'detail': f'范围「{branch_name}」已有进行中的盘点任务，不可同时盘点'}
                 )
+            if self._scope_count(t) == 0:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'detail': '开始失败：加锁后盘点范围内无可盘对象'})
             t.started_at = timezone.now()
             # 清单生成收进状态转换同一事务（inventory-checklist-integrity）：
             # 生成失败整体回滚、任务保持 pending，「in_progress 空清单锁死分公司」不可达
@@ -375,6 +389,16 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         reset_scope = serializer.validated_data.get('reset_scope', 'all')
 
         def _reset(t):
+            self._lock_branch_inventory_barrier(t)
+            if self._active_branch_inventory_exists(t):
+                from rest_framework.exceptions import ValidationError
+                branch_name = t.branch.name if t.branch_id else '全集团'
+                raise ValidationError(
+                    {'detail': f'范围「{branch_name}」已有进行中的盘点任务，不可同时盘点'}
+                )
+            if self._scope_count(t) == 0:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'detail': '开始失败：加锁后盘点范围内无可盘对象'})
             if t.is_instance_inventory:
                 qs = t.instance_items.all() if reset_scope == 'all' else (
                     t.instance_items.filter(result__in=['missing', 'unchecked'])

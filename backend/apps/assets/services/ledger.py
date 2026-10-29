@@ -75,13 +75,26 @@ def _recovery_friendly(error, transfer):
 
 
 def apply_adjustment(branch, item, column, delta, reason, operator=None,
-                     is_initial=False, source_task=None):
+                     is_initial=False, source_task=None, check_inventory_lock=False):
     """调整单入口：目标列 ±N，负数拒绝，发号留痕后返回调整单。"""
     if column not in COLUMNS:
         raise ValidationError({'detail': f'未知目标列 {column}'})
-    from apps.transfers.services import generate_document_number
+    from apps.transfers.services import generate_document_number, lock_categories
+    from apps.inventories.models import branch_inventory_locked, lock_branch_inventory_rows
 
     with transaction.atomic():
+        lock_branch_inventory_rows([branch.pk])
+        category = lock_categories([item.pk])[item.pk]
+        if check_inventory_lock and branch_inventory_locked(
+            branch, exclude_task_id=source_task.pk if source_task else None,
+        ):
+            raise ValidationError({'detail': f'分公司「{branch.name}」正在盘点，不能调整台账'})
+        if category.management_type != item.management_type:
+            raise ValidationError({
+                'detail': '品目管理方式已变化，请重新提交台账调整',
+                'code': 'CATEGORY_TYPE_STALE',
+            })
+        item = category
         row = _locked_row(branch, item)
         _apply_delta(row, column, delta)
         row.save()
@@ -103,9 +116,10 @@ def apply_import_adjustments(entries, operator=None):
 
     entries 为解析阶段的差异清单（branch/item/现值快照/导入值/变动量/行号）；
     任一行当前值与快照不符 → IMPORT_STALE（带行号定位）整体回滚，不留部分调整。
-    加锁顺序与 apply_document 全局序一致（分公司×品目排序锁齐，交叉并发不环形等待）。
+    固定顺序锁分公司、品目和台账行，避免与清单迁移交叉等待。
     """
-    from apps.transfers.services import generate_document_number
+    from apps.transfers.services import generate_document_number, lock_categories
+    from apps.inventories.models import branch_inventory_locked, lock_branch_inventory_rows
 
     if not entries:
         return 0
@@ -114,8 +128,18 @@ def apply_import_adjustments(entries, operator=None):
     lock_q = Q()
     for branch_pk, item_pk in keys:
         lock_q |= Q(branch_id=branch_pk, item_id=item_pk)
+    branch_ids = sorted({branch_pk for branch_pk, _item_pk in keys})
+    item_ids = sorted({item_pk for _branch_pk, item_pk in keys})
 
     with transaction.atomic():
+        branches = lock_branch_inventory_rows(branch_ids)
+        if {branch.pk for branch in branches} != set(branch_ids):
+            raise ValidationError({'detail': '导入涉及的分公司已不存在，请重新上传文件'})
+        categories = lock_categories(item_ids)
+        if any(branch_inventory_locked(branch) for branch in branches):
+            raise ValidationError({'detail': '导入涉及的分公司正在盘点，不能调整台账'})
+        for entry in entries:
+            entry['item'] = categories[entry['item'].pk]
         locked = {
             (r.branch_id, r.item_id): r
             for r in AssetStock.objects.select_for_update()
@@ -260,16 +284,17 @@ def _with_line_context(line, error):
     })
 
 
+@transaction.atomic
 def apply_document(transfer):
     """流转单生效入口：明细行逐行执行联动矩阵（台账数量 + 实例状态同事务）。
 
-    两阶段防死锁：先收集单据全部 (分公司, 品目) 依赖并按序一次性锁齐
-    （台账行 → 实例行两段全局有序加锁），再逐行变动——两张多行单据交叉审批
-    不会形成环形等待。任一行充足性/实例校验不足抛 ValidationError
+    在调用方锁定分公司和单据后，先锁品目、台账行与实例，再逐行变动。
+    任一行充足性/实例校验不足抛 ValidationError
     （LEDGER_INSUFFICIENT / INSTANCE_INVALID，带行号定位），
     调用方事务整体回滚，不存在部分生效。
     """
     from apps.assets.services import instances as instance_service
+    from apps.inventories.models import branch_inventory_locked
 
     lines = list(
         transfer.lines.select_related('item')
@@ -293,6 +318,14 @@ def apply_document(transfer):
             raise ValidationError({'detail': '调拨单缺少调出/调入分公司'})
         if from_branch.pk == to_branch.pk:
             raise ValidationError({'detail': '调出与调入分公司不能相同'})
+
+    from apps.transfers.services import lock_categories
+    categories = lock_categories(line.item_id for line in lines)
+    for line in lines:
+        line.item = categories[line.item_id]
+    relevant_branches = {branch for branch in (from_branch, to_branch) if branch is not None}
+    if any(branch_inventory_locked(branch) for branch in relevant_branches):
+        raise ValidationError({'detail': '流转涉及的分公司正在盘点，不能审批台账变更'})
 
     plans = [(line, _line_plan(transfer, line)) for line in lines]
     line_instances = {line.pk: list(line.instances.all()) for line in lines}

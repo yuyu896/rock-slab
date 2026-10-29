@@ -1,6 +1,6 @@
 import difflib
 import io
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -256,29 +256,32 @@ class CategoryViewSet(viewsets.ModelViewSet):
                         errors.append(f'第 {i} 行: 必填字段不能为空')
                         continue
 
-                    existing = Category.objects.filter(asset_code=asset_code).first()
-                    if existing and existing.management_type != management_type:
-                        locked, reason = management_stock_status(existing)
-                        if locked:
-                            label = Category.MANAGEMENT_LABELS.get(management_type, management_type)
-                            errors.append(
-                                f'第 {i} 行: {asset_code} 已有存量（{reason}），'
-                                f'管理方式不可改为「{label}」，已跳过'
-                            )
-                            continue
+                    with transaction.atomic():
+                        existing = Category.objects.select_for_update().filter(
+                            asset_code=asset_code,
+                        ).first()
+                        if existing and existing.management_type != management_type:
+                            locked, reason = management_stock_status(existing)
+                            if locked:
+                                label = Category.MANAGEMENT_LABELS.get(management_type, management_type)
+                                errors.append(
+                                    f'第 {i} 行: {asset_code} 已有存量（{reason}），'
+                                    f'管理方式不可改为「{label}」，已跳过'
+                                )
+                                continue
 
-                    Category.objects.update_or_create(
-                        asset_code=asset_code,
-                        defaults={
-                            'asset_category': asset_category,
-                            'item_category': item_category,
-                            'asset_name': asset_name,
-                            'unit': unit,
-                            'management_type': management_type,
-                            'warning_line': int(row[5]) if row[5] else None,
-                            'remarks': str(row[6] or ''),
-                        },
-                    )
+                        Category.objects.update_or_create(
+                            asset_code=asset_code,
+                            defaults={
+                                'asset_category': asset_category,
+                                'item_category': item_category,
+                                'asset_name': asset_name,
+                                'unit': unit,
+                                'management_type': management_type,
+                                'warning_line': int(row[5]) if row[5] else None,
+                                'remarks': str(row[6] or ''),
+                            },
+                        )
                     imported += 1
                 except Exception as e:
                     errors.append(f'第 {i} 行: {str(e)}')

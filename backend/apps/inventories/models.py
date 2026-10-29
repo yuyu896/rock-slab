@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from core.models import UUIDModel, TimestampedModel
 
 
@@ -245,8 +246,31 @@ class InventoryCheck(UUIDModel, TimestampedModel):
 INVENTORY_LOCKED_STATUSES = ('in_progress', 'pending_review')
 
 
-def branch_inventory_locked(branch):
-    """分公司是否存在锁定中的盘点任务。"""
-    return InventoryTask.objects.filter(
-        branch=branch, status__in=INVENTORY_LOCKED_STATUSES,
-    ).exists()
+def lock_branch_inventory_rows(branch_ids=None):
+    """Lock branch rows in one order so inventory starts and stock writers serialize."""
+    from django.db import connections
+    from django.db.utils import DEFAULT_DB_ALIAS
+    from apps.organizations.models import Branch
+
+    branches = Branch.objects.all()
+    if branch_ids is not None:
+        branch_ids = set(branch_ids)
+        if not branch_ids:
+            return []
+        branches = branches.filter(pk__in=branch_ids)
+    if connections[DEFAULT_DB_ALIAS].features.has_select_for_no_key_update:
+        branches = branches.select_for_update(no_key=True)
+    else:
+        branches = branches.select_for_update()
+    return list(branches.order_by('id'))
+
+
+def branch_inventory_locked(branch, exclude_task_id=None):
+    """分公司是否被本地或全集团盘点任务锁定。"""
+    tasks = InventoryTask.objects.filter(
+        Q(branch=branch) | Q(branch__isnull=True),
+        status__in=INVENTORY_LOCKED_STATUSES,
+    )
+    if exclude_task_id is not None:
+        tasks = tasks.exclude(pk=exclude_task_id)
+    return tasks.exists()

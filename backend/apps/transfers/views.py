@@ -17,7 +17,8 @@ from .serializers import (
     TransferSerializer, TransferActionSerializer, ApproveSerializer,
 )
 from .services import (generate_document_number, validate_disposal_fields,
-                       validate_line_items_instances)
+                       validate_line_items_instances, lock_categories,
+                       lock_line_item_categories)
 from .filters import TransferFilterSet
 
 # Active inventory statuses that lock a branch's transfers（口径与盘点/导入侧共享）
@@ -221,6 +222,26 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         from django.db import transaction
         with transaction.atomic():
+            from apps.inventories.models import branch_inventory_locked, lock_branch_inventory_rows
+            branch_ids = {
+                branch.pk for branch in (from_branch, to_branch) if branch is not None
+            }
+            locked_branches = lock_branch_inventory_rows(branch_ids)
+            if {branch.pk for branch in locked_branches} != branch_ids:
+                raise ValidationError({'detail': '分公司已变化，请刷新后重试'})
+            for branch in locked_branches:
+                if branch_inventory_locked(branch):
+                    raise ValidationError({
+                        'detail': f'分公司「{branch.name}」正在进行盘点，暂时无法进行此操作',
+                        'code': 'INVENTORY_LOCKED',
+                    })
+            lock_line_item_categories(items)
+            validate_line_items_instances(
+                action_type, from_branch, to_branch,
+                data.get('领用来源') or Transfer.ASSIGN_SOURCE_STOCK, items,
+                recovery_dest=data.get('回收去向') or Transfer.RESTOCK,
+                exclude_transfer_id=None,
+            )
             # 分公司语义化建单：from/to 落位由类型决定（映射唯一收口在模型 build）
             if action_type == Transfer.ACTION_TRANSFER:
                 branch_kwargs = {'调出分公司': from_branch, '调入分公司': to_branch}
@@ -299,6 +320,12 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         reason = serializer.validated_data.get('reason', '')
 
         with transaction.atomic():
+            from apps.inventories.models import lock_branch_inventory_rows
+            branch_ids = {
+                branch_id for branch_id in (transfer.from_branch_id, transfer.to_branch_id)
+                if branch_id
+            }
+            lock_branch_inventory_rows(branch_ids)
             # 加锁重取，防止并发重复审批导致台账被多次联动
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
             if locked.审批状态 != '待审批':
@@ -371,29 +398,86 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @audit_log(action='submit', resource_type='Transfer', description_template='提交采购草稿')
     def submit(self, request, pk=None):
         """提交草稿：将「草稿」转为「待审批」进入审批流。"""
+        from django.db import transaction
+
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
         self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '草稿':
             return Response({'detail': '仅草稿可提交'}, status=status.HTTP_400_BAD_REQUEST)
-        transfer.审批状态 = '待审批'
-        transfer.save(update_fields=['审批状态', 'updated_at'])
-        _notify_created(transfer)
-        return Response(TransferSerializer(transfer).data)
+        category_ids = set(transfer.lines.values_list('item_id', flat=True))
+        with transaction.atomic():
+            categories = lock_categories(category_ids)
+            locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            self._assert_transfer_operable(request.user, locked)
+            self._assert_owner_or_admin(request.user, locked)
+            if locked.审批状态 != '草稿':
+                return Response({'detail': '仅草稿可提交'}, status=status.HTTP_400_BAD_REQUEST)
+            lines = list(locked.lines.select_related('item', 'department').prefetch_related('instances'))
+            current_category_ids = {line.item_id for line in lines}
+            if current_category_ids != category_ids or not current_category_ids.issubset(categories):
+                raise ValidationError({'detail': '单据明细已变化，请刷新后重试'})
+            items = [{
+                'item': categories[line.item_id],
+                '数量': line.数量,
+                '使用人': line.使用人,
+                'department': line.department,
+                '供应商': line.供应商,
+                'instances': list(line.instances.all()),
+            } for line in lines]
+            validate_line_items_instances(
+                locked.action_type, locked.from_branch, locked.to_branch,
+                locked.领用来源, items, recovery_dest=locked.回收去向,
+                exclude_transfer_id=locked.pk,
+            )
+            locked.审批状态 = '待审批'
+            locked.save(update_fields=['审批状态', 'updated_at'])
+        _notify_created(locked)
+        return Response(TransferSerializer(locked).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='resubmit', resource_type='Transfer', description_template='重新提交流转')
     def resubmit(self, request, pk=None):
         """重新提交：将「已驳回」转为「待审批」重新进入审批流。"""
+        from django.db import transaction
+
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
         self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '已驳回':
             return Response({'detail': '仅已驳回的记录可重新提交'}, status=status.HTTP_400_BAD_REQUEST)
-        transfer.审批状态 = '待审批'
-        transfer.save(update_fields=['审批状态', 'updated_at'])
-        _notify_created(transfer)
-        return Response(TransferSerializer(transfer).data)
+        category_ids = set(transfer.lines.values_list('item_id', flat=True))
+        with transaction.atomic():
+            categories = lock_categories(category_ids)
+            locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            self._assert_transfer_operable(request.user, locked)
+            self._assert_owner_or_admin(request.user, locked)
+            if locked.审批状态 != '已驳回':
+                return Response(
+                    {'detail': '仅已驳回的记录可重新提交'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            lines = list(locked.lines.select_related('item', 'department').prefetch_related('instances'))
+            current_category_ids = {line.item_id for line in lines}
+            if current_category_ids != category_ids or not current_category_ids.issubset(categories):
+                raise ValidationError({'detail': '单据明细已变化，请刷新后重试'})
+            items = [{
+                'item': categories[line.item_id],
+                '数量': line.数量,
+                '使用人': line.使用人,
+                'department': line.department,
+                '供应商': line.供应商,
+                'instances': list(line.instances.all()),
+            } for line in lines]
+            validate_line_items_instances(
+                locked.action_type, locked.from_branch, locked.to_branch,
+                locked.领用来源, items, recovery_dest=locked.回收去向,
+                exclude_transfer_id=locked.pk,
+            )
+            locked.审批状态 = '待审批'
+            locked.save(update_fields=['审批状态', 'updated_at'])
+        _notify_created(locked)
+        return Response(TransferSerializer(locked).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='withdraw', resource_type='Transfer', description_template='撤回流转单至草稿')
@@ -437,6 +521,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         provided = set(request.data.keys())
         data = {k: v for k, v in serializer.validated_data.items() if k in provided}
         items = data.pop('items', None)
+        existing_category_ids = set(instance.lines.values_list('item_id', flat=True))
+        requested_category_ids = {entry['item'].pk for entry in (items or [])}
         if instance.action_type == Transfer.ACTION_ASSIGN:
             # 历史/审批单头备注保持原值，领用部门和设备备注只从明细读写。
             data.pop('调出部门', None)
@@ -494,6 +580,29 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         with transaction.atomic():
+            categories = lock_categories(existing_category_ids | requested_category_ids)
+            if items is not None:
+                for entry in items:
+                    entry['item'] = categories[entry['item'].pk]
+            locked = Transfer.objects.select_for_update().get(pk=instance.pk)
+            if locked.审批状态 not in ('已驳回', '草稿'):
+                return Response({'detail': '仅已驳回或草稿的记录可编辑'}, status=status.HTTP_400_BAD_REQUEST)
+            current_category_ids = set(locked.lines.values_list('item_id', flat=True))
+            if current_category_ids != existing_category_ids or not current_category_ids.issubset(categories):
+                raise ValidationError({'detail': '单据明细已变化，请刷新后重试'})
+            instance = locked
+            effective_from = from_branch or instance.from_branch
+            effective_to = to_branch or instance.to_branch
+            if items is not None:
+                validate_line_items_instances(
+                    instance.action_type,
+                    effective_from,
+                    effective_to,
+                    data.get('领用来源') or instance.领用来源,
+                    items,
+                    recovery_dest=data.get('回收去向') or instance.回收去向,
+                    exclude_transfer_id=instance.pk,
+                )
             for field, value in data.items():
                 setattr(instance, field, value)
             # 分公司变更经语义化收口（模型内映射，禁直赋 from/to）
@@ -1115,6 +1224,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     except ValidationError:
                         errors.append(f'第 {i} 行: 调出/调入分公司不在你的授权范围')
                         continue
+                    lock_line_item_categories([line_kwargs])
                     # 实例引用预检：实例管理品目的绑定类单据无法在 Excel 表达，引导走页面
                     validate_line_items_instances(
                         action,
@@ -1174,6 +1284,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             action = bucket['action']
             header = dict(bucket['header'])
             with transaction.atomic():
+                lock_line_item_categories(bucket['lines'])
                 _from_b = branch_cache.get(header.get('调出分公司', ''))
                 _to_b = branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None
                 if action == Transfer.ACTION_PURCHASE:
