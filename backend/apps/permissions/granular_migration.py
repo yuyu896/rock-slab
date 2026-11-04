@@ -19,15 +19,15 @@ from .operations import OPERATION_CATALOG, OPERATION_PREREQUISITES
 
 PLAN_SCHEMA = 'granular-permission-plan-v1'
 SNAPSHOT_SCHEMA = 'granular-permission-snapshot-v1'
-MAPPING_VERSION = '2026-10-30.1'
+MAPPING_VERSION = '2026-11-04.1'
 
 # Mappings are one-to-one or expand an old broad permission only into the
 # specific operations it already represented. Ambiguous legacy codes remain
 # untouched and are reported for manual review.
 LEGACY_PERMISSION_MAP = {
     'view_audit': {
-        'targets': ('view_audit_logs',),
-        'reason': '查看审计日志语义对应新目录的审计日志查看权限。',
+        'targets': (),
+        'reason': '审计日志现由系统管理员角色专属控制，不向普通账号转换旧审计授权。',
     },
     'manage_users': {
         'targets': ('view_users', 'edit_users'),

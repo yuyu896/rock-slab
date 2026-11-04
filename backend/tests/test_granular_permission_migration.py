@@ -53,6 +53,34 @@ def test_plan_does_not_expand_legacy_approval_or_derive_from_role(branch):
 
 
 @pytest.mark.django_db
+def test_legacy_audit_grant_is_removed_for_non_admin_accounts(
+    branch, tmp_path, command_admin,
+):
+    user = _user('13910000020', '旧审计权限用户', branch=branch)
+    grant = OperationGrant.objects.create(user=user, code='view_audit')
+    plan = build_migration_plan()
+    account = _account(plan, user)
+    mapping = next(row for row in account['grant_mappings'] if row['grant_id'] == str(grant.id))
+
+    assert mapping['state'] == 'mapped'
+    assert mapping['to'] == []
+    assert account['after_grants'] == []
+    assert account['unmapped_codes_retained'] == []
+
+    plan_path = tmp_path / 'plan.json'
+    snapshot_path = tmp_path / 'snapshot.json'
+    _write_plan(plan_path, plan)
+    call_command(
+        'migrate_granular_permissions', '--apply', '--plan', str(plan_path),
+        '--confirm', plan['plan_id'], '--snapshot', str(snapshot_path),
+        '--actor-id', str(command_admin.id),
+    )
+
+    assert not OperationGrant.objects.filter(pk=grant.pk).exists()
+    assert not user.can('view_audit_logs')
+
+
+@pytest.mark.django_db
 def test_manage_dictionary_maps_to_category_operations(branch):
     user = _user('13910000011', '品目权限用户', branch=branch)
     grant = OperationGrant.objects.create(user=user, code='manage_dictionary')
