@@ -60,7 +60,7 @@
 
 注意：候选版 `check_seed_grants` 只报告账号、授权和范围数量，即使普通账号没有显式授权也会通过；不能把部署脚本该步骤通过当作岗位基线已补齐。
 
-生产仍运行 `e19a8e9`，健康接口返回 `200`，旧生产代码的 `migrate --plan` 无待执行迁移。候选代码针对生产数据库的只读迁移计划有 6 项待执行：`transfers.0032`、`assets.0033`、`inventories.0009`、`permissions.0005`、`reconciliation.0002` 和 `reconciliation.0003`；`organizations.0009` 已在生产迁移记录中。候选迁移预演已在数据库副本完成。生产工作树仍有 3 项本地状态：`image_processing.py` 的 MPO 缩略图支持已纳入候选提交 `a27bd13`，服务器文件与候选 blob 一致；`migration-reports/` 下两份未跟踪 XLSX 位于后端 Docker 构建目录之外；`nginx/rock-slab.conf` 由单独部署的磐盘 Nginx 使用。没有清理或覆盖这些生产文件；正式更新前仍需复核它们不会被拉取操作覆盖。
+生产仍运行 `e19a8e9`，健康接口返回 `200`，旧生产代码的 `migrate --plan` 无待执行迁移。候选代码针对生产数据库的只读迁移计划有 6 项待执行：`transfers.0032`、`assets.0033`、`inventories.0009`、`permissions.0005`、`reconciliation.0002` 和 `reconciliation.0003`；`organizations.0009` 已在生产迁移记录中。候选迁移预演已在数据库副本完成。生产工作树有 3 项本地状态：`image_processing.py` 的 MPO 缩略图支持已纳入候选提交 `a27bd13`，服务器文件与候选 blob 完全一致；`migration-reports/` 下两份未跟踪 XLSX 和 `nginx/rock-slab.conf` 都不在候选 Git 树中，后者由单独部署的磐盘 Nginx 使用。它们均已核实可原样保留，未清理或覆盖。
 
 岗位基线确认接口曾在 PostgreSQL 副本中因锁定带可空分公司关联的员工查询失败。候选已改为只锁定员工表（`select_for_update(of=('self',))`），重建隔离镜像后，副本中的 128 人基线应用成功，相关 10 项测试和 Django system check 通过。
 
@@ -77,5 +77,4 @@
 
 - 旧权限迁移中 422 条部分/未映射授权及 127 条来源不明的数据范围仍需人工核对；副本中的全保留模拟不能替代生产决策。
 - 发布候选（包括 PostgreSQL 锁修复）尚未提交最终审阅提交，也未推送/合并到 `main`。
-- 生产服务器的两份 XLSX 和独立 Nginx 配置需在部署前确认保全方式；MPO 文件已与候选版本一致。
 - 岗位基线已在副本验证，但生产应用仍需在权限与范围决策完成后单独确认；生产库没有执行任何授权数据变更。
