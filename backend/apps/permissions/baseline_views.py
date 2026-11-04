@@ -192,7 +192,7 @@ def position_baseline_apply(request):
                 role__in=target_config['roles'].keys(),
             )
             .select_related('branch')
-            .select_for_update()
+            .select_for_update(of=('self',))
             .order_by('name', 'phone')
         )
         preview = _preview_payload(state, users)
