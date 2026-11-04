@@ -15,12 +15,16 @@ class ImageProcessingError(ValueError):
     """The uploaded or stored file is not a supported, decodable image."""
 
 
-def _load_image(source):
+def _load_image(source, *, allow_mpo=False):
     try:
         source.seek(0)
         with Image.open(source) as opened:
-            if opened.format not in SUPPORTED_IMAGE_FORMATS:
-                raise ImageProcessingError('仅支持 JPG、PNG、WebP 格式的图片')
+            supported_formats = SUPPORTED_IMAGE_FORMATS
+            if allow_mpo:
+                supported_formats = supported_formats | {'MPO'}
+            if opened.format not in supported_formats:
+                supported = 'JPG、PNG、WebP、MPO' if allow_mpo else 'JPG、PNG、WebP'
+                raise ImageProcessingError(f'仅支持 {supported} 格式的图片')
             width, height = opened.size
             if width <= 0 or height <= 0 or width * height > MAX_DECODED_IMAGE_PIXELS:
                 raise ImageProcessingError('图片解码尺寸超出限制')
@@ -98,5 +102,6 @@ def normalize_uploaded_image(source):
 
 
 def create_thumbnail(source):
-    """Create a bounded WebP thumbnail from a legacy image without modifying it."""
-    return _encode_webp(_load_image(source), THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY)
+    """Create a thumbnail from a legacy image without modifying its source."""
+    image = _load_image(source, allow_mpo=True)
+    return _encode_webp(image, THUMBNAIL_MAX_EDGE, THUMBNAIL_QUALITY)

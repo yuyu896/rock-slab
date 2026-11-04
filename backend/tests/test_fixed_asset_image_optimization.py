@@ -13,6 +13,11 @@ from PIL import Image
 
 from apps.assets.models import FixedAsset
 from apps.assets.serializers import FixedAssetSerializer
+from apps.assets.services.image_processing import (
+    ImageProcessingError,
+    create_thumbnail,
+    normalize_uploaded_image,
+)
 from apps.categories.models import Category
 from apps.permissions.models import OperationGrant
 
@@ -45,6 +50,17 @@ def _image_upload(width=3000, height=1500, name='photo.jpg'):
     return SimpleUploadedFile(name, output.getvalue(), content_type='image/jpeg')
 
 
+def _legacy_mpo_image():
+    output = BytesIO()
+    Image.new('RGB', (32, 24), (35, 90, 145)).save(
+        output,
+        format='MPO',
+        save_all=True,
+        append_images=[Image.new('RGB', (32, 24), (145, 90, 35))],
+    )
+    return output.getvalue()
+
+
 class TestFixedAssetImageOptimization:
     @pytest.fixture(autouse=True)
     def isolate_media_root(self, tmp_path):
@@ -75,6 +91,17 @@ class TestFixedAssetImageOptimization:
             with Image.open(stored) as thumbnail:
                 assert thumbnail.format == 'WEBP'
                 assert thumbnail.size == (240, 120)
+
+    def test_legacy_mpo_is_supported_for_thumbnails_but_not_new_uploads(self):
+        source = _legacy_mpo_image()
+
+        thumbnail_bytes = create_thumbnail(BytesIO(source))
+        with Image.open(BytesIO(thumbnail_bytes)) as thumbnail:
+            assert thumbnail.format == 'WEBP'
+            assert thumbnail.size == (32, 24)
+
+        with pytest.raises(ImageProcessingError):
+            normalize_uploaded_image(BytesIO(source))
 
     @pytest.mark.django_db(transaction=True)
     def test_replacement_and_delete_keep_the_pair_and_advance_version(
