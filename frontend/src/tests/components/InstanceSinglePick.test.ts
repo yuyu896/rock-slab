@@ -57,7 +57,7 @@ describe('InstancePicker 单选模式（点选即定）', () => {
   async function mountPicker(modelValue: string[] = [], excludedIds: string[] = []) {
     const wrapper = mount(InstancePicker, {
       props: {
-        itemCode: 'X', status: '在库', branchName: '北京分公司',
+        itemCode: 'X', type: 'recovery', status: '在库', branchName: '北京分公司',
         modelValue, excludedIds,
         expanded: false,
       },

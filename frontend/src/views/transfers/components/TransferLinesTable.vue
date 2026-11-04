@@ -90,7 +90,7 @@ function goTimeline(code: string) {
 <style scoped>
 .lines-table-wrap { border: 1px solid var(--color-border); border-radius: 8px; overflow: auto; }
 .lines-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-.lines-table th { background: var(--color-bg-elevated); padding: var(--space-2) var(--space-3); text-align: left; font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.lines-table th { background: var(--color-bg-table-header); padding: var(--space-2) var(--space-3); text-align: left; font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 .lines-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border-light); color: var(--color-text-primary); vertical-align: middle; }
 .lines-table tbody tr:last-child td { border-bottom: none; }
 .mono { font-family: var(--font-mono); color: var(--color-text-secondary); }

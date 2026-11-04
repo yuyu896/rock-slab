@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getInventoryTasks } from '@/api/inventories'
-import { ElMessage } from 'element-plus'
+import { approveInventory, getInventoryTasks, rejectInventory } from '@/api/inventories'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const tasks = ref<any[]>([])
 const loading = ref(false)
-const activeTab = ref<'in_progress' | 'pending' | 'completed'>('in_progress')
+const canReview = computed(() => userStore.can('review_inventory'))
+const canManage = computed(() => userStore.can('edit_inventory'))
+const canViewTasks = computed(() => userStore.can('view_inventory') || canManage.value)
+const activeTab = ref<'in_progress' | 'pending' | 'completed'>(
+  canReview.value && !canViewTasks.value ? 'pending' : 'in_progress',
+)
 
 const statusLabels: Record<string, string> = {
   pending: '待盘点',
@@ -28,6 +35,10 @@ const statusColors: Record<string, string> = {
 }
 
 async function fetchTasks() {
+  if (activeTab.value === 'pending' ? !canReview.value : !canViewTasks.value) {
+    tasks.value = []
+    return
+  }
   loading.value = true
   try {
     const statusMap: Record<string, string> = {
@@ -49,10 +60,37 @@ async function fetchTasks() {
 
 /** 实例盘 → 统一扫码器（连扫打钩）；数量盘 → 原任务页（逐项确认数量） */
 function startInventory(task: any) {
+  if (!canManage.value || task.status === 'pending_review') return
   if (task.inventoryKind === 'instance') {
-    router.push(`/mobile/scan?task=${task.id}`)
+    router.push(`/mobile/inventory/${task.id}`)
   } else {
     router.push(`/mobile/inventory/${task.id}`)
+  }
+}
+
+async function approveTask(task: any) {
+  if (!canReview.value || task.status !== 'pending_review') return
+  try {
+    await ElMessageBox.confirm('确认通过此盘点任务？', '审批确认', { type: 'success' })
+    await approveInventory(task.id)
+    ElMessage.success('审批通过')
+    await fetchTasks()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || '审批失败')
+  }
+}
+
+async function rejectTask(task: any) {
+  if (!canReview.value || task.status !== 'pending_review') return
+  try {
+    const { value } = await ElMessageBox.prompt('请输入驳回原因', '驳回盘点审批', {
+      inputValidator: (value: string) => value.trim() ? true : '请输入驳回原因',
+    })
+    await rejectInventory(task.id, { reason: value })
+    ElMessage.success('已驳回')
+    await fetchTasks()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || '驳回失败')
   }
 }
 
@@ -74,13 +112,13 @@ onMounted(() => {
 
     <!-- Tab 切换 -->
     <div class="tab-bar">
-      <button :class="{ active: activeTab === 'in_progress' }" @click="activeTab = 'in_progress'; fetchTasks()">
+      <button v-if="canViewTasks" :class="{ active: activeTab === 'in_progress' }" @click="activeTab = 'in_progress'; fetchTasks()">
         进行中
       </button>
-      <button :class="{ active: activeTab === 'pending' }" @click="activeTab = 'pending'; fetchTasks()">
+      <button v-if="canReview" :class="{ active: activeTab === 'pending' }" @click="activeTab = 'pending'; fetchTasks()">
         待审核
       </button>
-      <button :class="{ active: activeTab === 'completed' }" @click="activeTab = 'completed'; fetchTasks()">
+      <button v-if="canViewTasks" :class="{ active: activeTab === 'completed' }" @click="activeTab = 'completed'; fetchTasks()">
         已完成
       </button>
     </div>
@@ -91,6 +129,7 @@ onMounted(() => {
         v-for="task in tasks"
         :key="task.id"
         class="task-card"
+        :class="{ clickable: canManage && task.status !== 'pending_review' }"
         @click="startInventory(task)"
       >
         <div class="task-header">
@@ -116,7 +155,11 @@ onMounted(() => {
               />
             </div>
           </div>
-          <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div v-if="canReview && task.status === 'pending_review'" class="review-actions">
+            <button type="button" class="reject-button" @click.stop="rejectTask(task)">驳回</button>
+            <button type="button" class="approve-button" @click.stop="approveTask(task)">通过</button>
+          </div>
+          <svg v-if="canManage && task.status !== 'pending_review'" class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="9 18 15 12 9 6"/>
           </svg>
         </div>
@@ -161,8 +204,9 @@ onMounted(() => {
   font-size: 14px;
   background: var(--color-bg-card);
   color: var(--color-text-secondary);
-  cursor: pointer;
 }
+
+.task-card.clickable { cursor: pointer; }
 
 .tab-bar button.active {
   background: var(--color-primary-500);
@@ -214,6 +258,11 @@ onMounted(() => {
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
+
+.review-actions { display: flex; gap: var(--space-2); }
+.review-actions button { min-height: 36px; padding: 0 12px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.reject-button { border: 1px solid var(--color-danger); background: var(--color-bg-card); color: var(--color-danger); }
+.approve-button { border: 1px solid var(--color-primary-500); background: var(--color-primary-500); color: #fff; }
 
 .progress-info {
   flex: 1;

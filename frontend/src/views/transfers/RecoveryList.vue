@@ -10,6 +10,7 @@ import TransferLifecycleActions from './components/TransferLifecycleActions.vue'
 
 const {
   typeLabel, typeColor,
+  canCreate,
   canApproveTransfer,
   filters, pagination, loading, transfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
@@ -43,7 +44,7 @@ function openCreatePage() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           导出
         </button>
-        <button class="btn-primary" @click="openCreatePage">
+        <button v-if="canCreate" class="btn-primary" @click="openCreatePage">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           新建回收
         </button>
@@ -105,7 +106,7 @@ function openCreatePage() {
                 <button class="action-btn" @click="router.push('/transfers/recovery/' + item.id)">详情</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
-                <TransferLifecycleActions compact :doc="item" type="recovery" @changed="fetchTransfers" />
+                <TransferLifecycleActions compact :doc="item" type="recovery" @changed="fetchTransfers" @deleted="fetchTransfers" />
               </div>
             </td>
           </tr>
@@ -157,7 +158,7 @@ function openCreatePage() {
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: auto; margin-bottom: var(--space-4); flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; min-width: 1400px; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; }
-.data-table th { background: var(--color-bg-elevated); padding: var(--space-3) var(--space-3); text-align: left; font-size: var(--text-xs); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.data-table th { background: var(--color-bg-table-header); padding: var(--space-3) var(--space-3); text-align: left; font-size: var(--text-xs); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 .data-table td { padding: var(--space-3); font-size: var(--text-sm); color: var(--color-text-primary); border-bottom: 1px solid var(--color-border-light); vertical-align: middle; white-space: nowrap; }
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }
 .data-table th.remark-column, .data-table td.remark-column { width: 240px; min-width: 240px; max-width: 240px; }

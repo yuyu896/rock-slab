@@ -10,11 +10,16 @@ import TransferLifecycleActions from './components/TransferLifecycleActions.vue'
 
 const {
   typeLabel,
+  canCreate,
+  canImport,
+  canDownloadTemplate,
+  canView,
+  canList,
   canApproveTransfer,
   filters, pagination, loading, transfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
   handleApprove, handleReject,
-  showImportModal, importLoading, importResult, openImportModal, handleDownloadTemplate, handleImportFile,
+  showImportModal, importBusy, importLoading, importResult, openImportModal, closeImportModal, handleDownloadTemplate, handleImportFile,
   handleExport,
 } = useTransferList('assign')
 
@@ -33,29 +38,34 @@ function openCreatePage() {
         <p class="page-desc">管理资产领用出库流程</p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="handleExport">
+        <button v-if="canView" class="btn-secondary" @click="handleExport">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           导出
         </button>
-        <button class="btn-secondary" @click="openImportModal">
+        <button v-if="canDownloadTemplate && !canImport" class="btn-secondary" @click="handleDownloadTemplate">
+          下载导入模板
+        </button>
+        <button v-if="canImport" class="btn-secondary" @click="openImportModal">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           批量导入
         </button>
-        <button class="btn-primary" @click="openCreatePage">
+        <button v-if="canCreate" class="btn-primary" @click="openCreatePage">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           新建领用
         </button>
       </div>
     </div>
 
-    <div class="stats-row">
+    <div v-if="!canList" class="permission-state">当前账号没有领用出库单据查看权限</div>
+
+    <div v-if="canList" class="stats-row">
       <div class="stat-card"><div class="stat-content"><span class="stat-value">{{ stats.total }}</span><span class="stat-label">流转总数</span></div></div>
       <div class="stat-card pending"><div class="stat-content"><span class="stat-value">{{ stats.pending }}</span><span class="stat-label">待审批</span></div></div>
       <div class="stat-card success"><div class="stat-content"><span class="stat-value">{{ stats.approved }}</span><span class="stat-label">已通过</span></div></div>
       <div class="stat-card danger"><div class="stat-content"><span class="stat-value">{{ stats.rejected }}</span><span class="stat-label">已驳回</span></div></div>
     </div>
 
-    <div class="filter-section">
+    <div v-if="canList" class="filter-section">
       <div class="filter-row">
         <div class="filter-item search">
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -74,7 +84,7 @@ function openCreatePage() {
       </div>
     </div>
 
-    <div class="table-container">
+    <div v-if="canList" class="table-container">
       <table class="data-table">
         <thead>
           <tr>
@@ -104,7 +114,7 @@ function openCreatePage() {
                 <button class="action-btn" @click="router.push('/transfers/assign/' + item.id)">详情</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
-                <TransferLifecycleActions compact :doc="item" type="assign" @changed="fetchTransfers" />
+                <TransferLifecycleActions compact :doc="item" type="assign" @changed="fetchTransfers" @deleted="fetchTransfers" />
               </div>
             </td>
           </tr>
@@ -113,6 +123,7 @@ function openCreatePage() {
     </div>
 
     <BasePagination
+      v-if="canList"
       :total="pagination.total"
       :current-page="pagination.page"
       :page-size="pagination.pageSize"
@@ -120,11 +131,11 @@ function openCreatePage() {
     />
 
     <!-- 批量导入弹窗 -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
+    <div v-if="showImportModal" class="modal-overlay" @click.self="closeImportModal">
       <div class="modal-content">
         <div class="modal-header">
           <h3>批量导入流转记录</h3>
-          <button class="modal-close" @click="showImportModal = false">&times;</button>
+          <button class="modal-close" :disabled="importBusy" @click="closeImportModal">&times;</button>
         </div>
         <div class="modal-body">
           <div class="import-step">
@@ -137,9 +148,9 @@ function openCreatePage() {
           </div>
           <div class="import-step">
             <div class="import-step-header"><span class="import-step-num">2</span><span class="import-step-title">上传填写好的 Excel 文件</span></div>
-            <label class="import-upload-area" :class="{ 'upload-loading': importLoading }">
-              <input type="file" accept=".xlsx,.xls" class="import-file-input" @change="handleImportFile" :disabled="importLoading" />
-              <template v-if="importLoading"><div class="import-spinner"></div><span>正在导入...</span></template>
+            <label class="import-upload-area" :class="{ 'upload-loading': importBusy }">
+              <input type="file" accept=".xlsx,.xls" class="import-file-input" @change="handleImportFile" :disabled="importBusy" />
+              <template v-if="importBusy"><div class="import-spinner"></div><span>{{ importLoading ? '正在导入...' : '等待确认...' }}</span></template>
               <template v-else>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <span>点击选择文件或拖拽到此处</span>
@@ -149,8 +160,8 @@ function openCreatePage() {
           </div>
           <div v-if="importResult" class="import-result">
             <div class="import-result-header">
-              <span :class="importResult.errors.length === 0 ? 'result-success' : 'result-partial'">成功导入 {{ importResult.imported }} 条</span>
-              <span v-if="importResult.errors.length > 0" class="result-fail-count">失败 {{ importResult.errors.length }} 条</span>
+              <span :class="importResult.errors.length === 0 ? 'result-success' : 'result-partial'"><template v-if="importResult.rejected">整份文件已驳回，未导入任何单据</template><template v-else>成功导入 {{ importResult.imported }} 条</template></span>
+              <span v-if="importResult.errors.length > 0" class="result-fail-count">错误 {{ importResult.errors.length }} 项</span>
             </div>
             <div v-if="importResult.errors.length > 0" class="import-errors">
               <div v-for="(err, idx) in importResult.errors" :key="idx" class="import-error-item">{{ err }}</div>
@@ -158,7 +169,7 @@ function openCreatePage() {
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn-cancel" @click="showImportModal = false">关闭</button>
+          <button class="btn-cancel" :disabled="importBusy" @click="closeImportModal">关闭</button>
         </div>
       </div>
     </div>
@@ -167,6 +178,7 @@ function openCreatePage() {
 
 <style scoped>
 .transfer-page { width: 100%; max-width: 1600px; margin: 0 auto; min-width: 0; }
+.permission-state { padding: var(--space-6) var(--space-4); color: var(--color-text-secondary); text-align: center; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-6); flex-shrink: 0; }
 .header-info { display: flex; flex-direction: column; gap: var(--space-1); }
 .page-title { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); margin: 0; }
@@ -198,7 +210,7 @@ function openCreatePage() {
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: auto; margin-bottom: var(--space-4); flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; }
-.data-table th { background: var(--color-bg-elevated); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
+.data-table th { background: var(--color-bg-table-header); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
 .data-table td { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--color-text-primary); border-bottom: 1px solid var(--color-border-light); vertical-align: middle; }
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }
 .type-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: var(--text-xs); font-weight: 500; }
@@ -265,6 +277,6 @@ function openCreatePage() {
 .import-errors { margin-top: var(--space-3); max-height: 200px; overflow-y: auto; }
 .import-error-item { font-size: var(--text-xs); color: var(--color-danger); padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border-light); }
 .import-error-item:last-child { border-bottom: none; }
-@media (max-width: 1200px) { .stats-row { grid-template-columns: repeat(2, 1fr); } .data-table { display: block; overflow-x: auto; } }
+@media (max-width: 1200px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 768px) { .page-header { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .stats-row { grid-template-columns: 1fr; } }
 </style>

@@ -1,11 +1,43 @@
-"""五类流转单的草稿、提交、撤回与重提统一行为。"""
+"""启用中的流转单草稿、提交、撤回与重提统一行为。"""
 import pytest
 from django.db.models.query import QuerySet
 
 from conftest import _client_for
 
 
-ACTION_TYPES = ('purchase', 'assign', 'return', 'transfer', 'recovery')
+ACTION_TYPES = ('purchase', 'assign', 'transfer', 'recovery')
+DELETE_CODES = {
+    'purchase': 'delete_purchase_draft',
+    'assign': 'delete_assignment_draft',
+    'transfer': 'delete_transfer_draft',
+    'recovery': 'delete_recovery_draft',
+}
+CREATE_CODES = {
+    'purchase': 'edit_purchase',
+    'assign': 'edit_assignment',
+    'transfer': 'edit_transfer',
+    'recovery': 'edit_recovery',
+}
+
+
+def _grant(user, *codes):
+    from apps.permissions.models import OperationGrant
+
+    for code in codes:
+        OperationGrant.objects.get_or_create(user=user, code=code)
+    prerequisites = {
+        'edit_purchase': ('view_purchase', 'view_categories'),
+        'edit_assignment': ('view_assignment', 'view_asset_ledger'),
+        'edit_transfer': ('view_transfer', 'view_asset_ledger'),
+        'edit_recovery': ('view_recovery', 'view_asset_ledger'),
+        'delete_purchase_draft': ('view_purchase',),
+        'delete_assignment_draft': ('view_assignment',),
+        'delete_transfer_draft': ('view_transfer',),
+        'delete_recovery_draft': ('view_recovery',),
+    }
+    for code in codes:
+        for prerequisite in prerequisites.get(code, ()):
+            OperationGrant.objects.get_or_create(user=user, code=prerequisite)
 
 
 def _payload(action_type, item_id, branch, second_branch, department):
@@ -15,8 +47,6 @@ def _payload(action_type, item_id, branch, second_branch, department):
     if action_type == 'assign':
         item.update({'使用人': '生命周期测试人', 'department': str(department.id)})
         return {'调拨日期': '2026-09-19', '调出分公司': branch.name, 'items': [item]}
-    if action_type == 'return':
-        return {'调拨日期': '2026-09-19', '调入分公司': branch.name, 'items': [item]}
     if action_type == 'transfer':
         return {
             '调拨日期': '2026-09-19', '调出分公司': branch.name,
@@ -82,6 +112,76 @@ def test_all_action_types_save_complete_draft_without_effects(
     ).exists()
     assert _stock_snapshot() == before_stock
     assert _ledger_snapshot() == before_ledger
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('action_type', ACTION_TYPES)
+def test_owner_can_delete_each_draft_with_type_specific_permission(
+    action_type, staff_user, branch, second_branch, department, item_id,
+):
+    from apps.audit.models import AuditLog
+    from apps.transfers.models import Transfer
+
+    permissions = [CREATE_CODES[action_type], DELETE_CODES[action_type]]
+    _grant(staff_user, *permissions)
+    client = _client_for(staff_user)
+    _prepare_recovery_stock(action_type, branch, item_id)
+    before_stock = _stock_snapshot()
+    before_ledger = _ledger_snapshot()
+    draft = _create(
+        client, action_type,
+        _payload(action_type, item_id, branch, second_branch, department),
+        draft=True,
+    )
+
+    response = client.delete(f"/api/transfers/{draft.data['id']}")
+
+    assert response.status_code == 204
+    assert not Transfer.objects.filter(pk=draft.data['id']).exists()
+    assert _stock_snapshot() == before_stock
+    assert _ledger_snapshot() == before_ledger
+    log = AuditLog.objects.filter(
+        action='delete', resource_type='Transfer', resource_id=draft.data['id'],
+    ).latest('created_at')
+    assert log.is_success is True
+    assert log.resource_name == draft.data['单据编号']
+
+
+@pytest.mark.django_db
+def test_draft_delete_requires_its_own_permission(
+    staff_user, branch, second_branch, department, item_id,
+):
+    from apps.transfers.models import Transfer
+
+    _grant(staff_user, 'edit_purchase', 'view_purchase', 'view_categories')
+    client = _client_for(staff_user)
+    draft = _create(
+        client, 'purchase',
+        _payload('purchase', item_id, branch, second_branch, department),
+        draft=True,
+    )
+
+    response = client.delete(f"/api/transfers/{draft.data['id']}")
+
+    assert response.status_code == 403
+    assert Transfer.objects.filter(pk=draft.data['id']).exists()
+
+
+@pytest.mark.django_db
+def test_submitted_document_cannot_be_deleted(admin_user, branch, second_branch, department, item_id):
+    from apps.transfers.models import Transfer
+
+    client = _client_for(admin_user)
+    submitted = _create(
+        client, 'purchase',
+        _payload('purchase', item_id, branch, second_branch, department),
+    )
+
+    response = client.delete(f"/api/transfers/{submitted.data['id']}")
+
+    assert response.status_code == 400
+    assert response.data['detail'] == '仅草稿可删除'
+    assert Transfer.objects.filter(pk=submitted.data['id']).exists()
 
 
 @pytest.mark.django_db
@@ -225,12 +325,18 @@ def test_can_withdraw_is_computed_for_list_and_detail_for_all_types(
 @pytest.mark.django_db
 @pytest.mark.parametrize('action_type', ACTION_TYPES)
 @pytest.mark.parametrize('document_status', ('草稿', '已驳回'))
-def test_can_edit_draft_allows_owner_and_admin_but_not_other_staff(
+def test_draft_is_private_to_owner_while_admin_can_edit_others_rejected_documents(
     action_type, document_status, admin_user, staff_user, branch, second_branch,
     department, item_id, db,
 ):
-    from django.contrib.auth import get_user_model
+    import io
 
+    import openpyxl
+
+    from django.contrib.auth import get_user_model
+    from apps.transfers.models import Transfer
+
+    _grant(staff_user, CREATE_CODES[action_type], DELETE_CODES[action_type])
     _prepare_recovery_stock(action_type, branch, item_id)
     owner_client = _client_for(admin_user)
     response = _create(
@@ -253,16 +359,65 @@ def test_can_edit_draft_allows_owner_and_admin_but_not_other_staff(
         phone='13900000092', name='另一管理员', password='test123456',
         role='admin', status='active',
     )
-    admin_detail = _client_for(other_admin).get(
+    other_admin_client = _client_for(other_admin)
+    admin_detail = other_admin_client.get(
         f'/api/transfers/{transfer_id}', format='json',
     )
-    assert admin_detail.data['canEditDraft'] is True
 
-    staff_detail = _client_for(staff_user).get(
+    staff_client = _client_for(staff_user)
+    staff_detail = staff_client.get(
         f'/api/transfers/{transfer_id}', format='json',
     )
-    assert staff_detail.status_code == 200
-    assert staff_detail.data['canEditDraft'] is False
+    if document_status == '草稿':
+        assert admin_detail.status_code == 404
+        assert staff_detail.status_code == 404
+        for client in (other_admin_client, staff_client):
+            rows = client.get('/api/transfers/').data['results']
+            assert all(row['id'] != str(transfer_id) for row in rows)
+            export = client.get('/api/transfers/export', {'type': action_type})
+            assert export.status_code == 200
+            exported_rows = list(openpyxl.load_workbook(io.BytesIO(export.content)).active.values)
+            assert len(exported_rows) == 1
+        assert other_admin_client.patch(
+            f'/api/transfers/{transfer_id}', {}, format='json',
+        ).status_code == 404
+        assert staff_client.patch(
+            f'/api/transfers/{transfer_id}', {}, format='json',
+        ).status_code == 404
+        assert other_admin_client.post(
+            f'/api/transfers/{transfer_id}/submit',
+        ).status_code == 404
+        assert staff_client.post(
+            f'/api/transfers/{transfer_id}/submit',
+        ).status_code == 404
+        assert other_admin_client.delete(f'/api/transfers/{transfer_id}').status_code == 404
+        assert staff_client.delete(f'/api/transfers/{transfer_id}').status_code == 404
+        assert Transfer.objects.filter(pk=transfer_id, 审批状态='草稿').exists()
+    else:
+        assert admin_detail.status_code == 200
+        assert admin_detail.data['canEditDraft'] is True
+        assert staff_detail.status_code == 200
+        assert staff_detail.data['canEditDraft'] is False
+
+        rejected_date = Transfer.objects.get(pk=transfer_id).调拨日期
+        denied_edit = staff_client.patch(
+            f'/api/transfers/{transfer_id}', {'调拨日期': '2026-09-20'}, format='json',
+        )
+        denied_resubmit = staff_client.post(f'/api/transfers/{transfer_id}/resubmit')
+        assert denied_edit.status_code == 400
+        assert denied_resubmit.status_code == 400
+        assert Transfer.objects.get(pk=transfer_id).调拨日期 == rejected_date
+        assert Transfer.objects.get(pk=transfer_id).审批状态 == '已驳回'
+
+        edited = other_admin_client.patch(
+            f'/api/transfers/{transfer_id}', {'调拨日期': '2026-09-20'}, format='json',
+        )
+        assert edited.status_code == 200, edited.data
+        assert Transfer.objects.get(pk=transfer_id).调拨日期.isoformat() == '2026-09-20'
+        resubmitted = other_admin_client.post(f'/api/transfers/{transfer_id}/resubmit')
+        assert resubmitted.status_code == 200, resubmitted.data
+        transfer = Transfer.objects.get(pk=transfer_id)
+        assert transfer.审批状态 == '待审批'
 
 
 @pytest.mark.django_db
@@ -271,6 +426,7 @@ def test_can_edit_transfer_draft_requires_operable_source_scope(
 ):
     from apps.transfers.models import Transfer
 
+    _grant(staff_b, 'view_transfer')
     client = _client_for(admin_user)
     response = _create(
         client, 'transfer',
@@ -293,6 +449,7 @@ def test_transfer_creator_without_source_scope_cannot_withdraw(
 ):
     from apps.transfers.models import Transfer
 
+    _grant(staff_b, 'view_transfer', 'edit_transfer', 'view_asset_ledger')
     response = _create(
         _client_for(admin_user), 'transfer',
         _payload('transfer', item_id, branch, second_branch, department),

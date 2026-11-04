@@ -71,13 +71,20 @@ async function handleConfirm() {
     const applied = data.applied ?? 0
     const errs = data.errors ?? []
     if (errs.length) {
-      ElMessage.warning(`已生成 ${applied} 条调整单；${errs.length} 行被拒绝（详见导入结果）`)
-    } else {
-      ElMessage.success(`已生成 ${applied} 条调整单并入账`)
+      errors.value = errs
+      ElMessage.error('文件存在错误，整份文件已驳回，未生成任何调整单')
+      return
     }
+    ElMessage.success(`已生成 ${applied} 条调整单并入账`)
     emit('success')
     emit('close')
   } catch (error) {
+    const responseData = (error as {
+      response?: { data?: { errors?: unknown } }
+    })?.response?.data
+    if (Array.isArray(responseData?.errors)) {
+      errors.value = responseData.errors.filter((item): item is string => typeof item === 'string')
+    }
     ElMessage.error(handleApiError(error))
   } finally {
     confirming.value = false
@@ -141,11 +148,14 @@ async function handleConfirm() {
             共 {{ diffs.length }} 处差异，确认后将逐条生成调整单（留痕可追溯）。
           </p>
         </div>
+        <p v-if="errors.length" class="confirm-hint">
+          文件包含错误，已驳回，不能确认入账。
+        </p>
       </div>
 
       <div class="modal-footer">
         <button class="btn-cancel" @click="emit('close')">取消</button>
-        <button class="btn-confirm" :disabled="confirming || !diffs.length" @click="handleConfirm">
+        <button class="btn-confirm" :disabled="confirming || !diffs.length || errors.length > 0" @click="handleConfirm">
           {{ confirming ? '入账中...' : `确认入账（${diffs.length} 条）` }}
         </button>
       </div>
@@ -245,7 +255,10 @@ async function handleConfirm() {
 }
 
 .diff-table th {
-  background: var(--color-bg-elevated);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg-table-header);
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid var(--color-border);

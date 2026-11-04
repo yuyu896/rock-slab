@@ -2,7 +2,7 @@
 import request from '@/utils/request'
 import type { Team, PaginationParams } from '@/types'
 
-export function getTeams(params?: PaginationParams & { region?: string }) {
+export function getTeams(params?: PaginationParams & { region?: string; scope?: 'tree' }) {
   return request.get<Team[]>('/api/teams/', { params })
 }
 

@@ -1,14 +1,17 @@
 from django.utils import timezone
 from django.db.models import Q
+from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_log
+from apps.organizations.models import Branch
 from .models import (
     InventoryTask, InventoryItem, InventoryInstanceItem, InventoryCheck,
     INVENTORY_LOCKED_STATUSES, lock_branch_inventory_rows,
@@ -25,6 +28,7 @@ from .serializers import (
 )
 from .filters import InventoryTaskFilterSet
 from .services import generate_variance_adjustments, task_target_column
+from .authorization import can_approve_inventory
 
 
 def generate_task_checklist(task):
@@ -61,40 +65,112 @@ def generate_task_checklist(task):
         )
 
 
+def stock_task_checklist_matches_current_scope(task):
+    """Return whether a rejected ledger task still describes the live ledger."""
+    from apps.assets.models import AssetStock
+
+    stocks_qs = AssetStock.objects.all().exclude(
+        item__management_type='instance',
+    ).filter(
+        Q(在库数量__gt=0) | Q(在用数量__gt=0) | Q(回收库数量__gt=0),
+    )
+    if task.branch_id:
+        stocks_qs = stocks_qs.filter(branch_id=task.branch_id)
+    if task.category:
+        stocks_qs = stocks_qs.filter(item__asset_category=task.category.asset_category)
+    current_scope = {
+        stock.pk: stock.总量
+        for stock in stocks_qs.order_by('pk')
+    }
+    existing_scope = dict(task.items.values_list('stock_id', 'expected_qty'))
+    return current_scope == existing_scope
+
+
 class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     queryset = InventoryTask.objects.select_related(
         'branch', 'category', 'created_by', 'rejected_by',
     ).all()
     serializer_class = InventoryTaskSerializer
     filterset_class = InventoryTaskFilterSet
+
+    @staticmethod
+    def _active_branch_inventory_exists(task):
+        active = InventoryTask.objects.filter(status__in=INVENTORY_LOCKED_STATUSES).exclude(pk=task.pk)
+        if task.branch_id:
+            active = active.filter(Q(branch_id=task.branch_id) | Q(branch__isnull=True))
+        return active.exists()
+
+    @staticmethod
+    def _empty_scope_detail(task):
+        kind_desc = (
+            '实例盘=分公司实例档案（在库+在用）' if task.is_instance_inventory
+            else '台账盘=非实例管理品目台账行'
+        )
+        return (
+            f'开始失败：盘点范围内无可盘对象（{kind_desc}）。'
+            f'请核对分公司/类目范围后开始，或确认该范围确无资产'
+        )
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
-    # 审批 / 驳回要求 approve_inventory；其余写动作（建/改/删/开始/盘点/提交/复盘/作废/导入）要求 manage_assets
     required_operations = {
-        'approve': 'approve_inventory',
-        'reject': 'approve_inventory',
-        'create': 'manage_assets',
-        'update': 'manage_assets',
-        'partial_update': 'manage_assets',
-        'destroy': 'manage_assets',
-        'start': 'manage_assets',
-        'check': 'manage_assets',
-        'check_instance': 'manage_assets',
-        'submit': 'manage_assets',
-        'recount': 'manage_assets',
-        'cancel': 'manage_assets',
-        'import_result': 'manage_assets',
+        'list': 'view_inventory',
+        'retrieve': 'view_inventory',
+        'checks': 'view_inventory',
+        'progress': 'view_inventory',
+        'report': 'view_inventory',
+        'export_report': 'view_inventory',
+        'create': 'edit_inventory',
+        'update': 'edit_inventory',
+        'partial_update': 'edit_inventory',
+        'destroy': 'edit_inventory',
+        'start': 'edit_inventory',
+        'check': 'edit_inventory',
+        'check_instance': 'edit_inventory',
+        'submit': 'edit_inventory',
+        'approve': 'review_inventory',
+        'reject': 'review_inventory',
+        'recount': 'edit_inventory',
+        'cancel': 'edit_inventory',
+        'scan_items': 'edit_inventory',
+        'download_template': 'edit_inventory',
+        'import_result': 'edit_inventory',
     }
 
     def get_queryset(self):
         qs = super().get_queryset()
-        return self.get_scoped_queryset(qs)
+        qs = self.get_scoped_queryset(qs)
+        if self.request.query_params.get('branchId') and not self.request.user.can('view_organizations'):
+            raise PermissionDenied('按分公司筛选盘点任务需要查看组织架构权限')
+        return qs
+
+    def _require_review_assignment(self, task):
+        user = self.request.user
+        if not can_approve_inventory(user, task):
+            raise PermissionDenied('您没有权限审批该数据范围内的盘点任务')
 
     def perform_create(self, serializer):
         # 越权校验：盘点目标分公司必须在操作者授权范围内（admin 豁免）
         validate_branches_in_scope(self.request.user, serializer.validated_data.get('branch'))
-        serializer.save(created_by=self.request.user)
+        serializer.save(created_by=self.request.user, created_by_name=self.request.user.name)
+
+    @staticmethod
+    def _require_pending_task(task, operation):
+        if task.status != 'pending':
+            raise ValidationError({'detail': f'仅待执行的盘点任务可以{operation}'})
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            task = InventoryTask.objects.select_for_update().get(pk=serializer.instance.pk)
+            self._require_pending_task(task, '编辑')
+            serializer.instance = task
+            serializer.save()
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            task = InventoryTask.objects.select_for_update().get(pk=instance.pk)
+            self._require_pending_task(task, '删除')
+            task.delete()
 
     @staticmethod
     def _lock_branch_inventory_barrier(task):
@@ -143,19 +219,13 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         # 空清单拦截（inventory-checklist-safety）：开始时刻可盘范围为空即拒，
         # 任务保持 pending 零副作用——防"开始早于领用审批"类时序事故空盘还锁分公司
         if self._scope_count(task) == 0:
-            kind_desc = (
-                '实例盘=分公司实例档案（在库+在用）' if task.is_instance_inventory
-                else '台账盘=非实例管理品目台账行'
-            )
             return Response(
-                {'detail': (
-                    f'开始失败：盘点范围内无可盘对象（{kind_desc}）。'
-                    f'请核对分公司/类目范围后开始，或确认该范围确无资产'
-                )},
+                {'detail': self._empty_scope_detail(task)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         def _check_and_prep(t):
+            # Migration and inventory start share this branch-level barrier.
             self._lock_branch_inventory_barrier(t)
             if self._active_branch_inventory_exists(t):
                 from rest_framework.exceptions import ValidationError
@@ -165,7 +235,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 )
             if self._scope_count(t) == 0:
                 from rest_framework.exceptions import ValidationError
-                raise ValidationError({'detail': '开始失败：加锁后盘点范围内无可盘对象'})
+                raise ValidationError({'detail': self._empty_scope_detail(t)})
             t.started_at = timezone.now()
             # 清单生成收进状态转换同一事务（inventory-checklist-integrity）：
             # 生成失败整体回滚、任务保持 pending，「in_progress 空清单锁死分公司」不可达
@@ -234,6 +304,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
             item.check_count += 1
             item.checked_by = request.user
+            item.checked_by_name = request.user.name
             item.checked_at = timezone.now()
             item.remarks = remarks
 
@@ -248,7 +319,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
             check_record = InventoryCheck.objects.create(
                 task=locked_task, item=item, stock=stock, qty=qty,
-                checked_by=request.user,
+                checked_by=request.user, checked_by_name=request.user.name,
             )
         return Response(InventoryCheckSerializer(check_record).data)
 
@@ -293,6 +364,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             entry.result = 'matched' if found else 'missing'
             entry.check_count += 1
             entry.checked_by = request.user
+            entry.checked_by_name = request.user.name
             entry.checked_at = timezone.now()
             remarks = serializer.validated_data.get('remarks', '')
             if remarks:
@@ -328,6 +400,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         """审核通过: pending_review -> completed（锁任务行 + 二次校验，防并发双扣库存）"""
         task = self.get_object()
+        self._require_review_assignment(task)
         if not task.can_transition('completed'):
             return Response(
                 {'detail': f'无法从 {task.get_status_display()} 审核通过'},
@@ -335,6 +408,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             )
 
         def _adjust(t):
+            self._require_review_assignment(t)
             # 差异自动生成调整单（P3，仅台账盘）：锁内事务逐差异项经唯一写入口修账，
             # 任一行致负数抛错整笔回滚（任务留 pending_review），差异不吞。
             # 实例盘不自动改账（盘亏报告待跟进，人工决定后续）
@@ -354,6 +428,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def reject(self, request, pk=None):
         """审核驳回: pending_review -> rejected"""
         task = self.get_object()
+        self._require_review_assignment(task)
         if not task.can_transition('rejected'):
             return Response(
                 {'detail': f'无法从 {task.get_status_display()} 驳回'},
@@ -363,10 +438,15 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         serializer = RejectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        def _verify_assignment(t):
+            self._require_review_assignment(t)
+
         task, err = self._transition(
             pk, 'rejected',
+            before_save=_verify_assignment,
             rejected_at=timezone.now(),
             rejected_by=request.user,
+            rejected_by_name=request.user.name,
             reject_reason=serializer.validated_data['reason'],
             status='rejected',
         )
@@ -405,20 +485,25 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 )
                 qs.update(
                     result='unchecked', check_count=0,
-                    checked_by=None, checked_at=None,
+                    checked_by=None, checked_by_name='', checked_at=None,
                 )
                 return
+            if not stock_task_checklist_matches_current_scope(t):
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({
+                    'detail': '分公司当前台账范围已变化，原盘点清单已过期，请新建盘点任务后开始',
+                })
             if reset_scope == 'abnormal_only':
                 # Only reset abnormal items (surplus, missing, unchecked)
                 t.items.filter(result__in=['surplus', 'missing', 'unchecked']).update(
                     actual_qty=None, result='unchecked',
-                    check_count=0, checked_by=None, checked_at=None,
+                    check_count=0, checked_by=None, checked_by_name='', checked_at=None,
                 )
             else:
                 # Reset all items (original behavior)
                 t.items.all().update(
                     actual_qty=None, result='unchecked',
-                    check_count=0, checked_by=None, checked_at=None,
+                    check_count=0, checked_by=None, checked_by_name='', checked_at=None,
                 )
 
         task, err = self._transition(
@@ -491,6 +576,20 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """盘点进度"""
         task = self.get_object()
         return Response(self._build_progress_data(task))
+
+    @action(detail=True, methods=['get'], url_path='scan-items')
+    def scan_items(self, request, pk=None):
+        """Return the instance checklist needed by active scanners, not the full report."""
+        task = self.get_object()
+        if not task.is_instance_inventory:
+            return Response(
+                {'detail': '仅实例盘任务支持扫码清单'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        items = task.instance_items.select_related(
+            'instance__item', 'instance__department', 'checked_by',
+        ).all()
+        return Response(InventoryInstanceItemSerializer(items, many=True).data)
 
     @action(detail=True, methods=['get'])
     def report(self, request, pk=None):
@@ -580,7 +679,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             base_info.append(('库别', task.get_stock_bin_display()))
         base_info += [
             ('状态', task.get_status_display()),
-            ('创建人', task.created_by.name if task.created_by else ''),
+            ('创建人', task.created_by.name if task.created_by else task.created_by_name),
             ('创建时间', _dt(task.created_at)),
             ('开始时间', _dt(task.started_at)),
             ('提交时间', _dt(task.submitted_at)),
@@ -639,7 +738,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         adj.目标列,
                         adj.变动量,
                         adj.事由,
-                        adj.经办人.name if adj.经办人 else '',
+                        adj.经办人.name if adj.经办人 else adj.经办人姓名,
                         _dt(adj.created_at),
                     ])
             elif task.status == 'completed':
@@ -665,7 +764,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     inst.使用人,
                     inst.department.name if inst.department else '',
                     RESULT_LABELS.get(entry.result, entry.result),
-                    entry.checked_by.name if entry.checked_by else '',
+                    entry.checked_by.name if entry.checked_by else entry.checked_by_name,
                     _dt(entry.checked_at),
                     entry.remarks or '',
                 ])
@@ -687,7 +786,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     actual if actual is not None else '',
                     f'+{diff}' if diff is not None and diff > 0 else (str(diff) if diff is not None else ''),
                     entry.get_result_display(),
-                    entry.checked_by.name if entry.checked_by else '',
+                    entry.checked_by.name if entry.checked_by else entry.checked_by_name,
                     _dt(entry.checked_at),
                     entry.remarks or '',
                 ])
@@ -781,6 +880,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='import-result',
             parser_classes=[MultiPartParser])
+    @transaction.atomic
     def import_result(self, request, pk=None):
         """导入盘点结果 Excel（台账盘=实盘数量；实例盘=核对结果，与点选/扫码同口径）"""
         task = self.get_object()
@@ -824,6 +924,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         imported = 0
         errors = []
+        import_savepoint = transaction.savepoint()
 
         if task.is_instance_inventory:
             # 实例盘：内部编号匹配清单项，核对结果列回写（已找到/未找到）
@@ -863,17 +964,26 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 entry.result = verdict
                 entry.check_count += 1
                 entry.checked_by = request.user
+                entry.checked_by_name = request.user.name
                 entry.checked_at = timezone.now()
                 if remarks:
                     entry.remarks = remarks
                 entry.save()
                 imported += 1
 
-            # 空清单根因提示（inventory-checklist-safety）：清单空导致的批量不匹配点明病因
-            payload = {'imported': imported, 'errors': errors}
-            if not task.instance_items.exists() and errors:
-                payload['hint'] = '本任务清单为空——开始盘点时范围内无可盘对象；请核对范围或作废重建任务'
-            return Response(payload)
+            if errors:
+                transaction.savepoint_rollback(import_savepoint)
+                payload = {
+                    'detail': '文件存在错误，已驳回，未导入任何盘点结果',
+                    'imported': 0,
+                    'errors': errors,
+                }
+                if not task.instance_items.exists():
+                    payload['hint'] = '本任务清单为空——开始盘点时范围内无可盘对象；请核对范围或作废重建任务'
+                return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+            transaction.savepoint_commit(import_savepoint)
+            return Response({'imported': imported, 'errors': errors})
 
         for i, row in enumerate(rows, start=2):
             if not row or not row[1]:
@@ -911,6 +1021,7 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
             item.check_count += 1
             item.checked_by = request.user
+            item.checked_by_name = request.user.name
             item.checked_at = timezone.now()
             if remarks:
                 item.remarks = remarks
@@ -927,14 +1038,20 @@ class InventoryTaskViewSet(DataScopeMixin, viewsets.ModelViewSet):
             # Create check record
             InventoryCheck.objects.create(
                 task=task, item=item, stock=item.stock, qty=actual_qty,
-                checked_by=request.user,
+                checked_by=request.user, checked_by_name=request.user.name,
             )
             imported += 1
 
-        return Response({
-            'imported': imported,
-            'errors': errors,
-        })
+        if errors:
+            transaction.savepoint_rollback(import_savepoint)
+            return Response({
+                'detail': '文件存在错误，已驳回，未导入任何盘点结果',
+                'imported': 0,
+                'errors': errors,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        transaction.savepoint_commit(import_savepoint)
+        return Response({'imported': imported, 'errors': errors})
 
     # ---- Helpers ----
 

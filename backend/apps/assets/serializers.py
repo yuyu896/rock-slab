@@ -36,13 +36,29 @@ class AssetStockSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AssetStockAdjustmentContextSerializer(serializers.ModelSerializer):
+    """台账调整所需的最小行信息，不暴露完整台账查看字段。"""
+
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+    资产编号 = serializers.CharField(source='item.asset_code', read_only=True)
+    资产名称 = serializers.CharField(source='item.asset_name', read_only=True)
+
+    class Meta:
+        model = AssetStock
+        fields = [
+            'id', 'branch', 'branch_name', '资产编号', '资产名称',
+            '在库数量', '在用数量', '回收库数量',
+        ]
+        read_only_fields = fields
+
+
 class LedgerAdjustmentSerializer(serializers.ModelSerializer):
     """调整单输出；创建由 view 调 ledger service（唯一写入口）执行。"""
 
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     资产编号 = serializers.CharField(source='item.asset_code', read_only=True)
     资产名称 = serializers.CharField(source='item.asset_name', read_only=True)
-    经办人姓名 = serializers.CharField(source='经办人.name', read_only=True, default=None)
+    经办人姓名 = serializers.CharField(read_only=True, default='')
     来源任务 = serializers.CharField(source='source_task.name', read_only=True, default=None)
 
     class Meta:
@@ -56,7 +72,10 @@ class LedgerAdjustmentSerializer(serializers.ModelSerializer):
 
 
 class FixedAssetSerializer(serializers.ModelSerializer):
-    """实例档案输出：品目信息联字典、供应商/单价/采购日期经出生明细行派生（决策 #8）。"""
+    """实例档案输出：品目信息联字典、供应商和采购日期经出生明细行派生。
+
+    采购单价属于采购单据字段，不属于实例档案或实例生平输出。
+    """
 
     branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
     department_name = serializers.CharField(source='department.name', read_only=True, default=None)
@@ -75,7 +94,6 @@ class FixedAssetSerializer(serializers.ModelSerializer):
     图片 = serializers.SerializerMethodField()
     缩略图 = serializers.SerializerMethodField()
     供应商 = serializers.SerializerMethodField()
-    单价 = serializers.SerializerMethodField()
     采购日期 = serializers.SerializerMethodField()
 
     class Meta:
@@ -85,7 +103,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             '使用人', 'department', 'department_name', 'branch', 'branch_name',
             'item', 'item_code', 'item_name', 'item_spec',
             'asset_category', 'item_category', 'management_type',
-            '入库日期', '供应商', '单价', '采购日期',
+            '入库日期', '供应商', '采购日期',
             '备注', '图片', '缩略图', '采购日期', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
@@ -129,11 +147,6 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             return ''
         return obj.birth_line.供应商 or obj.birth_line.transfer.供应商 or ''
 
-    def get_单价(self, obj):
-        if obj.birth_line is None:
-            return None
-        return obj.birth_line.单价
-
     def get_采购日期(self, obj):
         # 两级链：实例个体覆盖 → 出生单日期（空=批次口径，同供应商/规格模式）
         if obj.采购日期:
@@ -141,6 +154,64 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         if obj.birth_line is None:
             return None
         return obj.birth_line.transfer.调拨日期
+
+
+class FixedAssetAssigneeTargetSerializer(serializers.ModelSerializer):
+    """更换使用人所需的最小实例信息；不暴露档案、采购、图片或生平字段。"""
+
+    branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
+    department_name = serializers.CharField(source='department.name', read_only=True, default=None)
+    item_code = serializers.CharField(source='item.asset_code', read_only=True)
+    item_name = serializers.CharField(source='item.asset_name', read_only=True)
+
+    class Meta:
+        model = FixedAsset
+        fields = [
+            'id', '内部编号', '序列号', '当前状态', '使用人',
+            'department', 'department_name', 'branch', 'branch_name',
+            'item_code', 'item_name',
+        ]
+        read_only_fields = fields
+
+
+class FixedAssetEditTargetSerializer(FixedAssetSerializer):
+    """只读出实例编辑所需字段；不包含完整档案、生平或采购单价。"""
+
+    class Meta(FixedAssetSerializer.Meta):
+        fields = [
+            'id', '内部编号', '序列号', '当前状态',
+            'branch', 'branch_name', 'item_code', 'item_name', 'item_spec',
+            '供应商', '采购日期', '备注', '图片', '缩略图',
+            '使用人', 'department', 'department_name',
+        ]
+        read_only_fields = fields
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not user.can('change_instance_assignee'):
+            for name in ('使用人', 'department', 'department_name'):
+                fields.pop(name, None)
+        return fields
+
+
+class FixedAssetImageResponseSerializer(serializers.ModelSerializer):
+    """Image mutation response for editors without full archive-view permission."""
+
+    图片 = serializers.SerializerMethodField()
+    缩略图 = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FixedAsset
+        fields = ['id', '图片', '缩略图']
+        read_only_fields = fields
+
+    def get_图片(self, obj):
+        return FixedAssetSerializer(context=self.context).get_图片(obj)
+
+    def get_缩略图(self, obj):
+        return FixedAssetSerializer(context=self.context).get_缩略图(obj)
 
 
 class FixedAssetSupplementSerializer(serializers.Serializer):

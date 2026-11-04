@@ -50,6 +50,221 @@ class TestAuditLogAccess:
 
 
 # ---------------------------------------------------------------------------
+# Data-scope filtering
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAuditLogScope:
+    """Data scope and historical grants do not replace the admin role check."""
+
+    @staticmethod
+    def _grant_audit_view(user):
+        from apps.permissions.models import OperationGrant
+
+        OperationGrant.objects.get_or_create(user=user, code='view_audit_logs')
+
+    def test_legacy_view_grant_does_not_bypass_admin_only_list(
+        self, staff_user, staff_b,
+    ):
+        self._grant_audit_view(staff_user)
+        in_scope = AuditLog.objects.create(
+            user=staff_user,
+            user_name=staff_user.name,
+            action='update',
+            resource_type='User',
+            resource_id=staff_user.id,
+            resource_name='范围内员工',
+        )
+        out_of_scope = AuditLog.objects.create(
+            user=staff_b,
+            user_name=staff_b.name,
+            action='update',
+            resource_type='User',
+            resource_id=staff_b.id,
+            resource_name='范围外员工',
+        )
+        unmapped = AuditLog.objects.create(
+            user=staff_user,
+            user_name=staff_user.name,
+            action='login',
+            resource_type='Session',
+            resource_name='登录',
+        )
+
+        response = _client_for(staff_user).get(AUDIT_LIST_URL)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_legacy_view_grant_does_not_bypass_admin_only_detail(self, staff_user):
+        self._grant_audit_view(staff_user)
+        log = AuditLog.objects.create(
+            user=staff_user,
+            user_name=staff_user.name,
+            action='update',
+            resource_type='User',
+            resource_id=staff_user.id,
+            before_data={'branch_id': str(staff_user.branch_id), 'secret': 'before'},
+            after_data={'branch_id': str(staff_user.branch_id), 'secret': 'after'},
+        )
+
+        response = _client_for(staff_user).get(_detail_url(log.id))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_all_data_scope_does_not_bypass_admin_only_list(
+        self, db, branch, staff_user, staff_b,
+    ):
+        from apps.permissions.models import ManagementScope, OperationGrant
+        from apps.users.models import User
+
+        reader = User.objects.create_user(
+            phone='13900000992',
+            name='全组织审计查看员',
+            password='test123456',
+            role='manager',
+            status='active',
+            branch=branch,
+        )
+        OperationGrant.objects.create(user=reader, code='view_audit_logs')
+        ManagementScope.objects.create(user=reader, is_all_data=True)
+        in_branch = AuditLog.objects.create(
+            user=staff_user,
+            user_name=staff_user.name,
+            action='update',
+            resource_type='User',
+            resource_id=staff_user.id,
+        )
+        other_branch = AuditLog.objects.create(
+            user=staff_b,
+            user_name=staff_b.name,
+            action='update',
+            resource_type='User',
+            resource_id=staff_b.id,
+        )
+        unmapped = AuditLog.objects.create(
+            user=staff_user,
+            user_name=staff_user.name,
+            action='login',
+            resource_type='Session',
+        )
+
+        response = _client_for(reader).get(AUDIT_LIST_URL)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_all_data_scope_does_not_bypass_admin_only_detail(self, db, branch):
+        from apps.permissions.models import ManagementScope, OperationGrant
+        from apps.users.models import User
+
+        reader = User.objects.create_user(
+            phone='13900000993',
+            name='全组织审计详情查看员',
+            password='test123456',
+            role='manager',
+            status='active',
+            branch=branch,
+        )
+        OperationGrant.objects.create(user=reader, code='view_audit_logs')
+        ManagementScope.objects.create(user=reader, is_all_data=True)
+        log = AuditLog.objects.create(
+            user=reader,
+            user_name=reader.name,
+            action='update',
+            resource_type='Session',
+            before_data={'secret': 'before'},
+            after_data={'secret': 'after'},
+        )
+
+        response = _client_for(reader).get(_detail_url(log.id))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_admin_sees_unmapped_logs(self, admin_user):
+        log = AuditLog.objects.create(
+            user=admin_user,
+            user_name=admin_user.name,
+            action='login',
+            resource_type='Session',
+        )
+
+        response = _client_for(admin_user).get(AUDIT_LIST_URL)
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.data.get('results', response.data)
+        assert str(log.id) in {row['id'] for row in results}
+
+    def test_admin_can_read_historical_return_audit_log(self, admin_user, branch):
+        from apps.transfers.models import Transfer
+
+        transfer = Transfer.objects.create(
+            单据编号='RET-HIST-AUDIT',
+            调拨日期='2026-02-02',
+            调入分公司=branch.name,
+            to_branch=branch,
+            action_type=Transfer.ACTION_RETURN,
+            审批状态='已通过',
+        )
+        log = AuditLog.objects.create(
+            user=admin_user,
+            user_name=admin_user.name,
+            action='update',
+            resource_type='Transfer',
+            resource_id=str(transfer.id),
+            resource_name='历史归还单',
+        )
+
+        client = _client_for(admin_user)
+        response = client.get(AUDIT_LIST_URL)
+        detail = client.get(_detail_url(log.id))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.data.get('results', response.data)
+        assert str(log.id) in {row['id'] for row in results}
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.data['resource_id'] == str(transfer.id)
+
+    def test_full_scope_without_audit_grant_is_denied(self, db, branch):
+        from apps.permissions.models import ManagementScope
+        from apps.users.models import User
+
+        reader = User.objects.create_user(
+            phone='13900000994',
+            name='无审计权限全组织用户',
+            password='test123456',
+            role='manager',
+            status='active',
+            branch=branch,
+        )
+        ManagementScope.objects.create(user=reader, is_all_data=True)
+
+        response = _client_for(reader).get(AUDIT_LIST_URL)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_legacy_audit_grant_cannot_access_any_read_endpoint(self, staff_user):
+        self._grant_audit_view(staff_user)
+        log = AuditLog.objects.create(
+            user=staff_user,
+            user_name=staff_user.name,
+            action='update',
+            resource_type='Session',
+        )
+        client = _client_for(staff_user)
+        endpoints = [
+            AUDIT_LIST_URL,
+            _detail_url(log.id),
+            '/api/audit/statistics/',
+            '/api/audit/by_action/',
+            '/api/audit/by_resource/',
+            '/api/audit/user_activity/',
+            '/api/audit/my_logs/',
+        ]
+
+        for endpoint in endpoints:
+            assert client.get(endpoint).status_code == status.HTTP_403_FORBIDDEN
+
+
+# ---------------------------------------------------------------------------
 # Custom actions (statistics, by_action, by_resource, user_activity)
 # ---------------------------------------------------------------------------
 
@@ -346,12 +561,19 @@ class TestSensitiveMasking:
         from apps.audit.utils import mask_sensitive
         data = {
             'password': 'pbkdf2_sha256$260000$salt$hash',
+            'phone': '13900000000',
             '_state': 'django-internal',
-            'profile': {'tokens': [{'password': 'argon2$legacy$secret'}], 'note': 'x'},
+            'profile': {
+                'tokens': [{'password': 'argon2$legacy$secret'}],
+                'user_phone': '13900000001',
+                'note': 'x',
+            },
         }
         out = mask_sensitive(data)
         assert out['password'] == '***'
+        assert out['phone'] == ''
         assert out['profile']['tokens'][0]['password'] == '***'
+        assert out['profile']['user_phone'] == ''
         assert out['profile']['note'] == 'x'
         assert '_state' not in out
         assert mask_sensitive(out) == out  # 幂等

@@ -1,74 +1,92 @@
-"""岗位换岗迁移：supervisor 退役 → 岗位模板化（逐人 diff，只补不删）。
+"""Normalize retired position labels and clear authorization on position changes."""
+from uuid import UUID
 
-默认 dry-run 输出逐人清单：
-  岗位 old→new ｜ 模板操作码补授 ｜ 任命节点 ｜ 生效范围
---apply 执行：
-  1. 存量 supervisor 按 LEGACY_POSITION_MAP 换岗（默认 → manager）；
-  2. 按岗位模板补建缺失的 OperationGrant（绝不删除既有授权）；
-  3. ManagementScope 一律保留（降级为「额外授权」）。
-"""
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
-from apps.permissions.models import OperationGrant
-from apps.permissions.positions import LEGACY_POSITION_MAP, template_operations
-from apps.permissions.scope import resolve_user_scope
+from apps.audit.models import AuditLog
+from apps.permissions.models import ManagementScope, OperationGrant
+from apps.permissions.legacy_position_map import LEGACY_POSITION_MAP
+from apps.users.models import User
 
 
 class Command(BaseCommand):
-    help = '岗位换岗迁移：supervisor 退役 + 按岗位模板补授操作码（默认 dry-run，--apply 执行；只补不删）'
+    help = '迁移退役岗位标记；应用时清除旧权限和自定义数据范围并记录审计（默认 dry-run）'
 
     def add_arguments(self, parser):
-        parser.add_argument('--apply', action='store_true', help='执行写入（默认仅预览）')
+        parser.add_argument('--apply', action='store_true', help='执行岗位标记更新（默认仅预览）')
+        parser.add_argument('--actor-id', help='应用时执行操作的系统管理员账号 ID')
 
     def handle(self, *args, **options):
         apply = options['apply']
-        from apps.users.models import User
+        actor_id = options['actor_id']
+        if apply:
+            if not actor_id:
+                raise CommandError('--apply 必须提供 --actor-id <系统管理员账号 ID>，以记录授权重置审计')
+            try:
+                actor_id = UUID(str(actor_id))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise CommandError('--actor-id 必须对应现有系统管理员账号') from exc
+            actor = User.objects.filter(pk=actor_id).first()
+            if actor is None or actor.role != 'admin':
+                raise CommandError('--actor-id 必须对应现有系统管理员账号')
+        elif actor_id:
+            raise CommandError('--actor-id 只能与 --apply 一起使用')
+        changed = 0
 
-        users = User.objects.exclude(role='admin').filter(status='active').order_by('name')
-        changed_roles, granted_ops, kept = 0, 0, 0
+        users = User.objects.filter(
+            role__in=LEGACY_POSITION_MAP,
+            status='active',
+        ).order_by('name')
 
         for user in users:
-            old_role = user.role
-            new_role = LEGACY_POSITION_MAP.get(old_role, old_role)
-            role_changed = new_role != old_role
-
-            tpl_ops = template_operations(new_role)
-            existing = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
-            to_grant = [c for c in tpl_ops if c not in existing]
-
-            scope = resolve_user_scope(user)
-            appointments = (
-                len(scope.appointed_regions) + len(scope.appointed_teams) + len(scope.appointed_branches)
-            )
-            scope_desc = '全部' if scope.all else f'{len(scope.branches)} 个分公司'
-
-            role_part = f'岗位 {old_role}→{new_role}' if role_changed else f'岗位 {old_role}'
-            grant_part = f'补授 {",".join(to_grant)}' if to_grant else '无补授'
-            appoint_part = f'{appointments} 项任命' if appointments else '无任命'
+            new_role = LEGACY_POSITION_MAP[user.role]
             self.stdout.write(
-                f'  {user.name}（{user.phone}）：{role_part} ｜ {grant_part} ｜ {appoint_part} ｜ 范围 {scope_desc}'
+                f'  {user.name}（{user.phone}）：岗位标记 {user.role} → {new_role}；'
+                '应用时清除原操作权限和自定义数据范围'
             )
-
+            changed += 1
             if apply:
-                if role_changed:
+                with transaction.atomic():
+                    user = User.objects.select_for_update().get(pk=user.pk)
+                    before = {
+                        'role': user.role,
+                        'operations': sorted(user.operation_grants.values_list('code', flat=True)),
+                        'scopes': [
+                            {
+                                key: str(value) if value is not None and key != 'is_all_data' else value
+                                for key, value in scope.items()
+                            }
+                            for scope in user.management_scopes.order_by('id').values(
+                                'id', 'is_all_data', 'region_id', 'branch_id', 'team_id',
+                            )
+                        ],
+                    }
                     user.role = new_role
                     user.save(update_fields=['role'])
-                    changed_roles += 1
-                if to_grant:
-                    OperationGrant.objects.bulk_create(
-                        [OperationGrant(user=user, code=c) for c in to_grant],
-                        ignore_conflicts=True,
+                    user.operation_grants.all().delete()
+                    user.management_scopes.all().delete()
+                    user._mgmt_scope_cache = None
+                    AuditLog.objects.create(
+                        user=actor,
+                        user_name=actor.name,
+                        user_phone=actor.phone,
+                        action='update',
+                        resource_type='user_authorization',
+                        resource_id=user.id,
+                        resource_name=user.name,
+                        description='退役岗位规范化，已清除原业务权限和自定义数据范围；原因：员工岗位变更',
+                        before_data=before,
+                        after_data={
+                            'role': user.role,
+                            'operations': [],
+                            'scopes': [],
+                        },
+                        request_path='migrate_positions',
+                        request_method='COMMAND',
                     )
-                    granted_ops += len(to_grant)
-            elif role_changed:
-                changed_roles += 1
-            elif to_grant:
-                granted_ops += len(to_grant)
-            else:
-                kept += 1
 
-        summary = (
-            f'换岗 {changed_roles} 人、补授 {granted_ops} 项操作码、无变化 {kept} 人'
-            + ('（已写入）' if apply else '（dry-run，未写库；确认后加 --apply 执行）')
-        )
-        self.stdout.write(self.style.SUCCESS(summary))
+        mode = '已写入' if apply else 'dry-run，未写库；确认后加 --apply --actor-id <管理员账号 ID> 执行'
+        self.stdout.write(self.style.SUCCESS(
+            f'更新退役岗位标记 {changed} 人；应用时清理原授权并记录审计（{mode}）'
+        ))

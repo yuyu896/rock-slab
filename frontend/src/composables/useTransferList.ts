@@ -13,15 +13,25 @@ import { APPROVAL_STATUS_OPTIONS, APPROVAL_STATUS_COLORS, TRANSFER_TYPES } from 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Transfer } from '@/types'
 import { useUserStore } from '@/store/user'
+import { canCreateTransfer, canManageTransfer, TRANSFER_PERMISSION_OPERATIONS, type ActiveTransferActionType } from '@/utils/permissionGroups'
 
 // 流转类型元数据（权威定义在 constants，此处再导出兼容既有导入方）
 export { TRANSFER_TYPES }
-export type TransferType = keyof typeof TRANSFER_TYPES
+export type TransferType = ActiveTransferActionType
 
 export function useTransferList(type: TransferType) {
   const userStore = useUserStore()
-  const canApproveTransfer = computed(() => userStore.can('approve_transfer'))
-  const canManageAssets = computed(() => userStore.can('manage_assets'))
+  const permissionOperations = TRANSFER_PERMISSION_OPERATIONS[type]
+  const canView = computed(() => userStore.can(permissionOperations.view))
+  const canCreate = computed(() => canCreateTransfer(type, code => userStore.can(code)))
+  const canDownloadTemplate = computed(() => Boolean(
+    permissionOperations.import && userStore.can(permissionOperations.import),
+  ) && canManageTransfer(type, code => userStore.can(code)))
+  const canImport = computed(() => Boolean(permissionOperations.import)
+    && canManageTransfer(type, code => userStore.can(code)))
+  const canApproveTransfer = computed(() => userStore.can(permissionOperations.approve))
+  const canRejectInbound = computed(() => type === 'transfer' && userStore.can('edit_transfer'))
+  const canList = computed(() => canView.value)
   const { label: typeLabel, color: typeColor } = TRANSFER_TYPES[type]
 
   // 筛选
@@ -58,6 +68,11 @@ export function useTransferList(type: TransferType) {
   })
 
   async function fetchTransfers() {
+    if (!canList.value) {
+      transfers.value = []
+      pagination.value.total = 0
+      return
+    }
     loading.value = true
     try {
       const { data } = await getTransfers({
@@ -79,6 +94,7 @@ export function useTransferList(type: TransferType) {
   }
 
   async function fetchBranches() {
+    if (!canList.value) return
     try {
       const { data } = await getBranches()
       branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
@@ -122,20 +138,29 @@ export function useTransferList(type: TransferType) {
 
   // 批量导入
   const showImportModal = ref(false)
+  const importConfirming = ref(false)
   const importLoading = ref(false)
-  const importResult = ref<{ imported: number; errors: string[] } | null>(null)
+  const importBusy = computed(() => importConfirming.value || importLoading.value)
+  const importResult = ref<{ imported: number; errors: string[]; rejected?: boolean } | null>(null)
 
   function openImportModal() {
+    if (!canImport.value) return
     importResult.value = null
+    importConfirming.value = false
     importLoading.value = false
     showImportModal.value = true
   }
 
+  function closeImportModal() {
+    if (importBusy.value) return
+    showImportModal.value = false
+  }
+
   function handleDownloadTemplate() {
+    if (!canDownloadTemplate.value) return
     const templateConfig: Partial<Record<TransferType, { filename: string }>> = {
       purchase: { filename: '采购入库导入模板' },
       assign: { filename: '领用出库导入模板' },
-      return: { filename: '归还入库导入模板' },
       transfer: { filename: '调拨导入模板' },
     }
     const { filename } = templateConfig[type] ?? { filename: '流转导入模板' }
@@ -147,6 +172,16 @@ export function useTransferList(type: TransferType) {
     const file = input.files?.[0]
     if (!file) return
 
+    if (!canImport.value) {
+      input.value = ''
+      return
+    }
+
+    if (importBusy.value) {
+      input.value = ''
+      return
+    }
+
     const ext = file.name.split('.').pop()?.toLowerCase()
     if (ext !== 'xlsx' && ext !== 'xls') {
       ElMessage.warning('请上传 Excel 文件（.xlsx 或 .xls）')
@@ -154,8 +189,30 @@ export function useTransferList(type: TransferType) {
       return
     }
 
-    importLoading.value = true
     importResult.value = null
+    importConfirming.value = true
+    try {
+      await ElMessageBox.confirm(
+        `文件：${file.name}\n确认后将立即创建${typeLabel}单据，是否继续？`,
+        '确认导入',
+        {
+          confirmButtonText: '确认导入',
+          cancelButtonText: '取消',
+          type: 'warning',
+          distinguishCancelAndClose: true,
+        },
+      )
+    } catch (error) {
+      input.value = ''
+      if (error !== 'cancel' && error !== 'close') {
+        ElMessage.error(handleApiError(error))
+      }
+      return
+    } finally {
+      importConfirming.value = false
+    }
+
+    importLoading.value = true
     try {
       const { data } = await importTransfers(file, type)
       importResult.value = data
@@ -167,6 +224,16 @@ export function useTransferList(type: TransferType) {
         }, 1200)
       }
     } catch (error) {
+      const responseData = (error as {
+        response?: { data?: { errors?: unknown } }
+      })?.response?.data
+      if (Array.isArray(responseData?.errors)) {
+        importResult.value = {
+          imported: 0,
+          errors: responseData.errors.filter((item): item is string => typeof item === 'string'),
+          rejected: true,
+        }
+      }
       ElMessage.error(handleApiError(error))
     } finally {
       importLoading.value = false
@@ -176,6 +243,7 @@ export function useTransferList(type: TransferType) {
 
   // 导出
   async function handleExport() {
+    if (!canView.value) return
     try {
       const params: Record<string, string> = { type }
       if (filters.value.fromBranch.length) params.fromBranch = filters.value.fromBranch.join(',')
@@ -215,8 +283,13 @@ export function useTransferList(type: TransferType) {
     type,
     typeLabel,
     typeColor,
+    canCreate,
+    canImport,
+    canDownloadTemplate,
+    canView,
+    canList,
     canApproveTransfer,
-    canManageAssets,
+    canRejectInbound,
     filters,
     pagination,
     loading,
@@ -234,9 +307,11 @@ export function useTransferList(type: TransferType) {
     handleReject,
     // 批量导入
     showImportModal,
+    importBusy,
     importLoading,
     importResult,
     openImportModal,
+    closeImportModal,
     handleDownloadTemplate,
     handleImportFile,
     // 导出

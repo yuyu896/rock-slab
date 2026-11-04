@@ -62,8 +62,10 @@ describe('ItemPicker 双数据源（写单表单选项收口）', () => {
     expect(state(wrapper).selectedItemLabel).toBe('NB-001 笔记本')
   })
 
-  it('当前品目不进入远程候选，分公司切换时仍保留标签', async () => {
-    const selectedItem = { id: 'existing-item', asset_code: 'OLD-001', asset_name: '既有设备' }
+  it('当前品目不在远程候选中或分公司切换时仍保留标签', async () => {
+    const selectedItem = {
+      id: 'existing-item', asset_code: 'OLD-001', asset_name: '既有设备',
+    }
     const wrapper = mount(ItemPicker, {
       props: {
         modelValue: selectedItem.id,
@@ -75,15 +77,20 @@ describe('ItemPicker 双数据源（写单表单选项收口）', () => {
 
     state(wrapper).remoteSearch('设备')
     await flushPromises()
+    expect(state(wrapper).options).toHaveLength(2)
     expect(state(wrapper).options.some((item: any) => item.id === selectedItem.id)).toBe(false)
     expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
 
     await wrapper.setProps({ branch: '分公司B' })
     expect(state(wrapper).options).toHaveLength(0)
     expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
+
+    await wrapper.setProps({ stockColumn: '在用数量' })
+    expect(state(wrapper).options).toHaveLength(0)
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
   })
 
-  it('已选品目变化时更新标签', async () => {
+  it('更换已选品目后标签更新，选择器仍以 UUID 为值', async () => {
     const firstItem = { id: 'c1', asset_code: 'NB-001', asset_name: '笔记本' }
     const nextItem = { id: 'c2', asset_code: 'MS-002', asset_name: '鼠标' }
     const wrapper = mount(ItemPicker, {
@@ -97,7 +104,7 @@ describe('ItemPicker 双数据源（写单表单选项收口）', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
-  it('选择远程候选仍提交品目 UUID', async () => {
+  it('选择远程候选仍发出品目 UUID 和完整品目摘要', async () => {
     const wrapper = mount(ItemPicker, { props: { modelValue: '' } })
     state(wrapper).remoteSearch('笔')
     await flushPromises()
@@ -133,6 +140,23 @@ describe('ItemPicker 双数据源（写单表单选项收口）', () => {
     await flushPromises()
     expect(getAssetStocks).not.toHaveBeenCalled()
     expect(getCategories).not.toHaveBeenCalled()
+  })
+
+  it('缺少实例档案查看权时隐藏实例管理品目', async () => {
+    vi.mocked(getAssetStocks).mockResolvedValueOnce({
+      data: { results: [{
+        item: 'instance-item', 资产编号: 'INST-1', 资产名称: '笔记本', 管理方式: 'instance',
+        在库数量: 1, 在用数量: 0, 回收库数量: 0,
+      }] },
+    } as any)
+    const wrapper = mount(ItemPicker, {
+      props: { modelValue: '', branch: '分公司A', stockColumn: '在库数量', excludeInstance: true },
+    })
+
+    await state(wrapper).remoteSearch('INST-1')
+    await flushPromises()
+
+    expect(state(wrapper).options).toEqual([])
   })
 
   it('excludeConsumable 剔除消耗品行（回收库来源）', async () => {

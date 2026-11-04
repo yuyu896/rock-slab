@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { branchSelectStub } from '../helpers/branchSelectStub'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 't-1' }, query: {} }),
@@ -66,7 +67,7 @@ describe('PurchaseCreate 存为草稿', () => {
 
   it('点「存为草稿」以 draft=true 提交', async () => {
     const wrapper = mount(PurchaseCreate, {
-      global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' } } },
+      global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' }, BranchSelect: branchSelectStub as any } },
     })
     await flushPromises()
     await fillCreateForm(wrapper as any)
@@ -77,7 +78,7 @@ describe('PurchaseCreate 存为草稿', () => {
 
   it('点「提交审批」不带 draft 标志', async () => {
     const wrapper = mount(PurchaseCreate, {
-      global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' } } },
+      global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' }, BranchSelect: branchSelectStub as any } },
     })
     await flushPromises()
     await fillCreateForm(wrapper as any)

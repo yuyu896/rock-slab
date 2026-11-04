@@ -29,6 +29,10 @@ class TransferLineSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', '行号']
 
     def get_instances(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user is not None and user.is_authenticated and not user.can('view_instances'):
+            return []
         prev = {lnk.instance_id: lnk.调拨前编号 for lnk in obj.instance_links.all()}
         return [
             {'id': inst.pk, 'code': inst.内部编号, '前编号': prev.get(inst.pk, '')}
@@ -79,8 +83,9 @@ class TransferSerializer(serializers.ModelSerializer):
         return data
 
     def get_canOperate(self, obj):
-        """调拨单调入方只读（修订 3.1）：transfer 类型要求范围含调出方；
-        其余类型恒可操作；无请求上下文（离线序列化）默认 True。"""
+        """历史归还只读；调拨单调入方也只读，其余类型沿用原操作范围。"""
+        if obj.action_type == Transfer.ACTION_RETURN:
+            return False
         if obj.action_type != Transfer.ACTION_TRANSFER:
             return True
         request = self.context.get('request')
@@ -111,13 +116,12 @@ class TransferSerializer(serializers.ModelSerializer):
     def get_canWithdraw(self, obj):
         """撤回入口显隐：账号身份判定，不比对姓名。
 
-        五类流转单均可由创建账号撤回待审批单；无请求上下文（离线序列化）默认
+        流转单可由创建账号撤回待审批单；无请求上下文（离线序列化）默认
         False。接口仍会独立执行相同的状态与权限校验。
         """
         if obj.action_type not in (
             Transfer.ACTION_PURCHASE,
             Transfer.ACTION_ASSIGN,
-            Transfer.ACTION_RETURN,
             Transfer.ACTION_TRANSFER,
             Transfer.ACTION_RECOVERY,
         ) or obj.审批状态 != '待审批':
@@ -131,14 +135,16 @@ class TransferSerializer(serializers.ModelSerializer):
         return obj.created_by_id == user.id
 
     def get_canEditDraft(self, obj):
-        """草稿/驳回单编辑入口：本人或管理员；调拨还需当前用户可操作调出方。"""
-        if obj.审批状态 not in ('草稿', '已驳回'):
+        """Drafts belong to their creator; admins may still edit others' rejected documents."""
+        if obj.action_type == Transfer.ACTION_RETURN or obj.审批状态 not in ('草稿', '已驳回'):
             return False
         request = self.context.get('request')
         user = getattr(request, 'user', None) if request else None
         if user is None or not user.is_authenticated:
             return False
-        if user.role != 'admin' and obj.created_by_id != user.id:
+        if obj.审批状态 == '草稿' and obj.created_by_id != user.id:
+            return False
+        if obj.审批状态 == '已驳回' and user.role != 'admin' and obj.created_by_id != user.id:
             return False
         if obj.action_type == Transfer.ACTION_TRANSFER:
             return self.get_canOperate(obj)

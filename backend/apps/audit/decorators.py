@@ -38,10 +38,10 @@ def audit_log(action, resource_type=None, description_template=None):
                 view = first
                 request = getattr(first, 'request', None) if first is not None else None
 
-            # 记录执行前状态（用于 update 操作）
+            # 更新和删除均保留操作前的资源快照。
             before_data = None
             instance_before = None
-            if action == 'update' and hasattr(view, 'get_object'):
+            if action in ('update', 'delete') and hasattr(view, 'get_object'):
                 try:
                     instance_before = view.get_object()
                     if hasattr(instance_before, '__dict__'):
@@ -96,7 +96,11 @@ def audit_log(action, resource_type=None, description_template=None):
                     # 如果没有从结果获取到，尝试从实例获取
                     if not resource_id and instance_before:
                         resource_id = getattr(instance_before, 'id', None)
-                        resource_name = getattr(instance_before, 'name', '') or str(instance_before)
+                        resource_name = (
+                            getattr(instance_before, 'name', '')
+                            or getattr(instance_before, '单据编号', '')
+                            or str(instance_before)
+                        )
 
                     # 构建 description
                     description = description_template or f'{action} {resource_type or "resource"}'
@@ -107,10 +111,20 @@ def audit_log(action, resource_type=None, description_template=None):
                     request_info = get_request_info(request)
 
                     # 创建日志
+                    # Self-deletion removes the actor row before the log is saved.
+                    # Preserve the captured identity fields while leaving the nullable FK empty.
+                    audit_user = request.user
+                    self_delete = (
+                        action == 'delete'
+                        and resource_type == 'User'
+                        and str(resource_id) == str(request.user.pk)
+                    )
+                    if self_delete:
+                        audit_user = None
                     AuditLog.objects.create(
-                        user=request.user,
+                        user=audit_user,
                         user_name=request.user.name,
-                        user_phone=request.user.phone,
+                        user_phone='' if self_delete else request.user.phone,
                         action=action,
                         resource_type=resource_type or (view.__class__.__name__ if view else 'Unknown'),
                         resource_id=resource_id,

@@ -77,6 +77,7 @@ class TestTimelineChain:
         from apps.permissions.models import OperationGrant, ManagementScope
         user = User.objects.get(phone='13900000004')
         ManagementScope.objects.create(user=user, branch=qz2)
+        OperationGrant.objects.get_or_create(user=user, code='view_instances')
         item = _item('PDO-I3')
         _purchase(qz2, item, 1, 'CG20250723-005', datetime.date(2025, 7, 23))
         inst = FixedAsset.objects.get(branch=qz2)

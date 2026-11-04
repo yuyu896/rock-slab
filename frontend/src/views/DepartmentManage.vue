@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { getDepartments, createDepartment, deleteDepartment, type Department } from '@/api/departments'
+import { ref, onMounted, computed } from 'vue'
+import { getDepartments, createDepartment, updateDepartment, deleteDepartment, type Department } from '@/api/departments'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
 
-const { canManageOrganizations } = usePermission()
+const { can } = usePermission()
+const canEdit = computed(() => can('view_departments') && can('edit_departments'))
 
 const departments = ref<Department[]>([])
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
@@ -14,8 +15,15 @@ const loading = ref(false)
 
 const newName = ref('')
 const saving = ref(false)
+const editingId = ref('')
+const editingName = ref('')
 
 async function fetchDepartments() {
+  if (!can('view_departments')) {
+    departments.value = []
+    pagination.value.total = 0
+    return
+  }
   loading.value = true
   try {
     const { data } = await getDepartments({
@@ -32,6 +40,7 @@ async function fetchDepartments() {
 }
 
 async function handleCreate() {
+  if (!canEdit.value) return
   if (!newName.value.trim()) {
     ElMessage.warning('请填写部门名称')
     return
@@ -41,7 +50,32 @@ async function handleCreate() {
     await createDepartment({ name: newName.value.trim() })
     ElMessage.success('已添加')
     newName.value = ''
-    await fetchDepartments()
+    if (can('view_departments')) await fetchDepartments()
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    saving.value = false
+  }
+}
+
+function startEdit(d: Department) {
+  if (!canEdit.value) return
+  editingId.value = d.id
+  editingName.value = d.name
+}
+
+async function handleEdit(d: Department) {
+  if (!canEdit.value) return
+  if (!editingName.value.trim()) {
+    ElMessage.warning('请填写部门名称')
+    return
+  }
+  saving.value = true
+  try {
+    await updateDepartment(d.id, { name: editingName.value.trim() })
+    ElMessage.success('已保存')
+    editingId.value = ''
+    if (can('view_departments')) await fetchDepartments()
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -50,11 +84,12 @@ async function handleCreate() {
 }
 
 async function handleDelete(d: Department) {
+  if (!canEdit.value) return
   try {
     await ElMessageBox.confirm(`确定删除「${d.name}」？`, '删除确认', { type: 'warning' })
     await deleteDepartment(d.id)
     ElMessage.success('已删除')
-    await fetchDepartments()
+    if (can('view_departments')) await fetchDepartments()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(handleApiError(error))
@@ -80,39 +115,51 @@ onMounted(fetchDepartments)
       </div>
     </div>
 
-    <div v-if="canManageOrganizations" class="add-row">
+    <div v-if="canEdit" class="add-row">
       <input v-model="newName" type="text" class="filter-input" placeholder="部门名称" @keyup.enter="handleCreate" />
       <button class="btn-primary" :disabled="saving" @click="handleCreate">添加</button>
     </div>
 
-    <div class="table-container">
+    <div v-if="can('view_departments')" class="table-container">
       <table class="data-table">
         <thead>
           <tr>
             <th>序号</th>
             <th>部门名称</th>
-            <th v-if="canManageOrganizations">操作</th>
+            <th v-if="canEdit">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && departments.length === 0">
-            <td :colspan="canManageOrganizations ? 3 : 2" class="empty-cell">加载中...</td>
+            <td :colspan="canEdit ? 3 : 2" class="empty-cell">加载中...</td>
           </tr>
           <tr v-else-if="departments.length === 0">
-            <td :colspan="canManageOrganizations ? 3 : 2" class="empty-cell">暂无部门</td>
+            <td :colspan="canEdit ? 3 : 2" class="empty-cell">暂无部门</td>
           </tr>
           <tr v-for="(d, index) in departments" :key="d.id">
             <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
-            <td>{{ d.name }}</td>
-            <td v-if="canManageOrganizations">
-              <button class="action-btn danger" @click="handleDelete(d)">删除</button>
+            <td>
+              <input v-if="editingId === d.id" v-model="editingName" class="filter-input" aria-label="部门名称" />
+              <span v-else>{{ d.name }}</span>
+            </td>
+            <td v-if="canEdit">
+              <template v-if="editingId === d.id">
+                <button class="action-btn" :disabled="saving" @click="handleEdit(d)">保存</button>
+                <button class="action-btn" :disabled="saving" @click="editingId = ''">取消</button>
+              </template>
+              <template v-else>
+                <button class="action-btn" @click="startEdit(d)">编辑</button>
+                <button class="action-btn danger" @click="handleDelete(d)">删除</button>
+              </template>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+    <div v-else class="table-container empty-cell">当前账号没有查看部门权限</div>
 
     <BasePagination
+      v-if="can('view_departments')"
       :total="pagination.total"
       :current-page="pagination.page"
       :page-size="pagination.pageSize"
@@ -133,7 +180,7 @@ onMounted(fetchDepartments)
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: auto; flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
-.data-table th { background: var(--color-bg-elevated); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
+.data-table th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-table-header); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
 .data-table td { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); border-bottom: 1px solid var(--color-border-light); }
 .col-index { width: 56px; text-align: center; color: var(--color-text-tertiary); }
 .empty-cell { text-align: center; padding: var(--space-8) 0; color: var(--color-text-tertiary); }

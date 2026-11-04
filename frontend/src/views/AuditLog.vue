@@ -428,7 +428,7 @@ onMounted(() => {
 }
 
 .log-table th {
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-table-header);
   padding: var(--space-3) var(--space-4);
   text-align: left;
   font-size: var(--text-sm);

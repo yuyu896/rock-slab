@@ -15,6 +15,39 @@ def _all_clients(admin_user, manager_user, supervisor_user, leader_user, staff_u
     ]
 
 
+def _grant(user, *codes):
+    from apps.permissions.models import OperationGrant
+
+    OperationGrant.objects.bulk_create([
+        OperationGrant(user=user, code=code) for code in codes
+    ], ignore_conflicts=True)
+    prerequisites = {
+        'edit_purchase': ('view_purchase', 'view_categories'),
+        'edit_assignment': ('view_assignment', 'view_asset_ledger'),
+        'edit_transfer': ('view_transfer', 'view_asset_ledger'),
+        'edit_recovery': ('view_recovery', 'view_asset_ledger'),
+        'approve_purchase': ('view_purchase',),
+        'approve_assignment': ('view_assignment',),
+        'approve_internal_transfer': ('view_transfer',),
+        'approve_recovery': ('view_recovery',),
+        'review_inventory': ('view_inventory',),
+    }
+    OperationGrant.objects.bulk_create([
+        OperationGrant(user=user, code=prerequisite)
+        for code in codes if code in prerequisites
+        for prerequisite in prerequisites[code]
+    ], ignore_conflicts=True)
+
+
+def _ungranted_manager():
+    from apps.users.models import User
+
+    return User.objects.create_user(
+        phone='13800000099', name='无授权行政', password='test123456',
+        role='manager', status='active',
+    )
+
+
 # ---------------------------------------------------------------------------
 # Authentication endpoints
 # ---------------------------------------------------------------------------
@@ -41,16 +74,19 @@ class TestAuthRBAC:
 
 
 # ---------------------------------------------------------------------------
-# User management — supervisor+ for write, staff for read
+# User management — grants control each operation independently of position.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
 class TestUserManagementRBAC:
-    def test_list_users_all_roles(self, admin_user, manager_user, supervisor_user, leader_user, staff_user):
-        for _name, user in _all_clients(admin_user, manager_user, supervisor_user, leader_user, staff_user):
-            client = _client_for(user)
-            resp = client.get('/api/users/')
-            assert resp.status_code == 200, f'{_name} should list users'
+    def test_list_users_requires_explicit_grant(self, db, admin_user, manager_user):
+        ungranted_manager = _ungranted_manager()
+        assert manager_user.role == ungranted_manager.role
+        assert not ungranted_manager.operation_grants.exists()
+
+        assert _client_for(admin_user).get('/api/users/').status_code == 200
+        assert _client_for(manager_user).get('/api/users/').status_code == 200
+        assert _client_for(ungranted_manager).get('/api/users/').status_code == 403
 
     def test_create_user_staff_forbidden(self, staff_user):
         client = _client_for(staff_user)
@@ -71,6 +107,7 @@ class TestUserManagementRBAC:
 
     def test_create_user_retired_supervisor_cannot_assign_any_position(self, supervisor_user):
         # supervisor 已退役：不在岗位分配权线内，不能创建任何带岗位的用户
+        _grant(supervisor_user, 'view_users', 'edit_users')
         client = _client_for(supervisor_user)
         resp = client.post('/api/users/', {
             'phone': '13800000013', 'name': '新组长2', 'password': 'test123456',
@@ -79,14 +116,21 @@ class TestUserManagementRBAC:
         assert resp.status_code == 400
 
     def test_create_user_manager_can_create_leader(self, manager_user):
+        _grant(manager_user, 'view_users', 'edit_users')
         client = _client_for(manager_user)
         resp = client.post('/api/users/', {
             'phone': '13800000015', 'name': '新组长3', 'password': 'test123456',
             'role': 'leader',
         })
         assert resp.status_code == 201
+        from apps.users.models import User
+        from apps.permissions.position_baselines import get_role_baseline
+        created = User.objects.get(phone='13800000015')
+        assert set(created.operation_grants.values_list('code', flat=True)) == get_role_baseline('leader')
+        assert not created.management_scopes.exists()
 
     def test_create_user_supervisor_cannot_create_manager(self, supervisor_user):
+        _grant(supervisor_user, 'view_users', 'edit_users')
         client = _client_for(supervisor_user)
         resp = client.post('/api/users/', {
             'phone': '13800000014', 'name': '新经理', 'password': 'test123456',
@@ -111,6 +155,7 @@ class TestUserManagementRBAC:
 
 class TestTransferRBAC:
     def test_purchase_staff_allowed(self, staff_user, branch, item_id):
+        _grant(staff_user, 'edit_purchase')
         client = _client_for(staff_user)
         resp = client.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
@@ -121,6 +166,7 @@ class TestTransferRBAC:
         assert resp.status_code == 201
 
     def test_purchase_supervisor_allowed(self, supervisor_user, branch, item_id):
+        _grant(supervisor_user, 'edit_purchase')
         client = _client_for(supervisor_user)
         resp = client.post('/api/transfers/purchase', {
             '调拨日期': '2026-01-15',
@@ -141,6 +187,7 @@ class TestTransferRBAC:
         assert resp.status_code == 201
         transfer_id = resp.data['id']
 
+        _grant(staff_user, 'view_purchase')
         client_staff = _client_for(staff_user)
         resp = client_staff.post(
             f'/api/transfers/{transfer_id}/approve', {'approved': True}, format='json',
@@ -158,6 +205,7 @@ class TestTransferRBAC:
         assert resp.status_code == 201
         transfer_id = resp.data['id']
 
+        _grant(leader_user, 'view_purchase')
         client_leader = _client_for(leader_user)
         resp = client_leader.post(
             f'/api/transfers/{transfer_id}/approve', {'approved': True}, format='json',
@@ -182,7 +230,7 @@ class TestTransferRBAC:
 
 
 # ---------------------------------------------------------------------------
-# Inventory — approval restricted to supervisor+
+# Inventory — approval restricted by role and data scope
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -217,28 +265,31 @@ class TestInventoryRBAC:
         resp = client_staff.post(f'/api/inventories/{task_id}/approve')
         assert resp.status_code == 403
 
-    def test_approve_inventory_supervisor_allowed(self, supervisor_user, admin_user, branch):
+    def test_approve_inventory_leader_allowed(self, leader_user, admin_user, branch):
+        _grant(leader_user, 'review_inventory')
         task_id = self._create_task(admin_user, branch)
         client = _client_for(admin_user)
         client.post(f'/api/inventories/{task_id}/start')
         client.post(f'/api/inventories/{task_id}/submit')
 
-        client_sup = _client_for(supervisor_user)
-        resp = client_sup.post(f'/api/inventories/{task_id}/approve')
+        client_leader = _client_for(leader_user)
+        resp = client_leader.post(f'/api/inventories/{task_id}/approve')
         assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
-# Organization management — admin only for write
+# Organization management — visibility is explicitly granted.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
 class TestOrganizationRBAC:
-    def test_list_regions_all_roles(self, admin_user, manager_user, supervisor_user, leader_user, staff_user, region):
-        for _name, user in _all_clients(admin_user, manager_user, supervisor_user, leader_user, staff_user):
-            client = _client_for(user)
-            resp = client.get('/api/regions/')
-            assert resp.status_code == 200, f'{_name} should list regions'
+    def test_list_regions_requires_explicit_grant(self, db, admin_user, manager_user, region):
+        ungranted_manager = _ungranted_manager()
+        assert manager_user.role == ungranted_manager.role
+
+        assert _client_for(admin_user).get('/api/regions/').status_code == 200
+        assert _client_for(manager_user).get('/api/regions/').status_code == 200
+        assert _client_for(ungranted_manager).get('/api/regions/').status_code == 403
 
     def test_create_region_staff_forbidden(self, staff_user):
         client = _client_for(staff_user)
@@ -271,16 +322,18 @@ class TestOrganizationRBAC:
 
 
 # ---------------------------------------------------------------------------
-# Reports — all authenticated users can view
+# Reports — viewing requires a specific operation grant.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
 class TestReportRBAC:
-    def test_overview_all_roles(self, admin_user, manager_user, supervisor_user, leader_user, staff_user):
-        for _name, user in _all_clients(admin_user, manager_user, supervisor_user, leader_user, staff_user):
-            client = _client_for(user)
-            resp = client.get('/api/reports/overview/')
-            assert resp.status_code == 200, f'{_name} should view overview'
+    def test_overview_requires_explicit_grant(self, db, admin_user, manager_user):
+        ungranted_manager = _ungranted_manager()
+        assert manager_user.role == ungranted_manager.role
+
+        assert _client_for(admin_user).get('/api/reports/overview/').status_code == 200
+        assert _client_for(manager_user).get('/api/reports/overview/').status_code == 200
+        assert _client_for(ungranted_manager).get('/api/reports/overview/').status_code == 403
 
     def test_unauthenticated_overview_401(self, api_client):
         resp = api_client.get('/api/reports/overview/')
@@ -327,12 +380,14 @@ class TestAuditRBAC:
 @pytest.mark.django_db
 class TestNotificationRBAC:
     def test_list_notifications_all_roles(self, admin_user, staff_user):
+        _grant(staff_user, 'view_notifications')
         for _name, user in [('admin', admin_user), ('staff', staff_user)]:
             client = _client_for(user)
             resp = client.get('/api/notifications/')
             assert resp.status_code == 200, f'{_name} should list own notifications'
 
     def test_unread_count_all_roles(self, admin_user, staff_user):
+        _grant(staff_user, 'view_notifications')
         for _name, user in [('admin', admin_user), ('staff', staff_user)]:
             client = _client_for(user)
             resp = client.get('/api/notifications/unread_count/')
@@ -346,6 +401,7 @@ class TestNotificationRBAC:
 @pytest.mark.django_db
 class TestCategoryRBAC:
     def test_list_categories_all_roles(self, admin_user, staff_user, category):
+        _grant(staff_user, 'view_categories')
         for _name, user in [('admin', admin_user), ('staff', staff_user)]:
             client = _client_for(user)
             resp = client.get('/api/categories/')
@@ -368,6 +424,7 @@ class TestCategoryRBAC:
         assert resp.status_code == 403
 
     def test_create_category_supervisor_allowed(self, supervisor_user):
+        _grant(supervisor_user, 'create_categories')
         client = _client_for(supervisor_user)
         resp = client.post('/api/categories/', {
             'asset_category': '固定', 'item_category': '办公',

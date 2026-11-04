@@ -6,6 +6,7 @@ import { useNotificationStore } from '@/store/notification'
 import { getPendingTransfers, getTransfers } from '@/api/transfers'
 import { getInventoryTasks } from '@/api/inventories'
 import { ROLE_LABELS } from '@/constants'
+import { canManageTransfer, type ActiveTransferActionType } from '@/utils/permissionGroups'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -19,13 +20,15 @@ const userName = computed(() => userStore.profile?.name || '用户')
 const userRole = computed(() => userStore.profile?.role || '')
 const roleLabel = (role: string) => ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role
 
-const quickActions = [
+const quickActionDefinitions: { key: string; label: string; icon: string; path: string; type?: ActiveTransferActionType }[] = [
   { key: 'scan', label: '扫码查询', icon: 'scan', path: '/mobile/scan' },
-  { key: 'purchase', label: '提交入库', icon: 'purchase', path: '/mobile/purchase' },
-  { key: 'transfer', label: '提交调拨', icon: 'transfer', path: '/mobile/submit/transfer' },
-  { key: 'assign', label: '提交领用', icon: 'assign', path: '/mobile/submit/assign' },
+  { key: 'purchase', label: '提交入库', icon: 'purchase', path: '/mobile/purchase', type: 'purchase' },
+  { key: 'transfer', label: '提交调拨', icon: 'transfer', path: '/mobile/submit/transfer', type: 'transfer' },
+  { key: 'assign', label: '提交领用', icon: 'assign', path: '/mobile/submit/assign', type: 'assign' },
   { key: 'inventory', label: '盘点任务', icon: 'inventory', path: '/mobile/inventory' },
 ]
+const quickActions = computed(() => quickActionDefinitions.filter(action => !action.type
+  || canManageTransfer(action.type, code => userStore.can(code))))
 
 const statistics = ref([
   { label: '待审批', value: 0, color: 'warning' },
@@ -141,7 +144,7 @@ onMounted(() => {
 
     <!-- 待办事项 -->
     <div class="pending-section">
-      <h3 class="section-title">待办事项</h3>
+      <h3 class="section-title">待处理事项</h3>
       <div v-if="pendingApprovals > 0" class="pending-item" @click="navigateTo('/mobile/approval')">
         <div class="pending-icon approval">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -177,7 +180,7 @@ onMounted(() => {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
-        <p>暂无待办事项</p>
+        <p>暂无待处理事项</p>
       </div>
     </div>
   </div>

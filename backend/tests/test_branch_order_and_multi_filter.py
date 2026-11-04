@@ -3,7 +3,7 @@ import pytest
 from conftest import _client_for
 
 
-def _mk(action, date_str, status, to_branch, name=None):
+def _mk(action, date_str, status, to_branch, name=None, created_by=None):
     from apps.transfers.models import Transfer
     return Transfer.objects.create(
         action_type=action,
@@ -11,6 +11,7 @@ def _mk(action, date_str, status, to_branch, name=None):
         调入分公司=name or to_branch.name,
         to_branch=to_branch,
         审批状态=status,
+        created_by=created_by,
     )
 
 
@@ -19,7 +20,7 @@ class TestTransferListOrdering:
     def test_status_rank_then_date_desc(self, admin_user, branch, second_branch):
         _mk('purchase', '2026-09-01', '已入库', branch)
         _mk('purchase', '2026-09-10', '待审批', second_branch)
-        _mk('purchase', '2026-09-05', '草稿', branch)
+        _mk('purchase', '2026-09-05', '草稿', branch, created_by=admin_user)
         _mk('purchase', '2026-09-20', '待审批', branch)
         _mk('purchase', '2026-09-08', '已入库', branch)
 

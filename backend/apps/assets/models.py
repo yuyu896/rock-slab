@@ -2,6 +2,8 @@ import os
 import uuid
 
 from django.db import models
+from django.db.models import F
+from django.db.models.functions import Trim, Upper
 from core.models import UUIDModel, TimestampedModel
 
 
@@ -108,6 +110,7 @@ class LedgerAdjustment(UUIDModel, TimestampedModel):
         related_name='ledger_adjustments',
         verbose_name='经办人',
     )
+    经办人姓名 = models.CharField('经办人姓名快照', max_length=100, blank=True, default='')
     source_task = models.ForeignKey(
         'inventories.InventoryTask',
         on_delete=models.SET_NULL,
@@ -153,7 +156,7 @@ class FixedAsset(UUIDModel, TimestampedModel):
         verbose_name='品目',
     )
     内部编号 = models.CharField('内部编号', max_length=100, unique=True)
-    序列号 = models.CharField('序列号（空=待补录）', max_length=200, blank=True, default='')
+    序列号 = models.CharField('序列号（空=待补录）', max_length=200, blank=True, default='', db_index=True)
     当前状态 = models.CharField(
         '当前状态', max_length=20,
         choices=INSTANCE_STATUS_CHOICES, default=STATUS_IN_STOCK, db_index=True,
@@ -178,7 +181,7 @@ class FixedAsset(UUIDModel, TimestampedModel):
     )
     入库日期 = models.DateField('入库日期', null=True, blank=True)
     备注 = models.TextField('备注', blank=True, default='')
-    供应商 = models.CharField('供应商（个体覆盖，空=批次口径）', max_length=200, blank=True, default='')
+    供应商 = models.CharField('供应商（个体覆盖，空=批次口径）', max_length=200, blank=True, default='', db_index=True)
     规格 = models.CharField('规格（个体覆盖，空=批次口径）', max_length=200, blank=True, default='')
     采购日期 = models.DateField('采购日期（个体覆盖，空=出生单日期）', null=True, blank=True)
     image = models.ImageField(
@@ -203,6 +206,9 @@ class FixedAsset(UUIDModel, TimestampedModel):
                 condition=~models.Q(序列号=''),
                 name='unique_branch_serial',
             ),
+        ]
+        indexes = [
+            models.Index(Upper(Trim(F('序列号'))), name='fixedasset_norm_serial_idx'),
         ]
 
     def __str__(self):

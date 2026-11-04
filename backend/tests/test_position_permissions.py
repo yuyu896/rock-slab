@@ -1,49 +1,44 @@
-"""岗位模板 + 任命即授权 + 权限可见性（小案③ 权限重构）测试。"""
+"""Account-level permissions and data-scope regression tests."""
 import pytest
 from conftest import _client_for
 from rest_framework import status
 
 from apps.permissions.models import ManagementScope, OperationGrant
-from apps.permissions.positions import POSITION_TEMPLATES
 
 
 # ---------------------------------------------------------------------------
-# 任命即授权（resolve_user_scope）
+# Position appointments do not grant data scope.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-class TestAppointmentScope:
-    def _fresh(self, db, branch, team, region):
-        from apps.users.models import User
-        return User.objects.create_user(
-            phone='13500000001', name='受任者', password='x',
-            role='staff', status='active',
-        )
-
-    def test_region_manager_gets_region_subtree(self, region, team, branch):
+class TestAccountScope:
+    def test_region_appointment_does_not_expand_default_branch_scope(
+        self, region, branch, second_branch,
+    ):
         from apps.users.models import User
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
-            phone='13500000001', name='区长', password='x', role='staff', status='active',
+            phone='13500000001', name='区长', password='x', role='manager',
+            status='active', branch=branch,
         )
         region.manager = user
         region.save(update_fields=['manager'])
         scope = resolve_user_scope(user)
-        assert branch.id in scope.branches
-        assert region.id in scope.appointed_regions
+        assert scope.branches == {branch.id}
+        assert second_branch.id not in scope.branches
 
-    def test_team_leader_gets_team_branches(self, team, branch):
+    def test_team_appointment_does_not_create_scope_without_branch(self, team, branch):
         from apps.users.models import User
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
-            phone='13500000002', name='组长', password='x', role='staff', status='active',
+            phone='13500000002', name='组长', password='x', role='leader', status='active',
         )
         team.leader = user
         team.save(update_fields=['leader'])
         scope = resolve_user_scope(user)
-        assert branch.id in scope.branches
+        assert scope.is_empty
 
-    def test_branch_manager_scope(self, branch):
+    def test_branch_appointment_does_not_create_scope_without_branch(self, branch):
         from apps.users.models import User
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
@@ -51,10 +46,11 @@ class TestAppointmentScope:
         )
         branch.manager = user
         branch.save(update_fields=['manager'])
-        scope = resolve_user_scope(user)
-        assert branch.id in scope.branches
+        assert resolve_user_scope(user).is_empty
 
-    def test_appointment_unions_with_grant(self, region, second_region, second_branch, branch):
+    def test_explicit_scope_is_independent_of_appointment(
+        self, region, second_branch, branch,
+    ):
         from apps.users.models import User
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
@@ -64,24 +60,26 @@ class TestAppointmentScope:
         region.save(update_fields=['manager'])
         ManagementScope.objects.create(user=user, branch=second_branch)
         scope = resolve_user_scope(user)
-        assert branch.id in scope.branches and second_branch.id in scope.branches
+        assert scope.branches == {second_branch.id}
+        assert branch.id not in scope.branches
 
-    def test_appointment_removed_scope_revoked(self, region, branch):
+    def test_default_branch_scope_does_not_depend_on_appointment(self, region, branch):
         from apps.users.models import User
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
-            phone='13500000005', name='卸任者', password='x', role='staff', status='active',
+            phone='13500000005', name='默认归属', password='x', role='staff',
+            status='active', branch=branch,
         )
         region.manager = user
         region.save(update_fields=['manager'])
-        assert branch.id in resolve_user_scope(user).branches
+        assert resolve_user_scope(user).branches == {branch.id}
 
         region.manager = None
         region.save(update_fields=['manager'])
         fresh = User.objects.get(pk=user.pk)  # 绕过单请求缓存
-        assert branch.id not in resolve_user_scope(fresh).branches
+        assert resolve_user_scope(fresh).branches == {branch.id}
 
-    def test_is_empty_considers_appointments(self, region, branch):
+    def test_scope_without_branch_or_explicit_nodes_is_empty(self, region, branch):
         from apps.users.models import User
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
@@ -91,7 +89,7 @@ class TestAppointmentScope:
         region.manager = user
         region.save(update_fields=['manager'])
         fresh = User.objects.get(pk=user.pk)
-        assert resolve_user_scope(fresh).is_empty is False
+        assert resolve_user_scope(fresh).is_empty is True
 
     def test_is_empty_treats_all_data_as_non_empty(self, db):
         from apps.users.models import User
@@ -111,36 +109,11 @@ class TestAppointmentScope:
 
 @pytest.mark.django_db
 class TestPositionTemplatesApi:
-    def test_catalog_contains_four_positions(self, authenticated_client):
+    def test_position_template_catalog_exposes_confirmed_baselines(self, authenticated_client):
         resp = authenticated_client.get('/api/permissions/position-templates')
         assert resp.status_code == status.HTTP_200_OK
-        roles = {t['role'] for t in resp.data}
-        assert roles == {'admin', 'director', 'manager', 'leader'}
-        by_role = {t['role']: t for t in resp.data}
-        assert by_role['manager']['label'] == '分公司行政'
-        assert by_role['manager']['operations'] == [
-            'manage_assets', 'view_audit', 'view_all_notifications',
-            'view_reports', 'manage_instances', 'dispose_assets',
-        ]
-        assert by_role['leader']['operations'] == [
-            'manage_assets', 'approve_transfer', 'approve_inventory',
-            'view_audit', 'view_all_notifications', 'view_reports',
-            'manage_instances', 'dispose_assets',
-        ]
-        assert by_role['director']['operations'] == [
-            'manage_users', 'manage_organizations', 'manage_assets',
-            'approve_transfer', 'approve_inventory',
-            'view_audit', 'view_all_notifications', 'view_reports',
-            'manage_instances', 'dispose_assets',
-        ]
-        assert by_role['admin']['all_operations'] is True
-
-    def test_manager_template_is_six_codes(self):
-        # 2026-09-11 口径：分公司行政收紧为 6 项（生产数据已先行收敛，模板追平）
-        assert POSITION_TEMPLATES['manager']['operations'] == [
-            'manage_assets', 'view_audit', 'view_all_notifications',
-            'view_reports', 'manage_instances', 'dispose_assets',
-        ]
+        assert {row['role'] for row in resp.data} == {'manager', 'leader', 'director'}
+        assert all(row['version'] for row in resp.data)
 
     def test_create_user_supervisor_rejected(self, authenticated_client):
         resp = authenticated_client.post('/api/users/', {
@@ -156,16 +129,16 @@ class TestPositionTemplatesApi:
         })
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_legacy_supervisor_user_still_works(self, db, branch):
+    def test_legacy_supervisor_user_is_read_only_history(self, db, branch):
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13622223333', name='存量主管', password='x',
             role='supervisor', status='active', branch=branch,
         )
         OperationGrant.objects.create(user=user, code='approve_transfer')
-        assert user.can('approve_transfer') is True
+        assert user.can('approve_transfer') is False
 
-    def test_legacy_staff_user_still_works(self, db, branch):
+    def test_legacy_staff_user_is_read_only_history(self, db, branch):
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13622223334', name='存量行政', password='x',
@@ -174,7 +147,7 @@ class TestPositionTemplatesApi:
         ManagementScope.objects.create(user=user, branch=branch)
         OperationGrant.objects.create(user=user, code='manage_assets')
         from apps.permissions.scope import resolve_user_scope
-        assert user.can('manage_assets') is True
+        assert user.can('manage_assets') is False
         assert branch.id in resolve_user_scope(user).branches
 
 
@@ -188,7 +161,7 @@ class TestEffectiveApi:
         resp = staff_client.get('/api/permissions/effective')
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_admin_gets_all_users_with_appointments(
+    def test_admin_gets_actual_user_scope_without_appointments(
         self, authenticated_client, region, branch, staff_user,
     ):
         region.manager = staff_user
@@ -196,22 +169,24 @@ class TestEffectiveApi:
         resp = authenticated_client.get('/api/permissions/effective')
         assert resp.status_code == status.HTTP_200_OK
         row = next(r for r in resp.data if r['user'] == str(staff_user.id))
-        assert {'type': 'region', 'id': str(region.id), 'name': region.name} in row['appointments']
-        assert row['scope_summary']['branch_count'] >= 1
+        assert 'appointments' not in row
+        assert row['scope']['mode'] == 'default'
+        assert row['scope_summary']['branch_count'] == 1
 
     def test_admin_row_has_all_operations(self, authenticated_client, admin_user):
         resp = authenticated_client.get('/api/permissions/effective')
         row = next(r for r in resp.data if r['user'] == str(admin_user.id))
         assert row['operations'] is None and row['scope_summary']['all'] is True
 
-    def test_me_includes_appointments_and_summary(self, region, branch, staff_user):
+    def test_me_includes_account_scope_summary_without_appointments(self, region, branch, staff_user):
         region.manager = staff_user
         region.save(update_fields=['manager'])
         client = _client_for(staff_user)
         resp = client.get('/api/permissions/me')
         assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['appointments'][0]['type'] == 'region'
-        assert resp.data['scope_summary']['branch_count'] >= 1
+        assert 'appointments' not in resp.data
+        assert resp.data['scope']['mode'] == 'default'
+        assert resp.data['scope_summary']['branch_count'] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +219,10 @@ class TestNotificationRoutingByGrant:
 
     def test_grant_holder_receives_approval_notification(self, db, branch, staff_user):
         from apps.notifications.models import Notification
-        OperationGrant.objects.create(user=staff_user, code='approve_transfer')
+        staff_user.role = 'leader'
+        staff_user.save(update_fields=['role'])
+        OperationGrant.objects.create(user=staff_user, code='approve_internal_transfer')
+        OperationGrant.objects.create(user=staff_user, code='view_transfer')
         self._make_pending_transfer(branch.name)
         assert Notification.objects.filter(
             recipient=staff_user, notification_type='approval',
@@ -269,7 +247,7 @@ class TestNotificationRoutingByGrant:
 
 
 # ---------------------------------------------------------------------------
-# migrate_positions：逐人 diff，只补不删
+# migrate_positions：仅调整退役岗位标记
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -290,40 +268,43 @@ class TestMigratePositionsCommand:
         out = self._run()
         user.refresh_from_db()
         assert user.role == 'supervisor'  # dry-run 不写库
-        assert 'supervisor→manager' in out
+        assert 'supervisor' in out and 'manager' in out
 
-    def test_apply_changes_role_and_grants_without_deleting(self, db, branch):
+    def test_apply_changes_role_clears_grants_and_scope_with_audit(self, db, branch, admin_user):
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13655556666', name='执行换岗', password='x',
             role='supervisor', status='active', branch=branch,
         )
-        # 既有额外授权（模板外）+ 部分模板授权
-        OperationGrant.objects.create(user=user, code='manage_users')
         OperationGrant.objects.create(user=user, code='approve_transfer')
+        ManagementScope.objects.create(user=user, branch=branch)
 
-        self._run('--apply')
+        out = self._run('--apply', '--actor-id', str(admin_user.id))
 
         user.refresh_from_db()
         assert user.role == 'manager'
-        codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
-        template = set(POSITION_TEMPLATES['manager']['operations'])
-        assert template.issubset(codes)  # 模板补齐
-        assert 'manage_users' in codes    # 额外授权保留（只补不删）
+        assert not OperationGrant.objects.filter(user=user).exists()
+        assert not ManagementScope.objects.filter(user=user).exists()
+        assert '清理原授权并记录审计' in out
+        from apps.audit.models import AuditLog
+        log = AuditLog.objects.get(resource_type='user_authorization', resource_id=user.id)
+        assert log.user_id == admin_user.id
+        assert log.before_data['operations'] == ['approve_transfer']
+        assert log.after_data == {'role': 'manager', 'operations': [], 'scopes': []}
 
-    def test_apply_idempotent(self, db, branch):
+    def test_apply_idempotent(self, db, branch, admin_user):
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13666667777', name='幂等', password='x',
             role='manager', status='active', branch=branch,
         )
-        self._run('--apply')
+        self._run('--apply', '--actor-id', str(admin_user.id))
         count_after_first = OperationGrant.objects.filter(user=user).count()
-        self._run('--apply')
+        self._run('--apply', '--actor-id', str(admin_user.id))
         assert OperationGrant.objects.filter(user=user).count() == count_after_first
-        assert '无变化 1 人' in self._run()
+        assert '更新退役岗位标记 0 人' in self._run()
 
-    def test_apply_migrates_staff_to_manager_without_deleting(self, db, branch):
+    def test_apply_migrates_staff_marker_and_clears_old_authorization(self, db, branch, admin_user):
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13677778888', name='存量行政', password='x',
@@ -332,19 +313,16 @@ class TestMigratePositionsCommand:
         ManagementScope.objects.create(user=user, branch=branch)
         OperationGrant.objects.create(user=user, code='approve_inventory')  # 模板外特例
 
-        self._run('--apply')
+        self._run('--apply', '--actor-id', str(admin_user.id))
 
         user.refresh_from_db()
         assert user.role == 'manager'
-        codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
-        template = set(POSITION_TEMPLATES['manager']['operations'])
-        assert template.issubset(codes)        # 模板操作码补齐
-        assert 'approve_inventory' in codes    # 特例保留
-        assert ManagementScope.objects.filter(user=user, branch=branch).exists()  # 范围保留
+        assert not OperationGrant.objects.filter(user=user).exists()
+        assert not ManagementScope.objects.filter(user=user).exists()
 
 
 # ---------------------------------------------------------------------------
-# seed_position_grants：批量种子岗位授权（2026-09-08 建号导入补授）
+# seed_position_grants：退役命令必须只读
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -365,110 +343,36 @@ class TestSeedPositionGrantsCommand:
         out = self._run()
         assert not OperationGrant.objects.filter(user=user).exists()
         assert not ManagementScope.objects.filter(user=user).exists()
-        assert 'dry-run' in out
+        assert '已停用' in out
 
-    def test_apply_seeds_manager_ops_and_branch_scope(self, db, branch):
+    def test_apply_refuses_and_preserves_all_existing_records(self, db, branch, admin_user):
+        from django.core.management.base import CommandError
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13611112233', name='在职行政', password='x',
             role='manager', status='active', branch=branch,
         )
-        OperationGrant.objects.create(user=user, code='approve_transfer')  # 模板外特例
-        self._run('--apply')
-        codes = set(OperationGrant.objects.filter(user=user).values_list('code', flat=True))
-        assert set(POSITION_TEMPLATES['manager']['operations']).issubset(codes)  # 模板补齐
-        assert 'approve_transfer' in codes  # 特例保留（只补不删）
-        assert ManagementScope.objects.filter(user=user, branch=branch).exists()
-
-    def test_apply_leader_gets_branch_scope_and_ops(self, db, branch):
-        from apps.users.models import User
-        user = User.objects.create_user(
-            phone='13611112244', name='在职组长', password='x',
-            role='leader', status='active', branch=branch,
-        )
-        self._run('--apply')
-        assert set(POSITION_TEMPLATES['leader']['operations']) == set(
-            OperationGrant.objects.filter(user=user).values_list('code', flat=True)
-        )
-        assert ManagementScope.objects.filter(user=user, branch=branch).exists()
-
-    def test_apply_director_ops_by_template_scope_by_appointment(self, db, region):
-        from apps.users.models import User
-        from apps.permissions.scope import resolve_user_scope
-        user = User.objects.create_user(
-            phone='13611112255', name='在职总监', password='x',
-            role='director', status='active',
-        )
-        region.manager = user
-        region.save(update_fields=['manager'])
-        self._run('--apply')
-        assert set(POSITION_TEMPLATES['director']['operations']) == set(
-            OperationGrant.objects.filter(user=user).values_list('code', flat=True)
-        )
-        # 任命即授权：不建节点记录，范围来自任命
-        assert not ManagementScope.objects.filter(user=user).exists()
-        assert not resolve_user_scope(user).is_empty
-
-    def test_apply_cleans_admin_records(self, db, admin_user, branch):
+        OperationGrant.objects.create(user=user, code='approve_transfer')
+        ManagementScope.objects.create(user=user, branch=branch)
         ManagementScope.objects.create(user=admin_user, branch=branch)
         OperationGrant.objects.create(user=admin_user, code='manage_users')
-        self._run('--apply')
-        assert not ManagementScope.objects.filter(user=admin_user).exists()
-        assert not OperationGrant.objects.filter(user=admin_user).exists()
+        before_grants = set(OperationGrant.objects.values_list('pk', 'user_id', 'code'))
+        before_scopes = set(ManagementScope.objects.values_list('pk', 'user_id', 'branch_id'))
 
-    def test_apply_idempotent(self, db, branch):
-        from apps.users.models import User
-        User.objects.create_user(
-            phone='13611112266', name='幂等行政', password='x',
-            role='manager', status='active', branch=branch,
-        )
-        self._run('--apply')
-        out = self._run('--apply')
-        assert '待人工 0 人' in out
-        assert '补授 0 项操作码、新增 0 项分公司节点授权' in out
+        with pytest.raises(CommandError, match='已停用'):
+            self._run('--apply')
 
-    def test_branchless_manager_listed_for_manual(self, db):
-        from apps.users.models import User
-        user = User.objects.create_user(
-            phone='13611112277', name='轮空行政', password='x',
-            role='manager', status='active',  # 无 branch 无任命
-        )
-        out = self._run('--apply')
-        assert not ManagementScope.objects.filter(user=user).exists()  # 不猜节点
-        assert '⚠范围待人工' in out
-        assert '待人工 1 人' in out
+        assert set(OperationGrant.objects.values_list('pk', 'user_id', 'code')) == before_grants
+        assert set(ManagementScope.objects.values_list('pk', 'user_id', 'branch_id')) == before_scopes
 
-    def test_all_data_manager_not_listed_for_manual(self, db):
-        from apps.users.models import User
-        user = User.objects.create_user(
-            phone='13611112278', name='全数据行政', password='x',
-            role='manager', status='active',  # 无 branch，但持「全部数据」授权
-        )
-        ManagementScope.objects.create(user=user, is_all_data=True)
-        out = self._run('--apply')
-        assert '待人工 0 人' in out  # 全部数据授权 = 范围非空，不进人工清单
-
-    def test_check_seed_grants_passes_after_seeding(self, db, region, branch, admin_user):
+    def test_check_seed_grants_accepts_new_account_without_explicit_grants(self, db, branch):
         from io import StringIO
         from django.core.management import call_command
         from apps.users.models import User
-        # 复现生产 2026-09-08 导入形态：行政挂分公司、组长挂分公司、总监任大区负责人
         User.objects.create_user(
-            phone='13611112288', name='种子行政', password='x',
+            phone='13611112288', name='尚未授权的新账号', password='x',
             role='manager', status='active', branch=branch,
         )
-        User.objects.create_user(
-            phone='13611112299', name='种子组长', password='x',
-            role='leader', status='active', branch=branch,
-        )
-        director = User.objects.create_user(
-            phone='13611112300', name='种子总监', password='x',
-            role='director', status='active',
-        )
-        region.manager = director
-        region.save(update_fields=['manager'])
-
-        self._run('--apply')
         out = StringIO()
-        call_command('check_seed_grants', stdout=out)  # 不抛 SystemExit 即通过
-        assert '校验通过' in out.getvalue()
+        call_command('check_seed_grants', stdout=out)
+        assert '授权为空是允许状态' in out.getvalue()

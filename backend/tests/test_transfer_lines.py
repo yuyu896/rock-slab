@@ -252,10 +252,11 @@ class TestDeleteAndUpdateContract:
         doc_id = self._create_and_approve(authenticated_client, branch, item_id)
         resp = authenticated_client.delete(f'{TRANSFER_LIST_URL}{doc_id}')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.data['detail'] == '仅草稿可删除'
         from apps.transfers.models import Transfer
         assert Transfer.objects.filter(pk=doc_id).exists()
 
-    def test_pending_doc_delete_allowed(self, authenticated_client, branch, item_id):
+    def test_pending_doc_delete_rejected(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-08-06',
             '调入分公司': branch.name,
@@ -263,7 +264,10 @@ class TestDeleteAndUpdateContract:
         }
         resp = authenticated_client.post(_action_url('purchase'), payload, format='json')
         delete = authenticated_client.delete(f"{TRANSFER_LIST_URL}{resp.data['id']}")
-        assert delete.status_code == status.HTTP_204_NO_CONTENT
+        assert delete.status_code == status.HTTP_400_BAD_REQUEST
+        assert delete.data['detail'] == '仅草稿可删除'
+        from apps.transfers.models import Transfer
+        assert Transfer.objects.filter(pk=resp.data['id']).exists()
 
     def test_rejected_doc_edit_replaces_items(self, authenticated_client, branch, item_id):
         payload = {

@@ -19,8 +19,8 @@ class TestScopeResolution:
         from apps.permissions.scope import resolve_user_scope
         assert resolve_user_scope(admin_user).all is True
 
-    def test_supervisor_without_grant_sees_nothing(self, region, branch):
-        """解耦后：supervisor 若未被授予任何节点，范围应为空（不再由 role 推导）。"""
+    def test_account_without_override_uses_only_its_assigned_branch(self, branch, second_branch):
+        """岗位不扩展数据范围；未单独设置时沿用账号分公司归属。"""
         from apps.users.models import User
         from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
@@ -29,7 +29,8 @@ class TestScopeResolution:
         )
         scope = resolve_user_scope(user)
         assert scope.all is False
-        assert scope.is_empty is True
+        assert scope.branches == {branch.id}
+        assert second_branch.id not in scope.branches
 
     def test_grant_single_branch_narrows_scope(self, branch, second_branch):
         """授予单个分公司 → 仅见该分公司数据。"""
@@ -81,8 +82,10 @@ class TestDataScopeByGrant:
             phone='13600000010', name='范围用户', password='test123456', role='staff',
         )
         ManagementScope.objects.create(user=user, branch=branch)
+        OperationGrant.objects.create(user=user, code='view_asset_ledger')
         client = _client_for(user)
         resp = client.get('/api/assets/summary')
+        assert resp.status_code == 200
         assert resp.data['count'] == 1
         assert resp.data['results'][0]['branch_name'] == branch.name
 
@@ -93,22 +96,27 @@ class TestDataScopeByGrant:
         user = User.objects.create_user(
             phone='13600000011', name='无范围', password='test123456', role='staff',
         )
+        OperationGrant.objects.create(user=user, code='view_asset_ledger')
         client = _client_for(user)
         resp = client.get('/api/assets/summary')
+        assert resp.status_code == 200
         assert resp.data['count'] == 0
 
 
 @pytest.mark.django_db
 class TestOperationPermission:
-    def test_operation_grant_allows_write(self, branch):
-        """持有 manage_assets 操作授权的 staff 可写资产（接口权限不再依赖角色）。"""
+    def test_operation_grant_is_independent_of_scope_and_other_operations(self, branch):
+        """业务操作授权按单项生效，不由数据范围或岗位推导。"""
         from apps.users.models import User
+        from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
             phone='13600000020', name='授权专员', password='test123456', role='staff',
         )
         ManagementScope.objects.create(user=user, branch=branch)
-        OperationGrant.objects.create(user=user, code='manage_assets')
-        assert user.can('manage_assets') is True
+        OperationGrant.objects.create(user=user, code='view_asset_ledger')
+        assert user.can('view_asset_ledger') is True
+        assert user.can('adjust_asset_ledger') is False
+        assert resolve_user_scope(user).branches == {branch.id}
 
     def test_admin_can_anything_without_grant(self, admin_user):
         """admin 恒真，不查授权。"""
@@ -116,12 +124,16 @@ class TestOperationPermission:
         assert admin_user.can('any_code_not_in_registry') is True
 
     def test_no_grant_no_operation(self, branch):
-        """无操作授权的非 admin 用户 can() 返回 False。"""
+        """普通账号即使有岗位和分公司归属，也不会自动得到业务权限。"""
         from apps.users.models import User
+        from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
-            phone='13600000021', name='未授权', password='test123456', role='staff',
+            phone='13600000021', name='未授权', password='test123456',
+            role='manager', branch=branch,
         )
-        assert user.can('manage_assets') is False
+        assert user.can('view_asset_ledger') is False
+        assert user.can('create_purchase') is False
+        assert resolve_user_scope(user).branches == {branch.id}
 
 
 @pytest.mark.django_db
@@ -201,38 +213,57 @@ class TestAllDataScope:
 
 @pytest.mark.django_db
 class TestAllDataApi:
-    def test_duplicate_is_all_data_returns_400(self, admin_user):
-        """重复创建 is_all_data 授权应返回 400（而非 500）。"""
+    def test_authorization_api_replaces_scope_without_granting_operations(self, admin_user, branch):
+        """完整授权配置可单独更新数据范围，且不隐式授予业务操作。"""
         from apps.users.models import User
+        from apps.permissions.scope import resolve_user_scope
         user = User.objects.create_user(
-            phone='13600000050', name='重复全局API', password='test123456', role='staff',
+            phone='13600000050', name='全量范围API', password='test123456', role='staff',
         )
         client = _client_for(admin_user)
-        r1 = client.post('/api/permissions/management-scopes', {'user': user.id, 'isAllData': True})
-        assert r1.status_code == 201
-        r2 = client.post('/api/permissions/management-scopes', {'user': user.id, 'isAllData': True})
-        assert r2.status_code == 400
+        url = f'/api/permissions/users/{user.id}/authorization'
+        response = client.put(url, {
+            'operations': [],
+            'scope': {'mode': 'all', 'nodes': []},
+        }, format='json')
+        assert response.status_code == 200
+        assert response.data['scope']['mode'] == 'all'
+        assert response.data['operations'] == []
+        user.refresh_from_db()
+        assert resolve_user_scope(user).all is True
+        assert user.can('view_asset_ledger') is False
 
-    def test_is_all_data_with_node_returns_400(self, admin_user, region):
-        """is_all_data 与具体节点同时提交应返回 400。"""
+    def test_all_scope_with_nodes_returns_400(self, admin_user, region):
+        """全部数据范围不能同时包含具体组织节点。"""
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13600000051', name='互斥API', password='test123456', role='staff',
         )
         client = _client_for(admin_user)
-        r = client.post('/api/permissions/management-scopes', {
-            'user': user.id, 'isAllData': True, 'region': region.id,
-        })
+        r = client.put(f'/api/permissions/users/{user.id}/authorization', {
+            'operations': [],
+            'scope': {
+                'mode': 'all',
+                'nodes': [{'type': 'region', 'id': str(region.id)}],
+            },
+        }, format='json')
         assert r.status_code == 400
 
-    def test_duplicate_node_scope_returns_400(self, admin_user, region):
-        """重复授予同一组织节点应返回 400（而非触发 DB 唯一约束 500）。"""
+    def test_duplicate_scope_node_returns_400(self, admin_user, region):
+        """一个授权配置不能重复提交同一组织节点。"""
         from apps.users.models import User
         user = User.objects.create_user(
             phone='13600000052', name='重复节点API', password='test123456', role='staff',
         )
         client = _client_for(admin_user)
-        r1 = client.post('/api/permissions/management-scopes', {'user': user.id, 'region': region.id})
-        assert r1.status_code == 201
-        r2 = client.post('/api/permissions/management-scopes', {'user': user.id, 'region': region.id})
-        assert r2.status_code == 400
+        r = client.put(f'/api/permissions/users/{user.id}/authorization', {
+            'operations': [],
+            'scope': {
+                'mode': 'custom',
+                'nodes': [
+                    {'type': 'region', 'id': str(region.id)},
+                    {'type': 'region', 'id': str(region.id)},
+                ],
+            },
+        }, format='json')
+        assert r.status_code == 400

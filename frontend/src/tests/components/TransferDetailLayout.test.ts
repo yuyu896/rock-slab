@@ -21,7 +21,7 @@ function makeDoc(overrides: Partial<TransferDocument> = {}): TransferDocument {
   } as TransferDocument
 }
 
-function mountLayout(doc: TransferDocument | null, operations = ['approve_transfer', 'manage_assets']) {
+function mountLayout(doc: TransferDocument | null, operations: string[]) {
   const pinia = createPinia()
   setActivePinia(pinia)
   useUserStore(pinia).operations = operations
@@ -33,7 +33,7 @@ function mountLayout(doc: TransferDocument | null, operations = ['approve_transf
 
 describe('TransferDetailLayout 调拨单调入方只读（修订 3.1）', () => {
   it('待审批且可操作时显示通过/驳回按钮', () => {
-    const wrapper = mountLayout(makeDoc({ canOperate: true }))
+    const wrapper = mountLayout(makeDoc({ canOperate: true }), ['approve_internal_transfer'])
     expect(wrapper.find('.btn-approve').exists()).toBe(true)
     expect(wrapper.find('.btn-reject').exists()).toBe(true)
   })
@@ -45,19 +45,19 @@ describe('TransferDetailLayout 调拨单调入方只读（修订 3.1）', () => 
   })
 
   it('canOperate=false（调入方视角）隐藏通过/驳回，详情仍可看', () => {
-    const wrapper = mountLayout(makeDoc({ canOperate: false }))
+    const wrapper = mountLayout(makeDoc({ canOperate: false }), ['approve_internal_transfer'])
     expect(wrapper.find('.btn-approve').exists()).toBe(false)
     expect(wrapper.find('.btn-reject').exists()).toBe(false)
     expect(wrapper.text()).toContain('TR-001')
   })
 
   it('canOperate 缺省（兼容旧数据/非调拨类型）按可操作处理', () => {
-    const wrapper = mountLayout(makeDoc({}))
+    const wrapper = mountLayout(makeDoc({}), ['approve_internal_transfer'])
     expect(wrapper.find('.btn-approve').exists()).toBe(true)
   })
 
   it('非待审批状态不显示操作按钮', () => {
-    const wrapper = mountLayout(makeDoc({ 审批状态: '已通过' }))
+    const wrapper = mountLayout(makeDoc({ 审批状态: '已通过' }), ['approve_internal_transfer'])
     expect(wrapper.find('.btn-approve').exists()).toBe(false)
   })
 })

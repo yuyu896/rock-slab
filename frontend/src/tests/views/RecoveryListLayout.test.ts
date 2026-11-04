@@ -59,6 +59,7 @@ describe('回收列表长备注和固定操作列', () => {
           审批状态: '待审批',
           经办人: '张三',
           备注: longRemark,
+          canWithdraw: true,
           lines: [],
         }],
       },
@@ -75,6 +76,8 @@ describe('回收列表长备注和固定操作列', () => {
     expect(remark.attributes('title')).toBe(longRemark)
     expect(wrapper.find('th.action-column').exists()).toBe(true)
     expect(wrapper.find('td.action-column').exists()).toBe(true)
+    expect(wrapper.find('.action-column').classes()).toContain('action-column')
+    expect(wrapper.find('.action-column').text()).not.toContain('撤回')
   })
 
   it('列表样式限制备注宽度并将操作列固定在右侧', () => {

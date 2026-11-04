@@ -23,7 +23,7 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ back: vi.fn() }),
 }))
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), warning: vi.fn() } }))
-vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { branch: 'branch-current' } }) }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { branch: 'branch-current' }, can: () => true }) }))
 vi.mock('@/api/transfers', () => ({
   getTransfer,
   resubmitTransfer: vi.fn(),
@@ -43,7 +43,9 @@ describe('MobileTransfer 草稿编辑', () => {
     const wrapper = mount(MobileTransfer)
     await flushPromises()
 
-    expect(pendingBranchLoads).toHaveLength(2)
+    expect(getBranches).toHaveBeenCalledTimes(1)
+    expect(getBranches).toHaveBeenCalledWith({ scope: 'write' })
+    expect(pendingBranchLoads).toHaveLength(1)
     for (const resolve of pendingBranchLoads) {
       resolve({ data: [
         { id: 'branch-old', name: '旧调出方' },

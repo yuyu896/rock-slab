@@ -42,15 +42,25 @@ describe('usePermission', () => {
       expect(isStaff.value).toBe(true)
     })
 
-    it('supervisor can manage users and approve', () => {
+    it('permissions come from the account grants rather than the position', () => {
       const userStore = useUserStore()
       userStore.profile = { role: 'supervisor' } as any
-      // 权限解耦后能力来自显式 operations 授权码，而非 role 字符串
-      userStore.operations = ['manage_users', 'approve_transfer', 'approve_inventory']
+      userStore.operations = ['edit_users', 'approve_purchase', 'review_inventory']
 
       const { canManageUsers, canApprove } = usePermission()
       expect(canManageUsers.value).toBe(true)
       expect(canApprove.value).toBe(true)
+    })
+
+    it('普通岗位没有显式授权时不获得业务权限', () => {
+      const userStore = useUserStore()
+      userStore.profile = { role: 'manager' } as any
+      userStore.operations = []
+
+      const { canManageUsers, canApprove, canCreateDocument } = usePermission()
+      expect(canManageUsers.value).toBe(false)
+      expect(canApprove.value).toBe(false)
+      expect(canCreateDocument.value).toBe(false)
     })
   })
 })

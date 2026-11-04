@@ -12,13 +12,19 @@ import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import DepartmentSelect from '@/components/DepartmentSelect.vue'
 import { useUserStore } from '@/store/user'
+import { canManageTransfer } from '@/utils/permissionGroups'
+import BranchSelect from '@/components/BranchSelect.vue'
 
 const DISPOSAL_METHODS = ['出售', '报废', '捐赠', '退租']
 
 const router = useRouter()
 const userStore = useUserStore()
+const canCreate = computed(() => canManageTransfer('recovery', code => userStore.can(code)))
+const canEdit = computed(() => canManageTransfer('recovery', code => userStore.can(code)))
+const canSubmit = computed(() => canManageTransfer('recovery', code => userStore.can(code)))
 const route = useRoute()
 const creating = ref(false)
+const loadingExisting = ref(false)
 const branchOptions = ref<{ value: string; label: string; id?: string }[]>([])
 const form = ref({
   调拨日期: '',
@@ -35,6 +41,15 @@ const linesEditor = ref<InstanceType<typeof TransferLinesEditor> | null>(null)
 const editingId = ref<string | null>(null)
 const editingStatus = ref<'草稿' | '已驳回' | null>(null)
 const requestedEditId = typeof route.query.id === 'string' ? route.query.id : ''
+const showDraftAction = computed(() => requestedEditId
+  ? canEdit.value && editingStatus.value === '草稿' && canSubmit.value
+  : canCreate.value)
+const showPrimaryAction = computed(() => requestedEditId
+  ? canEdit.value
+  : canCreate.value && canSubmit.value)
+const primaryActionText = computed(() => requestedEditId && !canSubmit.value
+  ? '保存修改'
+  : editingStatus.value === '已驳回' ? '保存并重新提交' : editingId.value ? '保存并提交审批' : '确定提交')
 const fromBranchName = computed(() => form.value.调出分公司)
 
 /** 盘亏跟进预填：来自实例盘报告的缺失实例（按品目聚合成行，实例逐台带入） */
@@ -102,6 +117,12 @@ onMounted(async () => {
 async function loadExisting() {
   const id = requestedEditId
   if (!id) return
+  if (!canEdit.value) {
+    ElMessage.warning('当前账号无权编辑回收单')
+    router.replace('/transfers/recovery')
+    return
+  }
+  loadingExisting.value = true
   try {
     const { data } = await getTransfer(id)
     if (!data.canEditDraft || !['草稿', '已驳回'].includes(data.审批状态)) {
@@ -123,6 +144,8 @@ async function loadExisting() {
     lines.value = draftsFromLines(data.lines || [])
   } catch (error) {
     ElMessage.error(handleApiError(error))
+  } finally {
+    loadingExisting.value = false
   }
 }
 
@@ -131,6 +154,15 @@ function goBack() {
 }
 
 async function submit(asDraft = false) {
+  const editing = Boolean(requestedEditId)
+  if (editing ? !canEdit.value : !canCreate.value) {
+    ElMessage.warning(editing ? '当前账号无权编辑回收单' : '当前账号无权创建回收单')
+    return
+  }
+  if (!asDraft && !editing && !canSubmit.value) {
+    ElMessage.warning('当前账号无权提交回收单')
+    return
+  }
   if (requestedEditId && editingId.value !== requestedEditId) {
     ElMessage.warning('单据未能加载或无权编辑，未执行提交')
     return
@@ -172,13 +204,13 @@ async function submit(asDraft = false) {
     }
     if (editingId.value) {
       await updateTransfer(editingId.value, payload)
-      if (!asDraft) {
+      if (!asDraft && canSubmit.value) {
         await (editingStatus.value === '已驳回' ? resubmitTransfer(editingId.value) : submitTransfer(editingId.value))
       }
     } else {
       await recoverAsset({ ...payload, draft: asDraft || undefined })
     }
-    ElMessage.success(asDraft && editingStatus.value !== '已驳回' ? '已保存为草稿' : editingStatus.value === '已驳回' ? '已修改并重新提交' : asDraft ? '已保存为草稿' : '提交成功')
+    ElMessage.success(editingId.value && !canSubmit.value ? '已保存修改' : asDraft ? '已保存为草稿' : editingStatus.value === '已驳回' ? '已修改并重新提交' : '提交成功')
     goBack()
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -189,9 +221,9 @@ async function submit(asDraft = false) {
 </script>
 
 <template>
-  <TransferCreateLayout :title="editingId ? '编辑回收记录' : '新建回收记录'" :loading="creating" @submit="submit(false)" @back="goBack">
+  <TransferCreateLayout :title="editingId ? '编辑回收记录' : '新建回收记录'" :submit-text="primaryActionText" :loading="creating" :submit-disabled="loadingExisting || Boolean(requestedEditId && !editingId)" :show-submit="showPrimaryAction" @submit="submit(false)" @back="goBack">
     <template #footer-extra>
-      <button class="btn-draft" :disabled="creating || editingStatus === '已驳回'" @click="submit(true)">保存为草稿</button>
+      <button v-if="showDraftAction" class="btn-draft" :disabled="creating || loadingExisting || editingStatus === '已驳回'" @click="submit(true)">保存为草稿</button>
     </template>
     <div class="form-grid">
       <div class="form-item"><label class="form-label">回收日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
@@ -224,17 +256,14 @@ async function submit(asDraft = false) {
 
       <div class="form-item">
         <label class="form-label">分公司 <span class="required">*</span></label>
-        <select v-model="form.调出分公司" class="form-select">
-          <option value="">请选择</option>
-          <option v-for="b in branchOptions" :key="b.value" :value="b.label">{{ b.label }}</option>
-        </select>
+        <BranchSelect v-model="form.调出分公司" :options="branchOptions" placeholder="请选择" />
       </div>
       <div class="form-item"><label class="form-label">所属部门</label><DepartmentSelect v-model="form.调出部门" /></div>
       <div class="form-item"><label class="form-label">经办人</label><input v-model="form.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
       <div class="form-item full"><label class="form-label">备注</label><textarea v-model="form.备注" class="form-textarea" rows="2" placeholder="备注信息"></textarea></div>
     </div>
 
-    <TransferLinesEditor ref="linesEditor" v-model="lines" type="recovery" :branch-name="fromBranchName" :recovery-dest="form.回收去向" />
+    <TransferLinesEditor ref="linesEditor" v-model="lines" type="recovery" :branch-name="fromBranchName" :recovery-dest="form.回收去向" :can-view-instances="userStore.can('view_instances')" />
   </TransferCreateLayout>
 </template>
 

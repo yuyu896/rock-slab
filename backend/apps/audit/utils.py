@@ -3,8 +3,9 @@
 """
 from .models import AuditLog
 
-# 审计快照中不得落库的敏感键（值替换为掩码）与 Django 内部属性（直接剔除）
+# 审计快照中不得落库的敏感键与 Django 内部属性
 SENSITIVE_KEYS = {'password'}
+CLEARED_KEYS = {'phone', 'user_phone'}
 _INTERNAL_KEYS = {'_state'}
 _MASK_VALUE = '***'
 
@@ -21,12 +22,59 @@ def mask_sensitive(data):
                 del data[key]
             elif key in SENSITIVE_KEYS:
                 data[key] = _MASK_VALUE
+            elif key in CLEARED_KEYS:
+                data[key] = ''
             else:
                 mask_sensitive(data[key])
     elif isinstance(data, list):
         for item in data:
             mask_sensitive(item)
     return data
+
+
+def _clear_phone_value(data, phone):
+    if not phone:
+        return False
+    if isinstance(data, dict):
+        changed = False
+        for key, value in list(data.items()):
+            if value == phone:
+                data[key] = ''
+                changed = True
+            elif _clear_phone_value(value, phone):
+                changed = True
+        return changed
+    if isinstance(data, list):
+        changed = False
+        for value in data:
+            changed = _clear_phone_value(value, phone) or changed
+        return changed
+    return False
+
+
+def clear_user_phone_snapshots(user, batch_size=500):
+    """Remove a deleted employee's phone from audit fields and nested snapshots."""
+    from .models import AuditLog
+
+    pending = []
+    for log in AuditLog.objects.only(
+        'id', 'user_id', 'user_phone', 'before_data', 'after_data',
+    ).iterator(chunk_size=batch_size):
+        changed = False
+        if user.phone and log.user_phone == user.phone:
+            log.user_phone = ''
+            changed = True
+        if _clear_phone_value(log.before_data, user.phone):
+            changed = True
+        if _clear_phone_value(log.after_data, user.phone):
+            changed = True
+        if changed:
+            pending.append(log)
+        if len(pending) >= batch_size:
+            AuditLog.objects.bulk_update(pending, ['user_phone', 'before_data', 'after_data'])
+            pending.clear()
+    if pending:
+        AuditLog.objects.bulk_update(pending, ['user_phone', 'before_data', 'after_data'])
 
 
 def get_client_ip(request):

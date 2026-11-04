@@ -24,6 +24,7 @@ vi.mock('@/api/departments', () => ({
 
 import InventoryTaskCreate from '@/views/inventory/InventoryTaskCreate.vue'
 import { createInventoryTask } from '@/api/inventories'
+import { getBranches } from '@/api/branches'
 
 async function _mount() {
   const wrapper = mount(InventoryTaskCreate)
@@ -36,6 +37,7 @@ describe('InventoryTaskCreate 实例盘去部门', () => {
 
   it('页面无盘点部门下拉；实例盘 radio 文案为全公司口径', async () => {
     const wrapper = await _mount()
+    expect(getBranches).toHaveBeenCalledWith({ scope: 'write' })
     expect(wrapper.text()).not.toContain('盘点部门')
     expect(wrapper.text()).toContain('实例盘点（逐台核对全部实例档案')
     await wrapper.find('input[type=radio][value=instance]').setValue()

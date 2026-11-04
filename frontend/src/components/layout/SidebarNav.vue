@@ -10,6 +10,9 @@ interface NavItem {
   label: string
   path: string
   badge?: number
+  permissionPage?: string
+  operation?: string
+  operationAny?: string[]
   children?: NavItem[]
 }
 
@@ -31,100 +34,88 @@ const inventoryCount = ref(0)
 const pendingSerialCount = ref(0)
 
 onMounted(async () => {
-  try {
-    const res = await getInventoryTasks({ status: 'pending,in_progress', pageSize: 1 })
-    inventoryCount.value = res.data?.count || 0
-  } catch {
-    inventoryCount.value = 0
+  if (hasPermission('view_inventory')) {
+    try {
+      const res = await getInventoryTasks({ status: 'pending,in_progress', pageSize: 1 })
+      inventoryCount.value = res.data?.count || 0
+    } catch {
+      inventoryCount.value = 0
+    }
   }
-  try {
-    const res = await getFixedAssets({ pending_serial: '1', pageSize: 1 })
-    pendingSerialCount.value = res.data?.count || 0
-  } catch {
-    pendingSerialCount.value = 0
+  if (hasPermission('view_instances')) {
+    try {
+      const res = await getFixedAssets({ pending_serial: '1', pageSize: 1 })
+      pendingSerialCount.value = res.data?.count || 0
+    } catch {
+      pendingSerialCount.value = 0
+    }
   }
 })
 
-const navItems = computed<NavItem[]>(() => [
-  {
-    icon: 'dashboard',
-    label: '工作台',
-    path: '/dashboard'
-  },
-  {
-    icon: 'chart',
-    label: '统计报表',
-    path: '/reports'
-  },
-  {
-    icon: 'category',
-    label: '品目',
-    path: '/categories'
-  },
-  {
-    icon: 'box',
-    label: '库存',
-    path: '/inventory-group',
-    children: [
-      { icon: '', label: '资产台账', path: '/assets/summary' },
-      {
-        icon: '', label: '实例档案', path: '/fixed-assets',
-        ...(pendingSerialCount.value > 0 ? { badge: pendingSerialCount.value } : {}),
-      },
-    ]
-  },
-  {
-    icon: 'transfer',
-    label: '资产流转',
-    path: '/transfers',
-    children: [
-      { icon: '', label: '采购入库', path: '/transfers/purchase' },
-      { icon: '', label: '领用出库', path: '/transfers/assign' },
-      { icon: '', label: '调拨', path: '/transfers/transfer' },
-    ]
-  },
-  {
-    icon: 'recovery',
-    label: '回收',
-    path: '/transfers/recovery',
-    children: [
-      { icon: '', label: '回收单', path: '/transfers/recovery' },
-      { icon: '', label: '物资处置台账', path: '/transfers/recovery/ledger' },
-    ],
-  },
-  {
-    icon: 'scan',
-    label: '资产盘点',
-    path: '/inventory',
-    ...(inventoryCount.value > 0 ? { badge: inventoryCount.value } : {})
-  },
-  // 对账模块仅管理员可见
-  ...(userStore.isAdmin ? [{
-    icon: 'reconcile',
-    label: '对账',
-    path: '/reconciliation'
-  }] : []),
-  {
-    icon: 'organization',
-    label: '组织架构',
-    path: '/organization',
-    children: [
-      { icon: '', label: '组织架构', path: '/organization' },
-      { icon: '', label: '部门字典', path: '/departments' },
-      ...(userStore.isAdmin ? [{ icon: '', label: '供应商字典', path: '/suppliers' }] : []),
-    ]
-  },
-  // 仅超级管理员可见：权限分配与权限矩阵
-  ...(userStore.isAdmin ? [{
-    icon: 'category',
-    label: '权限分配',
-    path: '/admin/permissions'
-  }, {
-    icon: 'category',
-    label: '权限矩阵',
-    path: '/admin/permission-matrix'
-  }] : [])
-])
+function hasPermission(code: string) {
+  return userStore.isAdmin || userStore.can?.(code) === true
+}
+
+function canSeeItem(item: NavItem) {
+  if (item.permissionPage && !userStore.canAccessPage(item.permissionPage)) return false
+  if (item.operation && !hasPermission(item.operation)) return false
+  if (item.operationAny?.length && !item.operationAny.some(hasPermission)) return false
+  return true
+}
+
+const navItems = computed<NavItem[]>(() => {
+  const items: NavItem[] = [
+    { icon: 'dashboard', label: '工作台', path: '/dashboard', permissionPage: 'dashboard' },
+    { icon: 'chart', label: '统计报表', path: '/reports', permissionPage: 'reports' },
+    {
+      icon: 'category', label: '品目', path: '/categories', children: [
+        { icon: '', label: '品目列表', path: '/categories', operation: 'view_categories' },
+      ],
+    },
+    {
+      icon: 'box', label: '库存', path: '/inventory-group', children: [
+        { icon: '', label: '资产台账', path: '/assets/summary', permissionPage: 'asset_ledger' },
+        {
+          icon: '', label: '实例档案', path: '/fixed-assets', permissionPage: 'instances',
+          ...(pendingSerialCount.value > 0 ? { badge: pendingSerialCount.value } : {}),
+        },
+      ],
+    },
+    {
+      icon: 'transfer', label: '资产流转', path: '/transfers', children: [
+        { icon: '', label: '采购入库', path: '/transfers/purchase', permissionPage: 'purchase' },
+        { icon: '', label: '领用出库', path: '/transfers/assign', permissionPage: 'assignment' },
+        { icon: '', label: '调拨', path: '/transfers/transfer', permissionPage: 'transfer' },
+      ],
+    },
+    {
+      icon: 'recovery', label: '回收', path: '/transfers/recovery', children: [
+        { icon: '', label: '回收单', path: '/transfers/recovery', permissionPage: 'recovery' },
+        { icon: '', label: '物资处置台账', path: '/transfers/recovery/ledger', permissionPage: 'recovery_ledger' },
+      ],
+    },
+    { icon: 'scan', label: '资产盘点', path: '/inventory', permissionPage: 'inventory', ...(inventoryCount.value > 0 ? { badge: inventoryCount.value } : {}) },
+    { icon: 'reconcile', label: '对账', path: '/reconciliation', permissionPage: 'reconciliation' },
+    {
+      icon: 'organization', label: '组织架构', path: '/organization', children: [
+        { icon: '', label: '员工与组织', path: '/organization', permissionPage: 'personnel' },
+        { icon: '', label: '部门字典', path: '/departments', operation: 'view_departments' },
+        { icon: '', label: '供应商字典', path: '/suppliers', operation: 'view_suppliers' },
+      ],
+    },
+    ...(userStore.isAdmin ? [{ icon: 'category', label: '权限分配', path: '/admin/permissions' }] : []),
+    { icon: 'category', label: '权限矩阵', path: '/admin/permission-matrix', permissionPage: 'permission_matrix' },
+    ...(userStore.isAdmin ? [{ icon: 'category', label: '审计日志', path: '/audit' }] : []),
+  ]
+
+  return items.flatMap(item => {
+    if (item.children) {
+      const children = item.children.filter(canSeeItem)
+      return children.length ? [{ ...item, children }] : []
+    }
+    return canSeeItem(item) ? [item] : []
+  })
+})
 
 const navigateTo = (path: string) => {
   router.push(path)

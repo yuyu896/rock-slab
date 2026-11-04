@@ -15,10 +15,10 @@ const baseDoc = {
   lines: [], 品项数: 0, 总数量: 0,
 } as any
 
-function mountLayout(doc: any) {
+function mountLayout(doc: any, operations: string[]) {
   const pinia = createPinia()
   setActivePinia(pinia)
-  useUserStore(pinia).operations = ['approve_transfer', 'manage_assets']
+  useUserStore(pinia).operations = operations
   return mount(TransferDetailLayout, {
     props: { title: '调拨详情', backPath: '/transfers/transfer', doc, type: 'transfer' as const },
     global: { plugins: [pinia], stubs: { TransferLinesTable: true } },
@@ -27,7 +27,7 @@ function mountLayout(doc: any) {
 
 describe('调入方驳回入口显隐（transfer-inbound-reject）', () => {
   it('调出方视角（canOperate）显示通过/驳回，无调入方驳回', () => {
-    const wrapper = mountLayout({ ...baseDoc, canOperate: true, canInboundReject: false })
+    const wrapper = mountLayout({ ...baseDoc, canOperate: true, canInboundReject: false }, ['approve_internal_transfer'])
     const text = wrapper.find('.detail-footer').text()
     expect(text).toContain('通过')
     expect(text).not.toContain('调入方')
@@ -35,7 +35,7 @@ describe('调入方驳回入口显隐（transfer-inbound-reject）', () => {
   })
 
   it('调入方视角（canOperate=false 且 canInboundReject）显示驳回（调入方）', () => {
-    const wrapper = mountLayout(baseDoc)
+    const wrapper = mountLayout(baseDoc, ['edit_transfer', 'view_transfer', 'view_asset_ledger'])
     const footer = wrapper.find('.detail-footer')
     expect(footer.text()).toContain('驳回（调入方）')
     expect(footer.text()).not.toContain('通过')
@@ -44,13 +44,13 @@ describe('调入方驳回入口显隐（transfer-inbound-reject）', () => {
   })
 
   it('非待审批或无权限时无操作按钮', () => {
-    const wrapper = mountLayout({ ...baseDoc, 审批状态: '已通过', canInboundReject: false })
+    const wrapper = mountLayout({ ...baseDoc, 审批状态: '已通过', canInboundReject: false }, [])
     expect(wrapper.find('.detail-footer button').exists()).toBe(false)
     wrapper.unmount()
   })
 
   it('点击调入方驳回触发 inboundReject 事件', async () => {
-    const wrapper = mountLayout(baseDoc)
+    const wrapper = mountLayout(baseDoc, ['edit_transfer', 'view_transfer', 'view_asset_ledger'])
     await wrapper.find('.detail-footer button').trigger('click')
     expect(wrapper.emitted('inboundReject')).toHaveLength(1)
     wrapper.unmount()

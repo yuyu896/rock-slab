@@ -18,6 +18,14 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     filterset_class = NotificationFilterSet
+    required_operations = {
+        'list': 'view_notifications',
+        'retrieve': 'view_notifications',
+        'unread_count': 'view_notifications',
+        'mark_read': 'view_notifications',
+        'mark_all_read': 'view_notifications',
+        'by_type': 'view_notifications',
+    }
 
     def get_queryset(self):
         return Notification.objects.filter(
@@ -65,14 +73,29 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(list(stats))
 
 
+class ApprovalReportPermission(OperationPermission):
+    """Read approval reports only when their separate permission is granted."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user and user.is_authenticated
+            and user.can('view_approval_reports')
+        )
+
+
 class ApprovalCCViewSet(viewsets.ReadOnlyModelViewSet):
     """抄送记录视图集"""
     serializer_class = ApprovalCCSerializer
-    permission_classes = [IsAuthenticated, OperationPermission]
+    permission_classes = [IsAuthenticated, ApprovalReportPermission]
     pagination_class = StandardPagination
     filterset_class = ApprovalCCFilterSet
-    # 抄送记录需 view_all_notifications 权限（admin 自动放行）
-    required_operation = 'view_all_notifications'
+    required_operations = {
+        'list': 'view_approval_reports',
+        'retrieve': 'view_approval_reports',
+        'mark_read': 'view_approval_reports',
+        'mark_all_read': 'view_approval_reports',
+    }
 
     def get_queryset(self):
         return ApprovalCC.objects.filter(

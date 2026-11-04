@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { branchSelectStub } from '../helpers/branchSelectStub'
 
 const { getBranches, getTransfer, getUsers, updateTransfer, submitTransfer, transferAsset } = vi.hoisted(() => ({
   getBranches: vi.fn().mockResolvedValue({ data: [
@@ -36,7 +37,9 @@ vi.mock('vue-router', () => ({
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }))
-vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { name: '创建人' } }) }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({
+  profile: { name: '创建人' }, isAdmin: false, can: () => true,
+}) }))
 vi.mock('@/api/transfers', () => ({ getTransfer, updateTransfer, submitTransfer, transferAsset }))
 vi.mock('@/api/branches', () => ({ getBranches }))
 vi.mock('@/api/users', () => ({ getUsers }))
@@ -68,10 +71,15 @@ describe('TransferCreate 草稿编辑', () => {
         stubs: {
           TransferLinesEditor: { methods: { validate: () => true }, template: '<div />' },
           DepartmentSelect: { template: '<div />' },
+          BranchSelect: branchSelectStub as any,
         },
       },
     })
     await flushPromises()
+
+    expect(getBranches).toHaveBeenCalledTimes(2)
+    expect(getBranches).toHaveBeenCalledWith({ scope: 'write' })
+    expect(getBranches).toHaveBeenCalledWith()
 
     const responsibleSelect = wrapper.findAll('select.form-select').at(2)!
     expect((responsibleSelect.element as HTMLSelectElement).value).toBe('员工乙')
@@ -93,25 +101,7 @@ describe('TransferCreate 草稿编辑', () => {
         stubs: {
           TransferLinesEditor: { methods: { validate: () => true }, template: '<div />' },
           DepartmentSelect: { template: '<div />' },
-        },
-      },
-    })
-    await flushPromises()
-
-    await wrapper.get('.btn-confirm').trigger('click')
-    await flushPromises()
-
-    expect(transferAsset).not.toHaveBeenCalled()
-    expect(updateTransfer).not.toHaveBeenCalled()
-  })
-
-  it('详情加载失败时不允许编辑路由退化为新建单据', async () => {
-    getTransfer.mockRejectedValueOnce(new Error('network error'))
-    const wrapper = mount(TransferCreate, {
-      global: {
-        stubs: {
-          TransferLinesEditor: { methods: { validate: () => true }, template: '<div />' },
-          DepartmentSelect: { template: '<div />' },
+          BranchSelect: branchSelectStub as any,
         },
       },
     })

@@ -13,6 +13,11 @@ export function getSuppliers(params?: { page?: number; pageSize?: number }) {
   return request.get<PaginatedResponse<Supplier>>('/api/suppliers/', { params })
 }
 
+/** 实例编辑只需供应商 ID 和名称，不授予查看供应商联系人、电话的权限。 */
+export function getInstanceSupplierOptions() {
+  return request.get<Array<Pick<Supplier, 'id' | 'name'>>>('/api/suppliers/instance-options')
+}
+
 export function createSupplier(data: { name: string; 联系人?: string; 电话?: string }) {
   return request.post<Supplier>('/api/suppliers/', data)
 }

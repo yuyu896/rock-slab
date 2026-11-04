@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { computed } from 'vue'
 
+const permissionCodes = vi.hoisted(() => ({ codes: [] as string[] }))
+
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: vi.fn() },
@@ -10,7 +12,7 @@ vi.mock('element-plus', () => ({
 vi.mock('@/hooks/usePermission', () => ({
   usePermission: () => ({
     canManageCategories: computed(() => true),
-    can: () => true,
+    can: (code: string) => permissionCodes.codes.includes(code),
   }),
 }))
 
@@ -53,6 +55,7 @@ function mountPage() {
 describe('Category 品目页（筛选与序号）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    permissionCodes.codes = ['view_categories', 'edit_categories']
   })
 
   it('表头首列为序号，序号为分页连续序号', async () => {
@@ -123,5 +126,45 @@ describe('Category 品目页（筛选与序号）', () => {
         keyword: 'iPhone',
       }),
     )
+  })
+
+  it('仅有旧导入权限时不能看到导入入口或品目列表', async () => {
+    permissionCodes.codes = ['import_categories']
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(getCategories).not.toHaveBeenCalled()
+    expect(wrapper.find('table').exists()).toBe(false)
+    expect(wrapper.text()).toContain('当前账号没有品目查看权限')
+    expect(wrapper.findAll('button').some(button => button.text().includes('导入'))).toBe(false)
+    expect(wrapper.findAll('button').some(button => button.text().includes('导出'))).toBe(false)
+  })
+
+  it('编辑权限没有查看前置时不显示任何写入口', async () => {
+    permissionCodes.codes = ['edit_categories']
+    vi.mocked(getCategories).mockResolvedValue({
+      data: { count: 1, results: [_item({ id: 'c1' })] },
+    } as any)
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some(button => button.text().includes('新增分类'))).toBe(false)
+    expect(wrapper.findAll('button').some(button => button.text().includes('导入'))).toBe(false)
+    expect(wrapper.find('button[title="编辑"]').exists()).toBe(false)
+    expect(wrapper.find('button[title="删除"]').exists()).toBe(false)
+  })
+
+  it('编辑权限统一显示新增、编辑、删除和导入操作', async () => {
+    permissionCodes.codes = ['view_categories', 'edit_categories']
+    vi.mocked(getCategories).mockResolvedValue({
+      data: { count: 1, results: [_item({ id: 'c1' })] },
+    } as any)
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some(button => button.text().includes('新增分类'))).toBe(true)
+    expect(wrapper.findAll('button').some(button => button.text().includes('导入'))).toBe(true)
+    expect(wrapper.find('button[title="编辑"]').exists()).toBe(true)
+    expect(wrapper.find('button[title="删除"]').exists()).toBe(true)
   })
 })

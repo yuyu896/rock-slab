@@ -96,6 +96,7 @@ export interface Region {
   code: string
   manager: string
   status: EntityStatusType
+  canManage?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -106,7 +107,9 @@ export interface Branch {
   name: string
   code: string
   region: string
+  regionName?: string
   team: string
+  teamName?: string
   address: string
   manager?: string
   phone?: string
@@ -233,6 +236,7 @@ export interface Team {
   leaderName?: string
   memberCount?: number
   status: EntityStatusType
+  canManage?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -422,7 +426,7 @@ export interface InventoryInstanceItem {
   updatedAt: string
 }
 
-/** 固定资产实例档案（P2 第二刀：品目联字典、供应商/单价/采购日期经出生行派生） */
+/** 固定资产实例档案（品目联字典、供应商/采购日期经出生行派生；不含采购单价） */
 export interface FixedAsset {
   id: string
   内部编号: string
@@ -444,7 +448,6 @@ export interface FixedAsset {
   managementType?: 'quantity' | 'instance' | 'consumable'
   入库日期?: string | null
   供应商?: string
-  单价?: number | string | null
   采购日期?: string | null
   备注?: string
   /** 物品图片 URL（未上传为空） */
@@ -501,7 +504,6 @@ export interface FixedAssetTimeline {
     单据编号: string
     日期: string
     供应商: string
-    单价: number | null
     采购日期: string
     transfer_id?: string
   } | null

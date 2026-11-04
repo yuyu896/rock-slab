@@ -4,11 +4,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getAssetStocks, getFixedAssets } from '@/api/assets'
 import { ElMessage } from 'element-plus'
+import { useUserStore } from '@/store/user'
 import type { AssetStock, FixedAsset } from '@/types'
 
 /** 台账行详情（P2 第三刀：Asset 退役，移动端详情 = 分公司×品目 台账行 + 其实例） */
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const stockId = computed(() => route.params.id as string)
 const stock = ref<AssetStock | null>(null)
@@ -26,7 +28,7 @@ async function fetchDetail() {
       router.back()
       return
     }
-    if (stock.value.管理方式 === 'instance') {
+    if (stock.value.管理方式 === 'instance' && userStore.can('view_instances')) {
       const inst = await getFixedAssets({
         asset_code: stock.value.资产编号,
         branch: stock.value.branchName || undefined,

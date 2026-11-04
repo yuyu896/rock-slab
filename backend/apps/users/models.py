@@ -59,10 +59,17 @@ class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS = ['name']
 
     def can(self, code: str) -> bool:
-        """是否持有某项业务操作权限（admin 恒真，不查授权表）。"""
+        """检查业务操作及其目录声明的必需前置权限。"""
         if self.role == 'admin':
             return True
-        return self.operation_grants.filter(code=code).exists()
+        from apps.permissions.operations import OPERATION_CATALOG, OPERATION_PREREQUISITES
+
+        if code not in {item['code'] for item in OPERATION_CATALOG}:
+            return False
+
+        required = {code, *OPERATION_PREREQUISITES.get(code, ())}
+        granted = set(self.operation_grants.filter(code__in=required).values_list('code', flat=True))
+        return required <= granted
 
     class Meta:
         db_table = 'users'

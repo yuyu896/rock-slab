@@ -133,7 +133,7 @@ class TestImportResultQuantity:
             {'file': _make_xlsx(self._headers, [[1, 'ICI-6', '品目', '', 5, 2.9, '']])},
             format='multipart',
         )
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert any('必须为整数' in e for e in resp.data['errors'])
         item.refresh_from_db()
         assert item.actual_qty is None and item.result == 'unchecked'

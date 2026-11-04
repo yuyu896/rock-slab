@@ -5,7 +5,8 @@ import { getTransfers, approveTransfer, rejectTransfer } from '@/api/transfers'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { transferDocSummary } from '@/types'
-import type { Transfer } from '@/types'
+import type { Transfer, TransferActionType } from '@/types'
+import { MY_DOCUMENT_OPERATIONS, TRANSFER_PERMISSION_OPERATIONS, type ActiveTransferActionType } from '@/utils/permissionGroups'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -14,10 +15,10 @@ const pendingApprovals = ref<Transfer[]>([])
 const doneApprovals = ref<Transfer[]>([])
 const loading = ref(false)
 const activeTab = ref<'pending' | 'done'>('pending')
-
-const canApprove = computed(() => userStore.can('approve_transfer'))
+const canOpenMyApplications = computed(() => userStore.isAdmin || MY_DOCUMENT_OPERATIONS.some(code => userStore.can(code)))
 
 const actionLabels: Record<string, string> = {
+  purchase: '采购入库',
   assign: '领用',
   return: '归还',
   transfer: '调拨',
@@ -25,6 +26,13 @@ const actionLabels: Record<string, string> = {
 
 function getActionType(transfer: Transfer): string {
   return (transfer as any).actionType || 'transfer'
+}
+
+function canApprove(transfer: Transfer): boolean {
+  if (getActionType(transfer) === 'return') return false
+  const type = getActionType(transfer) as ActiveTransferActionType
+  return Boolean(TRANSFER_PERMISSION_OPERATIONS[type]
+    && userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].approve))
 }
 
 async function fetchPendingApprovals() {
@@ -52,6 +60,7 @@ async function fetchDoneApprovals() {
 }
 
 async function handleApprove(transfer: Transfer) {
+  if (!canApprove(transfer)) return
   try {
     await ElMessageBox.confirm('确定通过此申请？', '审批确认', {
       confirmButtonText: '通过',
@@ -69,6 +78,7 @@ async function handleApprove(transfer: Transfer) {
 }
 
 async function handleReject(transfer: Transfer) {
+  if (!canApprove(transfer)) return
   try {
     const { value } = await ElMessageBox.prompt('请输入驳回原因', '驳回', {
       confirmButtonText: '确定驳回',
@@ -90,6 +100,7 @@ function viewDetail(transfer: Transfer) {
 }
 
 function openMyApplications() {
+  if (!canOpenMyApplications.value) return
   router.push('/mobile/my-transfers')
 }
 
@@ -114,7 +125,7 @@ onMounted(() => {
     <!-- 头部 -->
     <div class="page-header">
       <h1>审批中心</h1>
-      <button class="my-applications-btn" @click="openMyApplications">我的申请</button>
+      <button v-if="canOpenMyApplications" class="my-applications-btn" @click="openMyApplications">我的申请</button>
       <span class="pending-count">{{ pendingApprovals.length }} 条待处理</span>
     </div>
 
@@ -160,7 +171,7 @@ onMounted(() => {
           <p class="submitter">提交人：{{ item.创建人 || '-' }}</p>
         </div>
 
-        <div v-if="canApprove && item.canOperate !== false" class="card-actions">
+        <div v-if="canApprove(item) && item.canOperate !== false" class="card-actions">
           <button class="reject-btn" @click="handleReject(item)">驳回</button>
           <button class="approve-btn" @click="handleApprove(item)">通过</button>
         </div>

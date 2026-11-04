@@ -10,7 +10,17 @@ vi.mock('@/api/auth', () => ({
 
 // login() 内部会拉取权限摘要，需一并 mock 以免真实 axios 请求污染测试状态
 vi.mock('@/api/permissions', () => ({
-  getMyPermissions: vi.fn().mockResolvedValue({ data: { operations: [] } }),
+  getMyPermissions: vi.fn().mockResolvedValue({ data: {
+    operations: ['view_dashboard', 'view_recovery_ledger'],
+    operation_prerequisites: {
+      edit_inventory: ['view_inventory'],
+    },
+    page_operations: {
+      dashboard: ['view_dashboard'],
+      recovery: ['view_recovery'],
+      recovery_ledger: ['view_recovery_ledger'],
+    },
+  } }),
 }))
 
 import { useUserStore } from '@/store/user'
@@ -88,5 +98,27 @@ describe('User Store', () => {
       const store = useUserStore()
       expect(store.hasRole('admin')).toBe(false)
     })
+  })
+
+  it('uses page relationships supplied by the permission directory', async () => {
+    const store = useUserStore()
+    store.profile = { role: 'manager' } as any
+    await store.fetchMyPermissions()
+
+    expect(store.canAccessPage('dashboard')).toBe(true)
+    expect(store.canAccessPage('recovery')).toBe(false)
+    expect(store.canAccessPage('recovery_ledger')).toBe(true)
+    expect(store.canAccessPage('unknown_page')).toBe(false)
+  })
+
+  it('uses operation prerequisites supplied by the permission directory', async () => {
+    const store = useUserStore()
+    store.profile = { role: 'manager' } as any
+    store.operations = ['edit_inventory']
+    await store.fetchMyPermissions()
+
+    expect(store.can('edit_inventory')).toBe(false)
+    store.operations = ['edit_inventory', 'view_inventory']
+    expect(store.can('edit_inventory')).toBe(true)
   })
 })

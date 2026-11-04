@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getTransfer, purchaseAsset, resubmitTransfer, submitTransfer, updateTransfer } from '@/api/transfers'
 import { lookupCategoryByCode } from '@/api/categories'
 import { getCategories } from '@/api/categories'
 import { getBranches } from '@/api/branches'
+import { useUserStore } from '@/store/user'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { Category, Branch } from '@/types'
+import { canManageTransfer } from '@/utils/permissionGroups'
 
 const router = useRouter()
 const route = useRoute()
+const userStore = useUserStore()
 
 const form = ref({
   资产编号: '',
@@ -30,6 +33,12 @@ const editingId = ref<string | null>(null)
 const editingStatus = ref<'草稿' | '已驳回' | null>(null)
 const requestedEditId = typeof route.query.id === 'string' ? route.query.id : ''
 const documentDate = ref(new Date().toISOString().slice(0, 10))
+const canCreate = computed(() => canManageTransfer('purchase', code => userStore.can(code)))
+const canSaveDraft = computed(() => requestedEditId
+  ? Boolean(editingId.value) && canManageTransfer('purchase', code => userStore.can(code))
+  : canCreate.value)
+const canSubmitDocument = computed(() => canManageTransfer('purchase', code => userStore.can(code))
+  && (requestedEditId ? Boolean(editingId.value) : canCreate.value))
 
 async function fetchOptions() {
   loading.value = true
@@ -219,8 +228,8 @@ onMounted(() => {
     <!-- 提交按钮 -->
     <div class="submit-section">
       <div class="submit-actions">
-        <button class="draft-btn" @click="handleSubmit(true)" :disabled="submitting || editingStatus === '已驳回'">保存草稿</button>
-        <button class="submit-btn" @click="handleSubmit(false)" :disabled="submitting">
+        <button v-if="canSaveDraft" class="draft-btn" @click="handleSubmit(true)" :disabled="submitting || editingStatus === '已驳回'">保存草稿</button>
+        <button v-if="canSubmitDocument" class="submit-btn" @click="handleSubmit(false)" :disabled="submitting">
           {{ submitting ? '提交中...' : editingStatus === '已驳回' ? '保存并重新提交' : '提交入库' }}
         </button>
       </div>

@@ -11,16 +11,24 @@ const activeTab = computed(() => {
   const path = route.path
   if (path.includes('/mobile/scan')) return 'scan'
   if (path.includes('/mobile/inventory')) return 'inventory'
+  if (path.includes('/mobile/approval')) return 'approval'
   if (path.includes('/mobile/profile')) return 'profile'
   return 'scan'
 })
 
-/* 移动端定位为扫码终端：只保留 扫码/盘点任务/我的（PC 端功能不受影响） */
-const tabs = [
-  { key: 'scan', label: '扫码', icon: 'scan', path: '/mobile/scan' },
-  { key: 'inventory', label: '盘点任务', icon: 'box', path: '/mobile/inventory' },
+/* 移动端入口与桌面端共用业务权限；个人资料始终保留。 */
+const tabs = computed(() => [
+  ...(userStore.canAccessPage('mobile_scan')
+    ? [{ key: 'scan', label: '扫码', icon: 'scan', path: '/mobile/scan' }]
+    : []),
+  ...(userStore.canAccessPage('mobile_inventory')
+    ? [{ key: 'inventory', label: '盘点任务', icon: 'box', path: '/mobile/inventory' }]
+    : []),
+  ...(userStore.canAccessPage('mobile_approvals')
+    ? [{ key: 'approval', label: '审批', icon: 'check', path: '/mobile/approval' }]
+    : []),
   { key: 'profile', label: '我的', icon: 'user', path: '/mobile/profile' },
-]
+])
 
 function navigateTo(path: string) {
   router.push(path)

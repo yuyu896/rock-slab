@@ -21,11 +21,14 @@ class TestAuditLogCompleteness:
 @pytest.mark.django_db
 class TestNotificationDataScoping:
     def test_transfer_skips_out_of_scope_approver(
-        self, admin_user, branch, supervisor_user, supervisor_b,
+        self, admin_user, branch, leader_user, supervisor_b,
     ):
         """调拨只通知对调出分公司有授权的审批人：区域内主管收到，区域 B 主管不收到。"""
         from apps.categories.models import Category
         from apps.notifications.models import Notification
+        from apps.permissions.models import OperationGrant
+        for code in ('view_transfer', 'approve_internal_transfer', 'view_asset_ledger', 'edit_transfer'):
+            OperationGrant.objects.get_or_create(user=leader_user, code=code)
         client = _client_for(admin_user)
         item = Category.objects.get(asset_code='NOTIF-SCOPE-001')
         resp = client.post('/api/transfers/transfer', {
@@ -36,14 +39,14 @@ class TestNotificationDataScoping:
         assert resp.status_code == 201
         tid = resp.data['id']
         # supervisor_user 对 branch 有授权 → 收到审批通知（P2 明细摘要：首行品目 + 合计数量 + 单据编号）
-        notif = Notification.objects.get(recipient=supervisor_user, related_object_id=tid, title__startswith='待审批')
+        notif = Notification.objects.get(recipient=leader_user, related_object_id=tid, title__startswith='待审批')
         assert '待审批' in notif.title
         assert notif.extra_data['asset_code'] == 'NOTIF-SCOPE-001'
         assert notif.extra_data['qty'] == 1
         assert notif.extra_data['doc_number'] == resp.data['单据编号']
         # 调入方驳回通道（transfer-inbound-reject）：调入分公司持码者也收到「调入待确认」
         assert Notification.objects.filter(
-            recipient=supervisor_user, related_object_id=tid, title__startswith='调入待确认',
+            recipient=leader_user, related_object_id=tid, title__startswith='调入待确认',
         ).exists()
         # supervisor_b 对 branch 无授权 → 两条通知都不收到
         assert not Notification.objects.filter(recipient=supervisor_b, related_object_id=tid).exists()

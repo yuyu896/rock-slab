@@ -20,17 +20,32 @@ export interface Notification {
 
 export interface ApprovalCC {
   id: string
-  transferId?: string
-  inventoryTaskId?: string
+  transfer: string | null
+  inventoryTask: string | null
   ccType: 'auto' | 'manual'
   ccTypeDisplay: string
   ccReason: string
   recipient: string
   recipientName: string
   isRead: boolean
-  readAt?: string
-  approvalSnapshot: Record<string, any>
+  readAt: string | null
+  approvalSnapshot: ApprovalSnapshot
   createdAt: string
+  updatedAt: string
+}
+
+export interface ApprovalSnapshot extends Record<string, unknown> {
+  docNumber?: string
+  taskName?: string
+  actionType?: string
+  actionDisplay?: string
+  result?: string
+  statusDisplay?: string
+  approvedAt?: string | null
+  completedAt?: string | null
+  rejectedAt?: string | null
+  reason?: string
+  rejectReason?: string
 }
 
 export interface NotificationStats {
@@ -73,7 +88,14 @@ export function getApprovalCCs(params?: PaginationParams & {
   ccType?: string
   isRead?: boolean
 }) {
-  return request.get<PaginatedResponse<ApprovalCC>>('/api/notifications/cc/', { params })
+  const { ccType, isRead, ...pagination } = params ?? {}
+  return request.get<PaginatedResponse<ApprovalCC>>('/api/notifications/cc/', {
+    params: {
+      ...pagination,
+      ...(ccType !== undefined ? { cc_type: ccType } : {}),
+      ...(isRead !== undefined ? { is_read: isRead } : {}),
+    },
+  })
 }
 
 // 标记抄送已读

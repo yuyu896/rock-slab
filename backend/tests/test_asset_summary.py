@@ -181,6 +181,41 @@ class TestAssetStockList:
         resp = api_client.get(SUMMARY_URL)
         assert resp.status_code == 401
 
+    def test_adjustment_requires_view_and_adjust_permissions(
+        self, supervisor_user, branch, second_branch,
+    ):
+        from apps.permissions.models import OperationGrant
+        from conftest import _client_for
+
+        stock = _make_stock(branch, 'SUM-ADJUST-ONLY', stock=7, in_use=2, recycle=1)
+        _make_stock(second_branch, 'SUM-ADJUST-OUT-OF-SCOPE', stock=99)
+        OperationGrant.objects.filter(user=supervisor_user).delete()
+        OperationGrant.objects.create(user=supervisor_user, code='adjust_asset_ledger')
+        client = _client_for(supervisor_user)
+
+        response = client.get(f'{SUMMARY_URL}/adjustable')
+        assert response.status_code == 403
+        assert client.get(SUMMARY_URL).status_code == 403
+        assert client.get(f'{SUMMARY_URL}/{stock.id}').status_code == 403
+        assert client.get(f'{SUMMARY_URL}/export').status_code == 403
+        assert client.get('/api/assets/adjustments').status_code == 403
+
+        adjustment_payload = {
+            'branch': str(branch.id), '资产编号': 'SUM-ADJUST-ONLY',
+            '目标列': '在库数量', '变动量': 1, '事由': '调整权限上下文验证',
+        }
+        assert client.post('/api/assets/adjustments', adjustment_payload, format='json').status_code == 403
+
+        OperationGrant.objects.create(user=supervisor_user, code='view_asset_ledger')
+        assert client.get(SUMMARY_URL).status_code == 200
+        assert client.get(f'{SUMMARY_URL}/{stock.id}').status_code == 200
+        assert client.get(f'{SUMMARY_URL}/export').status_code == 200
+        assert client.get('/api/assets/adjustments').status_code == 200
+        assert client.get(f'{SUMMARY_URL}/adjustable').status_code == 200
+
+        adjustment = client.post('/api/assets/adjustments', adjustment_payload, format='json')
+        assert adjustment.status_code == 201
+
 
 # ---------------------------------------------------------------------------
 # 行级写接口下线（铁律 2）
@@ -245,6 +280,49 @@ class TestAssetStockIncrementalImport:
         assert adj.变动量 == 2
         assert '导入调整' in adj.事由
 
+    def test_import_permission_can_confirm_without_manual_adjust_permission(
+        self, supervisor_user, branch,
+    ):
+        from apps.assets.models import AssetStock
+        from apps.permissions.models import OperationGrant
+
+        _make_stock(branch, 'SUM-I-IMPORT-ONLY', stock=5)
+        OperationGrant.objects.filter(user=supervisor_user).delete()
+        OperationGrant.objects.create(user=supervisor_user, code='import_asset_ledger')
+        client = _client_for(supervisor_user)
+
+        missing_view = self._upload(
+            client, [[branch.name, 'SUM-I-IMPORT-ONLY', 7]], confirm=True,
+        )
+        assert missing_view.status_code == 403
+        assert AssetStock.objects.get(
+            branch=branch, item__asset_code='SUM-I-IMPORT-ONLY',
+        ).在库数量 == 5
+
+        OperationGrant.objects.create(user=supervisor_user, code='view_asset_ledger')
+        response = self._upload(
+            client, [[branch.name, 'SUM-I-IMPORT-ONLY', 7]], confirm=True,
+        )
+
+        assert response.status_code == 200, response.data
+        assert response.data['applied'] == 1
+        stock = AssetStock.objects.get(
+            branch=branch, item__asset_code='SUM-I-IMPORT-ONLY',
+        )
+        assert getattr(stock, '\u5728\u5e93\u6570\u91cf') == 7
+        assert not OperationGrant.objects.filter(
+            user=supervisor_user, code='adjust_asset_ledger',
+        ).exists()
+
+        manual_adjustment = client.post('/api/assets/adjustments', {
+            'branch': str(branch.id),
+            '\u8d44\u4ea7\u7f16\u53f7': 'SUM-I-IMPORT-ONLY',
+            '\u76ee\u6807\u5217': '\u5728\u5e93\u6570\u91cf',
+            '\u53d8\u52a8\u91cf': 1,
+            '\u4e8b\u7531': 'separate manual adjustment permission',
+        }, format='json')
+        assert manual_adjustment.status_code == 403
+
     def test_unchanged_rows_skipped(self, supervisor_user, branch):
         from apps.assets.models import AssetStock
         _make_stock(branch, 'SUM-I-004', stock=10)
@@ -260,6 +338,7 @@ class TestAssetStockIncrementalImport:
         resp = self._upload(client, [[branch.name, 'SUM-I-005X', 3]])
         assert resp.status_code == 200
         assert any('未在品目字典登记' in e for e in resp.data['errors'])
+        assert all('是否想找' not in e for e in resp.data['errors'])
         assert resp.data['diffs'] == []
 
     def test_instance_item_rejected_in_preview_and_confirm(self, supervisor_user, branch):
@@ -287,12 +366,14 @@ class TestAssetStockIncrementalImport:
             [branch.name, 'SUM-I-INST', 99],
             [branch.name, 'SUM-I-006', 15],
         ], confirm=True)
-        assert resp.status_code == 200
-        assert resp.data['applied'] == 1
+        assert resp.status_code == 400
+        assert resp.data['applied'] == 0
         assert any('实例管理品目' in e for e in resp.data['errors'])
+        assert all('是否想找' not in e for e in resp.data['errors'])
         assert not LedgerAdjustment.objects.filter(item__asset_code='SUM-I-INST').exists()
         assert AssetStock.objects.get(
-            branch=branch, item__asset_code='SUM-I-006').在库数量 == 15
+            branch=branch, item__asset_code='SUM-I-006').在库数量 == 10
+        assert not LedgerAdjustment.objects.filter(item__asset_code='SUM-I-006').exists()
 
     def test_import_requires_permission(self, staff_user, branch):
         client = _client_for(staff_user)

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { branchSelectStub } from '../helpers/branchSelectStub'
 
-vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: {}, params: { id: 'assign-1' } }), useRouter: () => ({ push: vi.fn(), back: vi.fn() }) }))
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: vi.fn() },
@@ -9,6 +10,15 @@ vi.mock('element-plus', () => ({
 vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { name: '张三' }, can: () => true }) }))
 vi.mock('@/api/transfers', () => ({
   assignAsset: vi.fn().mockResolvedValue({ data: { id: 'a-1' } }),
+  getTransfer: vi.fn().mockResolvedValue({ data: {
+    id: 'assign-1', 单据编号: 'LY001', 调拨日期: '2026-09-23', 调出分公司: '北京分公司',
+    调出部门: '旧单头部门', 用途: '旧单头用途', 备注: '历史驳回意见：补充说明',
+    actionType: 'assign', 审批状态: '已驳回', 创建人: '张三', lines: [{
+      id: 'line-1', 行号: 1, item: 'item-1', itemCode: 'NB-001', itemName: '笔记本',
+      itemSpec: '14寸', unit: '台', 数量: 1, 使用人: '张三', departmentName: '技术部',
+      备注: '贴资产标签',
+    }],
+  } }),
   transferAsset: vi.fn().mockResolvedValue({ data: { id: 't-1' } }),
   getTransfers: vi.fn().mockResolvedValue({ data: { count: 0, next: null, previous: null, results: [] } }),
 }))
@@ -20,15 +30,16 @@ vi.mock('@/api/branches', () => ({
 }))
 
 import AssignCreate from '@/views/transfers/AssignCreate.vue'
+import AssignDetail from '@/views/transfers/AssignDetail.vue'
 import TransferCreate from '@/views/transfers/TransferCreate.vue'
 import PurchaseList from '@/views/transfers/PurchaseList.vue'
 import AssignList from '@/views/transfers/AssignList.vue'
 import TransferDetailLayout from '@/views/transfers/components/TransferDetailLayout.vue'
-import { assignAsset, transferAsset, getTransfers } from '@/api/transfers'
+import { assignAsset, getTransfer, transferAsset, getTransfers } from '@/api/transfers'
 
 const validDrafts = [{
   key: 1, item: { id: 'item-1' }, 数量: 2, 本批规格: '', 行供应商: '',
-  单价: null, 金额: null, 使用人: '', department: null, 存放位置: '', instances: [],
+  单价: null, 金额: null, 使用人: '', department: null, 备注: '贴标签', 存放位置: '', instances: [],
 }]
 
 const editorStub = {
@@ -57,7 +68,7 @@ describe('经办人统一：领用/调拨创建页预填当前登录人', () => 
 
   it('AssignCreate 预填经办人且提交 payload 携带', async () => {
     const wrapper = mount(AssignCreate, {
-      global: { stubs: { TransferLinesEditor: editorStub as any } },
+      global: { stubs: { TransferLinesEditor: editorStub as any, BranchSelect: branchSelectStub as any } },
     })
     await flushPromises()
     const handlerInput = wrapper.find('input[placeholder="默认创建人，选填"]')
@@ -70,11 +81,17 @@ describe('经办人统一：领用/调拨创建页预填当前登录人', () => 
 
     expect(assignAsset).toHaveBeenCalledTimes(1)
     expect(assignAsset).toHaveBeenCalledWith(expect.objectContaining({ 经办人: '张三' }))
+    const payload = vi.mocked(assignAsset).mock.calls[0][0]
+    expect(payload).not.toHaveProperty('调出部门')
+    expect(payload).not.toHaveProperty('用途')
+    expect(payload).not.toHaveProperty('备注')
+    expect(payload.items[0]).toMatchObject({ 备注: '贴标签' })
+    expect(payload.items[0]).not.toHaveProperty('用途')
   })
 
   it('TransferCreate 预填经办人且提交 payload 携带', async () => {
     const wrapper = mount(TransferCreate, {
-      global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' } } },
+      global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' }, BranchSelect: branchSelectStub as any } },
     })
     await flushPromises()
     const handlerInput = wrapper.find('input[placeholder="默认创建人，选填"]')
@@ -89,6 +106,25 @@ describe('经办人统一：领用/调拨创建页预填当前登录人', () => 
 
     expect(transferAsset).toHaveBeenCalledTimes(1)
     expect(transferAsset).toHaveBeenCalledWith(expect.objectContaining({ 经办人: '张三' }))
+  })
+})
+
+describe('领用详情按行展示设备字段并保留旧单头信息', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('不显示领用用途或单头调出部门，备注与历史审批信息分别展示', async () => {
+    const wrapper = mount(AssignDetail, {
+      global: { stubs: { TransferLifecycleActions: true } },
+    })
+    await flushPromises()
+
+    expect(getTransfer).toHaveBeenCalledWith('assign-1')
+    expect(wrapper.text()).not.toContain('旧单头部门')
+    expect(wrapper.text()).not.toContain('旧单头用途')
+    expect(wrapper.text()).not.toContain('用途')
+    expect(wrapper.text()).toContain('贴资产标签')
+    expect(wrapper.text()).toContain('历史/审批信息')
+    expect(wrapper.text()).toContain('历史驳回意见：补充说明')
   })
 })
 

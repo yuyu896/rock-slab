@@ -23,7 +23,7 @@ def _inst(branch, item, no, serial=''):
     )
 
 
-def _grant(user, code='manage_instances'):
+def _grant(user, code='edit_instances'):
     from apps.permissions.models import OperationGrant
     OperationGrant.objects.get_or_create(user=user, code=code)
 
