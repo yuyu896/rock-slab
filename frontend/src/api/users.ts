@@ -2,7 +2,12 @@
 import request from '@/utils/request'
 import type { User, PaginationParams } from '@/types'
 
-export function getUsers(params?: PaginationParams & { role?: string; branch?: string; keyword?: string }) {
+export function getUsers(params?: PaginationParams & {
+  role?: string
+  branch?: string
+  keyword?: string
+  scope?: 'write'
+}) {
   return request.get<User[]>('/api/users/', { params })
 }
 
@@ -18,8 +23,51 @@ export function updateUser(id: string, data: Partial<User>) {
   return request.patch<User>(`/api/users/${id}`, data)
 }
 
-export function deleteUser(id: string) {
-  return request.delete(`/api/users/${id}`)
+export interface UserDeleteResponsibility {
+  key: string
+  node_type: 'region' | 'team' | 'branch'
+  type: string
+  id: string
+  name: string
+  role: string
+  candidates: Array<{ id: string; name: string }>
+}
+
+export interface UserDeletePreview {
+  user: { id: string; name: string }
+  responsibilities: UserDeleteResponsibility[]
+  legacy_draft_candidates: UserLegacyDraftCandidate[]
+}
+
+export interface UserLegacyDraftCandidate {
+  id: string
+  document_number: string
+  action_type: string
+  creator_snapshot: string
+  date: string | null
+}
+
+export function getUserDeletePreview(id: string) {
+  return request.get<UserDeletePreview>(`/api/users/${id}/delete-preview`)
+}
+
+export interface UserSuccessorAssignment {
+  node_type: UserDeleteResponsibility['node_type']
+  node_id: string
+  user_id: string
+}
+
+export function deleteUser(
+  id: string,
+  successors: UserSuccessorAssignment[] = [],
+  legacyDraftReviewedIds: string[] = [],
+  legacyDraftIds: string[] = [],
+) {
+  return request.delete(`/api/users/${id}`, { data: {
+    successors,
+    legacy_draft_reviewed_ids: legacyDraftReviewedIds,
+    legacy_draft_ids: legacyDraftIds,
+  } })
 }
 
 export function uploadAvatar(id: string, file: File) {

@@ -4,7 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 const { mocks } = vi.hoisted(() => ({
   mocks: {
     isAdmin: true,
-    getCompany: vi.fn(),
+    getCompanyWechatQr: vi.fn(),
     uploadCompanyWechatQr: vi.fn(),
     createObjectURL: vi.fn(),
     revokeObjectURL: vi.fn(),
@@ -17,7 +17,7 @@ const { mocks } = vi.hoisted(() => ({
 const nativeURL = globalThis.URL
 
 vi.mock('@/api/company', () => ({
-  getCompany: mocks.getCompany,
+  getCompanyWechatQr: mocks.getCompanyWechatQr,
   uploadCompanyWechatQr: mocks.uploadCompanyWechatQr,
 }))
 vi.mock('@/store/user', () => ({ useUserStore: () => ({ isAdmin: mocks.isAdmin }) }))
@@ -65,7 +65,7 @@ describe('ContactWechatQrCard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.isAdmin = true
-    mocks.getCompany.mockResolvedValue({ data: { wechatQrCode: null } })
+    mocks.getCompanyWechatQr.mockResolvedValue({ data: { wechatQrCode: null } })
     mocks.uploadCompanyWechatQr.mockResolvedValue({ data: { wechatQrCode: '/media/company/contact/wechat-new.png' } })
     mocks.createObjectURL.mockReturnValue('blob:wechat-preview')
     installUrlMocks()
@@ -77,7 +77,7 @@ describe('ContactWechatQrCard', () => {
 
   it('显示已配置的联系二维码，普通员工没有上传入口', async () => {
     mocks.isAdmin = false
-    mocks.getCompany.mockResolvedValue({ data: { wechatQrCode: '/media/company/contact/wechat.png' } })
+    mocks.getCompanyWechatQr.mockResolvedValue({ data: { wechatQrCode: '/media/company/contact/wechat.png' } })
 
     const wrapper = mountCard()
     await flushPromises()
@@ -113,7 +113,7 @@ describe('ContactWechatQrCard', () => {
   })
 
   it('取消预览不会上传或替换已有二维码', async () => {
-    mocks.getCompany.mockResolvedValue({ data: { wechatQrCode: '/media/company/contact/wechat.png' } })
+    mocks.getCompanyWechatQr.mockResolvedValue({ data: { wechatQrCode: '/media/company/contact/wechat.png' } })
     const wrapper = mountCard()
     await flushPromises()
     const file = new File(['new qr'], 'wechat-new.png', { type: 'image/png' })

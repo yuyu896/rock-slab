@@ -7,8 +7,16 @@ export interface Company {
   wechatQrCode: string | null
 }
 
-export function getCompany() {
-  return request.get<Company>('/api/company/')
+export interface CompanyWriteOption extends Pick<Company, 'id' | 'name'> {
+  canCreateRegion: boolean
+}
+
+export function getCompany(params?: { scope?: 'write' | 'tree' }) {
+  return request.get<Company | CompanyWriteOption>('/api/company/', { params })
+}
+
+export function getCompanyWechatQr() {
+  return request.get<Pick<Company, 'wechatQrCode'>>('/api/company/wechat-qr/')
 }
 
 export function updateCompany(data: Partial<Pick<Company, 'name'>>) {

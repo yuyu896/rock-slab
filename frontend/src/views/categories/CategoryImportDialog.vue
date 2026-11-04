@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { importCategories } from '@/api/categories'
 import { generateCategoryTemplate } from '@/utils/importTemplate'
 import { handleApiError } from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 defineProps<{ visible: boolean }>()
 
@@ -12,7 +12,9 @@ const emit = defineEmits<{
   (e: 'success'): void
 }>()
 
+const importConfirming = ref(false)
 const importLoading = ref(false)
+const importBusy = computed(() => importConfirming.value || importLoading.value)
 
 interface ImportSheetStat { name: string; managementType: string; imported: number; errors: string[] }
 const importResult = ref<{
@@ -21,6 +23,7 @@ const importResult = ref<{
   sheets?: ImportSheetStat[]
   skippedSheets?: string[]
   fallback?: boolean
+  rejected?: boolean
 } | null>(null)
 
 const MANAGEMENT_TYPE_TEXT: Record<string, string> = {
@@ -38,8 +41,42 @@ async function handleImportFile(event: Event) {
   const file = input.files?.[0]
   if (!file) return
 
-  importLoading.value = true
+  if (importBusy.value) {
+    input.value = ''
+    return
+  }
+
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (ext !== 'xlsx' && ext !== 'xls') {
+    ElMessage.warning('请上传 Excel 文件（.xlsx 或 .xls）')
+    input.value = ''
+    return
+  }
+
   importResult.value = null
+  importConfirming.value = true
+  try {
+    await ElMessageBox.confirm(
+      `文件：${file.name}\n确认后将立即更新品目分类，是否继续？`,
+      '确认导入',
+      {
+        confirmButtonText: '确认导入',
+        cancelButtonText: '取消',
+        type: 'warning',
+        distinguishCancelAndClose: true,
+      },
+    )
+  } catch (error) {
+    input.value = ''
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(handleApiError(error))
+    }
+    return
+  } finally {
+    importConfirming.value = false
+  }
+
+  importLoading.value = true
   try {
     const { data } = await importCategories(file)
     importResult.value = data as any
@@ -48,6 +85,16 @@ async function handleImportFile(event: Event) {
       emit('success')
     }
   } catch (error) {
+    const responseData = (error as {
+      response?: { data?: { errors?: unknown } }
+    })?.response?.data
+    if (Array.isArray(responseData?.errors)) {
+      importResult.value = {
+        imported: 0,
+        errors: responseData.errors.filter((item): item is string => typeof item === 'string'),
+        rejected: true,
+      }
+    }
     ElMessage.error(handleApiError(error))
   } finally {
     importLoading.value = false
@@ -57,11 +104,11 @@ async function handleImportFile(event: Event) {
 </script>
 
 <template>
-  <div v-if="visible" class="modal-overlay" @click.self="emit('close')">
+  <div v-if="visible" class="modal-overlay" @click.self="!importBusy && emit('close')">
     <div class="modal-content">
       <div class="modal-header">
         <h3>批量导入分类</h3>
-        <button class="modal-close" @click="emit('close')">&times;</button>
+        <button class="modal-close" :disabled="importBusy" @click="emit('close')">&times;</button>
       </div>
       <div class="modal-body">
         <div class="import-step">
@@ -86,11 +133,11 @@ async function handleImportFile(event: Event) {
             <span class="import-step-num">2</span>
             <span class="import-step-title">上传填写好的 Excel 文件</span>
           </div>
-          <label class="import-upload-area" :class="{ 'upload-loading': importLoading }">
-            <input type="file" accept=".xlsx,.xls" class="import-file-input" @change="handleImportFile" :disabled="importLoading" />
-            <template v-if="importLoading">
+          <label class="import-upload-area" :class="{ 'upload-loading': importBusy }">
+            <input type="file" accept=".xlsx,.xls" class="import-file-input" @change="handleImportFile" :disabled="importBusy" />
+            <template v-if="importBusy">
               <div class="import-spinner"></div>
-              <span>正在导入...</span>
+              <span>{{ importLoading ? '正在导入...' : '等待确认...' }}</span>
             </template>
             <template v-else>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -106,10 +153,11 @@ async function handleImportFile(event: Event) {
         <div v-if="importResult" class="import-result">
           <div class="import-result-header">
             <span :class="importResult.errors.length === 0 ? 'result-success' : 'result-partial'">
-              成功导入 {{ importResult.imported }} 条
+              <template v-if="importResult.rejected">整份文件已驳回，未导入任何品目</template>
+              <template v-else>成功导入 {{ importResult.imported }} 条</template>
             </span>
             <span v-if="importResult.errors.length > 0" class="result-fail-count">
-              失败 {{ importResult.errors.length }} 条
+              错误 {{ importResult.errors.length }} 项
             </span>
           </div>
           <p v-if="importResult.fallback" class="import-fallback-hint">
@@ -131,7 +179,7 @@ async function handleImportFile(event: Event) {
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-cancel" @click="emit('close')">关闭</button>
+        <button class="btn-cancel" :disabled="importBusy" @click="emit('close')">关闭</button>
       </div>
     </div>
   </div>

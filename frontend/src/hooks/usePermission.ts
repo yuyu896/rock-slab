@@ -20,25 +20,45 @@ export function usePermission() {
   const isLeader = computed(() => currentRole.value === 'leader')
   const isStaff = computed(() => currentRole.value === 'staff')
 
-  /** 可审批：持有审批类操作授权（admin 恒真） */
-  const canApprove = computed(() =>
-    userStore.can('approve_transfer') || userStore.can('approve_inventory'),
-  )
+  /** 可审批：持有任一单据或盘点审批授权。 */
+  const canApprove = computed(() => [
+    'approve_purchase',
+    'approve_assignment',
+    'approve_internal_transfer',
+    'approve_recovery',
+    'review_inventory',
+  ].some(code => userStore.can(code)))
 
-  /** 可管理用户：持有 manage_users 授权 */
-  const canManageUsers = computed(() => userStore.can('manage_users'))
+  /** 可执行任一员工账号维护操作。 */
+  const canManageUsers = computed(() => [
+    'edit_users',
+  ].some(code => userStore.can(code)))
 
-  /** 可提交单据：所有登录用户（写操作受各 manage_* 授权控制） */
-  const canCreateDocument = computed(() => !!userStore.profile)
+  /** 可创建目录中的任一业务单据。 */
+  const canCreateDocument = computed(() => [
+    'edit_categories',
+    'edit_purchase',
+    'edit_assignment',
+    'edit_transfer',
+    'edit_recovery',
+    'edit_inventory',
+  ].some(code => userStore.can(code)))
 
-  /** 可管理品目字典：持有 manage_dictionary 授权 */
-  const canManageCategories = computed(() => userStore.can('manage_dictionary'))
+  /** 可执行任一品目维护操作。具体按钮仍应检查对应操作码。 */
+  const canManageCategories = computed(() => [
+    'edit_categories',
+  ].some(code => userStore.can(code)))
 
-  /** 可编辑/删除/导入资产：持有 manage_assets 授权 */
-  const canManageAssets = computed(() => userStore.can('manage_assets'))
+  /** 可执行任一资产台账或实例维护操作。 */
+  const canManageAssets = computed(() => [
+    'import_asset_ledger', 'adjust_asset_ledger', 'edit_instances',
+    'change_instance_assignee', 'print_instance_label',
+  ].some(code => userStore.can(code)))
 
-  /** 可管理组织架构：持有 manage_organizations 授权 */
-  const canManageOrganizations = computed(() => userStore.can('manage_organizations'))
+  /** 可执行任一组织架构维护操作。 */
+  const canManageOrganizations = computed(() => [
+    'edit_organizations', 'delete_organizations',
+  ].some(code => userStore.can(code)))
 
   /** 通用：是否持有任意业务操作授权 */
   function can(code: string): boolean {

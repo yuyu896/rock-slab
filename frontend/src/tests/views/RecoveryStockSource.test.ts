@@ -28,6 +28,7 @@ vi.mock('@/api/transfers', () => ({
 vi.mock('@/api/branches', () => ({
   getBranches: vi.fn().mockResolvedValue({ data: [{ id: 'b-1', name: '测试分公司' }] }),
 }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ can: () => true }) }))
 
 import TransferLinesEditor from '@/views/transfers/components/TransferLinesEditor.vue'
 import RecoveryDetail from '@/views/transfers/RecoveryDetail.vue'
@@ -65,7 +66,7 @@ describe('回收去向分流：行校验', () => {
   it('重新入库 + 数量品行 → 拒绝并提示无重新入库概念', () => {
     const vm = mountEditor('restock')
     expect(vm.validate()).toBe(false)
-    expect(vm.validateMessage).toContain('数量品物无重新入库概念')
+    expect(vm.validateMessage).toContain('不能走重新入库')
   })
 
   it('处置 + 数量品行（台账缓存未知）→ 软预检放行（终检在后端）', () => {
@@ -88,7 +89,7 @@ describe('回收去向分流：行校验', () => {
     const vm = wrapper.vm as any
     expect(vm.validate()).toBe(false)
     expect(vm.validateMessage).toContain('超出当前在库 2')
-    expect(vm.validateMessage).toContain('归还单')
+    expect(vm.validateMessage).not.toContain('归还单')
   })
 })
 
@@ -197,9 +198,6 @@ describe('物资处置台账处置收入合计卡', () => {
     expect(wrapper.text()).not.toContain('保存')
     expect(getFixedAsset).toHaveBeenCalledWith('fa-1')
     expect(getFixedAssetTimeline).toHaveBeenCalledWith('fa-1')
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    await wrapper.vm.$nextTick()
-    expect(wrapper.find('.detail-dialog').exists()).toBe(false)
   })
 
   it('生平读取失败时保留详情窗口并显示失败状态', async () => {
@@ -235,5 +233,38 @@ describe('物资处置台账处置收入合计卡', () => {
     expect(wrapper.text()).toContain('生平接口暂不可用')
     expect(wrapper.text()).toContain('生平记录未能加载')
     expect(wrapper.text()).toContain('DL-1-2')
+  })
+
+  it('详情窗口打开时按 Esc 关闭', async () => {
+    vi.mocked(getRecoveryLedger).mockResolvedValue({
+      data: {
+        count: 1,
+        disposal_income: 0,
+        results: [{
+          日期: '2026-10-14', 单据编号: 'HS20261014-003', 分公司: '测试分公司',
+          品目编号: 'DL-1', 品目名称: '电脑', 规格: '', 数量: 1, 内部编号: 'DL-1-3',
+          处置方式: '报废', 处置金额: null, 经办人: '张三', 备注: '',
+          实例ID: 'fa-3', 单据ID: 'doc-3',
+        }],
+      },
+    } as any)
+    vi.mocked(getFixedAsset).mockResolvedValue({
+      data: { id: 'fa-3', 内部编号: 'DL-1-3', 当前状态: '退役' } as any,
+    } as any)
+    vi.mocked(getFixedAssetTimeline).mockResolvedValue({
+      data: { instance: {} as any, birth: null, timeline: [] },
+    } as any)
+
+    const wrapper = mount(RecoveryLedger, {
+      global: { stubs: { BasePagination: { template: '<div />' }, BranchFilterSelect: { template: '<div />' } } },
+    })
+    await flushPromises()
+    await wrapper.find('.asset-link').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.detail-dialog').exists()).toBe(true)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('.detail-dialog').exists()).toBe(false)
   })
 })

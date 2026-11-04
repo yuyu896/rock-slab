@@ -155,6 +155,7 @@ defineExpose({ done: () => { submitting.value = false } })
   text-align: left; padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary);
   border-bottom: 1px solid var(--color-border); white-space: nowrap;
+  position: sticky; top: 0; z-index: 1;
 }
 .data-table td {
   padding: var(--space-2) var(--space-3); font-size: var(--text-sm);

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getCompany, uploadCompanyWechatQr } from '@/api/company'
+import { getCompanyWechatQr, uploadCompanyWechatQr } from '@/api/company'
 import { useUserStore } from '@/store/user'
 import { handleApiError } from '@/utils/request'
 
@@ -18,7 +18,7 @@ const maxFileSize = 2 * 1024 * 1024
 
 async function loadQrCode() {
   try {
-    const { data } = await getCompany()
+    const { data } = await getCompanyWechatQr()
     qrCodeUrl.value = data.wechatQrCode || null
   } catch (error) {
     ElMessage.error(handleApiError(error))

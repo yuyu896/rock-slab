@@ -150,7 +150,10 @@ async function submit() {
 
 onMounted(async () => {
   try {
-    const [br, ca] = await Promise.all([getBranches(), getCategories({ pageSize: 500 })])
+    const [br, ca] = await Promise.all([
+      getBranches({ scope: 'write' }),
+      getCategories({ pageSize: 500 }),
+    ])
     branchOptions.value = br.data.map((b: any) => ({ value: b.id, label: b.name }))
     const categories = (ca.data as any).results ?? ca.data
     categoryOptions.value = categories.map((c: any) => ({ value: c.id, label: c.资产名称 }))

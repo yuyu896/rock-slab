@@ -26,4 +26,16 @@ describe('移动端审批中心生命周期入口', () => {
 
     expect(push).toHaveBeenCalledWith('/mobile/my-transfers')
   })
+
+  it('归还历史待审批单不显示审批操作', async () => {
+    getTransfers.mockResolvedValueOnce({ data: { results: [{
+      id: 'return-pending', actionType: 'return', 审批状态: '待审批',
+      createdAt: '2026-10-15T10:00:00Z', lines: [],
+    }] } })
+    const wrapper = mount(ApprovalList)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('归还')
+    expect(wrapper.find('.card-actions').exists()).toBe(false)
+  })
 })

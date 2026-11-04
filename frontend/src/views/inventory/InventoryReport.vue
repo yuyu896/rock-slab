@@ -216,7 +216,7 @@ defineExpose({ open })
 .modal-title { font-size: 18px; font-weight: 600; margin: 0; }
 .modal-close { background: none; border: none; cursor: pointer; padding: 4px; color: var(--color-text-secondary); }
 .modal-close svg { width: 20px; height: 20px; }
-.modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+.modal-body { padding: 24px; overflow: auto; flex: 1; }
 .modal-footer { padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 12px; }
 .report-loading { text-align: center; padding: 40px; color: var(--color-text-secondary); }
 .report-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
@@ -227,10 +227,10 @@ defineExpose({ open })
 .report-stat-value.warning { color: var(--color-warning); }
 .report-stat-value.danger { color: var(--color-danger); }
 .report-stat-label { font-size: 13px; color: var(--color-text-secondary); }
-.report-table-wrapper { overflow-x: auto; }
+.report-table-wrapper { overflow: visible; }
 .report-table { width: 100%; border-collapse: collapse; }
 .report-table th, .report-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--color-border); font-size: 14px; }
-.report-table th { font-weight: 600; color: var(--color-text-secondary); background: var(--color-bg); }
+.report-table th { position: sticky; top: 0; z-index: 1; font-weight: 600; color: var(--color-text-secondary); background: var(--color-bg-table-header); }
 .missing-row { background: var(--color-danger-50, rgba(220, 38, 38, 0.05)); }
 .report-empty { text-align: center; padding: 40px; color: var(--color-text-secondary); }
 .btn-secondary { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-elevated); cursor: pointer; font-size: 14px; }

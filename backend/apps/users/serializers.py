@@ -87,3 +87,16 @@ class UserSerializer(serializers.ModelSerializer):
         if obj.branch and obj.branch.team:
             return obj.branch.team.region.name if obj.branch.team.region else None
         return None
+
+
+class UserDeleteOptionSerializer(serializers.ModelSerializer):
+    branch_name = serializers.CharField(source='branch.name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'name', 'branch', 'branch_name']
+
+
+class UserWriteOptionSerializer(UserDeleteOptionSerializer):
+    class Meta(UserDeleteOptionSerializer.Meta):
+        fields = ['id', 'name', 'phone', 'role', 'status', 'branch', 'branch_name']

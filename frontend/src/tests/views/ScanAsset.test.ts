@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
+const permissionState = vi.hoisted(() => ({
+  operations: ['view_asset_ledger', 'view_instances', 'view_inventory', 'edit_inventory'],
+}))
+
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
@@ -11,6 +15,12 @@ const routeQuery = ref<Record<string, string>>({})
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: routeQuery.value }),
   useRouter: () => ({ push: vi.fn() }),
+}))
+
+vi.mock('@/store/user', () => ({
+  useUserStore: () => ({
+    can: (code: string) => permissionState.operations.includes(code),
+  }),
 }))
 
 vi.mock('@/api/assets', () => ({
@@ -44,6 +54,7 @@ async function mountScanner() {
 describe('ScanAsset 统一扫码器', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    permissionState.operations = ['view_asset_ledger', 'view_instances', 'view_inventory', 'edit_inventory']
     routeQuery.value = {}
     vi.mocked(getInventoryTasks).mockResolvedValue({
       data: { results: [{ id: 't-1', name: '年度盘点', inventoryKind: 'instance' }] },

@@ -79,6 +79,11 @@ export function getInventoryReport(id: string) {
   return request.get<InventoryReport>(`/api/inventories/${id}/report`)
 }
 
+/** 移动端活动实例盘扫码清单（不包含盘点报告汇总） */
+export function getInventoryScanItems(id: string) {
+  return request.get<InventoryInstanceItem[]>(`/api/inventories/${id}/scan-items`)
+}
+
 /** 盘点进度 */
 export function getInventoryProgress(id: string) {
   return request.get<InventoryProgress>(`/api/inventories/${id}/progress`)

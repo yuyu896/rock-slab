@@ -66,6 +66,7 @@ describe('lineDrafts 助手', () => {
       expect.objectContaining({ item: 'item-1', 数量: 3, 使用人: '张三', 备注: '贴资产标签' }),
     ])
     expect(items[0]).not.toHaveProperty('用途')
+    expect(items[0]).not.toHaveProperty('unit')
   })
 
   it('draftsFromLines 从既有明细行还原编辑草稿', () => {
@@ -148,21 +149,75 @@ describe('TransferLinesEditor 增删行与校验', () => {
     })
   }
 
-  it('把草稿的当前品目摘要传给选择器用于标签回显', () => {
+  it('仍可编辑的四类流转单都把当前品目摘要交给选择器', () => {
+    const types = ['purchase', 'assign', 'transfer', 'recovery'] as const
+    for (const type of types) {
+      const drafts = draftsFromLines([line()])
+      const wrapper = mount(TransferLinesEditor, {
+        props: { modelValue: drafts, type },
+        global: { stubs: { ItemPicker: { name: 'ItemPicker', props: ['modelValue', 'selectedItem'], template: '<div />' } } },
+      })
+
+      const picker = wrapper.findComponent({ name: 'ItemPicker' })
+      expect(picker.props('modelValue')).toBe('item-1')
+      expect(picker.props('selectedItem')).toMatchObject({
+        id: 'item-1', asset_code: 'NB-001', asset_name: '笔记本',
+      })
+      wrapper.unmount()
+    }
+  })
+
+  it('更换品目后更新回显摘要，提交仍使用新品目的 UUID', async () => {
+    const draft = draftsFromLines([line()])[0]
+    const nextItem = { ...pickedItem, id: 'item-2', asset_code: 'MS-002', asset_name: '鼠标' }
     const wrapper = mount(TransferLinesEditor, {
-      props: { modelValue: [{ ...emptyDraft(), item: pickedItem }], type: 'purchase' },
+      props: { modelValue: [draft], type: 'purchase' },
       global: {
         stubs: {
           ItemPicker: {
-            name: 'ItemPicker',
-            props: ['modelValue', 'selectedItem'],
-            template: '<div class="picker-stub" />',
+            name: 'ItemPicker', props: ['modelValue', 'selectedItem'], emits: ['change'], template: '<div />',
           },
         },
       },
     })
+    const picker = wrapper.findComponent({ name: 'ItemPicker' })
+    expect(picker.props('selectedItem')).toEqual(draft.item)
 
-    expect(wrapper.findComponent({ name: 'ItemPicker' }).props('selectedItem')).toEqual(pickedItem)
+    picker.vm.$emit('change', nextItem)
+    await nextTick()
+
+    expect(picker.props('modelValue')).toBe('item-2')
+    expect(picker.props('selectedItem')).toEqual(nextItem)
+    const emittedDrafts = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as LineDraft[]
+    expect(draftsToItems(emittedDrafts)[0].item).toBe('item-2')
+  })
+
+  it('单位列从所选品目显示并随品目更新，不扩展单据明细载荷', async () => {
+    const itemPickerStub = {
+      emits: ['change'],
+      template: `<div>
+        <button class="pick-tablet" @click="$emit('change', tablet)">选择台装品目</button>
+        <button class="pick-box" @click="$emit('change', boxed)">选择盒装品目</button>
+      </div>`,
+      data: () => ({
+        tablet: pickedItem,
+        boxed: { ...pickedItem, id: 'item-2', asset_code: 'PAPER-001', unit: '盒' },
+      }),
+    }
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [], type: 'purchase' },
+      global: { stubs: { ItemPicker: itemPickerStub } },
+    })
+
+    expect(wrapper.find('.lines-header').text()).toContain('单位')
+    expect(wrapper.find('.unit-cell').text()).toBe('—')
+
+    await wrapper.find('.pick-tablet').trigger('click')
+    expect(wrapper.find('.unit-cell').text()).toBe('台')
+    await wrapper.find('.pick-box').trigger('click')
+    expect(wrapper.find('.unit-cell').text()).toBe('盒')
+    expect(draftsToItems(wrapper.emitted('update:modelValue')?.at(-1)?.[0] as LineDraft[])[0])
+      .not.toHaveProperty('unit')
   })
 
   it('采购行供应商为字典下拉（只准选，选中落名称）', async () => {

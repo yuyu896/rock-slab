@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { getSuppliers, createSupplier, deleteSupplier, type Supplier } from '@/api/suppliers'
+import { ref, onMounted, computed } from 'vue'
+import { getSuppliers, createSupplier, updateSupplier, deleteSupplier, type Supplier } from '@/api/suppliers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { usePermission } from '@/hooks/usePermission'
 import BasePagination from '@/components/BasePagination.vue'
+
+const { can } = usePermission()
+const canEdit = computed(() => can('view_suppliers') && can('edit_suppliers'))
 
 const suppliers = ref<Supplier[]>([])
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
@@ -13,8 +17,15 @@ const newName = ref('')
 const newContact = ref('')
 const newPhone = ref('')
 const saving = ref(false)
+const editingId = ref('')
+const editDraft = ref({ name: '', 联系人: '', 电话: '' })
 
 async function fetchSuppliers() {
+  if (!can('view_suppliers')) {
+    suppliers.value = []
+    pagination.value.total = 0
+    return
+  }
   loading.value = true
   try {
     const { data } = await getSuppliers({
@@ -31,6 +42,7 @@ async function fetchSuppliers() {
 }
 
 async function handleCreate() {
+  if (!canEdit.value) return
   if (!newName.value.trim()) {
     ElMessage.warning('请填写供应商名称')
     return
@@ -46,7 +58,36 @@ async function handleCreate() {
     newName.value = ''
     newContact.value = ''
     newPhone.value = ''
-    await fetchSuppliers()
+    if (can('view_suppliers')) await fetchSuppliers()
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    saving.value = false
+  }
+}
+
+function startEdit(s: Supplier) {
+  if (!canEdit.value) return
+  editingId.value = s.id
+  editDraft.value = { name: s.name, 联系人: s.联系人 || '', 电话: s.电话 || '' }
+}
+
+async function handleEdit(s: Supplier) {
+  if (!canEdit.value) return
+  if (!editDraft.value.name.trim()) {
+    ElMessage.warning('请填写供应商名称')
+    return
+  }
+  saving.value = true
+  try {
+    await updateSupplier(s.id, {
+      name: editDraft.value.name.trim(),
+      联系人: editDraft.value.联系人.trim(),
+      电话: editDraft.value.电话.trim(),
+    })
+    ElMessage.success('已保存')
+    editingId.value = ''
+    if (can('view_suppliers')) await fetchSuppliers()
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -55,11 +96,12 @@ async function handleCreate() {
 }
 
 async function handleDelete(s: Supplier) {
+  if (!canEdit.value) return
   try {
     await ElMessageBox.confirm(`确定删除「${s.name}」？已录入单据不受影响。`, '删除确认', { type: 'warning' })
     await deleteSupplier(s.id)
     ElMessage.success('已删除')
-    await fetchSuppliers()
+    if (can('view_suppliers')) await fetchSuppliers()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(handleApiError(error))
@@ -85,14 +127,14 @@ onMounted(fetchSuppliers)
       </div>
     </div>
 
-    <div class="add-row">
+    <div v-if="canEdit" class="add-row">
       <input v-model="newName" type="text" class="filter-input" placeholder="供应商名称" @keyup.enter="handleCreate" />
       <input v-model="newContact" type="text" class="filter-input narrow" placeholder="联系人（选填）" />
       <input v-model="newPhone" type="text" class="filter-input narrow" placeholder="电话（选填）" />
       <button class="btn-primary" :disabled="saving" @click="handleCreate">添加</button>
     </div>
 
-    <div class="table-container">
+    <div v-if="can('view_suppliers')" class="table-container">
       <table class="data-table">
         <thead>
           <tr>
@@ -100,30 +142,49 @@ onMounted(fetchSuppliers)
             <th>供应商名称</th>
             <th>联系人</th>
             <th>电话</th>
-            <th>操作</th>
+            <th v-if="canEdit">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && suppliers.length === 0">
-            <td colspan="5" class="empty-cell">加载中...</td>
+            <td :colspan="canEdit ? 5 : 4" class="empty-cell">加载中...</td>
           </tr>
           <tr v-else-if="suppliers.length === 0">
-            <td colspan="5" class="empty-cell">暂无供应商，添加后建单即可选择</td>
+            <td :colspan="canEdit ? 5 : 4" class="empty-cell">暂无供应商，添加后建单即可选择</td>
           </tr>
           <tr v-for="(s, index) in suppliers" :key="s.id">
             <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
-            <td>{{ s.name }}</td>
-            <td>{{ s.联系人 || '-' }}</td>
-            <td>{{ s.电话 || '-' }}</td>
             <td>
-              <button class="action-btn danger" @click="handleDelete(s)">删除</button>
+              <input v-if="editingId === s.id" v-model="editDraft.name" class="filter-input" aria-label="供应商名称" />
+              <span v-else>{{ s.name }}</span>
+            </td>
+            <td>
+              <input v-if="editingId === s.id" v-model="editDraft.联系人" class="filter-input narrow" aria-label="供应商联系人" />
+              <span v-else>{{ s.联系人 || '-' }}</span>
+            </td>
+            <td>
+              <input v-if="editingId === s.id" v-model="editDraft.电话" class="filter-input narrow" aria-label="供应商电话" />
+              <span v-else>{{ s.电话 || '-' }}</span>
+            </td>
+            <td v-if="canEdit">
+              <template v-if="editingId === s.id">
+                <button class="action-btn" :disabled="saving" @click="handleEdit(s)">保存</button>
+                <button class="action-btn" :disabled="saving" @click="editingId = ''">取消</button>
+              </template>
+              <template v-else>
+                <button class="action-btn" @click="startEdit(s)">编辑</button>
+                <button class="action-btn danger" @click="handleDelete(s)">删除</button>
+              </template>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
+    <div v-else class="table-container empty-cell">当前账号没有查看供应商权限</div>
+
     <BasePagination
+      v-if="can('view_suppliers')"
       :total="pagination.total"
       :current-page="pagination.page"
       :page-size="pagination.pageSize"
@@ -145,7 +206,7 @@ onMounted(fetchSuppliers)
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: auto; flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
-.data-table th { background: var(--color-bg-elevated); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
+.data-table th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-table-header); padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
 .data-table td { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); border-bottom: 1px solid var(--color-border-light); }
 .col-index { width: 56px; text-align: center; color: var(--color-text-tertiary); }
 .empty-cell { text-align: center; padding: var(--space-8) 0; color: var(--color-text-tertiary); }

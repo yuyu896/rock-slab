@@ -10,11 +10,15 @@ from core.pagination import StandardPagination
 from core.permissions import DataScopeMixin, validate_branches_in_scope
 from apps.permissions.permissions import OperationPermission
 from apps.audit.decorators import audit_create
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from .models import AssetStock, FixedAsset, LedgerAdjustment
 from .serializers import (
     AssetStockSerializer,
+    AssetStockAdjustmentContextSerializer,
     FixedAssetSerializer,
+    FixedAssetEditTargetSerializer,
+    FixedAssetImageResponseSerializer,
+    FixedAssetAssigneeTargetSerializer,
     FixedAssetSupplementSerializer,
     FixedAssetAssigneeChangeSerializer,
     LedgerAdjustmentSerializer,
@@ -46,7 +50,22 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
-    # 导入权限在 import_excel 内校验（manage_assets 或 adjust_ledger 任一）
+    required_operations = {
+        'list': 'view_asset_ledger',
+        'retrieve': 'view_asset_ledger',
+        'adjustable': ('view_asset_ledger', 'adjust_asset_ledger'),
+        'download_template': ('view_asset_ledger', 'import_asset_ledger'),
+        'import_excel': ('view_asset_ledger', 'import_asset_ledger'),
+        'export_excel': 'view_asset_ledger',
+    }
+
+    def filter_queryset(self, queryset):
+        params = self.request.query_params
+        if params.get('branch') and not self.request.user.can('view_organizations'):
+            raise PermissionDenied('筛选台账分公司需要查看组织架构权限')
+        if params.get('category') and not self.request.user.can('view_categories'):
+            raise PermissionDenied('筛选台账品目需要查看品目权限')
+        return super().filter_queryset(queryset)
 
     # 台账增量导入模板 3 列：分公司 / 资产编号 / 在库数量
     STOCK_TEMPLATE_HEADERS = ['分公司', '资产编号', '在库数量']
@@ -54,6 +73,22 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         return self.get_scoped_queryset(qs)
+
+    def get_serializer_class(self):
+        if self.action == 'adjustable':
+            return AssetStockAdjustmentContextSerializer
+        return super().get_serializer_class()
+
+    @action(detail=False, methods=['get'], url_path='adjustable')
+    def adjustable(self, request):
+        """Return only ledger rows and fields needed to create an adjustment."""
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     # ---- 行级写接口下线（铁律 2：数量变动须经单据） ----
 
@@ -106,7 +141,6 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
     def _parse_import_rows(self, file, user):
         """解析增量导入文件 → (diffs, errors)。diffs 元素含 branch/item ORM 对象。"""
         from apps.categories.models import Category
-        from apps.categories.views import suggest_similar_codes
         from apps.organizations.models import Branch
 
         try:
@@ -150,9 +184,7 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 continue
             item = item_map.get(asset_code)
             if item is None:
-                similar = suggest_similar_codes(asset_code)
-                hint = f'，是否想找：{"、".join(similar)}' if similar else ''
-                errors.append(f'第 {i} 行: 资产编号 {asset_code} 未在品目字典登记{hint}')
+                errors.append(f'第 {i} 行: 资产编号 {asset_code} 未在品目字典登记')
                 continue
             if item.management_type == 'instance':
                 # 实例品目在库列=实例镜像（铁律 2：数量只经单据变动），导入直改即账实分裂
@@ -205,12 +237,6 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """台账增量导入：默认返回差异预览；confirm=1 时逐差异生成调整单。"""
         from core.upload_validation import validate_excel_upload, UploadValidationError
 
-        if not (request.user.can('adjust_ledger') or request.user.can('manage_assets')):
-            return Response(
-                {'detail': '台账导入需要台账调整或资产管理权限'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         file = request.FILES.get('file')
         if not file:
             return Response({'detail': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
@@ -225,22 +251,37 @@ class AssetStockViewSet(DataScopeMixin, viewsets.ModelViewSet):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         if str(request.data.get('confirm')) in ('1', 'true', 'True'):
-            # 盘点锁（inventory-checklist-integrity）：与流转创建/审批同口径，
-            # 目标分公司盘点锁定期间禁改台账，聚合分公司名一次说清
-            from apps.inventories.models import branch_inventory_locked
-            locked_branches = sorted({
-                d['branch_name'] for d in diffs if branch_inventory_locked(d['branch'])
-            })
-            if locked_branches:
-                names = '、'.join(locked_branches)
+            if errors:
                 return Response(
-                    {'detail': f'分公司「{names}」正在进行盘点，暂时无法进行此操作',
-                     'code': 'INVENTORY_LOCKED'},
+                    {
+                        'detail': '文件存在错误，已驳回，未生成任何调整单',
+                        'applied': 0,
+                        'errors': errors,
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            # Use the same branch-row barrier as inventory start. The lock and
+            # active-task check must cover the adjustment transaction so a task
+            # cannot start between the check and the ledger write.
+            from apps.inventories.models import branch_inventory_locked
+            from apps.organizations.models import Branch
             from .services import ledger
-            # 整体事务 + 锁内现值复核（asset-import-atomicity）：任一行失败/漂移全部回滚
-            applied = ledger.apply_import_adjustments(diffs, operator=request.user)
+            with transaction.atomic():
+                branch_ids = sorted({d['branch'].pk for d in diffs})
+                list(Branch.objects.select_for_update().filter(pk__in=branch_ids).order_by('pk'))
+                locked_branches = sorted({
+                    d['branch_name'] for d in diffs if branch_inventory_locked(d['branch'])
+                })
+                if locked_branches:
+                    names = '、'.join(locked_branches)
+                    return Response(
+                        {'detail': f'分公司「{names}」正在进行盘点，暂时无法进行此操作',
+                         'code': 'INVENTORY_LOCKED'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                # 整体事务 + 锁内现值复核（asset-import-atomicity）：任一行失败/漂移全部回滚
+                applied = ledger.apply_import_adjustments(diffs, operator=request.user)
             return Response({'applied': applied, 'errors': errors})
 
         return Response({
@@ -318,7 +359,9 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
     required_operations = {
-        'create': 'adjust_ledger',
+        'list': 'view_asset_ledger',
+        'retrieve': 'view_asset_ledger',
+        'create': ('view_asset_ledger', 'adjust_asset_ledger'),
     }
 
     def get_queryset(self):
@@ -327,6 +370,8 @@ class LedgerAdjustmentViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         params = self.request.query_params
         branch = params.get('branch')
         if branch:
+            if not self.request.user.can('view_organizations'):
+                raise PermissionDenied('筛选调整记录分公司需要查看组织架构权限')
             # 分公司多选（逗号分隔 id → 并集）
             qs = qs.filter(branch_id__in=[b for b in branch.split(',') if b])
         asset_code = (params.get('assetCode') or '').strip()
@@ -401,14 +446,30 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     pagination_class = StandardPagination
     scope_branch_field = 'branch'
     required_operations = {
-        'supplement': 'manage_instances',
-        'image': 'manage_instances',
-        'batch_update': 'manage_instances',
-        'change_assignee': 'manage_instances',
+        'list': 'view_instances',
+        'retrieve': 'view_instances',
+        'export_excel': 'view_instances',
+        'timeline': 'view_instances',
+        'assignee_targets': 'change_instance_assignee',
+        'edit_targets': 'edit_instances',
+        'supplement': 'edit_instances',
+        'image': 'edit_instances',
+        'batch_update': 'edit_instances',
+        'import_excel': 'edit_instances',
+        'change_assignee': 'change_instance_assignee',
     }
+
+    def get_serializer_class(self):
+        if getattr(self, 'action', None) == 'assignee_targets':
+            return FixedAssetAssigneeTargetSerializer
+        if getattr(self, 'action', None) == 'edit_targets':
+            return FixedAssetEditTargetSerializer
+        return super().get_serializer_class()
 
     def get_queryset(self):
         if getattr(self, 'action', None) == 'image':
+            # Keep the locked query free of joins and DISTINCT, which PostgreSQL
+            # does not allow with FOR UPDATE.
             from apps.permissions.scope import resolve_user_scope
 
             qs = FixedAsset.objects.select_for_update()
@@ -431,7 +492,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
             return queryset
 
         queryset = super().filter_queryset(queryset)
-        if getattr(self, 'action', None) in ('list', 'export_excel'):
+        if getattr(self, 'action', None) in ('list', 'export_excel', 'edit_targets'):
             from django.db.models import Exists, OuterRef
             from apps.transfers.models import Transfer, TransferLineInstance
 
@@ -456,10 +517,74 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
             line__transfer__审批状态__in=['已通过', '已入库'],
         ).exists()
 
+    @action(detail=False, methods=['get'], url_path='assignee-targets')
+    def assignee_targets(self, request):
+        """List only scoped, in-use instances and fields needed for an assignee change."""
+        from django.db.models import Exists, OuterRef, Q
+        from apps.transfers.models import Transfer, TransferLineInstance
+
+        queryset = self.get_queryset().filter(
+            当前状态=FixedAsset.STATUS_IN_USE,
+            branch__isnull=False,
+        )
+        effective_disposals = TransferLineInstance.objects.filter(
+            instance_id=OuterRef('pk'),
+            line__transfer__action_type=Transfer.ACTION_RECOVERY,
+            line__transfer__回收去向=Transfer.DISPOSE,
+            line__transfer__审批状态__in=['已通过', '已入库'],
+        )
+        queryset = queryset.annotate(
+            _has_effective_disposal=Exists(effective_disposals),
+        ).filter(_has_effective_disposal=False)
+
+        keyword = (request.query_params.get('keyword') or '').strip()
+        if keyword:
+            queryset = queryset.filter(
+                Q(内部编号__icontains=keyword)
+                | Q(序列号__icontains=keyword)
+                | Q(item__asset_code__icontains=keyword)
+                | Q(item__asset_name__icontains=keyword)
+                | Q(使用人__icontains=keyword)
+                | Q(branch__name__icontains=keyword)
+            )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='edit-targets')
+    def edit_targets(self, request):
+        """List only scoped instance fields needed to edit an asset record."""
+        from django.db.models import Q
+
+        queryset = self.filter_queryset(self.get_queryset())
+        keyword = (request.query_params.get('edit_keyword') or '').strip()
+        if keyword:
+            search = (
+                Q(内部编号__icontains=keyword)
+                | Q(序列号__icontains=keyword)
+                | Q(item__asset_code__icontains=keyword)
+                | Q(item__asset_name__icontains=keyword)
+                | Q(branch__name__icontains=keyword)
+            )
+            if request.user.can('change_instance_assignee'):
+                search |= Q(使用人__icontains=keyword)
+            queryset = queryset.filter(search)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
     def _frozen(self, request):
         return Response(
-            {'detail': '实例变动请经流转单（出生=采购入库单，存量=系统迁移）；'
-                       '序列号待补录请使用补录操作'},
+            {'detail': '实例通用档案写入已冻结；使用人变更请使用专用交接操作，'
+                       '状态和分公司变动请经流转单；序列号待补录请使用补录操作'},
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
@@ -530,7 +655,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     def batch_update(self, request):
         """实例批量维护（第 31 案）：白名单 供应商（出生行）/备注/序列号（一一对应）。
 
-        状态/使用人/分公司等字段禁改（变动经流转单，铁律 2）；逐台校验与结果返回。
+        使用人/部门、状态/分公司等字段禁改；使用人和部门只能经专用交接操作。
+        维护白名单字段逐台校验并返回结果。
         """
         ids = request.data.get('ids') or []
         supplier = request.data.get('供应商')
@@ -640,7 +766,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='supplement')
     def supplement(self, request, pk=None):
-        """序列号补录：仅 序列号/备注 两字段（manage_instances 权限，渐进录入）。
+        """序列号补录：仅 序列号/备注 两字段（edit_instances 权限，渐进录入）。
         部分更新语义：未提交的字段保持原值（serial-uniqueness）；
         非空序列号同分公司查重（显式提交空串=有意退回待补录，合法）。"""
         instance = self.get_object()
@@ -664,13 +790,22 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
             instance.备注 = serializer.validated_data['备注']
             update_fields.insert(0, '备注')
         instance.save(update_fields=update_fields)
-        return Response(FixedAssetSerializer(instance).data)
+        response_serializer = (
+            FixedAssetSerializer
+            if request.user.can('view_instances')
+            else FixedAssetEditTargetSerializer
+        )
+        return Response(response_serializer(instance, context={'request': request}).data)
 
     # 同 url_path 双 action 会被 DRF 按方法名排序注册成两条 pattern，先注册者
     # 遮蔽后者的方法（users 头像 POST 405 即此坑），故合一个 action 内分流。
     @action(detail=True, methods=['post', 'delete'], parser_classes=[MultiPartParser], url_path='image')
     def image(self, request, pk=None):
-        """Upload or delete an instance image and its matching thumbnail."""
+        """物品图片维护：POST 上传/覆盖、DELETE 删除。
+
+        档案属性非数量变动（铁律 2 不管图片），edit_instances 权限；
+        替换/删除在数据库提交后清理旧文件，退役实例图片随档案永久保留。
+        """
         from django.core.files.base import ContentFile
         from core.upload_validation import validate_image_upload, UploadValidationError
         from .services.image_processing import ImageProcessingError, normalize_uploaded_image
@@ -736,7 +871,6 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                         (main_storage, candidate_main),
                         (thumbnail_storage, candidate_thumbnail),
                     ])
-
                     main_name = main_storage.save(
                         candidate_main, ContentFile(image_files[0], name='image.webp'),
                     )
@@ -746,27 +880,34 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                         ContentFile(image_files[1], name='thumbnail.webp'),
                     )
                     saved_files.append((thumbnail_storage, thumbnail_name))
-
                     instance.image = main_name
                     instance.thumbnail = thumbnail_name
                     instance.image_version += 1
                     instance.save(update_fields=[
                         'image', 'thumbnail', 'image_version', 'updated_at',
                     ])
+                    new_names = {main_name, thumbnail_name}
                     for storage, name in old_files:
-                        transaction.on_commit(
-                            lambda storage=storage, name=name: _delete_fixed_asset_image(
-                                storage, name,
-                            ),
-                            robust=True,
-                        )
+                        if name not in new_names:
+                            transaction.on_commit(
+                                lambda storage=storage, name=name: _delete_fixed_asset_image(
+                                    storage, name,
+                                ),
+                                robust=True,
+                            )
+
         except Exception:
-            # Storage is outside the database transaction; remove any new files on rollback.
+            # Storage is outside the database transaction; clear every possible new path.
             for storage, name in saved_files + candidate_files:
                 _delete_fixed_asset_image(storage, name)
             raise
 
-        return Response(FixedAssetSerializer(instance, context={'request': request}).data)
+        response_serializer = (
+            FixedAssetSerializer
+            if request.user.can('view_instances')
+            else FixedAssetImageResponseSerializer
+        )
+        return Response(response_serializer(instance, context={'request': request}).data)
 
     @action(detail=True, methods=['get'], url_path='timeline')
     def timeline(self, request, pk=None):
@@ -781,7 +922,6 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 '单据编号': birth_transfer.单据编号,
                 '日期': birth_transfer.调拨日期,
                 '供应商': birth_transfer.供应商 or '',
-                '单价': instance.birth_line.单价,
                 # 个体覆盖 → 出生单日期（与单据"日期"语义分离）
                 '采购日期': instance.采购日期 or birth_transfer.调拨日期,
             }

@@ -18,6 +18,8 @@ const props = defineProps<{
   stockColumn?: string
   /** 剔除消耗品（回收库来源：领出即耗用品目不得走回收库） */
   excludeConsumable?: boolean
+  /** Hide instance-managed items when the current user cannot read instance records. */
+  excludeInstance?: boolean
   /** 当前明细已选品目，用于首次渲染时将 UUID 解析为可读标签 */
   selectedItem?: ItemSummary | null
 }>()
@@ -66,6 +68,7 @@ async function remoteSearch(query: string) {
       // 台账接口输出中文键，映射为 ItemSummary；qty 供选项行展示可用数量
       options.value = ((data as any).results ?? [])
         .filter((c: any) => !(props.excludeConsumable && c.管理方式 === 'consumable'))
+        .filter((c: any) => !(props.excludeInstance && c.管理方式 === 'instance'))
         .map((c: any) => ({
           id: c.item,
           asset_code: c.资产编号,
@@ -102,7 +105,7 @@ async function remoteSearch(query: string) {
 
 /** 分公司/扣数列变化后旧选项失效，清空待重查 */
 watch(
-  () => [props.branch, props.stockColumn],
+  () => [props.branch, props.stockColumn, props.excludeInstance],
   () => {
     options.value = []
   },

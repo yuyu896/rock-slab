@@ -3,6 +3,8 @@ defineProps<{
   title: string
   submitText?: string
   loading?: boolean
+  submitDisabled?: boolean
+  showSubmit?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'submit'): void
@@ -26,7 +28,7 @@ const emit = defineEmits<{
       <div class="form-footer">
         <button class="btn-cancel" @click="emit('back')">取消</button>
         <slot name="footer-extra" />
-        <button class="btn-confirm" @click="emit('submit')" :disabled="loading">
+        <button v-if="showSubmit !== false" class="btn-confirm" @click="emit('submit')" :disabled="loading || submitDisabled">
           {{ loading ? '提交中...' : (submitText || '确定提交') }}
         </button>
       </div>

@@ -1,10 +1,11 @@
 import io
 from datetime import date
-from django.db.models import Case, IntegerField, Sum, Value, When
+from django.db import transaction
+from django.db.models import Case, IntegerField, Q, Sum, Value, When
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
@@ -17,12 +18,23 @@ from .serializers import (
     TransferSerializer, TransferActionSerializer, ApproveSerializer,
 )
 from .services import (generate_document_number, validate_disposal_fields,
-                       validate_line_items_instances, lock_categories,
-                       lock_line_item_categories)
+                       validate_line_items_instances, lock_line_item_instances,
+                       lock_categories, lock_line_item_categories)
+from .authorization import (
+    TRANSFER_PERMISSION_CODES,
+    is_transfer_approver,
+    transfer_permission_code,
+)
 from .filters import TransferFilterSet
 
 # Active inventory statuses that lock a branch's transfers（口径与盘点/导入侧共享）
 from apps.inventories.models import INVENTORY_LOCKED_STATUSES as _INVENTORY_LOCKED_STATUSES
+
+
+class RetiredReturnAction(APIException):
+    status_code = status.HTTP_410_GONE
+    default_detail = '归还功能已停用，仅保留历史单据查询'
+    default_code = 'return_module_retired'
 
 
 def _build_lines(transfer, items):
@@ -55,14 +67,16 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     pagination_class = StandardPagination
     # 调拨按「调出 / 调入」双向分公司过滤
     scope_transfer_fields = ('from_branch', 'to_branch')
-    # 审批要求 approve_transfer；入库确认要求 manage_assets；其余读写无声明即放行
-    # 业务发起（purchase/assign/return/transfer/recovery）对所有登录用户开放
-    # （员工申请领用 / 采购），数据范围由 _create_action 内 validate_branches_in_scope 控制；
-    # 审批 / 入库 / 导入需授权。
+    # 单据创建按类型授权；审批权限在读取单据后按其 action_type 动态校验。
     required_operations = {
-        'import_excel': 'manage_assets',
-        'approve': 'approve_transfer',
-        'inbound_reject': 'manage_assets',
+        'purchase': ('edit_purchase', 'view_purchase', 'view_categories'),
+        'assign': ('edit_assignment', 'view_assignment', 'view_asset_ledger'),
+        # Return documents remain readable to internal history/reporting code,
+        # but their user-facing write route is retired.
+        'return_asset': None,
+        'transfer': ('edit_transfer', 'view_transfer', 'view_asset_ledger'),
+        'recovery': ('edit_recovery', 'view_recovery', 'view_asset_ledger'),
+        'inbound_reject': None,
     }
 
     # 导入模板表头（模板下载与导入表头守卫共用的唯一来源）
@@ -88,14 +102,141 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     }
 
+    IMPORT_ACTION_TYPES = {
+        'purchase': Transfer.ACTION_PURCHASE,
+        'assign': Transfer.ACTION_ASSIGN,
+        'transfer': Transfer.ACTION_TRANSFER,
+    }
+
+    EXPORT_ACTION_TYPES = {
+        'purchase': Transfer.ACTION_PURCHASE,
+        'assign': Transfer.ACTION_ASSIGN,
+        'return': Transfer.ACTION_RETURN,
+        'transfer': Transfer.ACTION_TRANSFER,
+        'recovery': Transfer.ACTION_RECOVERY,
+    }
+
+    def get_required_operations(self, request):
+        """Resolve lifecycle/import authorization from the document type."""
+        action = self.action
+        if action in ('recovery_ledger', 'recovery_ledger_export'):
+            return 'view_recovery_ledger'
+
+        if action == 'export_excel':
+            export_type = request.query_params.get('type', 'transfer')
+            action_type = self.EXPORT_ACTION_TYPES.get(export_type)
+            if action_type is None:
+                raise ValidationError({'type': 'Unsupported transfer export type'})
+            return transfer_permission_code(action_type, 'view') or '__invalid_transfer_action__'
+
+        if action == 'create':
+            action_type = request.data.get('action_type')
+            code = transfer_permission_code(action_type, 'create')
+            view_code = transfer_permission_code(action_type, 'view')
+            prerequisites = {
+                Transfer.ACTION_PURCHASE: ('view_categories',),
+                Transfer.ACTION_ASSIGN: ('view_asset_ledger',),
+                Transfer.ACTION_TRANSFER: ('view_asset_ledger',),
+                Transfer.ACTION_RECOVERY: ('view_asset_ledger',),
+            }.get(action_type, ())
+            return (code, view_code, *prerequisites) if code and view_code else '__invalid_transfer_action__'
+
+        lifecycle_operations = {
+            'update': 'edit',
+            'partial_update': 'edit',
+            'destroy': 'delete',
+            'submit': 'submit',
+            'resubmit': 'submit',
+            'withdraw': 'withdraw',
+        }
+        operation = lifecycle_operations.get(action)
+        if operation:
+            action_type = Transfer.objects.filter(
+                pk=self.kwargs.get('pk'),
+            ).values_list('action_type', flat=True).first()
+            if action_type is None:
+                return None
+            code = transfer_permission_code(action_type, operation)
+            view_code = transfer_permission_code(action_type, 'view')
+            if operation == 'delete':
+                return (code, view_code) if code and view_code else '__invalid_transfer_action__'
+            if operation in ('edit', 'submit', 'withdraw'):
+                prerequisites = {
+                    Transfer.ACTION_PURCHASE: ('view_categories',),
+                    Transfer.ACTION_ASSIGN: ('view_asset_ledger',),
+                    Transfer.ACTION_TRANSFER: ('view_asset_ledger',),
+                    Transfer.ACTION_RECOVERY: ('view_asset_ledger',),
+                }.get(action_type, ())
+                return (code, view_code, *prerequisites) if code and view_code else '__invalid_transfer_action__'
+            return (code, view_code) if code and view_code else '__invalid_transfer_action__'
+
+        if action in ('import_excel', 'download_template'):
+            action_type = self.IMPORT_ACTION_TYPES.get(request.query_params.get('type', 'transfer'))
+            if action_type is None:
+                return '__invalid_transfer_action__'
+            code = transfer_permission_code(action_type, 'import')
+            view_code = transfer_permission_code(action_type, 'view')
+            prerequisites = {
+                Transfer.ACTION_PURCHASE: ('view_categories',),
+                Transfer.ACTION_ASSIGN: ('view_asset_ledger',),
+                Transfer.ACTION_TRANSFER: ('view_asset_ledger',),
+            }.get(action_type, ())
+            return (code, view_code, *prerequisites) if code and view_code else '__invalid_transfer_action__'
+
+        return (self.required_operations or {}).get(action)
+
+    def create(self, request, *args, **kwargs):
+        """Documents must be created through their type-specific validated actions."""
+        raise MethodNotAllowed('POST', detail='请使用对应单据类型的创建接口')
+
+    def get_required_operations_any(self, request):
+        if self.action != 'instance_occupancy':
+            return None
+        action_type = request.query_params.get('type')
+        return tuple(
+            code for code in (
+                transfer_permission_code(action_type, 'create'),
+                transfer_permission_code(action_type, 'edit'),
+            ) if code
+        )
+
     def get_queryset(self):
-        qs = super().get_queryset()
-        qs = self.get_scoped_queryset(qs)
+        base = super().get_queryset()
+        user = self.request.user
+        from apps.permissions.scope import resolve_user_scope
+
+        scope = resolve_user_scope(user)
+        if scope.all:
+            in_scope = Q()
+        elif scope.branches:
+            in_scope = (
+                Q(from_branch_id__in=scope.branches)
+                | Q(to_branch_id__in=scope.branches)
+            )
+        else:
+            in_scope = None
+
+        visible = Q(pk__in=[])
+        is_recovery_ledger = self.action in (
+            'recovery_ledger', 'recovery_ledger_export',
+        )
+
+        for action_type, codes in TRANSFER_PERMISSION_CODES.items():
+            view_code = codes['view']
+            if not view_code:
+                continue
+            if action_type == Transfer.ACTION_RECOVERY and is_recovery_ledger:
+                view_code = 'view_recovery_ledger'
+            if user.can(view_code) and in_scope is not None:
+                visible |= Q(action_type=action_type) & in_scope
+
         if self.request.query_params.get('mine', '').strip().lower() == 'true':
-            qs = qs.filter(created_by=self.request.user)
+            visible &= Q(created_by=user)
+        # Drafts are private to their creator, including for system admins.
+        visible &= (~Q(审批状态='草稿') | Q(created_by=user))
         # 列表统一排序（branch-order-and-multi-filter）：待审批→草稿→其余 + 日期倒序，
         # 跨分页一致；状态为等值比较无中文 collation 依赖，分公司名不作排序键
-        return qs.annotate(
+        return base.filter(visible).distinct().annotate(
             _status_rank=Case(
                 When(审批状态='待审批', then=Value(0)),
                 When(审批状态='草稿', then=Value(1)),
@@ -139,12 +280,28 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         except ValidationError:
             raise ValidationError({'detail': '调入方分公司对此调拨单只读，仅调出方分公司可操作'})
 
+    @staticmethod
+    def _assert_current_scope(user, transfer):
+        """All lifecycle writes use the current, not historical, data scope."""
+        if transfer.action_type == Transfer.ACTION_TRANSFER:
+            validate_branches_in_scope(user, transfer.from_branch)
+        else:
+            validate_branches_in_scope(user, transfer.from_branch, transfer.to_branch)
+
     def _assert_owner_or_admin(self, user, transfer):
-        """单据写操作归属：仅创建人与 admin（update/submit/resubmit/destroy；审批按 approve_transfer 不受限）。"""
-        if user.role == 'admin':
+        """Creators alone may operate drafts; admins retain rejected-document access."""
+        if transfer.审批状态 == '草稿':
+            if transfer.created_by_id != user.id:
+                raise ValidationError({'detail': '草稿仅创建人可操作'})
             return
-        if transfer.created_by_id != user.id:
-            raise ValidationError({'detail': '仅创建人可操作此单据（管理员除外）'})
+        if user.role == 'admin' or transfer.created_by_id == user.id:
+            return
+        raise ValidationError({'detail': '仅创建人可操作此单据（管理员除外）'})
+
+    @staticmethod
+    def _assert_instance_details_access(user, lines):
+        if any(line.item.management_type == 'instance' for line in lines) and not user.can('view_instances'):
+            raise PermissionDenied('处理含实例管理品目的单据需要查看实例档案权限')
 
     def _resolve_branches(self, data):
         """外键优先、文字名称兜底解析分公司；解析失败即报错（导入路径依赖）。"""
@@ -168,6 +325,9 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     def _create_action(self, request, action_type):
         """Shared helper for the 5 action routes：单头 + items 明细行。"""
+        if action_type == Transfer.ACTION_RETURN:
+            raise RetiredReturnAction()
+
         # 行内即时回收已下线（修订 5.1）：回收统一走单据审批流，明拒不静默降级
         if request.data.get('immediate'):
             return Response(
@@ -195,6 +355,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 data.get('处置金额'),
             )
 
+        if not request.data.get('draft'):
+            submit_code = transfer_permission_code(action_type, 'submit')
+            if not submit_code or not request.user.can(submit_code):
+                raise PermissionDenied('您没有提交该类型单据的权限')
+
         # 草稿：保存为「草稿」状态，不进入审批流
         if request.data.get('draft'):
             data['审批状态'] = '草稿'
@@ -207,14 +372,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             validate_branches_in_scope(request.user, from_branch)
         else:
             validate_branches_in_scope(request.user, from_branch, to_branch)
-
-        # 明细行实例引用预检（品目管理方式 × 类型矩阵；生效时 ledger 行锁终检）
-        validate_line_items_instances(
-            action_type, from_branch, to_branch,
-            data.get('领用来源') or Transfer.ASSIGN_SOURCE_STOCK, items,
-            recovery_dest=data.get('回收去向') or Transfer.RESTOCK,
-            exclude_transfer_id=None,
-        )
 
         # Check inventory lock on both source and target branches
         self._check_inventory_lock(branch_id=from_branch.id if from_branch else None)
@@ -236,6 +393,14 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         'code': 'INVENTORY_LOCKED',
                     })
             lock_line_item_categories(items)
+            if action_type in (
+                Transfer.ACTION_ASSIGN, Transfer.ACTION_RETURN,
+                Transfer.ACTION_TRANSFER, Transfer.ACTION_RECOVERY,
+            ) and any(entry['item'].management_type == 'instance' for entry in items):
+                if not request.user.can('view_instances'):
+                    raise PermissionDenied('创建含实例管理物品的单据需要查看实例档案权限')
+            # A shared instance-row reservation lock serializes new drafts with handoffs.
+            lock_line_item_instances(items)
             validate_line_items_instances(
                 action_type, from_branch, to_branch,
                 data.get('领用来源') or Transfer.ASSIGN_SOURCE_STOCK, items,
@@ -256,7 +421,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             _build_lines(transfer, items)
         _notify_created(transfer)
         return Response(
-            TransferSerializer(transfer).data,
+            TransferSerializer(transfer, context=self.get_serializer_context()).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -275,7 +440,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='return')
     @audit_log(action='return', resource_type='Transfer', description_template='资产归还')
     def return_asset(self, request):
-        """资产归还 - mapped as 'return' on the frontend."""
+        """Retired write endpoint; historical return documents remain readable."""
         return self._create_action(request, Transfer.ACTION_RETURN)
 
     @action(detail=False, methods=['post'])
@@ -306,6 +471,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.db import transaction
 
         transfer = self.get_object()
+        self._assert_return_writes_enabled(transfer)
+        self._assert_approval_access(request.user, transfer)
         self._assert_transfer_operable(request.user, transfer)
         serializer = ApproveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -328,6 +495,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             lock_branch_inventory_rows(branch_ids)
             # 加锁重取，防止并发重复审批导致台账被多次联动
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            self._assert_return_writes_enabled(locked)
+            self._assert_approval_access(request.user, locked)
             if locked.审批状态 != '待审批':
                 return Response(
                     {'detail': '该记录已审批'},
@@ -354,7 +523,19 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             locked.save(update_fields=[
                 '审批状态', '审批人', '审批时间', '备注', 'updated_at',
             ])
-        return Response(TransferSerializer(locked).data)
+        return Response(TransferSerializer(locked, context=self.get_serializer_context()).data)
+
+    @staticmethod
+    def _assert_approval_access(user, transfer):
+        TransferViewSet._assert_return_writes_enabled(transfer)
+        code = transfer_permission_code(transfer.action_type, 'approve')
+        if not code or not user.can(code) or not is_transfer_approver(user, transfer):
+            raise PermissionDenied('您没有该类型单据的审批权限，或单据不在您的岗位与数据范围内')
+
+    @staticmethod
+    def _assert_return_writes_enabled(transfer):
+        if transfer.action_type == Transfer.ACTION_RETURN:
+            raise RetiredReturnAction()
 
     @action(detail=True, methods=['post'], url_path='inbound-reject',
             permission_classes=[IsAuthenticated, OperationPermission])
@@ -370,6 +551,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         transfer = self.get_object()
         if transfer.action_type != Transfer.ACTION_TRANSFER:
             return Response({'detail': '仅调拨单支持调入方驳回'}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.user.can('edit_transfer') or not request.user.can('view_transfer'):
+            raise PermissionDenied('您没有调入方拒收该调拨单的权限')
         validate_branches_in_scope(request.user, transfer.to_branch)
         reason = (request.data.get('reason') or '').strip()
         if not reason:
@@ -392,7 +575,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             locked.save(update_fields=[
                 '审批状态', '审批人', '审批时间', '调入方驳回原因', '备注', 'updated_at',
             ])
-        return Response(TransferSerializer(locked).data)
+        return Response(TransferSerializer(locked, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='submit', resource_type='Transfer', description_template='提交采购草稿')
@@ -402,6 +585,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
+        self._assert_return_writes_enabled(transfer)
+        self._assert_current_scope(request.user, transfer)
         self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '草稿':
             return Response({'detail': '仅草稿可提交'}, status=status.HTTP_400_BAD_REQUEST)
@@ -410,10 +595,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             categories = lock_categories(category_ids)
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
             self._assert_transfer_operable(request.user, locked)
+            self._assert_return_writes_enabled(locked)
+            self._assert_current_scope(request.user, locked)
             self._assert_owner_or_admin(request.user, locked)
             if locked.审批状态 != '草稿':
                 return Response({'detail': '仅草稿可提交'}, status=status.HTTP_400_BAD_REQUEST)
             lines = list(locked.lines.select_related('item', 'department').prefetch_related('instances'))
+            self._assert_instance_details_access(request.user, lines)
             current_category_ids = {line.item_id for line in lines}
             if current_category_ids != category_ids or not current_category_ids.issubset(categories):
                 raise ValidationError({'detail': '单据明细已变化，请刷新后重试'})
@@ -425,6 +613,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 '供应商': line.供应商,
                 'instances': list(line.instances.all()),
             } for line in lines]
+            lock_line_item_instances(items)
             validate_line_items_instances(
                 locked.action_type, locked.from_branch, locked.to_branch,
                 locked.领用来源, items, recovery_dest=locked.回收去向,
@@ -433,7 +622,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             locked.审批状态 = '待审批'
             locked.save(update_fields=['审批状态', 'updated_at'])
         _notify_created(locked)
-        return Response(TransferSerializer(locked).data)
+        return Response(TransferSerializer(locked, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='resubmit', resource_type='Transfer', description_template='重新提交流转')
@@ -443,6 +632,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
+        self._assert_return_writes_enabled(transfer)
+        self._assert_current_scope(request.user, transfer)
         self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '已驳回':
             return Response({'detail': '仅已驳回的记录可重新提交'}, status=status.HTTP_400_BAD_REQUEST)
@@ -451,6 +642,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             categories = lock_categories(category_ids)
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
             self._assert_transfer_operable(request.user, locked)
+            self._assert_return_writes_enabled(locked)
+            self._assert_current_scope(request.user, locked)
             self._assert_owner_or_admin(request.user, locked)
             if locked.审批状态 != '已驳回':
                 return Response(
@@ -458,6 +651,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             lines = list(locked.lines.select_related('item', 'department').prefetch_related('instances'))
+            self._assert_instance_details_access(request.user, lines)
             current_category_ids = {line.item_id for line in lines}
             if current_category_ids != category_ids or not current_category_ids.issubset(categories):
                 raise ValidationError({'detail': '单据明细已变化，请刷新后重试'})
@@ -469,15 +663,20 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 '供应商': line.供应商,
                 'instances': list(line.instances.all()),
             } for line in lines]
+            lock_line_item_instances(items)
             validate_line_items_instances(
-                locked.action_type, locked.from_branch, locked.to_branch,
-                locked.领用来源, items, recovery_dest=locked.回收去向,
+                locked.action_type,
+                locked.from_branch,
+                locked.to_branch,
+                locked.领用来源,
+                items,
+                recovery_dest=locked.回收去向,
                 exclude_transfer_id=locked.pk,
             )
             locked.审批状态 = '待审批'
             locked.save(update_fields=['审批状态', 'updated_at'])
         _notify_created(locked)
-        return Response(TransferSerializer(locked).data)
+        return Response(TransferSerializer(locked, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, OperationPermission])
     @audit_log(action='withdraw', resource_type='Transfer', description_template='撤回流转单至草稿')
@@ -487,6 +686,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
+        self._assert_return_writes_enabled(transfer)
+        self._assert_current_scope(request.user, transfer)
         if transfer.审批状态 != '待审批':
             return Response({'detail': '仅待审批单据可撤回'}, status=status.HTTP_400_BAD_REQUEST)
         if transfer.created_by_id != request.user.id:
@@ -495,6 +696,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             # 与审批动作使用相同的行锁，确保并发时只完成一个状态转换。
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            self._assert_return_writes_enabled(locked)
+            self._assert_current_scope(request.user, locked)
             if locked.审批状态 != '待审批':
                 return Response({'detail': '该单据已处理，当前状态不可撤回'}, status=status.HTTP_400_BAD_REQUEST)
             if locked.created_by_id != request.user.id:
@@ -502,6 +705,42 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             locked.审批状态 = '草稿'
             locked.save(update_fields=['审批状态', 'updated_at'])
         return Response(TransferSerializer(locked, context=self.get_serializer_context()).data)
+
+    @audit_log(action='delete', resource_type='Transfer', description_template='删除流转草稿')
+    def destroy(self, request, *args, **kwargs):
+        from django.db import transaction
+
+        transfer = self.get_object()
+        self._assert_return_writes_enabled(transfer)
+        self._assert_current_scope(request.user, transfer)
+        self._assert_owner_or_admin(request.user, transfer)
+        if transfer.审批状态 != '草稿':
+            return Response(
+                {'detail': '仅草稿可删除'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        self._assert_transfer_operable(request.user, transfer)
+
+        with transaction.atomic():
+            locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
+            self._assert_return_writes_enabled(locked)
+            self._assert_current_scope(request.user, locked)
+            self._assert_owner_or_admin(request.user, locked)
+            if locked.审批状态 != '草稿':
+                return Response(
+                    {'detail': '仅草稿可删除'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            self._assert_transfer_operable(request.user, locked)
+            if locked.action_type == Transfer.ACTION_TRANSFER:
+                validate_branches_in_scope(request.user, locked.from_branch)
+            else:
+                validate_branches_in_scope(
+                    request.user, locked.from_branch, locked.to_branch,
+                )
+            locked.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def update(self, request, *args, **kwargs):
         """已驳回/草稿单据编辑：单头字段更新 + items 整体替换（原子、行号重排）。
@@ -512,6 +751,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         kwargs.pop('partial', False)
         instance = self.get_object()
+        self._assert_return_writes_enabled(instance)
         self._assert_owner_or_admin(request.user, instance)
         if instance.审批状态 not in ('已驳回', '草稿'):
             return Response({'detail': '仅已驳回或草稿的记录可编辑'}, status=status.HTTP_400_BAD_REQUEST)
@@ -549,16 +789,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 )
 
         # 越权校验：编辑后的分公司必须在操作者授权范围内（调拨只校验调出方，同创建口径）
-        if instance.action_type == Transfer.ACTION_TRANSFER:
-            validate_branches_in_scope(
-                request.user, from_branch or instance.from_branch,
-            )
-        else:
-            validate_branches_in_scope(
-                request.user,
-                from_branch or instance.from_branch,
-                to_branch or instance.to_branch,
-            )
+        self._assert_current_scope(request.user, instance)
 
         if instance.action_type == Transfer.ACTION_RECOVERY:
             validate_disposal_fields(
@@ -567,71 +798,83 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 data.get('处置金额', instance.处置金额),
             )
 
-        # 明细整替的实例引用预检（分公司维度取编辑后单据现状）
-        if items is not None:
-            validate_line_items_instances(
-                instance.action_type,
-                from_branch or instance.from_branch,
-                to_branch or instance.to_branch,
-                data.get('领用来源') or instance.领用来源,
-                items,
-                recovery_dest=data.get('回收去向') or instance.回收去向,
-                exclude_transfer_id=instance.id,
-            )
-
         with transaction.atomic():
             categories = lock_categories(existing_category_ids | requested_category_ids)
             if items is not None:
                 for entry in items:
                     entry['item'] = categories[entry['item'].pk]
             locked = Transfer.objects.select_for_update().get(pk=instance.pk)
+            self._assert_return_writes_enabled(locked)
+            self._assert_owner_or_admin(request.user, locked)
             if locked.审批状态 not in ('已驳回', '草稿'):
-                return Response({'detail': '仅已驳回或草稿的记录可编辑'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {'detail': '仅已驳回或草稿的记录可编辑'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             current_category_ids = set(locked.lines.values_list('item_id', flat=True))
             if current_category_ids != existing_category_ids or not current_category_ids.issubset(categories):
                 raise ValidationError({'detail': '单据明细已变化，请刷新后重试'})
-            instance = locked
-            effective_from = from_branch or instance.from_branch
-            effective_to = to_branch or instance.to_branch
+
             if items is not None:
+                existing_instance_lines = locked.lines.filter(
+                    item__management_type='instance',
+                ).exists()
+                requested_instance_lines = any(
+                    entry['item'].management_type == 'instance' for entry in items
+                )
+                if (existing_instance_lines or requested_instance_lines) and not request.user.can('view_instances'):
+                    raise PermissionDenied('编辑含实例管理品目的单据需要查看实例档案权限')
+
+            effective_from = from_branch or locked.from_branch
+            effective_to = to_branch or locked.to_branch
+            self._assert_current_scope(request.user, locked)
+            if locked.action_type == Transfer.ACTION_TRANSFER:
+                validate_branches_in_scope(request.user, effective_from)
+            else:
+                validate_branches_in_scope(request.user, effective_from, effective_to)
+            if locked.action_type == Transfer.ACTION_RECOVERY:
+                validate_disposal_fields(
+                    data.get('回收去向', locked.回收去向),
+                    data.get('处置方式', locked.处置方式),
+                    data.get('处置金额', locked.处置金额),
+                )
+            if items is not None:
+                lock_line_item_instances(items)
                 validate_line_items_instances(
-                    instance.action_type,
+                    locked.action_type,
                     effective_from,
                     effective_to,
-                    data.get('领用来源') or instance.领用来源,
+                    data.get('领用来源') or locked.领用来源,
                     items,
-                    recovery_dest=data.get('回收去向') or instance.回收去向,
-                    exclude_transfer_id=instance.pk,
+                    recovery_dest=data.get('回收去向') or locked.回收去向,
+                    exclude_transfer_id=locked.pk,
                 )
             for field, value in data.items():
-                setattr(instance, field, value)
+                setattr(locked, field, value)
             # 分公司变更经语义化收口（模型内映射，禁直赋 from/to）
             if from_branch is not None or to_branch is not None:
-                if instance.action_type == Transfer.ACTION_TRANSFER:
-                    instance.set_branches(
-                        调出分公司=from_branch or instance.from_branch,
-                        调入分公司=to_branch or instance.to_branch,
+                if locked.action_type == Transfer.ACTION_TRANSFER:
+                    locked.set_branches(
+                        调出分公司=from_branch or locked.from_branch,
+                        调入分公司=to_branch or locked.to_branch,
                     )
-                elif instance.action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
-                    instance.set_branches(所属分公司=to_branch or instance.to_branch)
+                elif locked.action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+                    locked.set_branches(所属分公司=to_branch or locked.to_branch)
                 else:
-                    instance.set_branches(所属分公司=from_branch or instance.from_branch)
-            instance.save()
+                    locked.set_branches(所属分公司=from_branch or locked.from_branch)
+            locked.save()
             if items is not None:
-                instance.lines.all().delete()
-                _build_lines(instance, items)
-        return Response(TransferSerializer(instance).data)
+                locked.lines.all().delete()
+                _build_lines(locked, items)
+        return Response(TransferSerializer(locked, context=self.get_serializer_context()).data)
 
     def perform_update(self, serializer):
         raise AssertionError('update 已整体重写，不应走到默认 perform_update')
 
     def perform_destroy(self, instance):
-        """已生效单据是对账流水的事实源，禁删；草稿/待审批/已驳回可删（调拨仅调出方可删）。"""
-        self._assert_transfer_operable(self.request.user, instance)
-        self._assert_owner_or_admin(self.request.user, instance)
-        if instance.审批状态 in ('已通过', '已入库'):
-            raise ValidationError({'detail': '已生效单据不可删除（台账流水的 fact 来源）'})
-        instance.delete()
+        """Prevent callers from bypassing the draft-only checks in destroy()."""
+        from rest_framework.exceptions import MethodNotAllowed
+        raise MethodNotAllowed('DELETE')
 
     ACTION_TYPE_MAP = {
         '采购入库': Transfer.ACTION_PURCHASE,
@@ -651,6 +894,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from apps.assets.models import FixedAsset
         from apps.organizations.models import Branch
         from core.permissions import validate_branches_in_scope
+        if not request.user.can('view_instances'):
+            raise PermissionDenied('读取实例占用信息需要查看实例档案权限')
         branch_name = request.query_params.get('branch') or ''
         asset_code = request.query_params.get('asset_code') or ''
         branch = Branch.objects.filter(name=branch_name).first() if branch_name else None
@@ -704,8 +949,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.db.models import Count
         from apps.assets.models import AssetStock
 
-        queryset = self.filter_queryset(self.get_queryset())
         template_type = request.query_params.get('type', 'transfer')
+        action_type = self.EXPORT_ACTION_TYPES.get(template_type)
+        if action_type is None:
+            raise ValidationError({'type': 'Unsupported transfer export type'})
+        queryset = self.filter_queryset(self.get_queryset()).filter(action_type=action_type)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -958,13 +1206,20 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return response
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
+    @transaction.atomic
     def import_excel(self, request):
-        """批量导入：采购/领用按单头键合并多行为一张单；调拨/回收一行一单。行级错误按行跳过。"""
+        """批量导入：任一行错误则整份驳回，不创建任何单据。"""
+        template_type = request.query_params.get('type', 'transfer')
+        if template_type != 'recovery':
+            action_type = self.IMPORT_ACTION_TYPES.get(template_type)
+            submit_code = transfer_permission_code(action_type, 'submit')
+            if not submit_code or not request.user.can(submit_code):
+                raise PermissionDenied('批量导入会提交单据，您没有提交该类型单据的权限')
+
         import openpyxl
         from datetime import datetime as dt
         from django.db import transaction
         from apps.categories.models import Category
-        from apps.categories.views import suggest_similar_codes
         from apps.organizations.models import Branch, Department
         from apps.organizations.utils import get_branch_name_set, branch_validation_error
 
@@ -980,7 +1235,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         except UploadValidationError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        template_type = request.query_params.get('type', 'transfer')
         # 回收批量导入已下线（recovery-stock-source-and-cleanup：实例品需页面点选、
         # 数量品无重新入库概念，Excel 无合法内容）；回收统一走页面操作
         if template_type == 'recovery':
@@ -1052,6 +1306,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         branch_cache = {b.name: b for b in Branch.objects.all()}
         item_cache = {c.asset_code: c for c in Category.objects.all()}
         dept_cache = {}
+        import_savepoint = transaction.savepoint()
 
         def _resolve_dept(branch_name, dept_name):
             """领用部门按部门名解析行级外键（部门字典全集团扁平）；缓存避免逐行查询。"""
@@ -1109,9 +1364,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     continue
                 item = item_cache.get(_code)
                 if item is None:
-                    _similar = suggest_similar_codes(_code)
-                    _hint = f'，是否想找：{"、".join(_similar)}' if _similar else ''
-                    errors.append(f'第 {i} 行: 资产编号 {_code} 未在品目字典登记{_hint}')
+                    errors.append(f'第 {i} 行: 资产编号 {_code} 未在品目字典登记')
                     continue
 
                 def _qty(row, col_name):
@@ -1224,7 +1477,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     except ValidationError:
                         errors.append(f'第 {i} 行: 调出/调入分公司不在你的授权范围')
                         continue
+                    # Re-read under the shared item lock so migration cannot
+                    # leave this import validated against a stale item type.
                     lock_line_item_categories([line_kwargs])
+                    item = line_kwargs['item']
                     # 实例引用预检：实例管理品目的绑定类单据无法在 Excel 表达，引导走页面
                     validate_line_items_instances(
                         action,
@@ -1279,6 +1535,19 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             except Exception as e:
                 errors.append(f'第 {i} 行: {str(e)}')
 
+        if errors:
+            transaction.savepoint_rollback(import_savepoint)
+            wb.close()
+            return Response(
+                {
+                    'detail': '文件存在错误，已驳回，未导入任何单据',
+                    'imported': 0,
+                    'imported_lines': 0,
+                    'errors': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # 采购/领用分组建单：一组 = 一张多明细行单（单头键内行全合法才入组）
         for bucket in doc_groups.values():
             action = bucket['action']
@@ -1287,6 +1556,13 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 lock_line_item_categories(bucket['lines'])
                 _from_b = branch_cache.get(header.get('调出分公司', ''))
                 _to_b = branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None
+                for line in bucket['lines']:
+                    validate_line_items_instances(
+                        action, _from_b, _to_b,
+                        Transfer.ASSIGN_SOURCE_STOCK, [line],
+                        recovery_dest=Transfer.RESTOCK,
+                        exclude_transfer_id=None,
+                    )
                 if action == Transfer.ACTION_PURCHASE:
                     _branch_kwargs = {'所属分公司': _to_b}
                 else:
@@ -1301,5 +1577,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             _notify_created(transfer)
             imported += 1
 
+        transaction.savepoint_commit(import_savepoint)
         wb.close()
         return Response({'imported': imported, 'imported_lines': imported_lines, 'errors': errors})

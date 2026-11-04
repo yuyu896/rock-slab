@@ -27,6 +27,11 @@ export function getTransfer(id: string) {
   return request.get<TransferDocument>(`/api/transfers/${id}`)
 }
 
+/** 删除尚未提交的流转草稿（服务端按单据类型校验权限） */
+export function deleteTransferDraft(id: string) {
+  return request.delete(`/api/transfers/${id}`)
+}
+
 /** 修改流转（仅已驳回可改；items 传了=整体替换，不传=保留原明细行） */
 export function updateTransfer(id: string, data: Partial<TransferPayload>) {
   return request.patch<TransferDocument>(`/api/transfers/${id}`, data)
@@ -40,11 +45,6 @@ export function purchaseAsset(data: TransferPayload & { draft?: boolean }) {
 /** 资产领用 */
 export function assignAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/assign', data)
-}
-
-/** 资产归还 */
-export function returnAsset(data: TransferPayload & { draft?: boolean }) {
-  return request.post<TransferDocument>('/api/transfers/return', data)
 }
 
 /** 资产调拨 */
@@ -98,7 +98,12 @@ export function getPendingTransfers(params?: PaginationParams) {
 export function importTransfers(file: File, type?: string) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<{ imported: number; errors: string[] }>('/api/transfers/import', formData, {
+  return request.post<{
+    imported: number
+    imported_lines: number
+    errors: string[]
+    detail?: string
+  }>('/api/transfers/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     params: type ? { type } : undefined,
   })

@@ -3,12 +3,13 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { assignAsset, getTransfer, resubmitTransfer, submitTransfer, updateTransfer } from '@/api/transfers'
 import { lookupCategoryByCode } from '@/api/categories'
-import { getCategories } from '@/api/categories'
+import { lookupAvailableTransferItem } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { useUserStore } from '@/store/user'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import type { Category, Branch } from '@/types'
+import type { Branch } from '@/types'
+import { canManageTransfer } from '@/utils/permissionGroups'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,7 +25,6 @@ const form = ref({
   备注: '',
 })
 
-const categories = ref<Category[]>([])
 const branches = ref<Branch[]>([])
 const loading = ref(false)
 const submitting = ref(false)
@@ -33,15 +33,17 @@ const editingStatus = ref<'草稿' | '已驳回' | null>(null)
 const requestedEditId = typeof route.query.id === 'string' ? route.query.id : ''
 
 const currentBranch = computed(() => userStore.profile?.branch || '')
+const canCreate = computed(() => canManageTransfer('assign', code => userStore.can(code)))
+const canSaveDraft = computed(() => requestedEditId
+  ? Boolean(editingId.value) && canManageTransfer('assign', code => userStore.can(code))
+  : canCreate.value)
+const canSubmitDocument = computed(() => canManageTransfer('assign', code => userStore.can(code))
+  && (requestedEditId ? Boolean(editingId.value) : canCreate.value))
 
 async function fetchOptions() {
   loading.value = true
   try {
-    const [catRes, branchRes] = await Promise.all([
-      getCategories().catch(() => ({ data: [] as Category[] })),
-      getBranches({ scope: 'write' }).catch(() => ({ data: [] as Branch[] })),
-    ])
-    categories.value = Array.isArray(catRes.data) ? catRes.data : (catRes.data as any).results || []
+    const branchRes = await getBranches({ scope: 'write' }).catch(() => ({ data: [] as Branch[] }))
     branches.value = Array.isArray(branchRes.data) ? branchRes.data : (branchRes.data as any).results || []
     if (currentBranch.value && !requestedEditId) {
       form.value.fromBranch = currentBranch.value
@@ -105,12 +107,17 @@ async function handleSubmit(asDraft = false) {
   submitting.value = true
   try {
     // 编号 → 字典品目 uuid（明细行品目引用一律 FK）
-    const { data: item } = await lookupCategoryByCode(form.value.资产编号.trim())
+    const branchName = branches.value.find(
+      branch => branch.id === form.value.fromBranch || branch.name === form.value.fromBranch,
+    )?.name || ''
+    const itemId = editingId.value
+      ? (await lookupCategoryByCode(form.value.资产编号.trim())).data.id
+      : await lookupAvailableTransferItem(branchName, form.value.资产编号.trim())
     const payload = {
       调拨日期: form.value.调拨日期 || new Date().toISOString().slice(0, 10),
       fromBranch: form.value.fromBranch || undefined,
       items: [{
-        item: item.id,
+        item: itemId,
         数量: form.value.调拨数量,
         使用人: form.value.使用人 || undefined,
         备注: form.value.备注 || undefined,
@@ -221,8 +228,8 @@ onMounted(() => {
     <!-- 提交按钮 -->
     <div class="submit-section">
       <div class="submit-actions">
-        <button class="draft-btn" @click="handleSubmit(true)" :disabled="submitting || editingStatus === '已驳回'">保存草稿</button>
-        <button class="submit-btn" @click="handleSubmit(false)" :disabled="submitting">
+        <button v-if="canSaveDraft" class="draft-btn" @click="handleSubmit(true)" :disabled="submitting || editingStatus === '已驳回'">保存草稿</button>
+        <button v-if="canSubmitDocument" class="submit-btn" @click="handleSubmit(false)" :disabled="submitting">
           {{ submitting ? '提交中...' : editingStatus === '已驳回' ? '保存并重新提交' : '提交领用' }}
         </button>
       </div>

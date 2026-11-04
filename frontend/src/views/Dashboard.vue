@@ -11,9 +11,29 @@ import InstallQrCard from '@/components/InstallQrCard.vue'
 import ContactWechatQrCard from '@/components/ContactWechatQrCard.vue'
 import { ElMessage } from 'element-plus'
 import type { BranchStat, StatusStat } from '@/types'
+import type { TransferActionType } from '@/types'
+import { TRANSFER_PERMISSION_OPERATIONS, type ActiveTransferActionType } from '@/utils/permissionGroups'
 
 const router = useRouter()
 const userStore = useUserStore()
+const transferTypes = Object.keys(TRANSFER_PERMISSION_OPERATIONS) as ActiveTransferActionType[]
+// 工作台的“待处理事项”只读取用户明确拥有查看权限的数据范围。
+// 编辑或审批权限不再隐式扩大工作台队列的可见范围。
+const canReadTransfers = computed(() => userStore.isAdmin || transferTypes.some(type => (
+  userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].view)
+)))
+const canAccessInventory = computed(() => userStore.isAdmin || userStore.can('view_inventory'))
+const canViewReports = computed(() => userStore.can('view_reports'))
+const transferListPaths: Record<ActiveTransferActionType, string> = {
+  purchase: '/transfers/purchase',
+  assign: '/transfers/assign',
+  transfer: '/transfers/transfer',
+  recovery: '/transfers/recovery',
+}
+const firstTransferListPath = computed(() => transferTypes
+  .find(type => userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].view))
+  ? transferListPaths[transferTypes.find(type => userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].view))!]
+  : null)
 
 // 加载状态
 const loading = ref(false)
@@ -60,7 +80,6 @@ function getDateString(): string {
 function getTransferTypeName(actionType?: string): string {
   const typeMap: Record<string, string> = {
     assign: '领用出库',
-    return: '资产归还',
     transfer: '调拨申请',
   }
   return typeMap[actionType || ''] || '流转单据'
@@ -70,12 +89,17 @@ function getTransferTypeName(actionType?: string): string {
 async function fetchDashboardData() {
   loading.value = true
   try {
+    const emptyPage = { data: { count: 0, results: [] as any[] } }
     const [overviewRes, branchRes, statusRes, transfersRes, inventoriesRes] = await Promise.all([
       getOverview(),
       getByBranch(),
       getByStatus(),
-      getTransfers({ status: '待审批', pageSize: 5 }),
-      getInventoryTasks({ status: 'pending,in_progress', pageSize: 5 }).catch(() => ({ data: { count: 0, results: [] } })),
+      canReadTransfers.value
+        ? getTransfers({ status: '待审批', pageSize: 5 }).catch(() => emptyPage)
+        : Promise.resolve(emptyPage),
+      canAccessInventory.value
+        ? getInventoryTasks({ status: 'pending,in_progress', pageSize: 5 }).catch(() => emptyPage)
+        : Promise.resolve(emptyPage),
     ])
     const overview = overviewRes.data
     stats.value = {
@@ -160,7 +184,6 @@ const getTaskTypeColor = (type: string) => {
     '领用出库': 'var(--color-warning)',
     '资产盘点': 'var(--color-info)',
     '调拨申请': 'var(--color-primary-500)',
-    '资产归还': '#06b6d4',
   }
   return colors[type] || 'var(--color-text-tertiary)'
 }
@@ -189,11 +212,17 @@ const growthDisplay = computed(() => {
 
 // 导航函数
 function goToPendingApprovals() {
-  router.push({ path: '/transfers/purchase', query: { status: '待审批' } })
+  if (TRANSFER_PERMISSION_OPERATIONS.purchase.approve && transferTypes.some(type => userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].approve))) {
+    router.push('/mobile/approval')
+  } else if (firstTransferListPath.value) {
+    router.push({ path: firstTransferListPath.value, query: { status: '待审批' } })
+  } else if (canAccessInventory.value) {
+    router.push('/inventory')
+  }
 }
 
 function goToTransferList() {
-  router.push('/assets/transfer')
+  if (firstTransferListPath.value) router.push(firstTransferListPath.value)
 }
 
 function goToInventory() {
@@ -204,7 +233,8 @@ function handleTask(task: any) {
   if (task.actionType === 'inventory') {
     router.push(`/inventory`)
   } else {
-    router.push('/assets/transfer')
+    const type = (task.actionType || 'transfer') as TransferActionType
+    router.push(`/transfers/${type}/${task.id}`)
   }
 }
 
@@ -223,7 +253,7 @@ onMounted(() => {
     <div class="welcome-section">
       <div class="welcome-content">
         <h1 class="welcome-title">{{ getGreeting() }}，{{ userName }}</h1>
-        <p class="welcome-subtitle">今天是{{ getDateString() }}，您有{{ pendingTasks.length }}项待办事项需要处理</p>
+        <p class="welcome-subtitle">今天是{{ getDateString() }}，您有{{ pendingTasks.length }}项待处理事项</p>
       </div>
       <div class="welcome-qr-inline">
         <InstallQrCard />
@@ -293,10 +323,10 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="card tasks-card">
+      <div v-if="canReadTransfers || canAccessInventory" class="card tasks-card">
         <div class="card-header">
-          <h3 class="card-title">待办任务</h3>
-          <a class="card-link" @click="goToTransferList">查看全部</a>
+          <h3 class="card-title">待处理事项</h3>
+          <a v-if="firstTransferListPath" class="card-link" @click="goToTransferList">查看全部</a>
         </div>
         <div class="card-body">
           <div class="tasks-list">
@@ -310,13 +340,13 @@ onMounted(() => {
               <button class="task-action" @click.stop="handleTask(task)">处理</button>
             </div>
             <div v-if="pendingTasks.length === 0" class="tasks-empty">
-              <span>暂无待办任务</span>
+              <span>暂无待处理事项</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div v-if="categoryStats.length > 0" class="card category-card">
+      <div v-if="canViewReports && categoryStats.length > 0" class="card category-card">
         <div class="card-header">
           <h3 class="card-title">资产类目分布</h3>
           <a class="card-link" @click="goToReports">查看详情</a>
@@ -337,7 +367,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="card branches-card">
+      <div v-if="canViewReports" class="card branches-card">
         <div class="card-header">
           <h3 class="card-title">分公司资产排行</h3>
           <a class="card-link" @click="goToReports">查看更多</a>
@@ -360,10 +390,10 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="activity-section">
+    <div v-if="canReadTransfers" class="activity-section">
       <div class="section-header">
         <h3 class="section-title">最近动态</h3>
-        <a class="section-link" @click="goToTransferList">查看全部</a>
+        <a v-if="firstTransferListPath" class="section-link" @click="goToTransferList">查看全部</a>
       </div>
       <div class="activity-list">
         <div v-for="activity in recentActivities" :key="activity.id" class="activity-item">

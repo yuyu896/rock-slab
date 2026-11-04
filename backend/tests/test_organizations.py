@@ -173,6 +173,37 @@ class TestBranchCRUD:
         del_resp = authenticated_client.delete(f'/api/branches/{branch_id}')
         assert del_resp.status_code == status.HTTP_204_NO_CONTENT
 
+    def test_delete_branch_resets_employee_grants_scope_and_audits(
+        self, authenticated_client, branch,
+    ):
+        from apps.audit.models import AuditLog
+        from apps.permissions.models import ManagementScope, OperationGrant
+        from apps.users.models import User
+
+        employee = User.objects.create_user(
+            phone='13988880001', name='分公司删除后的员工', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=employee, code='view_instances')
+        ManagementScope.objects.create(user=employee, branch=branch)
+
+        response = authenticated_client.delete(f'/api/branches/{branch.id}')
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        employee.refresh_from_db()
+        assert employee.branch_id is None
+        assert not OperationGrant.objects.filter(user=employee).exists()
+        assert not ManagementScope.objects.filter(user=employee).exists()
+        audit = AuditLog.objects.get(
+            resource_type='user_authorization', resource_id=employee.id,
+        )
+        assert audit.before_data['branch'] == {
+            'id': str(branch.id), 'name': branch.name,
+        }
+        assert audit.before_data['operations'] == ['view_instances']
+        assert audit.before_data['scopes'][0]['branch'] == str(branch.id)
+        assert audit.after_data == {'branch': None, 'operations': [], 'scopes': []}
+
     def test_delete_branch_with_stock_rows(self, authenticated_client, branch, make_stock):
         make_stock()
         resp = authenticated_client.delete(f'/api/branches/{branch.id}')
@@ -351,7 +382,7 @@ class TestBackfillMigration(TransactionTestCase):
 
 @pytest.mark.django_db
 class TestCompany:
-    """集团（Company 单例）：读、管理员改名、非管理员禁止"""
+    """集团（Company 单例）：读与全组织范围下的名称维护。"""
 
     def test_get_company_returns_name(self, authenticated_client):
         resp = authenticated_client.get('/api/company/')
@@ -368,6 +399,44 @@ class TestCompany:
     def test_staff_cannot_update_company(self, staff_client):
         resp = staff_client.patch('/api/company/', {'name': '违规改名'})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_company_name_change_requires_full_organization_scope(self, branch):
+        from apps.permissions.models import ManagementScope, OperationGrant
+        from apps.users.models import User
+        from conftest import _client_for
+
+        employee = User.objects.create_user(
+            phone='13988000007', name='分公司组织编辑员', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.bulk_create([
+            OperationGrant(user=employee, code='view_organizations'),
+            OperationGrant(user=employee, code='edit_organizations'),
+        ])
+
+        response = _client_for(employee).patch('/api/company/', {'name': '越权集团名'})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        ManagementScope.objects.create(user=employee, is_all_data=True)
+        response = _client_for(employee).patch('/api/company/', {'name': '全范围集团名'})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['name'] == '全范围集团名'
+
+    def test_dashboard_user_can_read_contact_qr_without_organization_permission(self, branch):
+        from apps.permissions.models import OperationGrant
+        from apps.users.models import User
+        from conftest import _client_for
+
+        employee = User.objects.create_user(
+            phone='13988000006', name='工作台员工', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=employee, code='view_dashboard')
+
+        resp = _client_for(employee).get('/api/company/wechat-qr/')
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.data == {'wechat_qr_code': None}
 
     def test_admin_can_upload_and_replace_wechat_qr(self, authenticated_client, settings, tmp_path):
         from io import BytesIO

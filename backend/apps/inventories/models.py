@@ -76,6 +76,7 @@ class InventoryTask(UUIDModel, TimestampedModel):
         null=True, blank=True, related_name='created_inventory_tasks',
         verbose_name='创建人',
     )
+    created_by_name = models.CharField('创建人姓名快照', max_length=100, blank=True, default='')
     started_at = models.DateTimeField('开始时间', null=True, blank=True)
     submitted_at = models.DateTimeField('提交时间', null=True, blank=True)
     completed_at = models.DateTimeField('完成时间', null=True, blank=True)
@@ -85,6 +86,7 @@ class InventoryTask(UUIDModel, TimestampedModel):
         null=True, blank=True, related_name='rejected_inventory_tasks',
         verbose_name='驳回人',
     )
+    rejected_by_name = models.CharField('驳回人姓名快照', max_length=100, blank=True, default='')
     reject_reason = models.TextField('驳回原因', blank=True, default='')
 
     # State machine: valid transitions
@@ -147,6 +149,7 @@ class InventoryItem(UUIDModel, TimestampedModel):
         null=True, blank=True, related_name='checked_items',
         verbose_name='盘点人',
     )
+    checked_by_name = models.CharField('盘点人姓名快照', max_length=100, blank=True, default='')
     checked_at = models.DateTimeField('盘点时间', null=True, blank=True)
     remarks = models.TextField('备注', blank=True, default='')
 
@@ -194,6 +197,7 @@ class InventoryInstanceItem(UUIDModel, TimestampedModel):
         null=True, blank=True, related_name='checked_instance_items',
         verbose_name='核对人',
     )
+    checked_by_name = models.CharField('核对人姓名快照', max_length=100, blank=True, default='')
     checked_at = models.DateTimeField('核对时间', null=True, blank=True)
     remarks = models.TextField('备注', blank=True, default='')
 
@@ -230,6 +234,7 @@ class InventoryCheck(UUIDModel, TimestampedModel):
         null=True, blank=True, related_name='inventory_checks',
         verbose_name='盘点人',
     )
+    checked_by_name = models.CharField('盘点人姓名快照', max_length=100, blank=True, default='')
     checked_at = models.DateTimeField('盘点时间', auto_now_add=True)
     device = models.CharField('设备信息', max_length=200, blank=True, default='')
 

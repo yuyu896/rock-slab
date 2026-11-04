@@ -10,6 +10,22 @@ NOTIFICATION_URL = '/api/notifications/'
 CC_URL = '/api/notifications/cc/'
 
 
+@pytest.fixture(autouse=True)
+def grant_notification_test_permissions(request, db):
+    """Tests declare the granular permissions their notification users need."""
+    from apps.permissions.models import OperationGrant
+
+    for fixture_name in ('staff_user', 'manager_user', 'admin_user'):
+        if fixture_name not in request.fixturenames:
+            continue
+        user = request.getfixturevalue(fixture_name)
+        codes = ['view_notifications']
+        if fixture_name == 'manager_user':
+            codes.append('view_approval_reports')
+        for code in codes:
+            OperationGrant.objects.get_or_create(user=user, code=code)
+
+
 def _make_notification(recipient, **overrides):
     from apps.notifications.models import Notification
     defaults = dict(

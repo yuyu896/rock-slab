@@ -1,105 +1,177 @@
-/* 磐盘 - 管理权限 API（组织节点授权 + 业务操作授权） */
 import request from '@/utils/request'
 
-/** 组织节点授权：is_all_data（全部数据）或 region / branch / team 三选一 */
-export interface ManagementScope {
+export type ScopeNodeType = 'region' | 'branch' | 'team'
+export type AuthorizationScopeMode = 'default' | 'custom' | 'all'
+
+export interface ScopeNode {
   id: string
-  user: string
-  is_all_data?: boolean
-  isAllData?: boolean
+  type: ScopeNodeType
+  name: string
+}
+
+export interface PermissionOperation {
+  code: string
+  label: string
+  module: string
+  module_label: string
+  catalog_version: number
+  description?: string
+  prerequisites: string[]
+  conditional_prerequisites: Record<string, string[]>
+}
+
+export interface AuthorizationUser {
+  id: string
+  name: string
+  phone: string
+  role: string
+  status: string
   region: string | null
   branch: string | null
-  team: string | null
-  created_at?: string
+  region_name: string | null
+  branch_name: string | null
 }
 
-/** 业务操作授权 */
-export interface OperationGrant {
-  id: string
+export interface UserAuthorization {
+  user: AuthorizationUser
+  scope: {
+    mode: AuthorizationScopeMode
+    nodes: ScopeNode[]
+  }
+  operations: string[]
+  legacy_operations?: string[]
+  legacy_operation_details?: { code: string; label: string }[]
+}
+
+export interface EffectivePermissionRow {
   user: string
-  code: string
-  label?: string
-  created_at?: string
+  id?: string
+  name: string
+  phone: string
+  role: string
+  status?: string
+  region?: string | null
+  branch?: string | null
+  region_name?: string | null
+  branch_name?: string | null
+  scope?: {
+    mode?: AuthorizationScopeMode
+    summary?: string
+    nodes?: ScopeNode[]
+  }
+  scope_summary?: string
+  scopeSummary?: { all: boolean; branchCount: number | null }
+  operations: string[] | null
+  legacy_operations?: string[]
 }
 
-/** 操作码目录项 */
-export interface OperationItem {
+export interface EffectivePermissionFilters {
+  keyword?: string
+  region?: string
+  branch?: string
+  operation?: string
+  module?: string
+}
+
+export interface PermissionMatrixOrganizationDirectory {
+  regions: { id: string; name: string }[]
+  branches: { id: string; name: string; region: string | null }[]
+}
+
+export interface PositionBaselinePermission {
   code: string
   label: string
 }
 
-/** 当前用户权限摘要（/me） */
+export interface PositionBaselineEmployeeDifference {
+  user: string
+  name: string
+  phone: string
+  role: string
+  role_label: string
+  branch_name: string | null
+  added: PositionBaselinePermission[]
+  removed: PositionBaselinePermission[]
+  legacy_codes: string[]
+  scope_preserved: boolean
+}
+
+export interface PositionBaselinePreview {
+  from_version: string | null
+  to_version: string
+  has_changes: boolean
+  active_employee_count: number
+  changed_employee_count: number
+  added_permission_count: number
+  removed_permission_count: number
+  legacy_permission_count: number
+  inactive_employee_count: number
+  role_changes: {
+    role: string
+    role_label: string
+    added: PositionBaselinePermission[]
+    removed: PositionBaselinePermission[]
+  }[]
+  employees: PositionBaselineEmployeeDifference[]
+  preview_token: string
+}
+
 export interface MyPermissionSummary {
   id: string
   name: string
   phone: string
   role: string
-  managementScopes: ManagementScope[]
   operations: string[]
-  appointments: AppointmentItem[]
-  scopeSummary: { all: boolean; branchCount: number | null }
+  page_operations: Record<string, string[]>
+  operation_prerequisites: Record<string, string[]>
 }
 
-/** 树负责人任命（任命即授权） */
-export interface AppointmentItem {
-  type: 'region' | 'team' | 'branch'
-  id: string
-  name: string
-}
-
-/** 岗位模板（岗位=权限预填模板，仅预填不参与运行时鉴权） */
-export interface PositionTemplate {
-  role: string
-  label: string
-  scopeType: 'all' | 'region' | 'team' | 'branch'
-  operations: string[]
-  allOperations: boolean
-}
-
-/** 全员生效权限行（effective） */
-export interface EffectivePermissionRow {
-  user: string
-  name: string
-  phone: string
-  role: string
-  appointments: AppointmentItem[]
-  extraScopes: { all: boolean; region: string | null; team: string | null; branch: string | null }[]
-  operations: string[] | null
-  scopeSummary: { all: boolean; branchCount: number | null }
-}
-
-/* ===== 组织节点授权 ===== */
-export function getManagementScopes(params?: { user?: string }) {
-  return request.get<ManagementScope[]>('/api/permissions/management-scopes', { params })
-}
-export function createManagementScope(data: Partial<ManagementScope>) {
-  return request.post<ManagementScope>('/api/permissions/management-scopes', data)
-}
-export function deleteManagementScope(id: string) {
-  return request.delete(`/api/permissions/management-scopes/${id}`)
-}
-
-/* ===== 业务操作授权 ===== */
-export function getOperationGrants(params?: { user?: string; code?: string }) {
-  return request.get<OperationGrant[]>('/api/permissions/operation-grants', { params })
-}
-export function createOperationGrant(data: { user: string; code: string }) {
-  return request.post<OperationGrant>('/api/permissions/operation-grants', data)
-}
-export function deleteOperationGrant(id: string) {
-  return request.delete(`/api/permissions/operation-grants/${id}`)
-}
-
-/* ===== 目录与当前用户 ===== */
 export function getOperationCatalog() {
-  return request.get<OperationItem[]>('/api/permissions/operations')
+  return request.get<PermissionOperation[]>('/api/permissions/operations')
 }
-export function getPositionTemplates() {
-  return request.get<PositionTemplate[]>('/api/permissions/position-templates')
-}
-export function getEffectivePermissions() {
-  return request.get<EffectivePermissionRow[]>('/api/permissions/effective')
-}
+
 export function getMyPermissions() {
   return request.get<MyPermissionSummary>('/api/permissions/me')
+}
+
+export function getUserAuthorization(userId: string) {
+  return request.get<UserAuthorization>(`/api/permissions/users/${userId}/authorization`)
+}
+
+export function saveUserAuthorization(
+  userId: string,
+  body: {
+    operations: string[]
+    scope: { mode: AuthorizationScopeMode; nodes: ScopeNode[] }
+    reason?: string
+    remove_legacy_operations?: string[]
+  },
+) {
+  return request.put<UserAuthorization>(`/api/permissions/users/${userId}/authorization`, body)
+}
+
+export function getEffectivePermissions(params?: EffectivePermissionFilters) {
+  return request.get<EffectivePermissionRow[]>('/api/permissions/effective', { params })
+}
+
+export function getPermissionMatrixOrganizations() {
+  return request.get<PermissionMatrixOrganizationDirectory>('/api/permissions/matrix-organizations')
+}
+
+export function getPositionBaselinePreview() {
+  return request.get<PositionBaselinePreview>('/api/permissions/position-baselines/preview')
+}
+
+export function applyPositionBaseline(data: {
+  expected_from_version: string | null
+  preview_token: string
+}) {
+  return request.post<{
+    detail: string
+    version: string
+    synchronized_users: number
+    added_permission_count: number
+    removed_permission_count: number
+    legacy_permission_count_retained_for_review: number
+  }>('/api/permissions/position-baselines/apply', data)
 }

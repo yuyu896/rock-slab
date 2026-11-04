@@ -17,6 +17,18 @@ def _user_payload(**overrides):
     return defaults
 
 
+def _grant(user, *codes):
+    from apps.permissions.models import OperationGrant
+
+    OperationGrant.objects.bulk_create([
+        OperationGrant(user=user, code=code) for code in codes
+    ], ignore_conflicts=True)
+
+
+def _grant_user_edit(user):
+    _grant(user, 'view_users', 'edit_users')
+
+
 # ---------------------------------------------------------------------------
 # CRUD
 # ---------------------------------------------------------------------------
@@ -36,11 +48,17 @@ class TestUserCRUD:
         assert isinstance(resp.data, list)
 
     def test_create_user_valid(self, authenticated_client, region):
+        from apps.users.models import User
         payload = _user_payload()
         resp = authenticated_client.post('/api/users/', payload)
         assert resp.status_code == status.HTTP_201_CREATED
         assert resp.data['phone'] == payload['phone']
         assert resp.data['name'] == payload['name']
+        created = User.objects.get(phone=payload['phone'])
+        from apps.permissions.position_baselines import get_role_baseline
+        assert set(created.operation_grants.values_list('code', flat=True)) == get_role_baseline('manager')
+        assert created.position_baseline_assignment.version
+        assert not created.management_scopes.exists()
 
     def test_create_user_duplicate_phone(self, authenticated_client, staff_user):
         payload = _user_payload(phone=staff_user.phone)
@@ -67,6 +85,37 @@ class TestUserCRUD:
         assert resp.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(id=target.id).exists()
 
+    def test_edit_permission_covers_create_update_and_delete_but_requires_view(
+        self, db, branch,
+    ):
+        from django.contrib.auth import get_user_model
+
+        operator = get_user_model().objects.create_user(
+            phone='13900000301', name='账号编辑员', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        _grant(operator, 'edit_users')
+        client = _client_for(operator)
+        payload = _user_payload(phone='13900000302', role='leader', branch=str(branch.id))
+
+        assert client.post('/api/users/', payload, format='json').status_code == status.HTTP_403_FORBIDDEN
+
+        _grant(operator, 'view_users')
+        created = client.post('/api/users/', payload, format='json')
+        assert created.status_code == status.HTTP_201_CREATED
+        target_id = created.data['id']
+        assert client.patch(f'/api/users/{target_id}', {'name': '已编辑'}, format='json').status_code == status.HTTP_200_OK
+        assert client.delete(f'/api/users/{target_id}').status_code == status.HTTP_204_NO_CONTENT
+
+    def test_edit_permission_retains_self_delete(self, all_data_manager):
+        from django.contrib.auth import get_user_model
+
+        client = _client_for(all_data_manager)
+        response = client.delete(f'/api/users/{all_data_manager.id}')
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not get_user_model().objects.filter(pk=all_data_manager.id).exists()
+
 
 # ---------------------------------------------------------------------------
 # Role assignment validation (MANAGEABLE_ROLES)
@@ -76,11 +125,13 @@ class TestUserCRUD:
 class TestRoleAssignment:
     def test_retired_supervisor_cannot_assign_position(self, supervisor_user):
         # supervisor 已退役：不在岗位分配权线内（迁移换岗 manager 后恢复）
+        _grant_user_edit(supervisor_user)
         client = _client_for(supervisor_user)
         resp = client.post('/api/users/', _user_payload(role='leader'))
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_supervisor_cannot_create_supervisor(self, supervisor_user, region):
+        _grant_user_edit(supervisor_user)
         client = _client_for(supervisor_user)
         payload = _user_payload(role='supervisor', region=region.id)
         resp = client.post('/api/users/', payload)
@@ -100,6 +151,7 @@ class TestRoleAssignment:
         assert resp.data['role'] == 'admin'
 
     def test_supervisor_cannot_create_manager(self, supervisor_user, region):
+        _grant_user_edit(supervisor_user)
         client = _client_for(supervisor_user)
         payload = _user_payload(role='manager', region=region.id)
         resp = client.post('/api/users/', payload)
@@ -119,7 +171,10 @@ def all_data_manager(db, branch):
         role='manager', status='active', branch=branch,
     )
     ManagementScope.objects.create(user=user, is_all_data=True)
-    OperationGrant.objects.create(user=user, code='manage_users')
+    OperationGrant.objects.bulk_create([
+        OperationGrant(user=user, code=code)
+        for code in ('view_users', 'edit_users')
+    ])
     return user
 
 
@@ -144,12 +199,13 @@ class TestAllDataGrantScope:
     def test_all_data_grant_without_appointments_still_lists_all(self, db, staff_b):
         # 无任何任命、仅持「全部数据」授权：is_empty 路径不得吞掉全量语义
         from django.contrib.auth import get_user_model
-        from apps.permissions.models import ManagementScope
+        from apps.permissions.models import ManagementScope, OperationGrant
         user = get_user_model().objects.create_user(
             phone='13900000008', name='纯全量授权', password='test123456',
             role='manager', status='active',
         )
         ManagementScope.objects.create(user=user, is_all_data=True)
+        OperationGrant.objects.create(user=user, code='view_users')
         client = _client_for(user)
         resp = client.get('/api/users/')
         ids = {str(u['id']) for u in resp.data}
@@ -189,6 +245,7 @@ class TestRoleLineGuard:
 
     def test_branch_manager_cannot_patch_same_branch_director(self, manager_user, branch):
         # 数据范围覆盖（同分公司）不放宽权线：两道闸相互独立
+        _grant_user_edit(manager_user)
         director = _role_line_user('13911110001', 'director', branch=branch)
         client = _client_for(manager_user)
         resp = client.patch(f'/api/users/{director.id}', {'name': '越权改名'})
@@ -196,6 +253,7 @@ class TestRoleLineGuard:
 
     def test_demotion_across_role_line_rejected(self, manager_user, branch):
         # 降级攻击：请求里带的是权线内角色，仍按目标当前岗位拦截
+        _grant_user_edit(manager_user)
         director = _role_line_user('13911110002', 'director', branch=branch)
         client = _client_for(manager_user)
         resp = client.patch(f'/api/users/{director.id}', {'role': 'leader'})
@@ -207,7 +265,10 @@ class TestRoleLineGuard:
         from apps.permissions.models import ManagementScope, OperationGrant
         director = _role_line_user('13911110003', 'director')
         ManagementScope.objects.create(user=director, is_all_data=True)
-        OperationGrant.objects.create(user=director, code='manage_users')
+        OperationGrant.objects.bulk_create([
+            OperationGrant(user=director, code='view_users'),
+            OperationGrant(user=director, code='edit_users'),
+        ])
         admin = _role_line_user('13911110004', 'admin')
         client = _client_for(director)
         resp = client.patch(f'/api/users/{admin.id}', {'name': '越权改名'})
@@ -216,6 +277,7 @@ class TestRoleLineGuard:
     # --- 通行：权线内 / 豁免 / 退役岗位归一化 ---
 
     def test_manager_edits_leader_in_scope(self, manager_user, leader_user):
+        _grant_user_edit(manager_user)
         client = _client_for(manager_user)
         resp = client.patch(f'/api/users/{leader_user.id}', {'name': '权线内改名'})
         assert resp.status_code == status.HTTP_200_OK
@@ -233,13 +295,14 @@ class TestRoleLineGuard:
         assert resp.status_code == status.HTTP_200_OK
 
     def test_self_patch_exempt(self, all_data_manager):
+        _grant_user_edit(all_data_manager)
         client = _client_for(all_data_manager)
         resp = client.patch(f'/api/users/{all_data_manager.id}', {'name': '改自己'})
         assert resp.status_code == status.HTTP_200_OK
 
 
 # ---------------------------------------------------------------------------
-# 员工名单只读放开：任何登录用户 list/retrieve 全量可见；写路径隔离不变
+# 员工名单查看需要 view_users，结果仍受账号数据范围约束。
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -254,22 +317,34 @@ def plain_user(db):
 
 @pytest.mark.django_db
 class TestReadOnlyDirectory:
-    def test_no_grant_user_lists_all_users(self, plain_user, admin_user, staff_user, staff_b):
+    def test_no_grant_user_cannot_list_users(self, plain_user):
         client = _client_for(plain_user)
         resp = client.get('/api/users/')
-        assert resp.status_code == status.HTTP_200_OK
-        ids = {str(u['id']) for u in resp.data}
-        assert {str(admin_user.id), str(staff_user.id), str(staff_b.id)} <= ids
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_no_grant_user_retrieves_other_user(self, plain_user, staff_b):
+    def test_no_grant_user_cannot_retrieve_other_user(self, plain_user, staff_b):
         client = _client_for(plain_user)
         resp = client.get(f'/api/users/{staff_b.id}')
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.data['phone'] == staff_b.phone
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_view_grant_lists_only_the_default_branch(self, db, branch, staff_user, staff_b):
+        from django.contrib.auth import get_user_model
+        reader = get_user_model().objects.create_user(
+            phone='13900000910', name='分公司目录查看者', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        _grant(reader, 'view_users')
+
+        response = _client_for(reader).get('/api/users/')
+
+        assert response.status_code == status.HTTP_200_OK
+        phones = {row['phone'] for row in response.data}
+        assert reader.phone in phones
+        assert staff_user.phone in phones
+        assert staff_b.phone not in phones
 
     def test_no_grant_user_write_still_forbidden(self, plain_user, staff_b):
-        # 无 manage_users 授权：写操作在权限层即被拒（403）；
-        # 持 manage_users 但目标越权的 404 隔离由 TestScopeValidation 覆盖
+        # 无 edit_users 授权：写操作在权限层即被拒（403）。
         client = _client_for(plain_user)
         resp = client.patch(f'/api/users/{staff_b.id}', {'name': '越权改名'})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
@@ -283,6 +358,7 @@ class TestReadOnlyDirectory:
 class TestScopeValidation:
     def test_supervisor_edits_user_in_own_branch(self, supervisor_user, staff_user):
         # supervisor_user 与 staff_user 同挂 branch（区域授权沿树展开到该分公司）
+        _grant_user_edit(supervisor_user)
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/users/{staff_user.id}', {'name': '同区域内编辑'})
         assert resp.status_code == status.HTTP_200_OK
@@ -290,6 +366,7 @@ class TestScopeValidation:
     def test_supervisor_edits_user_in_different_region(self, supervisor_user, staff_b):
         # supervisor_user's scope only includes their own region, so staff_b
         # (in second_region) is not in their queryset — get_object() returns 404.
+        _grant_user_edit(supervisor_user)
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/users/{staff_b.id}', {'name': '跨区域编辑'})
         assert resp.status_code == status.HTTP_404_NOT_FOUND
@@ -307,6 +384,7 @@ class TestScopeValidation:
 @pytest.mark.django_db
 class TestAutoAssignment:
     def test_manager_creates_user_without_org_fields(self, manager_user):
+        _grant_user_edit(manager_user)
         client = _client_for(manager_user)
         payload = _user_payload(role='manager')  # 未提供任何组织归属
         resp = client.post('/api/users/', payload)

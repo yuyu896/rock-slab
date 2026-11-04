@@ -3,7 +3,7 @@ import { MANAGEMENT_TYPE_LABELS } from '@/constants'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useQueryFilters } from '@/composables/useQueryFilters'
 import { useRoute } from 'vue-router'
-import { getAssetStocks, exportAssetStocks, getFixedAssets } from '@/api/assets'
+import { getAssetStocks, getAdjustableAssetStocks, exportAssetStocks, getFixedAssets } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
@@ -39,6 +39,7 @@ const drillVisible = computed({
 })
 
 async function openDrill(stock: (typeof stocks.value)[number]) {
+  if (!canView.value || !canViewInstances.value) return
   drillStock.value = stock
   drillInstances.value = []
   drillLoading.value = true
@@ -59,9 +60,16 @@ function goTimeline(code: string) {
   window.open(`/fixed-assets?keyword=${encodeURIComponent(code)}`, '_self')
 }
 
-const { isAdmin } = usePermission()
-const canImport = isAdmin
-const canAdjust = isAdmin
+const { can } = usePermission()
+const canView = computed(() => can('view_asset_ledger'))
+const canViewOrganizations = computed(() => can('view_organizations'))
+const canViewCategories = computed(() => can('view_categories'))
+const canViewInstances = computed(() => can('view_instances'))
+const canImport = computed(() => can('import_asset_ledger'))
+const canAdjust = computed(() => can('adjust_asset_ledger'))
+const canAccessLedgerRows = computed(() => canView.value || canAdjust.value)
+const adjustmentOnly = computed(() => canAdjust.value && !canView.value)
+const tableColumnCount = computed(() => canView.value ? 15 : 8)
 
 // 报表"库存不足"下钻：/assets/summary?sufficient=0 预置仅不足
 const route = useRoute()
@@ -82,13 +90,19 @@ const branchOptions = ref<{ value: string; label: string }[]>([])
 const categoryOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部类目' }])
 
 async function fetchStocks() {
+  if (!canAccessLedgerRows.value) {
+    stocks.value = []
+    pagination.value.total = 0
+    return
+  }
   loading.value = true
   try {
-    const { data } = await getAssetStocks({
+    const loadRows = adjustmentOnly.value ? getAdjustableAssetStocks : getAssetStocks
+    const { data } = await loadRows({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
-      category: filters.value.category || undefined,
+      branch: canViewOrganizations.value && filters.value.branch.length ? filters.value.branch.join(',') : undefined,
+      category: canViewCategories.value ? (filters.value.category || undefined) : undefined,
       keyword: filters.value.keyword || undefined,
       sufficient: filters.value.sufficient || undefined,
       positive_column: POSITIVE_STOCK_COLUMNS,
@@ -103,6 +117,7 @@ async function fetchStocks() {
 }
 
 async function fetchBranches() {
+  if (!canView.value || !canViewOrganizations.value) return
   try {
     const { data } = await getBranches()
     branchOptions.value = data.map((b: any) => ({ value: b.name, label: b.name }))
@@ -112,6 +127,7 @@ async function fetchBranches() {
 }
 
 async function fetchCategories() {
+  if (!canView.value || !canViewCategories.value) return
   try {
     let allResults: any[] = []
     let page = 1
@@ -139,10 +155,11 @@ const showImportModal = ref(false)
 
 // ── 导出 ──
 async function handleExport() {
+  if (!canView.value) return
   try {
     const { data } = await exportAssetStocks({
-      branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
-      category: filters.value.category || undefined,
+      branch: canViewOrganizations.value && filters.value.branch.length ? filters.value.branch.join(',') : undefined,
+      category: canViewCategories.value ? (filters.value.category || undefined) : undefined,
       keyword: filters.value.keyword || undefined,
       positive_column: POSITIVE_STOCK_COLUMNS,
     } as Record<string, string>)
@@ -159,6 +176,7 @@ async function handleExport() {
 }
 
 function resetFilters() {
+  if (!canAccessLedgerRows.value) return
   filters.value = { branch: [], category: '', keyword: '', sufficient: '' }
   pagination.value.page = 1
   fetchStocks()
@@ -176,9 +194,13 @@ watch(filters, () => {
 }, { deep: true })
 
 onMounted(() => {
-  fetchStocks()
-  fetchBranches()
-  fetchCategories()
+  if (canView.value) {
+    fetchStocks()
+    fetchBranches()
+    fetchCategories()
+  } else if (canAdjust.value) {
+    fetchStocks()
+  }
 })
 </script>
 
@@ -187,10 +209,10 @@ onMounted(() => {
     <div class="page-header">
       <div class="header-info">
         <h1 class="page-title">资产汇总台账</h1>
-        <p class="page-desc">库存唯一事实源（共{{ pagination.total }}行）——数量变动经流转单/调整单</p>
+        <p v-if="canView" class="page-desc">库存唯一事实源（共{{ pagination.total }}行）——数量变动经流转单/调整单</p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="handleExport">
+        <button v-if="canView" class="btn-secondary" @click="handleExport">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -206,7 +228,7 @@ onMounted(() => {
           </svg>
           增量导入
         </button>
-        <button class="btn-secondary" @click="recordsVisible = true">
+        <button v-if="canView" class="btn-secondary" @click="recordsVisible = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
@@ -218,8 +240,11 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="!canAccessLedgerRows" class="permission-state">当前账号没有查看或调整台账行的权限</div>
+    <p v-if="adjustmentOnly" class="page-desc">仅显示可用于台账调整的必要信息</p>
+
     <!-- 筛选区 -->
-    <div class="filter-section">
+    <div v-if="canAccessLedgerRows" class="filter-section">
       <div class="filter-row">
         <div class="filter-item search">
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -229,20 +254,20 @@ onMounted(() => {
           <input
             v-model="filters.keyword"
             type="text"
-            placeholder="搜索资产编号、名称、规格、分公司..."
+            :placeholder="canView ? '搜索资产编号、名称、规格、分公司...' : '搜索资产编号或名称...'"
             class="filter-input"
             aria-label="搜索台账"
           />
         </div>
-        <div class="filter-item grow">
+        <div v-if="canView && canViewOrganizations" class="filter-item grow">
           <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
         </div>
-        <div class="filter-item">
+        <div v-if="canView && canViewCategories" class="filter-item">
           <select v-model="filters.category" class="filter-select" aria-label="筛选类目">
             <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </div>
-        <div class="filter-item">
+        <div v-if="canView" class="filter-item">
           <select v-model="filters.sufficient" class="filter-select" aria-label="筛选是否充足">
             <option value="">全部充足状态</option>
             <option value="0">仅不足</option>
@@ -254,7 +279,7 @@ onMounted(() => {
     </div>
 
     <!-- 数据表格（行级写唯一出口是调整单——铁律 2 的合规载体） -->
-    <div class="table-container">
+    <div v-if="canAccessLedgerRows" class="table-container">
       <table class="data-table">
         <thead>
           <tr>
@@ -262,53 +287,61 @@ onMounted(() => {
             <th>分公司</th>
             <th>资产编号</th>
             <th>资产名称</th>
-            <th>规格</th>
-            <th>资产类目</th>
-            <th>管理方式</th>
+            <template v-if="canView">
+              <th>规格</th>
+              <th>资产类目</th>
+              <th>管理方式</th>
+            </template>
             <th>在库</th>
             <th>在用</th>
             <th>回收库</th>
-            <th>总量</th>
-            <th>警戒线</th>
-            <th>是否充足</th>
-            <th>实例</th>
+            <template v-if="canView">
+              <th>总量</th>
+              <th>警戒线</th>
+              <th>是否充足</th>
+              <th>实例</th>
+            </template>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading && stocks.length === 0">
-            <td colspan="15" class="empty-cell">加载中...</td>
+            <td :colspan="tableColumnCount" class="empty-cell">加载中...</td>
           </tr>
           <tr v-else-if="stocks.length === 0">
-            <td colspan="15" class="empty-cell">暂无数据</td>
+            <td :colspan="tableColumnCount" class="empty-cell">暂无数据</td>
           </tr>
           <tr v-for="(stock, index) in stocks" :key="stock.id">
             <td class="col-index">{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
             <td class="branch-name">{{ stock.branchName }}</td>
             <td><span class="asset-code">{{ stock.资产编号 }}</span></td>
             <td class="asset-name">{{ stock.资产名称 || '-' }}</td>
-            <td>{{ stock.规格 || '-' }}</td>
-            <td>{{ stock.资产类目 || '-' }}</td>
-            <td>{{ MANAGEMENT_TYPE_LABELS[stock.管理方式 ?? ''] || stock.管理方式 }}</td>
+            <template v-if="canView">
+              <td>{{ stock.规格 || '-' }}</td>
+              <td>{{ stock.资产类目 || '-' }}</td>
+              <td>{{ MANAGEMENT_TYPE_LABELS[stock.管理方式 ?? ''] || stock.管理方式 }}</td>
+            </template>
             <td class="col-qty">{{ stock.在库数量 }}</td>
             <td class="col-qty">{{ stock.在用数量 }}</td>
             <td class="col-qty">{{ stock.回收库数量 }}</td>
-            <td class="col-qty">{{ stock.总量 ?? (stock.在库数量 + stock.在用数量 + stock.回收库数量) }}</td>
-            <td>{{ stock.生效警戒线 ?? stock.警戒线 ?? '-' }}</td>
-            <td>
-              <span class="sufficient-badge" :class="stock.是否充足 ? 'ok' : 'low'">
-                {{ stock.是否充足 ? '是' : '否' }}
-              </span>
-            </td>
-            <td>
+            <template v-if="canView">
+              <td class="col-qty">{{ stock.总量 ?? (stock.在库数量 + stock.在用数量 + stock.回收库数量) }}</td>
+              <td>{{ stock.生效警戒线 ?? stock.警戒线 ?? '-' }}</td>
+              <td>
+                <span class="sufficient-badge" :class="stock.是否充足 ? 'ok' : 'low'">
+                  {{ stock.是否充足 ? '是' : '否' }}
+                </span>
+              </td>
+              <td>
               <button
-                v-if="stock.管理方式 === 'instance'"
+                v-if="stock.管理方式 === 'instance' && canViewInstances"
                 class="drill-btn"
                 type="button"
                 @click="openDrill(stock)"
               >下钻实例</button>
               <span v-else class="dim">—</span>
-            </td>
+              </td>
+            </template>
             <td>
               <button
                 v-if="canAdjust"
@@ -324,6 +357,7 @@ onMounted(() => {
     </div>
 
     <BasePagination
+      v-if="canAccessLedgerRows"
       :total="pagination.total"
       :current-page="pagination.page"
       :page-size="pagination.pageSize"
@@ -381,6 +415,12 @@ onMounted(() => {
 <style scoped>
 .asset-summary-page {
   max-width: 100%;
+}
+
+.permission-state {
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 
 .page-header {
@@ -543,7 +583,7 @@ onMounted(() => {
 }
 
 .data-table th {
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-table-header);
   padding: var(--space-3) var(--space-3);
   text-align: left;
   font-size: var(--text-sm);

@@ -26,13 +26,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
     filterset_class = CategoryFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    # 创建/更新/删除/导入需 manage_dictionary（品目字典）；读取无声明即放行
+    # All maintenance actions share edit_categories and require dictionary read access.
     required_operations = {
-        'create': 'manage_dictionary',
-        'update': 'manage_dictionary',
-        'partial_update': 'manage_dictionary',
-        'destroy': 'manage_dictionary',
-        'import_excel': 'manage_dictionary',
+        'list': 'view_categories',
+        'retrieve': 'view_categories',
+        'lookup': 'view_categories',
+        'export_excel': 'view_categories',
+        'download_template': ('edit_categories', 'view_categories'),
+        'create': ('edit_categories', 'view_categories'),
+        'update': ('edit_categories', 'view_categories'),
+        'partial_update': ('edit_categories', 'view_categories'),
+        'destroy': ('edit_categories', 'view_categories'),
+        'import_excel': ('edit_categories', 'view_categories'),
     }
 
     @action(detail=False, methods=['get'], url_path='lookup')
@@ -186,6 +191,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return response
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
+    @transaction.atomic
     def import_excel(self, request):
         """Excel 批量导入分类：sheet 名定管理方式。
 
@@ -240,6 +246,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         total_imported = 0
         all_errors = []
         sheet_stats = []
+        import_savepoint = transaction.savepoint()
 
         for ws, management_type in targets:
             imported = 0
@@ -295,6 +302,21 @@ class CategoryViewSet(viewsets.ModelViewSet):
             total_imported += imported
             all_errors.extend(errors)
 
+        if all_errors:
+            transaction.savepoint_rollback(import_savepoint)
+            for sheet in sheet_stats:
+                sheet['imported'] = 0
+            wb.close()
+            return Response({
+                'detail': '文件存在错误，已驳回，未导入任何品目',
+                'imported': 0,
+                'errors': all_errors,
+                'sheets': sheet_stats,
+                'skipped_sheets': skipped_sheets,
+                'fallback': fallback,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        transaction.savepoint_commit(import_savepoint)
         wb.close()
         return Response({
             'imported': total_imported,

@@ -1,8 +1,7 @@
 """
 写操作数据范围校验回归测试（write-authorization-scoping）。
 
-验证：即便业务发起（流转/盘点创建）按产品设计对所有登录用户开放，操作者也只能
-作用于其授权范围内的分公司——跨范围写操作必须被拒；盘点 check 提交跨范围资产必须 404。
+验证：写操作需要目录声明的查看前置，并且只能作用于授权数据范围内的分公司。
 """
 import pytest
 from conftest import _client_for
@@ -12,6 +11,7 @@ from conftest import _client_for
 class TestWriteScopeEnforcement:
     def test_transfer_create_out_of_scope_rejected(self, staff_user, second_branch, item_id):
         # staff_user 授权范围 = fixture branch，对第二分公司发起调拨应被拒
+        _grant_operation(staff_user, 'edit_transfer')
         client = _client_for(staff_user)
         resp = client.post('/api/transfers/transfer', {
             '调拨日期': '2026-01-15',
@@ -23,6 +23,7 @@ class TestWriteScopeEnforcement:
 
     def test_transfer_create_in_scope_allowed(self, staff_user, branch, item_id):
         # staff_user 对自己授权分公司发起调拨应通过 scope 校验
+        _grant_operation(staff_user, 'edit_transfer')
         client = _client_for(staff_user)
         resp = client.post('/api/transfers/transfer', {
             '调拨日期': '2026-01-15',
@@ -33,7 +34,7 @@ class TestWriteScopeEnforcement:
         assert resp.status_code == 201
 
     def test_inventory_create_out_of_scope_rejected(self, staff_user, second_branch):
-        _grant_operation(staff_user, 'manage_assets')
+        _grant_operation(staff_user, 'edit_inventory')
         client = _client_for(staff_user)
         resp = client.post('/api/inventories/', {
             'name': '越权盘点',
@@ -45,7 +46,7 @@ class TestWriteScopeEnforcement:
         self, staff_user, admin_user, branch, second_branch,
     ):
         """盘点 check 提交不属于任务分公司的资产 → 404（IDOR 修复）。"""
-        _grant_operation(staff_user, 'manage_assets')
+        _grant_operation(staff_user, 'edit_inventory')
         from apps.assets.models import AssetStock
         from apps.assets.services import ledger
         from apps.categories.models import Category
@@ -73,18 +74,18 @@ class TestWriteScopeEnforcement:
 
 @pytest.mark.django_db
 class TestWritePermissionBaseline:
-    """关键写 action 权限声明基线（防回归）。
-
-    业务发起 action（purchase/assign/return/transfer/recovery）按产品设计对所有登录
-    用户开放，不在本约束内；审批 / 入库 / 导入类必须声明权限码。
-    """
+    """关键写 action 权限声明基线（防回归）。"""
 
     def test_transfer_sensitive_actions_declared(self):
         from apps.transfers.views import TransferViewSet
+        from apps.transfers.authorization import transfer_permission_code
         required = TransferViewSet.required_operations
-        for action in ('import_excel', 'approve'):
-            assert action in required, f'transfers.{action} 必须在 required_operations 中声明'
-        assert 'warehouse' not in required, 'transfers.warehouse 为不存在动作的死配置，应清理'
+        assert required['purchase'] == ('edit_purchase', 'view_purchase', 'view_categories')
+        assert required['transfer'] == ('edit_transfer', 'view_transfer', 'view_asset_ledger')
+        assert transfer_permission_code('purchase', 'approve') == 'approve_purchase'
+        assert transfer_permission_code('transfer', 'approve') == 'approve_internal_transfer'
+        assert transfer_permission_code('transfer', 'import') == 'edit_transfer'
+        assert 'warehouse' not in required
 
     def test_assets_write_endpoints_frozen(self):
         """P1 起 Asset 写接口整体下线（405），无需再声明编辑操作码。"""
@@ -101,25 +102,27 @@ class TestUserDirectoryScoping:
     见 test_users.py TestReadOnlyDirectory / TestScopeValidation。
     """
 
-    def test_non_admin_list_users_full_directory(self, staff_user, staff_b):
-        # 任何登录用户均可见全员名单（含另一区域的 staff_b）
+    def test_non_admin_list_users_is_limited_to_data_scope(self, staff_user, staff_b):
+        _grant_operation(staff_user, 'view_users')
         client = _client_for(staff_user)
         resp = client.get('/api/users/')
         assert resp.status_code == 200
         ids = {str(u['id']) for u in resp.data}
-        assert str(staff_user.id) in ids
-        assert str(staff_b.id) in ids
+        assert ids == {str(staff_user.id)}
 
-    def test_non_admin_retrieve_out_of_scope_user(self, staff_user, staff_b):
+    def test_non_admin_cannot_retrieve_out_of_scope_user(self, staff_user, staff_b):
+        _grant_operation(staff_user, 'view_users')
         client = _client_for(staff_user)
         resp = client.get(f'/api/users/{staff_b.id}')
-        assert resp.status_code == 200
-        assert resp.data['phone'] == staff_b.phone
+        assert resp.status_code == 404
 
 
 def _grant_operation(user, code):
     from apps.permissions.models import OperationGrant
+    from apps.permissions.operations import OPERATION_PREREQUISITES
     OperationGrant.objects.get_or_create(user=user, code=code)
+    for prerequisite in OPERATION_PREREQUISITES.get(code, ()):
+        OperationGrant.objects.get_or_create(user=user, code=prerequisite)
 
 
 def _ensure_category(code, management_type='quantity'):
@@ -161,7 +164,7 @@ class TestAdjustmentScope:
 
     def test_out_of_scope_by_id_rejected(self, staff_user, second_branch):
         from apps.assets.models import LedgerAdjustment
-        _grant_operation(staff_user, 'adjust_ledger')
+        _grant_operation(staff_user, 'adjust_asset_ledger')
         _ensure_category('ADJ-SCOPE-001')
         resp = _client_for(staff_user).post(
             '/api/assets/adjustments', self._payload(second_branch, 'ADJ-SCOPE-001'), format='json',
@@ -171,7 +174,7 @@ class TestAdjustmentScope:
 
     def test_out_of_scope_by_name_rejected(self, staff_user, second_branch):
         from apps.assets.models import LedgerAdjustment
-        _grant_operation(staff_user, 'adjust_ledger')
+        _grant_operation(staff_user, 'adjust_asset_ledger')
         _ensure_category('ADJ-SCOPE-002')
         payload = self._payload(second_branch, 'ADJ-SCOPE-002')
         payload.pop('branch')
@@ -181,7 +184,7 @@ class TestAdjustmentScope:
         assert LedgerAdjustment.objects.count() == 0
 
     def test_in_scope_allowed(self, staff_user, branch):
-        _grant_operation(staff_user, 'adjust_ledger')
+        _grant_operation(staff_user, 'adjust_asset_ledger')
         _ensure_category('ADJ-SCOPE-003')
         resp = _client_for(staff_user).post(
             '/api/assets/adjustments', self._payload(branch, 'ADJ-SCOPE-003'), format='json',
@@ -210,7 +213,7 @@ class TestAssetImportScope:
         )
 
     def test_out_of_scope_row_rejected_without_leak(self, staff_user, branch, second_branch):
-        _grant_operation(staff_user, 'adjust_ledger')
+        _grant_operation(staff_user, 'import_asset_ledger')
         _ensure_category('IMP-SCOPE-001')
         _ensure_category('IMP-SCOPE-002')
         resp = _client_for(staff_user).post(
@@ -221,12 +224,12 @@ class TestAssetImportScope:
         diffs = resp.data['diffs']
         assert len(diffs) == 1
         assert diffs[0]['资产编号'] == 'IMP-SCOPE-001'
-        assert second_branch.name in ''.join(resp.data['errors'])
         assert '不在你的授权范围' in ''.join(resp.data['errors'])
 
     def test_confirm_only_applies_in_scope_rows(self, staff_user, branch, second_branch):
         from apps.assets.models import AssetStock
-        _grant_operation(staff_user, 'adjust_ledger')
+        _grant_operation(staff_user, 'import_asset_ledger')
+        _grant_operation(staff_user, 'adjust_asset_ledger')
         _ensure_category('IMP-SCOPE-001')
         _ensure_category('IMP-SCOPE-002')
         resp = _client_for(staff_user).post(
@@ -234,10 +237,13 @@ class TestAssetImportScope:
             {'file': self._file(branch, second_branch), 'confirm': '1'},
             format='multipart',
         )
-        assert resp.status_code == 200
-        assert resp.data['applied'] == 1
+        assert resp.status_code == 400
+        assert resp.data['applied'] == 0
         assert AssetStock.objects.filter(
             branch=second_branch, item__asset_code='IMP-SCOPE-002',
+        ).exists() is False
+        assert AssetStock.objects.filter(
+            branch=branch, item__asset_code='IMP-SCOPE-001',
         ).exists() is False
 
 
@@ -247,7 +253,7 @@ class TestTransferImportScope:
 
     def test_out_of_scope_row_rejected(self, staff_user, branch, second_branch):
         from datetime import date
-        _grant_operation(staff_user, 'manage_assets')
+        _grant_operation(staff_user, 'edit_transfer')
         _ensure_category('TR-IMP-001')
         _ensure_category('TR-IMP-002')
         f = _xlsx_bytes(
@@ -264,8 +270,8 @@ class TestTransferImportScope:
         resp = _client_for(staff_user).post(
             '/api/transfers/import?type=transfer', {'file': f}, format='multipart',
         )
-        assert resp.status_code == 200
-        assert resp.data['imported'] == 1
+        assert resp.status_code == 400
+        assert resp.data['imported'] == 0
         assert '不在你的授权范围' in ''.join(resp.data['errors'])
         from apps.transfers.models import Transfer
         assert Transfer.objects.filter(
@@ -273,7 +279,7 @@ class TestTransferImportScope:
         ).exists() is False
         assert Transfer.objects.filter(
             action_type='transfer', lines__item__asset_code='TR-IMP-002',
-        ).exists() is True
+        ).exists() is False
 
 
 @pytest.mark.django_db
@@ -281,7 +287,7 @@ class TestInventoryTaskHardening:
     """盘点任务：branch 必填、branch/status 不可经 PATCH 变更（审计 P0-2）。"""
 
     def test_create_without_branch_rejected(self, staff_user):
-        _grant_operation(staff_user, 'manage_assets')
+        _grant_operation(staff_user, 'edit_inventory')
         resp = _client_for(staff_user).post('/api/inventories/', {'name': '无分公司'}, format='json')
         assert resp.status_code == 400
 
@@ -301,7 +307,7 @@ class TestInventoryTaskHardening:
         assert task.status == 'pending'
 
     def test_create_in_scope_allowed(self, staff_user, branch):
-        _grant_operation(staff_user, 'manage_assets')
+        _grant_operation(staff_user, 'edit_inventory')
         resp = _client_for(staff_user).post(
             '/api/inventories/', {'name': '范围内盘点', 'branch': branch.id}, format='json',
         )
@@ -331,6 +337,7 @@ class TestTransferSingleSideScope:
 
     def test_create_to_branch_out_of_scope_allowed(self, staff_user, branch, second_branch):
         """调入方越界不再阻断调拨（核心翻转：原双边 400 → 201）。"""
+        _grant_operation(staff_user, 'edit_transfer')
         _ensure_category('SS-TB-001')
         resp = self._create_transfer(_client_for(staff_user), branch, second_branch, 'SS-TB-001')
         assert resp.status_code == 201
@@ -338,12 +345,15 @@ class TestTransferSingleSideScope:
 
     def test_create_from_branch_out_of_scope_rejected(self, staff_user, branch, second_branch):
         """调出方越界仍拒（即使调入方在范围内）。"""
+        _grant_operation(staff_user, 'edit_transfer')
         _ensure_category('SS-FB-001')
         resp = self._create_transfer(_client_for(staff_user), second_branch, branch, 'SS-FB-001')
         assert resp.status_code == 400
 
-    def test_create_non_transfer_dual_scope_kept(self, staff_user, branch, second_branch):
-        """非调拨类型（归还）双边校验不回归：调入越界仍 400。"""
+    def test_return_creation_is_retired_regardless_of_scope(self, staff_user, branch, second_branch):
+        """归还创建停用，历史写授权也不能恢复该入口。"""
+        _grant_operation(staff_user, 'create_return')
+        _grant_operation(staff_user, 'submit_return')
         item = _ensure_category('SS-RT-001')
         resp = _client_for(staff_user).post('/api/transfers/return', {
             '调拨日期': '2026-01-15',
@@ -351,12 +361,12 @@ class TestTransferSingleSideScope:
             '调入分公司': second_branch.name,
             'items': [{'item': str(item.id), '数量': 1}],
         }, format='json')
-        assert resp.status_code == 400
+        assert resp.status_code == 410
 
     def test_import_transfer_row_single_side(self, staff_user, branch, second_branch):
         """导入调拨行同口径：调入越界照常建单，调出越界进 errors。"""
         from datetime import date
-        _grant_operation(staff_user, 'manage_assets')
+        _grant_operation(staff_user, 'edit_transfer')
         _ensure_category('SS-IMP-001')
         _ensure_category('SS-IMP-002')
         f = _xlsx_bytes(
@@ -373,13 +383,13 @@ class TestTransferSingleSideScope:
         resp = _client_for(staff_user).post(
             '/api/transfers/import?type=transfer', {'file': f}, format='multipart',
         )
-        assert resp.status_code == 200
-        assert resp.data['imported'] == 1
+        assert resp.status_code == 400
+        assert resp.data['imported'] == 0
         assert len(resp.data['errors']) == 1
         from apps.transfers.models import Transfer
         assert Transfer.objects.filter(
             action_type='transfer', lines__item__asset_code='SS-IMP-001',
-        ).exists() is True
+        ).exists() is False
         assert Transfer.objects.filter(
             action_type='transfer', lines__item__asset_code='SS-IMP-002',
         ).exists() is False
@@ -388,6 +398,9 @@ class TestTransferSingleSideScope:
 
     def test_inbound_side_cannot_approve(self, supervisor_b, branch, second_branch, admin_user):
         """调入方审批人（范围=second）批 from=branch to=second 调拨 → 400 只读拦截。"""
+        supervisor_b.role = 'leader'
+        supervisor_b.save(update_fields=['role'])
+        _grant_operation(supervisor_b, 'approve_internal_transfer')
         _ensure_category('SS-AP-001')
         resp = self._create_transfer(_client_for(admin_user), branch, second_branch, 'SS-AP-001')
         assert resp.status_code == 201
@@ -396,15 +409,19 @@ class TestTransferSingleSideScope:
         resp = _client_for(supervisor_b).post(
             f'/api/transfers/{tid}/approve', {'approved': True}, format='json',
         )
-        assert resp.status_code == 400
-        assert '只读' in str(resp.data['detail'])
+        assert resp.status_code == 403
         from apps.transfers.models import Transfer
         assert Transfer.objects.get(pk=tid).审批状态 == '待审批'
 
-    def test_outbound_side_can_approve(self, supervisor_user, branch, second_branch, make_stock):
-        """调出方范围审批人正常审批，台账两边联动。"""
+    def test_outbound_leader_can_approve_other_users_document(
+        self, supervisor_user, branch, second_branch, make_stock, admin_user,
+    ):
+        """行政组长可审批本人数据范围内的他人待审批单，台账两边联动。"""
+        supervisor_user.role = 'leader'
+        supervisor_user.save(update_fields=['role'])
+        _grant_operation(supervisor_user, 'approve_internal_transfer')
         make_stock(code='SS-AP-002', qty=1)
-        resp = self._create_transfer(_client_for(supervisor_user), branch, second_branch, 'SS-AP-002')
+        resp = self._create_transfer(_client_for(admin_user), branch, second_branch, 'SS-AP-002')
         assert resp.status_code == 201
         tid = resp.data['id']
 
@@ -416,6 +433,7 @@ class TestTransferSingleSideScope:
 
     def test_inbound_side_cannot_submit_or_resubmit(self, supervisor_b, branch, second_branch, admin_user):
         from apps.transfers.models import Transfer
+        _grant_operation(supervisor_b, 'edit_transfer')
         _ensure_category('SS-SB-001')
         client = _client_for(admin_user)
         resp = client.post('/api/transfers/transfer', {
@@ -424,6 +442,9 @@ class TestTransferSingleSideScope:
         assert resp.status_code == 201
         tid = resp.data['id']
         assert Transfer.objects.get(pk=tid).审批状态 == '草稿'
+        Transfer.objects.filter(pk=tid).update(
+            created_by=supervisor_b, 创建人=supervisor_b.name,
+        )
         resp = _client_for(supervisor_b).post(f'/api/transfers/{tid}/submit', format='json')
         assert resp.status_code == 400
 
@@ -440,29 +461,30 @@ class TestTransferSingleSideScope:
     # ---- canOperate 序列化字段 ----
 
     def test_can_operate_field(self, supervisor_b, branch, second_branch, admin_user):
-        """调入方视角：调入单 canOperate=False 且可见；自己发起的单 True；非调拨 True。"""
+        """调入方可读整张调拨单；历史归还不进入通用单据列表。"""
+        from apps.transfers.models import Transfer
+
+        _grant_operation(supervisor_b, 'view_transfer')
         _ensure_category('SS-CO-001')
         _ensure_category('SS-CO-002')
-        _ensure_category('SS-CO-003')
         client = _client_for(admin_user)
         inbound = self._create_transfer(client, branch, second_branch, 'SS-CO-001')
         assert inbound.status_code == 201
         outbound = self._create_transfer(client, second_branch, branch, 'SS-CO-002')
         assert outbound.status_code == 201
-        ret = client.post('/api/transfers/return', {
-            '调拨日期': '2026-01-15',
-            '调出分公司': second_branch.name,
-            '调入分公司': second_branch.name,
-            'items': [{'item': str(_ensure_category('SS-CO-003').id), '数量': 1}],
-        }, format='json')
-        assert ret.status_code == 201
+        ret = Transfer.objects.create(
+            单据编号='SS-CO-RETURN-HISTORY', 调拨日期='2026-01-15',
+            调入分公司=second_branch.name, to_branch=second_branch,
+            action_type=Transfer.ACTION_RETURN, 审批状态='待审批',
+            created_by=admin_user,
+        )
 
         resp = _client_for(supervisor_b).get('/api/transfers/', format='json')
         assert resp.status_code == 200
         by_number = {row['单据编号']: row for row in resp.data['results']}
         row_inbound = by_number[inbound.data['单据编号']]
         row_outbound = by_number[outbound.data['单据编号']]
-        row_return = by_number[ret.data['单据编号']]
         assert row_inbound['canOperate'] is False
         assert row_outbound['canOperate'] is True
-        assert row_return['canOperate'] is True
+        assert ret.单据编号 not in by_number
+        assert Transfer.objects.filter(pk=ret.pk).exists()

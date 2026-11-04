@@ -21,6 +21,7 @@ import {
 import { getBranches } from '@/api/branches'
 import { getCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
+import { usePermission } from '@/hooks/usePermission'
 import {
   MISSED_RULE_LABELS, REPEAT_RULE_LABELS, INVENTORY_RESULT_MAP,
   INSTANCE_RESULT_MAP, STOCK_BIN_LABELS, INVENTORY_KIND_LABELS,
@@ -35,6 +36,13 @@ import ApprovePreviewDialog from './inventory/ApprovePreviewDialog.vue'
 
 const inventoryStore = useInventoryStore()
 const router = useRouter()
+const { can } = usePermission()
+const inventoryTaskAccessOperations = [
+  'view_inventory', 'edit_inventory', 'review_inventory',
+]
+const importOnly = computed(() => false)
+const canViewOrganizations = computed(() => can('view_organizations'))
+const canViewCategories = computed(() => can('view_categories'))
 
 // 当前视图状态
 const currentView = ref<'list' | 'detail' | 'scanning'>('list')
@@ -93,7 +101,7 @@ const holderGroups = computed(() => {
 })
 
 const markInstance = async (item: any, found: boolean) => {
-  if (!selectedTask.value || instanceBusyId.value) return
+  if (!can('edit_inventory') || !selectedTask.value || instanceBusyId.value) return
   instanceBusyId.value = item.id
   try {
     const { data } = await checkInventoryInstance(selectedTask.value.id, {
@@ -150,6 +158,7 @@ const diffStyle = (item: any) => {
 
 // 从扫码视图提交审批
 const submitFromScan = async (task: any) => {
+  if (!can('edit_inventory')) return
   try {
     await ElMessageBox.confirm('确定要提交审批吗？提交后将无法继续盘点。', '提交确认', {
       confirmButtonText: '提交', cancelButtonText: '取消', type: 'warning',
@@ -172,8 +181,8 @@ async function fetchTasks() {
     const { data } = await getInventoryTasks({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      status: filters.value.status || undefined,
-      branchId: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
+      status: importOnly.value ? 'in_progress' : filters.value.status || undefined,
+      branchId: !importOnly.value && canViewOrganizations.value && filters.value.branch.length ? filters.value.branch.join(',') : undefined,
     })
     inventoryTasks.value = data.results
     pagination.value.total = data.count
@@ -186,6 +195,7 @@ async function fetchTasks() {
 
 // 获取分公司选项
 async function fetchBranches() {
+  if (importOnly.value || !canViewOrganizations.value) return
   try {
     const { data } = await getBranches()
     branchOptions.value = data.map(b => ({ value: b.id, label: b.name }))
@@ -197,6 +207,7 @@ async function fetchBranches() {
 // 获取资产类目选项
 const categoryOptions = ref<{ value: string; label: string }[]>([])
 async function fetchCategories() {
+  if (importOnly.value || !canViewCategories.value) return
   try {
     const { data } = await getCategories({ pageSize: 500 })
     const categories = (data.results || []) as any[]
@@ -211,6 +222,7 @@ async function fetchCategories() {
 
 // 获取全局状态统计
 async function fetchStatusStats() {
+  if (importOnly.value) return
   try {
     const [pendingRes, inProgressRes, pendingReviewRes] = await Promise.all([
       getInventoryTasks({ status: 'pending', pageSize: 1 }),
@@ -301,6 +313,7 @@ const formatCheckTime = (value: string) => value ? value.slice(0, 16).replace('T
 // ========== 导出报告 ==========
 const exportingReport = ref(false)
 const exportReportAction = async (task: any) => {
+  if (!can('view_inventory')) return
   exportingReport.value = true
   try {
     const { data } = await exportInventoryReport(task.id)
@@ -319,6 +332,7 @@ const exportReportAction = async (task: any) => {
 
 // 开始盘点
 const startInventory = async (task: any) => {
+  if (!can('edit_inventory')) return
   try {
     await startInventoryApi(task.id)
     ElMessage.success('盘点已开始')
@@ -336,6 +350,7 @@ const backToList = () => {
 
 // ========== 删除盘点任务 ==========
 const deleteTask = async (task: any) => {
+  if (!can('edit_inventory')) return
   try {
     await ElMessageBox.confirm(
       `确定要删除盘点任务「${task.name}」吗？此操作不可撤销。`,
@@ -353,6 +368,7 @@ const deleteTask = async (task: any) => {
 
 // ========== 作废盘点任务 ==========
 const cancelTask = async (task: any) => {
+  if (!can('edit_inventory')) return
   try {
     await ElMessageBox.confirm(
       `确定要作废盘点任务「${task.name}」吗？此操作不可撤销。`,
@@ -375,13 +391,14 @@ const approvePreviewTask = ref<any>(null)
 const approvePreviewRef = ref<InstanceType<typeof ApprovePreviewDialog> | null>(null)
 
 const approveTask = (task: any) => {
+  if (!can('review_inventory')) return
   approvePreviewTask.value = task
   approvePreviewVisible.value = true
 }
 
 const confirmApprove = async () => {
   const task = approvePreviewTask.value
-  if (!task) return
+  if (!can('review_inventory') || !task) return
   try {
     await approveInventory(task.id)
     ElMessage.success('审批已通过，差异已生成调整单入账')
@@ -395,6 +412,7 @@ const confirmApprove = async () => {
 
 // ========== 驳回 ==========
 const rejectTask = async (task: any) => {
+  if (!can('review_inventory')) return
   try {
     const { value: reason } = await ElMessageBox.prompt(
       `请输入驳回「${task.name}」的原因：`,
@@ -418,6 +436,7 @@ const rejectTask = async (task: any) => {
 
 // ========== 重新盘点 ==========
 const recountTask = async (task: any) => {
+  if (!can('edit_inventory')) return
   try {
     await ElMessageBox.confirm(
       '仅重盘异常项（盘盈/盘亏/未盘点），已正常的项目保留盘点结果。',
@@ -435,6 +454,7 @@ const recountTask = async (task: any) => {
 }
 
 const recountAllTask = async (task: any) => {
+  if (!can('edit_inventory')) return
   try {
     await ElMessageBox.confirm(
       '确定要重盘所有物品吗？已正常的项目也会被重置。',
@@ -454,6 +474,7 @@ const recountAllTask = async (task: any) => {
 // ========== 下载模板 ==========
 const downloadingTemplate = ref(false)
 const downloadTemplateAction = async (task: any) => {
+  if (!can('edit_inventory')) return
   downloadingTemplate.value = true
   try {
     const { data } = await downloadInventoryTemplate(task.id)
@@ -473,26 +494,87 @@ const downloadTemplateAction = async (task: any) => {
 // ========== 导入盘点结果 ==========
 const importFileInput = ref<HTMLInputElement | null>(null)
 const importingTaskId = ref<string | null>(null)
+const importConfirming = ref(false)
+const importBusy = computed(() => importingTaskId.value !== null || importConfirming.value)
+let importPickerCancelTimer: ReturnType<typeof setTimeout> | null = null
 
 const triggerImport = (task: any) => {
+  if (!can('edit_inventory') || importBusy.value) return
   importingTaskId.value = task.id
   if (importFileInput.value) {
-    importFileInput.value.value = ''
-    importFileInput.value.click()
+    const input = importFileInput.value
+    input.value = ''
+    input.click()
+    // The native picker does not emit `change` when the user cancels it.
+    importPickerCancelTimer = setTimeout(() => {
+      importPickerCancelTimer = null
+      if (importingTaskId.value === task.id && !input.files?.length && !importConfirming.value) {
+        importingTaskId.value = null
+      }
+    }, 0)
   }
 }
 
 const handleImportFile = async (event: Event) => {
+  if (!can('edit_inventory')) return
   const input = event.target as HTMLInputElement
+  if (importPickerCancelTimer !== null) {
+    clearTimeout(importPickerCancelTimer)
+    importPickerCancelTimer = null
+  }
   const file = input.files?.[0]
-  if (!file || !importingTaskId.value) return
+  if (!file || !importingTaskId.value) {
+    importingTaskId.value = null
+    input.value = ''
+    return
+  }
+
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (ext !== 'xlsx' && ext !== 'xls') {
+    ElMessage.warning('请上传 Excel 文件（.xlsx 或 .xls）')
+    importingTaskId.value = null
+    input.value = ''
+    return
+  }
+
+  const taskId = importingTaskId.value
+  if (!taskId) {
+    input.value = ''
+    return
+  }
+
+  importConfirming.value = true
+  try {
+    await ElMessageBox.confirm(
+      `文件：${file.name}\n确认后将立即写入盘点结果，是否继续？`,
+      '确认导入',
+      {
+        confirmButtonText: '确认导入',
+        cancelButtonText: '取消',
+        type: 'warning',
+        distinguishCancelAndClose: true,
+      },
+    )
+  } catch (error) {
+    importingTaskId.value = null
+    input.value = ''
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(handleApiError(error))
+    }
+    return
+  } finally {
+    importConfirming.value = false
+  }
 
   try {
-    const { data } = await importInventoryResult(importingTaskId.value, file)
+    const { data } = await importInventoryResult(taskId, file)
     const result = data as any
     if (result.errors?.length > 0) {
-      ElMessage.warning(`导入完成：${result.imported} 条成功，${result.errors.length} 条失败`)
-      console.warn('导入错误:', result.errors)
+      const message = ['文件存在错误，整份文件未导入', ...result.errors].join('；')
+      ElMessageBox.alert(message, '盘点结果未导入', {
+        confirmButtonText: '关闭',
+        type: 'error',
+      })
     } else {
       ElMessage.success(`导入成功：${result.imported} 条`)
     }
@@ -500,7 +582,23 @@ const handleImportFile = async (event: Event) => {
     if (result.hint) ElMessage.warning(result.hint)
     await fetchTasks()
   } catch (error) {
-    ElMessage.error(handleApiError(error))
+    const responseData = (error as {
+      response?: { data?: { detail?: string; errors?: unknown; hint?: string } }
+    })?.response?.data
+    const rowErrors = Array.isArray(responseData?.errors)
+      ? responseData.errors.filter((item): item is string => typeof item === 'string')
+      : []
+    if (rowErrors.length) {
+      const message = [responseData?.detail, responseData?.hint, ...rowErrors]
+        .filter((item): item is string => Boolean(item))
+        .join('；')
+      ElMessageBox.alert(message, '盘点结果未导入', {
+        confirmButtonText: '关闭',
+        type: 'error',
+      })
+    } else {
+      ElMessage.error(handleApiError(error))
+    }
   } finally {
     importingTaskId.value = null
   }
@@ -508,16 +606,21 @@ const handleImportFile = async (event: Event) => {
 
 // ========== 查看报告 ==========
 const viewReport = (task: any) => {
+  if (!can('view_inventory')) return
   reportRef.value?.open(task.id)
 }
 
 // 筛选后的任务列表
 const filteredTasks = computed(() => {
   return inventoryTasks.value.filter(task => {
+    if (importOnly.value && task.status !== 'in_progress') return false
     if (filters.value.keyword && !task.name.includes(filters.value.keyword)) return false
     return true
   })
 })
+
+const importingTaskName = computed(() => inventoryTasks.value
+  .find(task => task.id === importingTaskId.value)?.name ?? '')
 
 // 统计数据
 const stats = computed(() => ({
@@ -536,9 +639,11 @@ watch(filters, () => {
 // 初始化
 onMounted(() => {
   fetchTasks()
-  fetchBranches()
-  fetchCategories()
-  fetchStatusStats()
+  if (!importOnly.value) {
+    fetchBranches()
+    fetchCategories()
+    fetchStatusStats()
+  }
 })
 </script>
 
@@ -552,6 +657,10 @@ onMounted(() => {
         :stats="stats"
         :filters="filters"
         :branch-options="branchOptions"
+        :can-view-organizations="canViewOrganizations"
+        :import-busy="importBusy"
+        :import-only="importOnly"
+        :import-task-name="importingTaskName"
         @update:filters="filters = $event"
         @create="router.push('/inventory/create')"
         @view="viewTask"
@@ -575,6 +684,7 @@ onMounted(() => {
         accept=".xlsx,.xls"
         style="display: none"
         @change="handleImportFile"
+        :disabled="importBusy"
       />
     </template>
 
@@ -589,7 +699,7 @@ onMounted(() => {
             返回列表
           </button>
           <div class="header-actions">
-            <button class="btn-secondary" :disabled="exportingReport" @click="exportReportAction(selectedTask)">
+            <button v-if="can('view_inventory')" class="btn-secondary" :disabled="exportingReport" @click="exportReportAction(selectedTask)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="7 10 12 15 17 10"/>
@@ -684,7 +794,7 @@ onMounted(() => {
           <div class="checkers-card">
             <div v-if="isInstanceTask(selectedTask)" class="checks-card-header">
               <h4 class="info-card-title">实例清单（按使用人分组，逐台核对）</h4>
-              <div v-if="isTaskInProgress(selectedTask)" class="scan-row">
+              <div v-if="isTaskInProgress(selectedTask) && can('edit_inventory')" class="scan-row">
                 <input
                   v-model="instanceScanInput"
                   class="scan-input"
@@ -714,7 +824,7 @@ onMounted(() => {
                           <th>状态</th>
                           <th>序列号</th>
                           <th>核对结果</th>
-                          <th v-if="isTaskInProgress(selectedTask)">操作</th>
+                          <th v-if="isTaskInProgress(selectedTask) && can('edit_inventory')">操作</th>
                           <th>备注</th>
                         </tr>
                       </thead>
@@ -727,7 +837,7 @@ onMounted(() => {
                           <td :style="{ color: item.result === 'missing' ? 'var(--color-danger)' : item.result === 'matched' ? 'var(--color-success)' : '' }">
                             {{ getInstanceResultLabel(item.result) }}
                           </td>
-                          <td v-if="isTaskInProgress(selectedTask)">
+                          <td v-if="isTaskInProgress(selectedTask) && can('edit_inventory')">
                             <button
                               class="pager-btn ok-btn"
                               :disabled="instanceBusyId === item.id || item.result === 'matched'"
@@ -899,7 +1009,7 @@ onMounted(() => {
 .filter-select { padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; background: var(--color-bg-elevated); outline: none; min-width: 140px; }
 .detail-table-wrapper { overflow: auto; max-height: 420px; border: 1px solid var(--color-border); border-radius: 8px; }
 .detail-table { width: 100%; border-collapse: collapse; }
-.detail-table th { position: sticky; top: 0; z-index: 1; padding: 10px 12px; text-align: left; font-size: 13px; font-weight: 600; color: var(--color-text-secondary); background: var(--color-bg); border-bottom: 1px solid var(--color-border); }
+.detail-table th { position: sticky; top: 0; z-index: 1; padding: 10px 12px; text-align: left; font-size: 13px; font-weight: 600; color: var(--color-text-secondary); background: var(--color-bg-table-header); border-bottom: 1px solid var(--color-border); }
 .detail-table td { padding: 10px 12px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--color-border); }
 .table-empty { text-align: center; color: var(--color-text-secondary); padding: 32px 0; font-size: 14px; }
 .checks-pager { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }

@@ -91,6 +91,35 @@ def _pending_occupation_map(instance_ids, exclude_transfer_id=None):
     return occupancy
 
 
+def lock_line_item_instances(items):
+    """Refresh and lock referenced instances in primary-key order inside the caller's transaction."""
+    from apps.assets.models import FixedAsset
+
+    instance_ids = sorted({
+        instance.pk
+        for entry in items
+        for instance in (entry.get('instances') or [])
+    })
+    if not instance_ids:
+        return
+
+    locked = {
+        instance.pk: instance
+        for instance in FixedAsset.objects.select_for_update()
+        .filter(pk__in=instance_ids)
+        .order_by('pk')
+    }
+    missing = [str(instance_id) for instance_id in instance_ids if instance_id not in locked]
+    if missing:
+        raise ValidationError({
+            'detail': f'实例不存在或已被删除：{"、".join(missing)}',
+            'code': 'INSTANCE_INVALID',
+        })
+
+    for entry in items:
+        entry['instances'] = [locked[instance.pk] for instance in (entry.get('instances') or [])]
+
+
 def validate_line_items_instances(action_type, from_branch, to_branch, assign_source, items,
                                   recovery_dest='restock', exclude_transfer_id=None):
     """创建/编辑预检：品目管理方式 × 单据类型矩阵 + 类型专属行规则（生效时 ledger 另有行锁终检）。

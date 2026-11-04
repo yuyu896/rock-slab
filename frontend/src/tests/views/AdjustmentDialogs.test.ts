@@ -20,6 +20,10 @@ vi.mock('@/api/inventories', () => ({
   getInventoryReport: vi.fn(),
 }))
 
+vi.mock('@/store/user', () => ({
+  useUserStore: () => ({ can: () => true }),
+}))
+
 vi.mock('@/utils/request', async () => {
   const actual = await vi.importActual<typeof import('@/utils/request')>('@/utils/request')
   return {

@@ -106,6 +106,7 @@ def apply_adjustment(branch, item, column, delta, reason, operator=None,
             变动量=delta,
             事由=reason,
             经办人=operator,
+            经办人姓名=operator.name if operator else '',
             source_task=source_task,
             is_initial=is_initial,
         )
@@ -171,6 +172,7 @@ def apply_import_adjustments(entries, operator=None):
                 变动量=e['变动量'],
                 事由=f'导入调整（在库 {e["现值"]} → {e["导入值"]}）',
                 经办人=operator,
+                经办人姓名=operator.name if operator else '',
             )
             applied += 1
         return applied

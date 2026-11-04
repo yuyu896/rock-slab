@@ -6,12 +6,13 @@ import { getDepartmentOptions, type Department } from '@/api/departments'
 import { getSuppliers, type Supplier } from '@/api/suppliers'
 import { getAssetStocks } from '@/api/assets'
 import { emptyDraft, type LineDraft } from './lineDrafts'
-import type { TransferType } from '@/constants'
+import type { ActiveTransferActionType } from '@/utils/permissionGroups'
 import type { FixedAsset } from '@/types'
 
 const props = defineProps<{
   modelValue: LineDraft[]
-  type: TransferType
+  /** 仅支持仍可新建或编辑的流转单类型；归还历史没有编辑入口。 */
+  type: ActiveTransferActionType
   /** 领用行部门/实例选择联动分公司（uuid） */
   branchId?: string
   /** 分公司名（实例点选器按分公司过滤） */
@@ -20,6 +21,7 @@ const props = defineProps<{
   assignSource?: 'stock' | 'recycle_bin'
   /** 回收去向（restock=仅实例在用 / dispose=在库在用双源、数量行扣在库），仅 recovery */
   recoveryDest?: 'restock' | 'dispose'
+  canViewInstances?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: LineDraft[]): void
@@ -59,8 +61,8 @@ function onItemPicked(index: number, item: any) {
   touch()
 }
 
-/** 绑定类单据（采购为生成制）：实例管理品目行必须点选实例；归还页接入后补 'return' */
-const BINDING_TYPES: TransferType[] = ['assign', 'transfer', 'recovery']
+/** 绑定类单据（采购为生成制）：实例管理品目行必须点选实例 */
+const BINDING_TYPES: ActiveTransferActionType[] = ['assign', 'transfer', 'recovery']
 function isInstanceRow(draft: LineDraft): boolean {
   return draft.item?.managementType === 'instance' && BINDING_TYPES.includes(props.type)
 }
@@ -70,7 +72,7 @@ function pickerStatus(): string {
   if (props.type === 'assign') return props.assignSource === 'recycle_bin' ? '回收库' : '在库'
   if (props.type === 'transfer') return '在库'
   if (props.type === 'recovery') return props.recoveryDest === 'dispose' ? '在库,在用' : '在用'
-  return '在用' // return
+  return '在用'
 }
 
 /** 本单全部行已选实例 id：跨行去重下传（本行已选在组件内保留勾选回显） */
@@ -164,6 +166,7 @@ watch(
 )
 
 const hasInstanceColumn = computed(() => BINDING_TYPES.includes(props.type))
+const excludeInstanceItems = computed(() => hasInstanceColumn.value && props.canViewInstances === false)
 
 /** 品目点选扣数列收口：领用按来源、调拨在库、回收在用；采购生成制不收口（全量字典） */
 const itemStockColumn = computed<string | undefined>(() => {
@@ -175,7 +178,7 @@ const itemStockColumn = computed<string | undefined>(() => {
   }
   return undefined
 })
-/** 回收库来源剔除消耗品（领出即耗用品目不得走回收库，与提交校验口径一致） */
+/** 回收库领用排除消耗品，因为消耗品没有回收库存。 */
 const excludeConsumable = computed(() => itemStockColumn.value === '回收库数量')
 
 /** 回收台账行缓存（品目编号 → {stock, inUse}）：点选逐条拉取，切分公司整体失效重拉 */
@@ -235,7 +238,7 @@ function stockOf(code: string): number | null {
 function recoveryQuantityIssue(): string | null {
   if (props.recoveryDest !== 'dispose') {
     const bad = drafts.value.find((d) => d.item && d.item.managementType !== 'instance')
-    if (bad?.item) return `品目 ${bad.item.asset_code} 数量品物无重新入库概念（回库请走归还单；处置请改选「直接处置」）`
+    if (bad?.item) return `品目 ${bad.item.asset_code} 为数量管理，不能走重新入库；请选择“直接处置”`
     return null
   }
   const merged = new Map<string, number>()
@@ -246,7 +249,7 @@ function recoveryQuantityIssue(): string | null {
   })
   for (const [code, total] of merged) {
     if (total > (stockOf(code) ?? 0)) {
-      return `品目 ${code} 合计处置 ${total} 超出当前在库 ${stockOf(code)}；若有在用余量请先走归还单`
+      return `品目 ${code} 合计处置 ${total} 超出当前在库 ${stockOf(code)}；请调整数量后再提交`
     }
   }
   return null
@@ -288,6 +291,7 @@ defineExpose({ validate, validateMessage })
       <div class="lines-header" :data-type="type">
         <span>品目 <span class="req">*</span></span>
         <span>数量 <span class="req">*</span></span>
+        <span>单位</span>
         <span v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'">本批规格</span>
         <span v-if="type === 'purchase'">供应商</span>
         <span v-if="type === 'purchase'">单价</span>
@@ -307,6 +311,7 @@ defineExpose({ validate, validateMessage })
             :branch="branchName"
             :stock-column="itemStockColumn"
             :exclude-consumable="excludeConsumable"
+            :exclude-instance="excludeInstanceItems"
             @change="(item) => onItemPicked(index, item)"
           />
           <div v-if="draft.item?.managementType === 'consumable'" class="picked-meta consumable-meta">
@@ -331,6 +336,7 @@ defineExpose({ validate, validateMessage })
             :class="{ 'in-use-short': Number(draft.数量) > (stockOf(draft.item.asset_code) ?? 0) }"
           >在库 {{ stockOf(draft.item.asset_code) }}</div>
         </div>
+        <div class="cell unit-cell">{{ draft.item?.unit || '—' }}</div>
         <div v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'" class="cell"><input v-model="draft.本批规格" type="text" class="row-input" placeholder="记录性" @change="touch" /></div>
         <div v-if="type === 'purchase'" class="cell">
           <select v-model="draft.行供应商" class="row-input" @change="touch">
@@ -355,6 +361,7 @@ defineExpose({ validate, validateMessage })
               :expanded="expandedRow === draft.key"
               :model-value="draft.instances.map((i) => i.id)"
               :item-code="draft.item.asset_code"
+              :type="type"
               :status="pickerStatus()"
               :branch-name="branchName"
               :excluded-ids="pickedInstanceIds"
@@ -383,11 +390,12 @@ defineExpose({ validate, validateMessage })
 .lines-header, .lines-row { display: grid; gap: 8px; padding: 8px 12px; align-items: center; }
 .lines-header { background: var(--color-bg-elevated); font-size: 13px; color: var(--color-text-secondary); }
 .lines-row { border-top: 1px solid var(--color-border); }
-.lines-header[data-type='purchase'] , .lines-row[data-type='purchase'] { grid-template-columns: 2fr 0.55fr 1fr 1fr 0.85fr 0.85fr 56px; }
-.lines-header[data-type='assign'] , .lines-row[data-type='assign'] { min-width: 930px; grid-template-columns: minmax(170px, 2fr) minmax(56px, 0.55fr) minmax(100px, 1fr) minmax(125px, 1.1fr) minmax(150px, 1.3fr) minmax(135px, 1.2fr) 56px; }
-.lines-header[data-type='transfer'] , .lines-row[data-type='transfer'] { grid-template-columns: 2.2fr 0.6fr 1.1fr 1.5fr 56px; }
-.lines-header[data-type='recovery'] , .lines-row[data-type='recovery'] { grid-template-columns: 1.9fr 0.55fr 0.9fr 1fr 1.5fr 56px; }
+.lines-header[data-type='purchase'] , .lines-row[data-type='purchase'] { grid-template-columns: 2fr 0.55fr 60px 1fr 1fr 0.85fr 0.85fr 56px; }
+.lines-header[data-type='assign'] , .lines-row[data-type='assign'] { min-width: 990px; grid-template-columns: minmax(170px, 2fr) minmax(56px, 0.55fr) 60px minmax(100px, 1fr) minmax(125px, 1.1fr) minmax(150px, 1.3fr) minmax(135px, 1.2fr) 56px; }
+.lines-header[data-type='transfer'] , .lines-row[data-type='transfer'] { grid-template-columns: 2.2fr 0.6fr 60px 1.1fr 1.5fr 56px; }
+.lines-header[data-type='recovery'] , .lines-row[data-type='recovery'] { grid-template-columns: 1.9fr 0.55fr 60px 0.9fr 1fr 1.5fr 56px; }
 .cell { min-width: 0; }
+.unit-cell { color: var(--color-text-secondary); font-size: 13px; text-align: center; white-space: nowrap; }
 .note-cell { display: flex; align-items: center; }
 .item-cell { display: flex; flex-direction: column; gap: 4px; }
 .instance-cell { display: flex; flex-direction: column; gap: 4px; }

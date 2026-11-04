@@ -12,7 +12,7 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ back: vi.fn() }),
 }))
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), warning: vi.fn() } }))
-vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { branch: 'branch-current' } }) }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { branch: 'branch-current' }, can: () => true }) }))
 vi.mock('@/api/transfers', () => ({
   getTransfer,
   resubmitTransfer: vi.fn(),

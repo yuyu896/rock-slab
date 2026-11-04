@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useQueryFilters } from '@/composables/useQueryFilters'
 import { getRecoveryLedger, exportRecoveryLedger, type RecoveryLedgerRow } from '@/api/transfers'
 import { getFixedAsset, getFixedAssetTimeline } from '@/api/assets'
@@ -11,10 +11,13 @@ import { View } from '@element-plus/icons-vue'
 import BasePagination from '@/components/BasePagination.vue'
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import { TRANSFER_TYPES } from '@/constants'
+import { useUserStore } from '@/store/user'
 
 /** 物资处置台账：直接处置的物资明细流水（实例逐台一行；单据派生只读） */
 
 const filters = ref({ branch: [] as string[], dateFrom: '', dateTo: '', keyword: '' })
+const userStore = useUserStore()
+const canViewInstances = computed(() => userStore.can('view_instances'))
 const branchOptions = ref<{ value: string; label: string }[]>([])
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
 // 筛选与页码持久化到路由 query（详情页往返保留；恢复须先于下方 fetch-watch）
@@ -200,7 +203,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleDetailKeydown))
             <td class="col-num">{{ row.数量 }}</td>
             <td>
               <button
-                v-if="row.实例ID"
+                v-if="row.实例ID && canViewInstances"
                 type="button"
                 class="asset-link"
                 :aria-label="`查看固定物资档案和生平：${row.内部编号}`"
@@ -210,7 +213,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleDetailKeydown))
                 <span>查看</span>
                 {{ row.内部编号 }}
               </button>
-              <span v-else>-</span>
+              <span v-else>{{ row.内部编号 || '-' }}</span>
             </td>
             <td>{{ row.处置方式 || '-' }}</td>
             <td class="col-num"><span v-if="row.处置金额 != null" class="date-text">{{ row.处置金额 }}</span><span v-else>-</span></td>
@@ -298,7 +301,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleDetailKeydown))
 .filter-reset:hover { color: var(--color-primary-500); border-color: var(--color-primary-500); }
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow-x: auto; flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
-.data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-elevated); }
+.data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-table-header); }
 .data-table th { padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 .data-table td { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--color-text-primary); border-bottom: 1px solid var(--color-border-light); }
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }

@@ -10,7 +10,9 @@ import type { Category } from '@/types'
 import CategoryImportDialog from './categories/CategoryImportDialog.vue'
 
 const router = useRouter()
-const { canManageCategories } = usePermission()
+const { can } = usePermission()
+const canView = computed(() => can('view_categories'))
+const canEdit = computed(() => canView.value && can('edit_categories'))
 
 // 当前选中的分类
 const viewMode = ref<'table' | 'card'>('table')
@@ -77,6 +79,11 @@ const stats = computed(() => {
 
 // 获取分类列表（分页）
 async function fetchCategories() {
+  if (!canView.value) {
+    categories.value = []
+    pagination.value.total = 0
+    return
+  }
   loading.value = true
   try {
     const { data } = await getCategories({
@@ -98,6 +105,10 @@ async function fetchCategories() {
 
 // 获取全量数据（用于统计卡片和筛选器）
 async function fetchAllCategories() {
+  if (!canView.value) {
+    allCategories.value = []
+    return
+  }
   try {
     const all: Category[] = []
     let page = 1
@@ -116,11 +127,13 @@ async function fetchAllCategories() {
 
 // 分页操作
 const handlePageChange = (page: number) => {
+  if (!canView.value) return
   pagination.value.page = page
   fetchCategories()
 }
 
 const handlePageSizeChange = (e: Event) => {
+  if (!canView.value) return
   const select = e.target as HTMLSelectElement
   pagination.value.pageSize = Number(select.value)
   pagination.value.page = 1
@@ -145,6 +158,7 @@ const editCategory = (item: Category) => {
 
 // 删除分类
 const deleteCategory = async (item: Category) => {
+  if (!canEdit.value) return
   try {
     await ElMessageBox.confirm(`确定删除分类"${item.资产名称}"？此操作不可恢复`, '删除确认', { type: 'warning' })
     if (item.id) {
@@ -162,6 +176,7 @@ const deleteCategory = async (item: Category) => {
 
 // 新增分类（跳转独立页面）
 const addCategory = () => {
+  if (!canEdit.value) return
   router.push('/categories/create')
 }
 
@@ -169,6 +184,7 @@ const addCategory = () => {
 const showImportModal = ref(false)
 
 const openImportModal = () => {
+  if (!canEdit.value) return
   showImportModal.value = true
 }
 
@@ -180,8 +196,10 @@ const handleImportSuccess = async () => {
 
 // 初始化
 onMounted(() => {
-  fetchCategories()
-  fetchAllCategories()
+  if (canView.value) {
+    fetchCategories()
+    fetchAllCategories()
+  }
 })
 </script>
 
@@ -194,7 +212,7 @@ onMounted(() => {
         <p class="page-desc">品目字典——编号户籍与管理方式。分编号判定：领用会挑规格吗？警戒线需分开吗？价格需分开核算吗？任一「是」即拆分编号</p>
       </div>
       <div class="header-actions">
-        <button class="btn-secondary" @click="exportCategories({ 资产类目: filterCategory || undefined, 物品分类: filterItemCategory || undefined, 管理方式: filterManagementType || undefined, keyword: filterKeyword || undefined })">
+        <button v-if="canView" class="btn-secondary" @click="exportCategories({ 资产类目: filterCategory || undefined, 物品分类: filterItemCategory || undefined, 管理方式: filterManagementType || undefined, keyword: filterKeyword || undefined })">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -202,7 +220,7 @@ onMounted(() => {
           </svg>
           导出
         </button>
-        <button v-if="canManageCategories" class="btn-secondary" @click="openImportModal">
+        <button v-if="canEdit" class="btn-secondary" @click="openImportModal">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
@@ -210,7 +228,7 @@ onMounted(() => {
           </svg>
           导入
         </button>
-        <button v-if="canManageCategories" class="btn-primary" @click="addCategory">
+        <button v-if="canEdit" class="btn-primary" @click="addCategory">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -220,6 +238,9 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="!canView" class="permission-state">当前账号没有品目查看权限</div>
+
+    <template v-if="canView">
     <!-- 统计卡片 -->
     <div class="stats-row">
       <div class="stat-card">
@@ -382,13 +403,13 @@ onMounted(() => {
             <td>{{ item.警戒线 }}</td>
             <td>
               <div class="action-buttons">
-                <button v-if="canManageCategories" class="action-btn" title="编辑" @click="editCategory(item)">
+                <button v-if="canEdit" class="action-btn" title="编辑" @click="editCategory(item)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                   </svg>
                 </button>
-                <button v-if="canManageCategories" class="action-btn danger" title="删除" @click="deleteCategory(item)">
+                <button v-if="canEdit" class="action-btn danger" title="删除" @click="deleteCategory(item)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -438,7 +459,7 @@ onMounted(() => {
         <div class="card-footer">
           <span class="card-unit">单位：{{ item.计量单位 }}</span>
           <div class="card-actions">
-            <button v-if="canManageCategories" class="card-btn" @click="editCategory(item)">编辑</button>
+            <button v-if="canEdit" class="card-btn" @click="editCategory(item)">编辑</button>
           </div>
         </div>
       </div>
@@ -470,6 +491,7 @@ onMounted(() => {
         </select>
       </div>
     </div>
+    </template>
 
     <!-- 导入弹窗 -->
     <CategoryImportDialog
@@ -485,6 +507,12 @@ onMounted(() => {
 .category-page {
   max-width: 1400px;
   margin: 0 auto;
+}
+
+.permission-state {
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 
 /* 页面头部 */
@@ -730,7 +758,7 @@ onMounted(() => {
 }
 
 .data-table th {
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-table-header);
   padding: var(--space-3) var(--space-4);
   text-align: left;
   font-size: var(--text-sm);

@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { computed, ref } from 'vue'
 
 const mockIsAdmin = { value: true }
+const mockPermissions = new Set<string>()
 
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -14,7 +15,7 @@ vi.mock('element-plus', () => ({
 vi.mock('@/hooks/usePermission', () => ({
   usePermission: () => ({
     canManageAssets: computed(() => true),
-    can: () => true,
+    can: (code: string) => mockIsAdmin.value || mockPermissions.has(code),
     isAdmin: computed(() => mockIsAdmin.value),
   }),
 }))
@@ -27,6 +28,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/assets', () => ({
   getAssetStocks: vi.fn(),
+  getAdjustableAssetStocks: vi.fn(),
   importAssetStocks: vi.fn(),
   exportAssetStocks: vi.fn(),
   downloadAssetStockTemplate: vi.fn(),
@@ -47,7 +49,7 @@ vi.mock('@/api/categories', () => ({
 
 import AssetSummary from '@/views/assets/AssetSummary.vue'
 import SummaryImportDialog from '@/views/assets/SummaryImportDialog.vue'
-import { exportAssetStocks, getAssetStocks, importAssetStocks } from '@/api/assets'
+import { exportAssetStocks, getAssetStocks, getAdjustableAssetStocks, importAssetStocks } from '@/api/assets'
 import type { AssetStock } from '@/types'
 
 const BasePaginationStub = {
@@ -92,6 +94,7 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAdmin.value = true
+    mockPermissions.clear()
     ;(URL as any).createObjectURL = vi.fn(() => 'blob:mock')
     ;(URL as any).revokeObjectURL = vi.fn()
   })
@@ -214,6 +217,43 @@ describe('AssetSummary 页面（P1 台账契约）', () => {
     expect(wrapper.find('tbody .drill-btn').exists()).toBe(false)
   })
 
+  it('非管理员获准导入时只显示导入入口', async () => {
+    mockIsAdmin.value = false
+    mockPermissions.add('import_asset_ledger')
+    vi.mocked(getAssetStocks).mockResolvedValue({
+      data: { count: 1, next: null, previous: null, results: [_stock({})] },
+    } as any)
+
+    const wrapper = await mountSummary()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('增量导入')
+    expect(getAssetStocks).not.toHaveBeenCalled()
+    expect(wrapper.find('tbody').exists()).toBe(false)
+    expect(wrapper.find('tbody .drill-btn').exists()).toBe(false)
+  })
+
+  it('只有调整权限时显示受限台账行和调整入口', async () => {
+    mockIsAdmin.value = false
+    mockPermissions.add('adjust_asset_ledger')
+    vi.mocked(getAdjustableAssetStocks).mockResolvedValue({
+      data: { count: 1, next: null, previous: null, results: [_stock({})] },
+    } as any)
+
+    const wrapper = await mountSummary()
+    await flushPromises()
+
+    expect(getAdjustableAssetStocks).toHaveBeenCalledOnce()
+    expect(getAssetStocks).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('导出')
+    expect(wrapper.text()).not.toContain('调整记录')
+    expect(wrapper.text()).not.toContain('增量导入')
+    expect(wrapper.findAll('thead th').map(th => th.text())).toEqual([
+      '序号', '分公司', '资产编号', '资产名称', '在库', '在用', '回收库', '操作',
+    ])
+    expect(wrapper.find('tbody .drill-btn').text()).toBe('调整')
+  })
+
   it('报表下钻：?sufficient=0 预置仅不足筛选并随查询下发', async () => {
     mockRouteQuery.value = { sufficient: '0' }
     vi.mocked(getAssetStocks).mockResolvedValue({
@@ -269,6 +309,7 @@ describe('SummaryImportDialog 增量导入弹窗（两段式）', () => {
     expect(importAssetStocks).toHaveBeenCalledWith(expect.any(File))
     expect(wrapper.text()).toContain('A-1')
     expect(wrapper.text()).toContain('DUP-9')
+    expect(wrapper.find('.btn-confirm').attributes('disabled')).toBeDefined()
     expect(wrapper.emitted('success')).toBeFalsy()
   })
 

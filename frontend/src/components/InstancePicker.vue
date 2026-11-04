@@ -13,6 +13,8 @@ import type { FixedAsset } from '@/types'
  */
 const props = defineProps<{
   itemCode: string
+  /** 单据类型，用于按对应创建/编辑权限读取占用标注 */
+  type: string
   /** 合法前置状态：领用按来源 在库/回收库；归还=在用；调拨/回收处置=在库或用（逗号多值） */
   status: string
   /** 分公司名（未选则禁用） */
@@ -55,7 +57,7 @@ async function loadOccupancy() {
   if (!props.branchName || !props.itemCode) return
   try {
     const { data } = await request.get('/api/transfers/instance-occupancy', {
-      params: { branch: props.branchName, asset_code: props.itemCode },
+      params: { branch: props.branchName, asset_code: props.itemCode, type: props.type },
     })
     occupancy.value = new Map(
       ((data as any[]) || []).map(o => [o.instanceId, { docNo: o.docNo, docStatus: o.docStatus }]),
@@ -99,7 +101,7 @@ function onPanelScroll(e: Event) {
 }
 
 watch(expanded, (v) => { if (v) load(true) })
-watch(() => [props.itemCode, props.status, props.branchName], () => {
+watch(() => [props.itemCode, props.status, props.branchName, props.type], () => {
   if (expanded.value) load(true)
 })
 watch(search, () => {

@@ -152,7 +152,7 @@ class TestImportHint:
         task.save(update_fields=['status'])
         InventoryInstanceItem.objects.filter(task=task).delete()  # 模拟历史空清单任务
         resp = self._upload(authenticated_client, task)
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         assert resp.data['imported'] == 0
         assert '清单为空' in resp.data['hint']
         assert '作废重建' in resp.data['hint']
@@ -184,5 +184,5 @@ class TestImportHint:
         )
         resp = authenticated_client.post(
             f'/api/inventories/{task.id}/import-result', {'file': buf}, format='multipart')
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         assert any('已找到/未找到' in e for e in resp.data['errors'])

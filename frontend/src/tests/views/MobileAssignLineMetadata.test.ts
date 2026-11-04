@@ -7,8 +7,10 @@ const mocks = vi.hoisted(() => ({
   getBranches: vi.fn(),
   getCategories: vi.fn(),
   lookupCategoryByCode: vi.fn(),
+  lookupAvailableTransferItem: vi.fn(),
   routeQuery: {} as Record<string, string>,
   routerReplace: vi.fn(),
+  can: vi.fn((_code: string) => true),
 }))
 
 vi.mock('vue-router', () => ({
@@ -16,7 +18,7 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ back: vi.fn(), replace: mocks.routerReplace }),
 }))
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }))
-vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { branch: 'b-1', name: '张三' } }) }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { branch: 'b-1', name: '张三' }, can: mocks.can }) }))
 vi.mock('@/api/transfers', () => ({
   assignAsset: mocks.assignAsset,
   getTransfer: mocks.getTransfer,
@@ -29,6 +31,7 @@ vi.mock('@/api/categories', () => ({
   getCategories: mocks.getCategories,
 }))
 vi.mock('@/api/branches', () => ({ getBranches: mocks.getBranches }))
+vi.mock('@/api/assets', () => ({ lookupAvailableTransferItem: mocks.lookupAvailableTransferItem }))
 
 import MobileAssign from '@/views/mobile/MobileAssign.vue'
 
@@ -36,10 +39,12 @@ describe('移动端领用备注', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     Object.keys(mocks.routeQuery).forEach((key) => delete mocks.routeQuery[key])
+    mocks.can.mockReturnValue(true)
     mocks.assignAsset.mockResolvedValue({ data: { id: 'assign-1' } })
     mocks.getBranches.mockResolvedValue({ data: [{ id: 'b-1', name: '北京分公司' }] })
     mocks.getCategories.mockResolvedValue({ data: [] })
     mocks.lookupCategoryByCode.mockResolvedValue({ data: { id: 'item-1' } })
+    mocks.lookupAvailableTransferItem.mockResolvedValue('item-1')
   })
 
   it('不显示用途并将备注提交到唯一明细行，不发单头备注', async () => {
@@ -52,6 +57,7 @@ describe('移动端领用备注', () => {
     await flushPromises()
 
     expect(mocks.assignAsset).toHaveBeenCalledTimes(1)
+    expect(mocks.lookupAvailableTransferItem).toHaveBeenCalledWith('北京分公司', 'NB-001')
     const payload = mocks.assignAsset.mock.calls[0][0]
     expect(payload).not.toHaveProperty('调出部门')
     expect(payload).not.toHaveProperty('用途')
@@ -79,5 +85,35 @@ describe('移动端领用备注', () => {
       path: '/transfers/assign/create',
       query: { id: 'assign-multi' },
     })
+  })
+
+  it('编辑权限和模块及台账查看权限齐全时显示草稿和直接提交', async () => {
+    mocks.can.mockImplementation((code) => ['edit_assignment', 'view_assignment', 'view_asset_ledger'].includes(code))
+
+    const wrapper = mount(MobileAssign)
+    await flushPromises()
+
+    expect(wrapper.find('.draft-btn').exists()).toBe(true)
+    expect(wrapper.find('.submit-btn').exists()).toBe(true)
+  })
+
+  it('缺少台账查看前置时不显示建单操作', async () => {
+    mocks.can.mockImplementation((code) => code === 'edit_assignment')
+
+    const wrapper = mount(MobileAssign)
+    await flushPromises()
+
+    expect(wrapper.find('.draft-btn').exists()).toBe(false)
+    expect(wrapper.find('.submit-btn').exists()).toBe(false)
+  })
+
+  it('缺少领用单查看权时仅凭编辑和台账查看权限不显示写操作', async () => {
+    mocks.can.mockImplementation((code) => ['edit_assignment', 'view_asset_ledger'].includes(code))
+
+    const wrapper = mount(MobileAssign)
+    await flushPromises()
+
+    expect(wrapper.find('.draft-btn').exists()).toBe(false)
+    expect(wrapper.find('.submit-btn').exists()).toBe(false)
   })
 })

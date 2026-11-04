@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { branchSelectStub } from '../helpers/branchSelectStub'
 
 vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: vi.fn() },
 }))
-vi.mock('@/store/user', () => ({ useUserStore: () => ({ profile: { name: '张三' } }) }))
+vi.mock('@/store/user', () => ({ useUserStore: () => ({
+  profile: { name: '张三' }, isAdmin: false, can: () => true,
+}) }))
 vi.mock('@/api/transfers', () => ({
   transferAsset: vi.fn().mockResolvedValue({ data: { id: 't-1' } }),
 }))
@@ -42,7 +45,7 @@ const editorStub = {
 
 function mountPage() {
   return mount(TransferCreate, {
-    global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' } } },
+    global: { stubs: { TransferLinesEditor: editorStub as any, DepartmentSelect: { template: '<div />' }, BranchSelect: branchSelectStub as any } },
   })
 }
 

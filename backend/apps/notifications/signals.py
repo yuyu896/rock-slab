@@ -5,7 +5,14 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from apps.transfers.models import Transfer
+from apps.transfers.authorization import (
+    get_transfer_approvers,
+    get_transfer_approvers_for_document,
+    get_transfer_inbound_rejectors,
+    get_upper_approval_report_recipients,
+)
 from apps.inventories.models import InventoryTask
+from apps.inventories.authorization import get_inventory_review_approvers
 from apps.users.models import User
 from .models import Notification, ApprovalCC
 
@@ -53,6 +60,38 @@ def _users_with_operation_access(branch, code, include_admin=True, exclude_admin
     return result
 
 
+def _notify_inventory_approval_report(task):
+    recipients = get_upper_approval_report_recipients(task.branch)
+    result = task.get_status_display()
+    snapshot = {
+        'task_name': task.name,
+        'branch': task.branch.name if task.branch else '',
+        'status': task.status,
+        'status_display': result,
+        'completed_at': task.completed_at.isoformat() if task.completed_at else None,
+        'rejected_at': task.rejected_at.isoformat() if task.rejected_at else None,
+        'rejected_by': task.rejected_by.name if task.rejected_by else '',
+        'reject_reason': task.reject_reason or '',
+    }
+    for recipient in recipients:
+        ApprovalCC.objects.create(
+            inventory_task=task,
+            cc_type='auto',
+            cc_reason=f'盘点审批结果（{result}）向上级报告',
+            recipient=recipient,
+            approval_snapshot=snapshot,
+        )
+        Notification.objects.create(
+            recipient=recipient,
+            notification_type='cc',
+            title=f'盘点审批报告：{task.name}',
+            content=f'{snapshot["branch"]}的盘点任务“{task.name}”审批结果：{result}。',
+            priority='low',
+            related_object_type='inventory_task',
+            related_object_id=task.id,
+        )
+
+
 def _is_recipient_self(instance, user):
     """自通知排除：优先 created_by 外键比较，存量无 FK 单据回退姓名。"""
     if instance.created_by_id:
@@ -83,9 +122,11 @@ def _routing_branch(instance):
     return Branch.objects.filter(name=text).first() if text else None
 
 
-def get_approvers_for_branch(branch):
-    """获取对某分公司有数据范围授权的审批人（持 approve_transfer 或 admin）。"""
-    return _users_with_operation_access(branch, 'approve_transfer')
+def get_approvers_for_branch(branch, action_type=None):
+    """获取某分公司、某单据类型当前应处理的审批人。"""
+    if action_type is None:
+        return []
+    return get_transfer_approvers(branch, action_type)
 
 
 def _doc_summary(instance):
@@ -102,6 +143,48 @@ def _doc_summary(instance):
     }
 
 
+def _notify_transfer_approval_report(instance, summary, result_label):
+    branch = _routing_branch(instance)
+    recipients = get_upper_approval_report_recipients(branch)
+    action_display = dict(Transfer.ACTION_CHOICES).get(
+        instance.action_type, instance.action_type,
+    )
+    snapshot = {
+        'asset_name': summary['asset_name'],
+        'asset_code': summary['asset_code'],
+        'doc_number': instance.单据编号,
+        'from_branch': instance.调出分公司,
+        'to_branch': instance.调入分公司,
+        'approver': instance.审批人,
+        'approved_at': instance.审批时间.isoformat() if instance.审批时间 else None,
+        'action_type': instance.action_type,
+        'action_display': action_display,
+        'qty': summary['qty'],
+        'result': result_label,
+        'reason': instance.备注 or '',
+    }
+    for recipient in recipients:
+        ApprovalCC.objects.create(
+            transfer=instance,
+            cc_type='auto',
+            cc_reason=f'{result_label}后向上级报告',
+            recipient=recipient,
+            approval_snapshot=snapshot,
+        )
+        Notification.objects.create(
+            recipient=recipient,
+            notification_type='cc',
+            title=f'审批报告：{summary["asset_name"]} {result_label}',
+            content=(
+                f'{instance.审批人} 已{result_label}{action_display}申请，'
+                f'{instance.调出分公司} → {instance.调入分公司}'
+            ),
+            priority='low',
+            related_object_type='transfer',
+            related_object_id=instance.id,
+        )
+
+
 def notify_transfer_created(instance):
     """单据进入待审批时通知审批人。
 
@@ -112,10 +195,8 @@ def notify_transfer_created(instance):
     summary = _doc_summary(instance)
     if summary is None:
         return
-    # 路由口径=业务分公司（notification-routing-accuracy）：采购/归还按调入方，
-    # 领用/调拨/回收按调出方（FK 优先、文本兜底）——
-    # Web 采购调出侧为空导致的全员广播不复存在
-    approvers = get_approvers_for_branch(_routing_branch(instance))
+    # 本级存在该单据类型审批人时只路由本级；否则沿用上级数据范围兜底。
+    approvers = get_transfer_approvers_for_document(instance)
 
     # 动作类型映射
     action_display = dict(Transfer.ACTION_CHOICES).get(
@@ -123,10 +204,6 @@ def notify_transfer_created(instance):
     )
 
     for approver in approvers:
-        # 避免自己通知自己
-        if _is_recipient_self(instance, approver):
-            continue
-
         Notification.objects.create(
             recipient=approver,
             notification_type='approval',
@@ -146,11 +223,9 @@ def notify_transfer_created(instance):
             },
         )
 
-    # 调入方驳回通道（transfer-inbound-reject）：调拨单同时通知调入方持 manage_assets 者（可驳回拒收）
+    # 调入方驳回通道：调拨单通知持 edit_transfer 权限且满足查看前置的调入方人员。
     if instance.action_type == Transfer.ACTION_TRANSFER and instance.调入分公司:
-        inbound_managers = _users_with_operation_access(
-            instance.调入分公司, 'manage_assets', include_admin=False,
-        )
+        inbound_managers = get_transfer_inbound_rejectors(instance.to_branch or instance.调入分公司)
         for manager in inbound_managers:
             if _is_recipient_self(instance, manager):
                 continue
@@ -213,48 +288,7 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                     related_object_id=instance.id,
                 )
 
-        # 2. 抄送给对业务分公司有授权的行政经理
-        # 抄送资格 = 持「查看抄送记录」授权（admin 免打扰）
-        managers = _users_with_operation_access(
-            _routing_branch(instance), 'view_all_notifications',
-            include_admin=False, exclude_admin=True,
-        )
-
-        action_display = dict(Transfer.ACTION_CHOICES).get(
-            instance.action_type, instance.action_type,
-        )
-
-        for manager in managers:
-            # 创建抄送记录
-            ApprovalCC.objects.create(
-                transfer=instance,
-                cc_type='auto',
-                cc_reason='审批通过自动抄送',
-                recipient=manager,
-                approval_snapshot={
-                    'asset_name': summary['asset_name'],
-                    'asset_code': summary['asset_code'],
-                    'doc_number': instance.单据编号,
-                    'from_branch': instance.调出分公司,
-                    'to_branch': instance.调入分公司,
-                    'approver': instance.审批人,
-                    'approved_at': instance.审批时间.isoformat() if instance.审批时间 else None,
-                    'action_type': instance.action_type,
-                    'action_display': action_display,
-                    'qty': summary['qty'],
-                },
-            )
-
-            # 同时创建通知
-            Notification.objects.create(
-                recipient=manager,
-                notification_type='cc',
-                title=f'抄送：{summary["asset_name"]} 审批已通过',
-                content=f'{instance.审批人} 已通过{action_display}申请，{instance.调出分公司} → {instance.调入分公司}',
-                priority='low',
-                related_object_type='transfer',
-                related_object_id=instance.id,
-            )
+        _notify_transfer_approval_report(instance, summary, '通过')
 
     # 检测状态从"待审批"变为"已驳回"
     elif old_instance.审批状态 == '待审批' and instance.审批状态 == '已驳回':
@@ -276,6 +310,7 @@ def handle_transfer_approval_change(sender, instance, **kwargs):
                     related_object_type='transfer',
                     related_object_id=instance.id,
                 )
+        _notify_transfer_approval_report(instance, summary, '驳回')
 
 
 @receiver(post_save, sender=InventoryTask)
@@ -283,6 +318,9 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
     """盘点任务状态变更通知"""
     if created:
         # 新建任务通知相关人员
+        return
+
+    if getattr(instance, '_previous_status', None) == instance.status:
         return
 
     # 状态变更通知
@@ -314,14 +352,9 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
 
     # 提交审核时通知审批人
     if instance.status == 'pending_review':
-        approvers = _users_with_operation_access(
-            instance.branch, 'approve_inventory',
-        )
+        approvers = get_inventory_review_approvers(instance)
 
         for approver in approvers:
-            if instance.created_by and approver.id == instance.created_by.id:
-                continue
-
             Notification.objects.create(
                 recipient=approver,
                 notification_type='approval',
@@ -332,31 +365,16 @@ def notify_on_inventory_status_change(sender, instance, created, **kwargs):
                 related_object_id=instance.id,
             )
 
-    # 审批通过后抄送给对该盘点分公司有授权的行政经理
-    if instance.status == 'completed':
-        managers = _users_with_operation_access(
-            instance.branch, 'view_all_notifications', include_admin=False, exclude_admin=True,
-        )
+    # 上级只在审批结果形成后收到只读报告；分公司内用户不参与抄送。
+    if instance.status in ('completed', 'rejected'):
+        _notify_inventory_approval_report(instance)
 
-        for manager in managers:
-            ApprovalCC.objects.create(
-                inventory_task=instance,
-                cc_type='auto',
-                cc_reason='盘点完成自动抄送',
-                recipient=manager,
-                approval_snapshot={
-                    'task_name': instance.name,
-                    'status': instance.status,
-                    'completed_at': instance.completed_at.isoformat() if instance.completed_at else None,
-                },
-            )
 
-            Notification.objects.create(
-                recipient=manager,
-                notification_type='cc',
-                title=f'抄送：盘点任务 {instance.name} 已完成',
-                content='盘点任务已完成审批。',
-                priority='low',
-                related_object_type='inventory_task',
-                related_object_id=instance.id,
-            )
+@receiver(pre_save, sender=InventoryTask)
+def capture_previous_inventory_status(sender, instance, **kwargs):
+    if not instance.pk:
+        instance._previous_status = None
+        return
+    instance._previous_status = InventoryTask.objects.filter(
+        pk=instance.pk,
+    ).values_list('status', flat=True).first()

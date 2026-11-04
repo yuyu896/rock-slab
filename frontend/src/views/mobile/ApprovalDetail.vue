@@ -5,7 +5,8 @@ import { transferDocSummary } from '@/types'
 import { getTransfer, approveTransfer, rejectTransfer } from '@/api/transfers'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { Transfer } from '@/types'
+import type { Transfer, TransferActionType } from '@/types'
+import { TRANSFER_PERMISSION_OPERATIONS } from '@/utils/permissionGroups'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,9 +18,16 @@ const loading = ref(true)
 const rejectReason = ref('')
 const showRejectInput = ref(false)
 
-const canApprove = computed(() => userStore.can('approve_transfer'))
+const canApprove = computed(() => {
+  if (!transfer.value) return false
+  const type = ((transfer.value as any).actionType || 'transfer') as TransferActionType
+  if (type === 'return') return false
+  return Boolean(TRANSFER_PERMISSION_OPERATIONS[type]
+    && userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].approve))
+})
 
 const actionLabels: Record<string, string> = {
+  purchase: '采购入库',
   assign: '领用',
   return: '归还',
   transfer: '调拨',
@@ -45,7 +53,7 @@ async function fetchDetail() {
 }
 
 async function handleApprove() {
-  if (!transfer.value) return
+  if (!transfer.value || !canApprove.value) return
   try {
     await ElMessageBox.confirm('确定通过此申请？', '审批确认', {
       confirmButtonText: '通过',
@@ -63,7 +71,7 @@ async function handleApprove() {
 }
 
 async function handleReject() {
-  if (!transfer.value) return
+  if (!transfer.value || !canApprove.value) return
   if (!rejectReason.value.trim()) {
     showRejectInput.value = true
     return

@@ -8,6 +8,7 @@ from rest_framework import status
 
 from apps.assets.models import AssetStock, FixedAsset
 from apps.assets.services import ledger
+from apps.permissions.models import OperationGrant
 from apps.transfers.models import TransferLine
 
 
@@ -104,21 +105,6 @@ class TestRecoveryRestockAndDisposePrecheck:
         assert '回收扣减不足' in str(resp.data['detail'])
         row = _row(branch, 'RC-2F')
         assert row.在库数量 == 0 and row.回收库数量 == 0  # 整体回滚
-
-    def test_return_insufficient_keeps_generic_error(self, authenticated_client, branch, item_id):
-        """归还的台账不足保持通用格式（业务化文案仅回收单）。"""
-        _ensure_item('RC-5')  # 无台账行 = 在用 0
-        payload = {
-            '调拨日期': '2026-08-23', '调入分公司': branch.name,
-            'items': [{'item': item_id('RC-5'), '数量': 1}],
-        }
-        resp = authenticated_client.post('/api/transfers/return', payload, format='json')
-        assert resp.status_code == 201
-        resp = _approve(authenticated_client, resp.data['id'])
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert '在用数量不足' in str(resp.data['detail'])
-        assert '需变动 -1' in str(resp.data['detail'])
-
 
 @pytest.mark.django_db
 class TestRecoveryDirectDispose:
@@ -303,6 +289,9 @@ class TestImmediateChannelRemoved:
 
     def test_immediate_rejected_for_regular_user(self, staff_user, branch, item_id):
         _seed_ledger(branch, 'IM-1', in_use=5)
+        OperationGrant.objects.get_or_create(user=staff_user, code='edit_recovery')
+        OperationGrant.objects.get_or_create(user=staff_user, code='view_recovery')
+        OperationGrant.objects.get_or_create(user=staff_user, code='view_asset_ledger')
         client = _client_for(staff_user)
         resp = client.post(
             '/api/transfers/recovery',
@@ -319,7 +308,11 @@ class TestImmediateChannelRemoved:
 
     def test_immediate_rejected_even_with_manage_assets(self, supervisor_user, branch, item_id):
         """持 manage_assets 也不豁免——通道彻底下线，不留 admin 特例。"""
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='manage_assets')
         _seed_ledger(branch, 'IM-2', in_use=5)
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='edit_recovery')
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='view_recovery')
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='view_asset_ledger')
         client = _client_for(supervisor_user)
         resp = client.post(
             '/api/transfers/recovery',
@@ -334,6 +327,8 @@ class TestImmediateChannelRemoved:
         """普通回收单创建同样受盘点锁（immediate 时代的锁语义在创建路径延续）。"""
         from apps.inventories.models import InventoryTask
         _seed_ledger(branch, 'IM-5', in_use=0, stock=5)
+        for code in ('edit_recovery', 'view_recovery', 'view_asset_ledger'):
+            OperationGrant.objects.get_or_create(user=supervisor_user, code=code)
         InventoryTask.objects.create(
             name='锁库盘点', branch=branch, status='in_progress',
         )
@@ -348,6 +343,8 @@ class TestImmediateChannelRemoved:
 
     def test_plain_recovery_stays_pending(self, staff_user, branch, item_id):
         _seed_ledger(branch, 'IM-6', in_use=0, stock=5)
+        for code in ('edit_recovery', 'view_recovery', 'view_asset_ledger'):
+            OperationGrant.objects.get_or_create(user=staff_user, code=code)
         client = _client_for(staff_user)
         resp = client.post(
             '/api/transfers/recovery',
@@ -575,6 +572,7 @@ class TestRecoveryDisposalLedger:
         self, authenticated_client, branch, supervisor_b,
     ):
         self._make_disposed(authenticated_client, branch)
+        OperationGrant.objects.get_or_create(user=supervisor_b, code='view_recovery_ledger')
         scoped_client = _client_for(supervisor_b)
         ledger = scoped_client.get('/api/transfers/recovery-ledger')
         assert ledger.status_code == 200

@@ -43,6 +43,10 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("organizations", "0008_department"),
+        # flatten_departments rewrites department FKs on InventoryTask,
+        # TransferLine, and FixedAsset. The inventory migration also orders
+        # the relevant transfer/asset fields before this data migration.
+        ("inventories", "0007_inventorytask_department_inventorytask_stock_bin_and_more"),
     ]
 
     operations = [

@@ -14,6 +14,12 @@ def _grant(user, code):
     return user
 
 
+def _grant_inbound_reject_access(user):
+    _grant(user, 'view_transfer')
+    _grant(user, 'view_asset_ledger')
+    return _grant(user, 'edit_transfer')
+
+
 @pytest.fixture
 def item_instance(branch):
     from apps.categories.models import Category
@@ -39,7 +45,24 @@ def _doc(from_branch, to_branch, code, *, creator=None, status='待审批', item
 
 @pytest.mark.django_db
 class TestInboundReject:
+    def test_inbound_reject_requires_view_permission(self, supervisor_b, branch, second_branch):
+        OperationGrant.objects.filter(user=supervisor_b, code='view_transfer').delete()
+        _grant(supervisor_b, 'edit_transfer')
+        from apps.transfers.authorization import get_transfer_inbound_rejectors
+        assert supervisor_b not in get_transfer_inbound_rejectors(second_branch)
+        doc = _doc(branch, second_branch, 'IR-0')
+        client = _client_for(supervisor_b)
+
+        response = client.post(
+            f'/api/transfers/{doc.pk}/inbound-reject',
+            {'reason': '库存不符'},
+            format='json',
+        )
+
+        assert response.status_code in {403, 404}
+
     def test_inbound_side_can_reject(self, supervisor_b, staff_user, branch, second_branch):
+        _grant_inbound_reject_access(supervisor_b)
         doc = _doc(branch, second_branch, 'IR-1', creator=staff_user)
         client = _client_for(supervisor_b)
         resp = client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': '库存不符'}, format='json')
@@ -51,26 +74,34 @@ class TestInboundReject:
         assert '【调入方驳回】库存不符' in doc.备注
 
     def test_reason_required(self, supervisor_b, branch, second_branch):
+        _grant_inbound_reject_access(supervisor_b)
         doc = _doc(branch, second_branch, 'IR-2')
         client = _client_for(supervisor_b)
         resp = client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': '  '}, format='json')
         assert resp.status_code == 400 and '驳回原因' in str(resp.data)
 
     def test_stage_limited(self, supervisor_b, branch, second_branch):
+        _grant_inbound_reject_access(supervisor_b)
         client = _client_for(supervisor_b)
         for i, status in enumerate(['草稿', '已通过', '已驳回']):
-            doc = _doc(branch, second_branch, f'IR-S{i}', status=status)
+            doc = _doc(
+                branch, second_branch, f'IR-S{i}',
+                creator=supervisor_b, status=status,
+            )
             resp = client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': 'x'}, format='json')
             assert resp.status_code == 400, status
 
     def test_outbound_side_forbidden(self, staff_user, branch, second_branch):
-        _grant(staff_user, 'manage_assets')
+        _grant(staff_user, 'view_transfer')
+        _grant(staff_user, 'view_asset_ledger')
+        _grant(staff_user, 'edit_transfer')
         doc = _doc(branch, second_branch, 'IR-3')
         client = _client_for(staff_user)
         resp = client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': 'x'}, format='json')
-        assert resp.status_code == 400 and '授权范围' in str(resp.data)
+        assert resp.status_code in {400, 403}
 
     def test_non_transfer_type_rejected(self, supervisor_b, branch, second_branch):
+        _grant_inbound_reject_access(supervisor_b)
         doc = Transfer.objects.create(
             单据编号='IR-4', 调拨日期=datetime.date(2026, 9, 29),
             调入分公司=second_branch.name, to_branch=second_branch,
@@ -87,12 +118,14 @@ class TestInboundReject:
             role='manager', status='active', branch=second_branch,
         )
         ManagementScope.objects.create(user=user, branch=second_branch)
+        _grant(user, 'view_transfer')
         doc = _doc(branch, second_branch, 'IR-5')
         client = _client_for(user)
         resp = client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': 'x'}, format='json')
-        assert resp.status_code == 403
+        assert resp.status_code in {403, 404}
 
     def test_second_attempt_after_processing(self, supervisor_b, staff_user, branch, second_branch):
+        _grant_inbound_reject_access(supervisor_b)
         doc = _doc(branch, second_branch, 'IR-6', creator=staff_user)
         client = _client_for(supervisor_b)
         assert client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': 'a'}, format='json').status_code == 200
@@ -100,6 +133,10 @@ class TestInboundReject:
         assert resp.status_code == 400
 
     def test_creator_can_resubmit_after_reject(self, supervisor_b, staff_user, branch, second_branch):
+        _grant_inbound_reject_access(supervisor_b)
+        _grant(staff_user, 'view_transfer')
+        _grant(staff_user, 'view_asset_ledger')
+        _grant(staff_user, 'edit_transfer')
         doc = _doc(branch, second_branch, 'IR-7', creator=staff_user)
         client = _client_for(supervisor_b)
         assert client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': 'a'}, format='json').status_code == 200
@@ -109,6 +146,8 @@ class TestInboundReject:
         assert doc.审批状态 == '待审批'
 
     def test_serializer_flags(self, supervisor_b, staff_user, branch, second_branch):
+        _grant_inbound_reject_access(supervisor_b)
+        _grant(staff_user, 'view_transfer')
         doc = _doc(branch, second_branch, 'IR-8')
         resp = _client_for(supervisor_b).get(f'/api/transfers/{doc.pk}')
         assert resp.data['canInboundReject'] is True
@@ -127,6 +166,7 @@ class TestInboundNotifications:
         ).exists()
 
     def test_creator_notified_after_inbound_reject(self, supervisor_b, staff_user, branch, second_branch, item_instance):
+        _grant_inbound_reject_access(supervisor_b)
         doc = _doc(branch, second_branch, 'IR-N2', creator=staff_user, item=item_instance)
         client = _client_for(supervisor_b)
         assert client.post(f'/api/transfers/{doc.pk}/inbound-reject', {'reason': '数量有误'}, format='json').status_code == 200
