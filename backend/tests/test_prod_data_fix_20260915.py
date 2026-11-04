@@ -148,19 +148,20 @@ class TestSuzhouWipe:
         assert AssetStock.objects.get(branch=suzhou, item=qty_item).在库数量 == 6
         _check_consistent()
 
-    def test_reimport_numbering_continues(self, suzhou):
+    def test_reimport_reuses_lowest_freed_numbers(self, suzhou):
         p1 = _item('SZB-I3')
         _purchase(suzhou, p1, 2, 'CG20250901-210')
-        old = set(
-            FixedAsset.objects.filter(branch=suzhou, item=p1).values_list('内部编号', flat=True)
-        )
         _run('--apply')
         _purchase(suzhou, p1, 2, 'CG20250901-211')
         new = set(
             FixedAsset.objects.filter(branch=suzhou, item=p1).values_list('内部编号', flat=True)
         )
-        assert len(new) == 2 and not (new & old)
-        assert all(n > max(old) for n in new)
+        assert new == {
+            f'{p1.asset_code}-{suzhou.code}-1',
+            f'{p1.asset_code}-{suzhou.code}-2',
+        }
+        from apps.assets.models import InstanceSequence
+        assert InstanceSequence.objects.get(item=p1, branch=suzhou).last_no == 2
         _check_consistent()
 
 
