@@ -3,6 +3,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { computed, defineComponent, h, inject, provide, type ComputedRef } from 'vue'
 import { ElMessageBox } from 'element-plus'
 
+const permissionState = vi.hoisted(() => ({
+  can: vi.fn((_code: string) => true),
+}))
+
 vi.mock('@/api/reconciliation', () => ({
   getReconciliationTasks: vi.fn(),
   getReconciliationTask: vi.fn(),
@@ -18,6 +22,9 @@ vi.mock('@/api/reconciliation', () => ({
 vi.mock('element-plus', () => ({
   ElMessage: { error: vi.fn(), success: vi.fn() },
   ElMessageBox: { confirm: vi.fn().mockResolvedValue(undefined) },
+}))
+vi.mock('@/store/user', () => ({
+  useUserStore: () => ({ isAdmin: false, can: permissionState.can }),
 }))
 
 import Reconciliation from '@/views/Reconciliation.vue'
@@ -42,12 +49,16 @@ const ButtonStub = defineComponent({
 const SelectStub = defineComponent({
   inheritAttrs: false,
   props: { modelValue: { type: String, default: '' } },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'change'],
   setup(props, { attrs, emit, slots }) {
     return () => h('select', {
       ...attrs,
       value: props.modelValue,
-      onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value),
+      onChange: (event: Event) => {
+        const value = (event.target as HTMLSelectElement).value
+        emit('update:modelValue', value)
+        emit('change', value)
+      },
     }, slots.default?.())
   },
 })
@@ -90,6 +101,20 @@ const ContentStub = defineComponent({
   },
 })
 
+const PaginationStub = defineComponent({
+  props: {
+    total: { type: Number, default: 0 },
+    currentPage: { type: Number, default: 1 },
+    pageSize: { type: Number, default: 20 },
+  },
+  emits: ['change'],
+  setup(props, { emit }) {
+    return () => h('div', { class: 'pagination-stub', 'data-total': props.total }, [
+      h('button', { type: 'button', onClick: () => emit('change', props.currentPage + 1, props.pageSize) }, '下一页'),
+    ])
+  },
+})
+
 const tableRowsKey = Symbol('tableRows')
 
 const TableColumnStub = defineComponent({
@@ -129,6 +154,7 @@ const mountPage = () => mount(Reconciliation, {
       'el-form-item': ContentStub,
       'el-form': ContentStub,
       'el-dialog': DialogStub,
+      BasePagination: PaginationStub,
     },
     directives: { loading: {} },
   },
@@ -156,6 +182,7 @@ describe('对账模块', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    permissionState.can.mockImplementation(() => true)
     vi.mocked(getReconciliationTasks).mockResolvedValue({
       data: {
         suppliers: [
@@ -187,17 +214,87 @@ describe('对账模块', () => {
     expect(wrapper.find('.empty-filter').exists()).toBe(true)
   })
 
+  it('没有可访问供应商选项时隐藏筛选和导入入口', async () => {
+    vi.mocked(getReconciliationTasks).mockResolvedValue({
+      data: { suppliers: [], results: [], count: 0, page: 1, pageSize: 20, periods: [] },
+    } as any)
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('.supplier-filter').exists()).toBe(false)
+    expect(wrapper.find('.header-actions').text()).not.toContain('导入订单')
+    expect(wrapper.find('.empty-start').exists()).toBe(true)
+    expect(wrapper.find('.empty-start').text()).not.toContain('导入第一份订单')
+    wrapper.unmount()
+  })
+
+  it('对账维护者缺少供应商查看权限时隐藏导入入口', async () => {
+    permissionState.can.mockImplementation((code) => code !== 'view_suppliers')
+    vi.mocked(getReconciliationTasks).mockResolvedValue({
+      data: {
+        suppliers: [{ id: 'supplier-1', name: '测试租赁商' }],
+        results: [],
+      },
+    } as any)
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('下载订单模板')
+    expect(wrapper.find('.header-actions').text()).not.toContain('导入订单')
+    expect(wrapper.find('.empty-start').text()).not.toContain('导入第一份订单')
+    wrapper.unmount()
+  })
+
+  it('将任务列表筛选和分页参数交给服务端', async () => {
+    vi.mocked(getReconciliationTasks).mockResolvedValue({
+      data: {
+        suppliers: [{ id: 'supplier-1', name: '测试租赁商' }],
+        results: taskRows.slice(0, 1), count: 41, page: 1, pageSize: 20,
+        periods: ['2026-09', '2026-08'],
+      },
+    } as any)
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(getReconciliationTasks).toHaveBeenLastCalledWith({
+      supplier: undefined, period: undefined, page: 1, pageSize: 20,
+    })
+    expect(wrapper.find('.pagination-stub').attributes('data-total')).toBe('41')
+    expect(wrapper.findAll('.task-table .table-row')).toHaveLength(1)
+    await wrapper.get('.pagination-stub button').trigger('click')
+    await flushPromises()
+    expect(getReconciliationTasks).toHaveBeenLastCalledWith({
+      supplier: undefined, period: undefined, page: 2, pageSize: 20,
+    })
+
+    await wrapper.get('select[aria-label="按供应商筛选"]').setValue('supplier-1')
+    await flushPromises()
+    expect(getReconciliationTasks).toHaveBeenLastCalledWith({
+      supplier: 'supplier-1', period: undefined, page: 1, pageSize: 20,
+    })
+  })
+
   it('在专用导入对话框中提供订单表单', async () => {
     const wrapper = mountPage()
     await flushPromises()
 
     const importButton = wrapper.findAll('button').find((button) => button.text().includes('导入订单'))
+    importButton!.element.focus()
     await importButton!.trigger('click')
-    expect(wrapper.find('.dialog-stub').text()).toContain('供应商订单文件')
-    expect(wrapper.find('.dialog-stub').text()).toContain('对账月份')
-    expect(wrapper.find('.dialog-stub').text()).toContain('下载订单模板')
-    expect(wrapper.find('.dialog-stub').text()).toContain('记账天数和本月金额由系统计算，可留空')
-    expect(wrapper.find('.dialog-stub').text()).toContain('解析并预览')
+    await flushPromises()
+    const importModal = wrapper.find('.reconciliation-import-modal')
+    expect(importModal.exists()).toBe(true)
+    expect(importModal.text()).toContain('上传订单文件')
+    expect(importModal.text()).toContain('对账月份')
+    expect(importModal.text()).toContain('下载订单模板')
+    expect(importModal.text()).toContain('计费天数和本月金额由系统计算')
+    expect(importModal.text()).toContain('解析并预览')
+
+    await importModal.get('.modal-close').trigger('keydown', { key: 'Tab', shiftKey: true })
+    await wrapper.get('.reconciliation-import-overlay').trigger('keydown', { key: 'Escape' })
+    await flushPromises()
+    expect(wrapper.find('.reconciliation-import-modal').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('先预览订单，确认时重新提交原文件到正式导入接口', async () => {
@@ -271,6 +368,50 @@ describe('对账模块', () => {
     await wrapper.get('input[aria-label="搜索序列号"]').setValue('SYSTEM-SN')
     expect(wrapper.findAll('.comparison-table .table-row')).toHaveLength(1)
     expect(wrapper.find('.comparison-table').text()).toContain('SYSTEM-SN')
+  })
+
+  it('详情筛选和序列号搜索使用服务端分页并保留全局分公司选项', async () => {
+    vi.mocked(getReconciliationTask).mockResolvedValue({
+      data: {
+        ...taskRows[0],
+        comparisons: [{
+          id: 'compare-page', resultType: 'order_only', serial: 'FILTER-SN', normalizedSerial: 'FILTER-SN',
+          supplierBranch: '分公司甲', supplierBranchId: 'branch-1', systemBranch: '', systemBranchId: null,
+          issue: { id: 'issue-page', status: 'open', conclusion: '', note: '', firstPeriod: '2026-09', lastPeriod: '2026-09' },
+        }],
+        comparisonTotal: 120, comparisonPage: 1, comparisonPageSize: 50, pendingCount: 120,
+        branchOptions: [{ value: 'branch-9', label: '其他页分公司' }],
+        versions: [], unresolvedIssues: [], branchTotals: [],
+      },
+    } as any)
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('.task-table .table-row').trigger('click')
+    await flushPromises()
+
+    expect(getReconciliationTask).toHaveBeenLastCalledWith('task-1', {
+      result: 'pending', branch: undefined, serial: undefined, page: 1, pageSize: 50,
+    })
+    expect(wrapper.find('select[aria-label="按分公司筛选"]').text()).toContain('其他页分公司')
+    expect(wrapper.find('.pagination-stub').attributes('data-total')).toBe('120')
+    expect(wrapper.findAll('.comparison-table .table-row')).toHaveLength(1)
+
+    await wrapper.get('select[aria-label="按分公司筛选"]').setValue('branch-9')
+    await flushPromises()
+    expect(getReconciliationTask).toHaveBeenLastCalledWith('task-1', {
+      result: 'pending', branch: 'branch-9', serial: undefined, page: 1, pageSize: 50,
+    })
+    const detailRequestCount = vi.mocked(getReconciliationTask).mock.calls.length
+    const serialSearch = wrapper.get('input[aria-label="搜索序列号"]')
+    await serialSearch.setValue('A')
+    await serialSearch.setValue('AB')
+    await serialSearch.setValue('ABC')
+    await new Promise((resolve) => setTimeout(resolve, 275))
+    await flushPromises()
+    expect(vi.mocked(getReconciliationTask).mock.calls.length).toBe(detailRequestCount + 1)
+    expect(getReconciliationTask).toHaveBeenLastCalledWith('task-1', {
+      result: 'pending', branch: 'branch-9', serial: 'ABC', page: 1, pageSize: 50,
+    })
   })
 
   it('按供应商和首次发现月份展示历史未决入口', async () => {

@@ -18,11 +18,16 @@ class ReconciliationTask(UUIDModel, TimestampedModel):
         'ReconciliationUploadVersion', on_delete=models.PROTECT, null=True, blank=True,
         related_name='active_for_tasks',
     )
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='reconciliation_tasks')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reconciliation_tasks',
+    )
+    created_by_name = models.CharField('创建人姓名快照', max_length=100, blank=True, default='')
     archived_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='archived_reconciliation_tasks',
     )
+    archived_by_name = models.CharField('归档人姓名快照', max_length=100, blank=True, default='')
     archived_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -39,9 +44,13 @@ class ReconciliationUploadVersion(UUIDModel, TimestampedModel):
     task = models.ForeignKey(ReconciliationTask, on_delete=models.PROTECT, related_name='versions')
     version_number = models.PositiveIntegerField()
     file = models.FileField(upload_to=reconciliation_upload_path)
-    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+    )
+    uploaded_by_name = models.CharField('上传人姓名快照', max_length=100, blank=True, default='')
     row_count = models.PositiveIntegerField(default=0)
     calculation_warnings = models.JSONField(default=list, blank=True)
+    summary = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = 'reconciliation_upload_version'
@@ -88,12 +97,14 @@ class ReconciliationIssue(UUIDModel, TimestampedModel):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_OPEN)
     conclusion = models.CharField(max_length=100, blank=True, default='')
     note = models.TextField(blank=True, default='')
-    handled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
+    handled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    handled_by_name = models.CharField('处理人姓名快照', max_length=100, blank=True, default='')
     handled_at = models.DateTimeField(null=True, blank=True)
     closed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='closed_reconciliation_issues',
     )
+    closed_by_name = models.CharField('结案人姓名快照', max_length=100, blank=True, default='')
     closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -141,7 +152,8 @@ class ReconciliationComparison(UUIDModel):
 
 class ReconciliationIssueHistory(UUIDModel):
     issue = models.ForeignKey(ReconciliationIssue, on_delete=models.PROTECT, related_name='history')
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    user_name = models.CharField('操作人姓名快照', max_length=100, blank=True, default='')
     old_status = models.CharField(max_length=20, blank=True, default='')
     new_status = models.CharField(max_length=20)
     old_conclusion = models.CharField(max_length=100, blank=True, default='')

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Check, Download, Edit, Refresh, Upload } from '@element-plus/icons-vue'
 import {
@@ -22,8 +22,14 @@ import {
 } from '@/api/reconciliation'
 import { handleApiError } from '@/utils/request'
 import { generateReconciliationTemplate } from '@/utils/importTemplate'
+import BasePagination from '@/components/BasePagination.vue'
+import { useUserStore } from '@/store/user'
 
 const suppliers = ref<ReconciliationSupplier[]>([])
+const userStore = useUserStore()
+const canViewReconciliation = computed(() => userStore.can('view_reconciliation'))
+const canManageReconciliation = computed(() => userStore.can('manage_reconciliation'))
+const canImportReconciliation = computed(() => canManageReconciliation.value && userStore.can('view_suppliers'))
 const tasks = ref<ReconciliationTask[]>([])
 const unresolvedSummary = ref<ReconciliationUnresolvedSummary>({ totalCount: 0, groups: [] })
 const task = ref<ReconciliationTaskDetail | null>(null)
@@ -31,6 +37,8 @@ const loading = ref(false)
 const uploading = ref(false)
 const listLoadError = ref('')
 const importDialogOpen = ref(false)
+const importModalElement = ref<HTMLElement | null>(null)
+const importTriggerElement = ref<HTMLElement | null>(null)
 const importError = ref('')
 const importRowErrors = ref<Array<{ row?: number; field?: string; message?: string }>>([])
 const importPreview = ref<ReconciliationImportPreview | null>(null)
@@ -49,6 +57,21 @@ const issueConclusion = ref('')
 const issueNote = ref('')
 const issueSaving = ref(false)
 const issueHistory = ref<Array<Record<string, string>>>([])
+const listPage = ref(1)
+const listPageSize = ref(20)
+const listTotal = ref(0)
+const listPeriods = ref<string[]>([])
+const listServerMode = ref(false)
+const detailPage = ref(1)
+const detailPageSize = ref(50)
+const detailTotal = ref(0)
+const detailServerMode = ref(false)
+const importTargetTaskOverride = ref<ReconciliationTask | null>(null)
+const suppressListFilterReload = ref(false)
+const suppressSerialReload = ref(false)
+let serialSearchTimer: ReturnType<typeof setTimeout> | undefined
+let listRequestSequence = 0
+let detailRequestSequence = 0
 
 const resultLabels: Record<string, string> = {
   matched: '匹配',
@@ -71,12 +94,18 @@ function taskDifferenceCount(item: Pick<ReconciliationTask, 'counts'>) {
   return Object.entries(item.counts || {}).reduce((total, [type, count]) => total + (type === 'matched' ? 0 : count), 0)
 }
 
-const periodOptions = computed(() => [...new Set(tasks.value.map((item) => item.period))].sort((a, b) => b.localeCompare(a)))
-const filteredTasks = computed(() => tasks.value.filter((item) =>
+function taskResultCount(item: Pick<ReconciliationTask, 'counts'> | null | undefined, type: string) {
+  if (!item) return 0
+  const camelType = type.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+  return item.counts?.[type] ?? item.counts?.[camelType] ?? 0
+}
+
+const periodOptions = computed(() => listPeriods.value.length ? listPeriods.value : [...new Set(tasks.value.map((item) => item.period))].sort((a, b) => b.localeCompare(a)))
+const filteredTasks = computed(() => listServerMode.value ? tasks.value : tasks.value.filter((item) =>
   (supplierFilter.value === 'all' || item.supplierId === supplierFilter.value)
   && (periodFilter.value === 'all' || item.period === periodFilter.value),
 ))
-const importTargetTask = computed(() => tasks.value.find((item) =>
+const importTargetTask = computed(() => importTargetTaskOverride.value || tasks.value.find((item) =>
   item.supplierId === selectedSupplier.value && item.period === selectedPeriod.value,
 ))
 
@@ -86,60 +115,190 @@ const resultFilterOptions = computed(() => {
     { value: 'pending', label: `待填写结论（${pendingConclusionCount.value}）` },
     { value: 'differences', label: `全部差异（${task.value ? taskDifferenceCount(task.value) : 0}）` },
     { value: 'matched', label: `匹配记录（${counts.matched || 0}）` },
-    { value: 'all', label: `全部结果（${task.value?.comparisonCount || 0}）` },
+    { value: 'all', label: `全部结果（${detailTotal.value || task.value?.comparisonCount || 0}）` },
   ]
 })
-const pendingConclusionCount = computed(() => asArray<ReconciliationComparison>(task.value?.comparisons)
+const pendingConclusionCount = computed(() => task.value?.pendingCount ?? asArray<ReconciliationComparison>(task.value?.comparisons)
   .filter((row) => row.resultType !== 'matched' && row.issue?.status !== 'closed' && !row.issue?.conclusion?.trim()).length)
 
 async function loadTasks() {
+  const requestSequence = ++listRequestSequence
   loading.value = true
   listLoadError.value = ''
   try {
-    const { data } = await getReconciliationTasks()
+    const { data } = await getReconciliationTasks({
+      supplier: supplierFilter.value === 'all' ? undefined : supplierFilter.value,
+      period: periodFilter.value === 'all' ? undefined : periodFilter.value,
+      page: listPage.value,
+      pageSize: listPageSize.value,
+    })
+    if (requestSequence !== listRequestSequence) return
     suppliers.value = asArray<ReconciliationSupplier>(data.suppliers)
     tasks.value = asArray<ReconciliationTask>(data.results)
     unresolvedSummary.value = data.unresolvedSummary || { totalCount: 0, groups: [] }
+    listServerMode.value = Object.prototype.hasOwnProperty.call(data, 'count')
+    listTotal.value = typeof data.count === 'number' ? data.count : tasks.value.length
+    listPeriods.value = asArray<string>(data.periods)
   } catch (error) {
+    if (requestSequence !== listRequestSequence) return
     listLoadError.value = handleApiError(error)
   } finally {
-    loading.value = false
+    if (requestSequence === listRequestSequence) loading.value = false
+  }
+}
+
+async function loadTaskDetails(id: string) {
+  const requestSequence = ++detailRequestSequence
+  loading.value = true
+  try {
+    const { data } = await getReconciliationTask(id, {
+      result: resultFilter.value,
+      branch: branchFilter.value === 'all' ? undefined : branchFilter.value,
+      serial: serialFilter.value.trim() || undefined,
+      page: detailPage.value,
+      pageSize: detailPageSize.value,
+    })
+    if (requestSequence !== detailRequestSequence) return
+    task.value = data
+    detailServerMode.value = Object.prototype.hasOwnProperty.call(data, 'comparisonTotal')
+    detailTotal.value = typeof data.comparisonTotal === 'number'
+      ? data.comparisonTotal
+      : asArray<ReconciliationComparison>(data.comparisons).length
+    if (typeof data.comparisonPage === 'number') detailPage.value = data.comparisonPage
+    if (typeof data.comparisonPageSize === 'number') detailPageSize.value = data.comparisonPageSize
+  } catch (error) {
+    if (requestSequence !== detailRequestSequence) return
+    ElMessage.error(handleApiError(error))
+  } finally {
+    if (requestSequence === detailRequestSequence) loading.value = false
   }
 }
 
 async function openTask(row: ReconciliationTask) {
-  loading.value = true
-  try {
-    const { data } = await getReconciliationTask(row.id)
-    task.value = data
-    resultFilter.value = 'pending'
-    serialFilter.value = ''
-    branchFilter.value = 'all'
-  } catch (error) {
-    ElMessage.error(handleApiError(error))
-  } finally {
-    loading.value = false
-  }
+  resultFilter.value = 'pending'
+  if (serialFilter.value) suppressSerialReload.value = true
+  serialFilter.value = ''
+  branchFilter.value = 'all'
+  detailPage.value = 1
+  await loadTaskDetails(row.id)
 }
 
-function openUnresolvedGroup(group: ReconciliationUnresolvedSummary['groups'][number]) {
+function handleListPaginationChange(page: number, pageSize: number) {
+  listPage.value = page
+  listPageSize.value = pageSize
+  if (listServerMode.value) void loadTasks()
+}
+
+function handleListFilterChange() {
+  if (task.value) return
+  if (suppressListFilterReload.value) {
+    suppressListFilterReload.value = false
+    return
+  }
+  listPage.value = 1
+  if (listServerMode.value) void loadTasks()
+}
+
+function handleDetailPaginationChange(page: number, pageSize: number) {
+  detailPage.value = page
+  detailPageSize.value = pageSize
+  if (task.value && detailServerMode.value) void loadTaskDetails(task.value.id)
+}
+
+function handleDetailFilterChange() {
+  detailPage.value = 1
+  if (task.value && detailServerMode.value) void loadTaskDetails(task.value.id)
+}
+
+function changeResultFilter(value: string) {
+  resultFilter.value = value
+  handleDetailFilterChange()
+}
+
+watch([supplierFilter, periodFilter], handleListFilterChange)
+watch([selectedSupplier, selectedPeriod], () => {
+  importTargetTaskOverride.value = null
+})
+watch(serialFilter, () => {
+  if (!task.value || !detailServerMode.value) {
+    suppressSerialReload.value = false
+    return
+  }
+  if (suppressSerialReload.value) {
+    suppressSerialReload.value = false
+    if (serialSearchTimer) clearTimeout(serialSearchTimer)
+    return
+  }
+  if (serialSearchTimer) clearTimeout(serialSearchTimer)
+  serialSearchTimer = setTimeout(() => {
+    detailPage.value = 1
+    if (task.value) void loadTaskDetails(task.value.id)
+  }, 250)
+})
+
+async function openUnresolvedGroup(group: ReconciliationUnresolvedSummary['groups'][number]) {
+  suppressListFilterReload.value = listServerMode.value
   supplierFilter.value = group.supplierId
   periodFilter.value = group.firstPeriod
+  if (listServerMode.value) await loadTasks()
+  suppressListFilterReload.value = false
   const firstTask = tasks.value.find((item) => item.supplierId === group.supplierId && item.period === group.firstPeriod)
   if (firstTask) void openTask(firstTask)
 }
 
 function returnToList() {
+  detailRequestSequence += 1
   task.value = null
+  detailServerMode.value = false
   void loadTasks()
 }
 
-function openImportDialog() {
+function openImportDialog(event?: Event) {
+  if (!canImportReconciliation.value || !suppliers.value.length) return
+  const target = event?.target
+  importTriggerElement.value = (target instanceof Element ? target.closest('button') : null)
+    || (document.activeElement instanceof HTMLElement ? document.activeElement : null)
   resetImportPreview()
   selectedFile.value = null
   const fileInput = document.querySelector<HTMLInputElement>('#reconciliation-file')
   if (fileInput) fileInput.value = ''
   importDialogOpen.value = true
+  void nextTick(() => importModalElement.value?.querySelector<HTMLElement>('.modal-close')?.focus())
+}
+
+function restoreImportTriggerFocus() {
+  void nextTick(() => {
+    if (importTriggerElement.value?.isConnected) importTriggerElement.value.focus()
+  })
+}
+
+function closeImportDialog() {
+  if (previewing.value || uploading.value) return
+  importDialogOpen.value = false
+  restoreImportTriggerFocus()
+}
+
+function trapImportFocus(event: KeyboardEvent) {
+  const focusable = Array.from(importModalElement.value?.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+  ) || []).filter((element) => element.getAttribute('aria-hidden') !== 'true')
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+
+  if (!first || !last) {
+    event.preventDefault()
+    return
+  }
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  } else if (!importModalElement.value?.contains(document.activeElement)) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 function resetImportPreview() {
@@ -166,13 +325,34 @@ function setImportError(error: unknown) {
     : handleApiError(error)
 }
 
+async function resolveImportTargetTask() {
+  if (!listServerMode.value || !selectedSupplier.value || !selectedPeriod.value) return importTargetTask.value
+  if (importTargetTaskOverride.value) return importTargetTaskOverride.value
+  try {
+    const { data } = await getReconciliationTasks({
+      supplier: selectedSupplier.value,
+      period: selectedPeriod.value,
+      page: 1,
+      pageSize: 1,
+    })
+    importTargetTaskOverride.value = asArray<ReconciliationTask>(data.results).find((item) =>
+      item.supplierId === selectedSupplier.value && item.period === selectedPeriod.value,
+    ) || null
+  } catch {
+    importTargetTaskOverride.value = null
+  }
+  return importTargetTaskOverride.value
+}
+
 async function previewImport() {
+  if (!canImportReconciliation.value || !suppliers.value.length) return
   resetImportPreview()
   if (!selectedSupplier.value || !selectedPeriod.value || !selectedFile.value) {
     importError.value = '请选择供应商、月份和订单文件。'
     return
   }
-  if (importTargetTask.value?.status === 'archived') {
+  const targetTask = await resolveImportTargetTask()
+  if (targetTask?.status === 'archived') {
     importError.value = '该供应商月份任务已归档，不能覆盖。'
     return
   }
@@ -188,10 +368,12 @@ async function previewImport() {
 }
 
 async function submitImport() {
+  if (!canImportReconciliation.value || !suppliers.value.length) return
   if (!importPreview.value || !selectedSupplier.value || !selectedPeriod.value || !selectedFile.value) return
   importError.value = ''
   importRowErrors.value = []
-  if (importTargetTask.value?.status === 'archived') {
+  const targetTask = await resolveImportTargetTask()
+  if (targetTask?.status === 'archived') {
     importError.value = '该供应商月份任务已归档，不能覆盖。'
     resetImportPreview()
     return
@@ -204,6 +386,7 @@ async function submitImport() {
     if (fileInput) fileInput.value = ''
     ElMessage.success(`订单已导入，当前版本 ${data.currentVersion}`)
     importDialogOpen.value = false
+    restoreImportTriggerFocus()
     await loadTasks()
     await openTask(data)
   } catch (error) {
@@ -216,6 +399,9 @@ async function submitImport() {
 
 const visibleComparisons = computed(() => {
   const rows = asArray<ReconciliationComparison>(task.value?.comparisons)
+  if (detailServerMode.value) {
+    return [...rows].sort((a, b) => comparisonBranchName(a).localeCompare(comparisonBranchName(b), 'zh-CN'))
+  }
   return rows.filter((row) => {
     if (resultFilter.value === 'pending' && (row.resultType === 'matched' || row.issue?.status === 'closed' || row.issue?.conclusion?.trim())) return false
     if (resultFilter.value === 'differences' && row.resultType === 'matched') return false
@@ -247,6 +433,7 @@ const comparisonGroups = computed(() => {
 })
 
 const branchOptions = computed(() => {
+  if (task.value?.branchOptions?.length) return task.value.branchOptions
   const values = new Map<string, string>()
   for (const row of asArray<ReconciliationComparison>(task.value?.comparisons)) {
     if (row.supplierBranchId && row.supplierBranch) values.set(row.supplierBranchId, row.supplierBranch)
@@ -256,17 +443,18 @@ const branchOptions = computed(() => {
 })
 
 function resultCount(type: string) {
-  if (type === 'all') return task.value?.comparisonCount || 0
+  if (type === 'all') return detailTotal.value || task.value?.comparisonCount || 0
   if (type === 'differences') return task.value ? taskDifferenceCount(task.value) : 0
   if (type === 'pending') return pendingConclusionCount.value
-  if (type === 'matched') return task.value?.counts?.matched || 0
-  return task.value?.counts?.[type] || 0
+  return taskResultCount(task.value, type)
 }
 
 function clearDetailFilters() {
   resultFilter.value = 'pending'
+  if (serialFilter.value) suppressSerialReload.value = true
   serialFilter.value = ''
   branchFilter.value = 'all'
+  handleDetailFilterChange()
 }
 
 function resultTagType(type: string) {
@@ -286,7 +474,7 @@ async function loadIssueHistory(issueId: string) {
 }
 
 function openIssue(row: ReconciliationComparison) {
-  if (!row.issue) return
+  if (!canManageReconciliation.value || !row.issue) return
   activeIssue.value = row.issue
   issueConclusion.value = row.issue.conclusion || ''
   issueNote.value = row.issue.note || ''
@@ -295,6 +483,7 @@ function openIssue(row: ReconciliationComparison) {
 }
 
 function openIssueRecord(issue: ReconciliationIssue) {
+  if (!canManageReconciliation.value) return
   activeIssue.value = issue
   issueConclusion.value = issue.conclusion || ''
   issueNote.value = issue.note || ''
@@ -303,7 +492,7 @@ function openIssueRecord(issue: ReconciliationIssue) {
 }
 
 async function saveIssue() {
-  if (!activeIssue.value) return
+  if (!canManageReconciliation.value || !activeIssue.value) return
   issueSaving.value = true
   try {
     await updateReconciliationIssue(activeIssue.value.id, {
@@ -312,7 +501,7 @@ async function saveIssue() {
     })
     ElMessage.success('处理记录已保存')
     issueDialog.value = false
-    if (task.value) await openTask(task.value)
+    if (task.value) await loadTaskDetails(task.value.id)
   } catch (error) {
     ElMessage.error(handleApiError(error))
   } finally {
@@ -321,25 +510,30 @@ async function saveIssue() {
 }
 
 async function closeIssue(issue: ReconciliationIssue) {
+  if (!canManageReconciliation.value) return
   try {
     await ElMessageBox.confirm('确认结案？结案后仍可在差异记录中追溯。', '结案确认', { type: 'warning' })
     await updateReconciliationIssue(issue.id, { status: 'closed' })
     ElMessage.success('差异已结案')
-    if (task.value) await openTask(task.value)
+    if (task.value) await loadTaskDetails(task.value.id)
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(handleApiError(error))
   }
 }
 
 async function archiveTask() {
-  if (!task.value) return
-  const comparisons = asArray<ReconciliationComparison>(task.value.comparisons).filter((row) => row.resultType !== 'matched')
-  const concludedCount = comparisons.filter((row) => Boolean(row.issue?.conclusion?.trim())).length
-  const pendingCount = comparisons.length - concludedCount
+  if (!canManageReconciliation.value || !task.value) return
+  const currentPageDifferences = asArray<ReconciliationComparison>(task.value.comparisons)
+    .filter((row) => row.resultType !== 'matched')
+  const differenceCount = detailServerMode.value ? taskDifferenceCount(task.value) : currentPageDifferences.length
+  const pendingCount = detailServerMode.value
+    ? pendingConclusionCount.value
+    : currentPageDifferences.filter((row) => !row.issue?.conclusion?.trim()).length
+  const concludedCount = Math.max(0, differenceCount - pendingCount)
   const historicalCount = task.value.unresolvedIssues.length
   try {
     await ElMessageBox.confirm(
-      `归档 ${task.value.period} · ${task.value.supplierName}？\n差异总数：${comparisons.length} 条\n已有处理结论：${concludedCount} 条\n待填写结论：${pendingCount} 条\n历史未决事项：${historicalCount} 条，将继续跨期追踪。归档后不能覆盖本期订单。`,
+      `归档 ${task.value.period} · ${task.value.supplierName}？\n差异总数：${differenceCount} 条\n已有处理结论：${concludedCount} 条\n待填写结论：${pendingCount} 条\n历史未决事项：${historicalCount} 条，将继续跨期追踪。归档后不能覆盖本期订单。`,
       '完成并归档', { confirmButtonText: '确认归档', cancelButtonText: '继续处理', type: 'warning' },
     )
     await archiveReconciliationTask(task.value.id)
@@ -351,7 +545,7 @@ async function archiveTask() {
 }
 
 async function exportTask() {
-  if (!task.value) return
+  if (!canViewReconciliation.value || !task.value) return
   try {
     const { data } = await exportReconciliationTask(task.value.id)
     const url = URL.createObjectURL(data)
@@ -366,7 +560,7 @@ async function exportTask() {
 }
 
 async function exportDifferences() {
-  if (!task.value) return
+  if (!canViewReconciliation.value || !task.value) return
   try {
     const { data } = await exportReconciliationDifferences(task.value.id)
     const url = URL.createObjectURL(data)
@@ -389,93 +583,144 @@ function formatDate(value: string | null | undefined) {
 }
 
 onMounted(loadTasks)
+onBeforeUnmount(() => {
+  if (serialSearchTimer) clearTimeout(serialSearchTimer)
+})
 </script>
 
 <template>
   <div class="reconciliation-page page-fill">
-    <el-dialog
-      v-model="importDialogOpen"
-      class="reconciliation-import-dialog"
-      title="导入租赁订单"
-      width="min(760px, calc(100vw - 32px))"
-      top="4vh"
-      :close-on-click-modal="false"
-      :close-on-press-escape="!previewing && !uploading"
+    <div
+      v-if="importDialogOpen"
+      class="modal-overlay reconciliation-import-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reconciliation-import-title"
+      @click.self="closeImportDialog"
+      @keydown.esc.stop.prevent="closeImportDialog"
+      @keydown.tab="trapImportFocus"
     >
-      <div class="import-form">
-        <el-form label-position="top" class="import-meta-grid">
-          <el-form-item label="供应商">
-            <el-select v-model="selectedSupplier" placeholder="选择供应商" filterable class="full-width" :disabled="previewing || uploading" @change="resetImportPreview">
-              <el-option v-for="supplier in suppliers" :key="supplier.id" :label="supplier.name" :value="supplier.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="对账月份">
-            <el-date-picker v-model="selectedPeriod" type="month" value-format="YYYY-MM" placeholder="选择月份" class="full-width" :disabled="previewing || uploading" @change="resetImportPreview" />
-          </el-form-item>
-        </el-form>
-
-        <section class="import-file-section" aria-label="订单文件">
-          <div class="import-section-heading">
-            <div>
-              <h2>供应商订单文件</h2>
-              <span>每行填写一台设备，仅支持 .xlsx 文件</span>
-            </div>
-            <el-button text type="primary" :icon="Download" @click="downloadOrderTemplate">下载订单模板</el-button>
+      <div ref="importModalElement" class="modal-content reconciliation-import-modal">
+        <div class="modal-header">
+          <div class="modal-title-block">
+            <h3 id="reconciliation-import-title">导入租赁订单</h3>
+            <p>按供应商和月份上传订单，先预览后确认。</p>
           </div>
-          <label class="file-picker" for="reconciliation-file" :class="{ 'file-picker-disabled': uploading || previewing }">
-            <input id="reconciliation-file" type="file" accept=".xlsx" class="visually-hidden" :disabled="previewing || uploading" @change="chooseFile">
-            <span class="file-picker-icon"><Upload :size="18" /></span>
-            <span class="file-picker-copy">
-              <strong>{{ selectedFile?.name || '选择租赁订单文件' }}</strong>
-              <span>{{ selectedFile ? '文件已就绪，可解析预览' : '日期填写为 YYYY-MM-DD；记账天数和本月金额由系统计算，可留空。' }}</span>
-            </span>
-            <span class="file-picker-action">{{ selectedFile ? '更换文件' : '选择文件' }}</span>
-          </label>
-        </section>
+          <button class="modal-close" type="button" aria-label="关闭" :disabled="previewing || uploading" @click="closeImportDialog">&times;</button>
+        </div>
 
-        <p class="scope-note">系统按指定电脑品目核对；分公司名称须与系统一致，任一行校验失败都会拒绝整份订单。</p>
-
-        <section v-if="importPreview" class="import-preview" aria-label="订单解析预览">
-          <div class="section-heading"><h2>解析预览</h2><span>{{ importPreview.supplierName }} · {{ importPreview.period }}</span></div>
-          <el-alert
-            v-if="importTargetTask"
-            class="replacement-alert"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="`将创建第 ${(importTargetTask.currentVersion || 0) + 1} 版并替换当前结果；旧版本仍可追溯。`"
-          />
-          <dl class="preview-metrics">
-            <div><dt>分公司</dt><dd>{{ importPreview.branchCount }}</dd></div>
-            <div><dt>订单</dt><dd>{{ importPreview.orderCount }}</dd></div>
-            <div><dt>设备</dt><dd>{{ importPreview.rowCount }}</dd></div>
-            <div><dt>本月应计</dt><dd>{{ formatMoney(importPreview.totalAmount) }}</dd></div>
-          </dl>
-          <div class="preview-branches">
-            <div v-for="branch in importPreview.branchTotals" :key="branch.branchId" class="preview-branch">
-              <span>{{ branch.branchName }} · {{ branch.rowCount }} 台</span>
-              <strong>{{ formatMoney(branch.monthAmount) }}</strong>
+        <div class="modal-body">
+          <section class="import-step">
+            <div class="import-step-header">
+              <span class="import-step-num">1</span>
+              <span class="import-step-title">选择对账范围</span>
             </div>
+            <p class="import-step-desc">供应商和月份用于确定本次对账任务。</p>
+            <div class="import-meta-grid">
+              <div class="import-field">
+                <span class="import-field-label">供应商</span>
+                <el-select v-model="selectedSupplier" placeholder="选择供应商" filterable class="full-width" :disabled="previewing || uploading" @change="resetImportPreview">
+                  <el-option v-for="supplier in suppliers" :key="supplier.id" :label="supplier.name" :value="supplier.id" />
+                </el-select>
+              </div>
+              <div class="import-field">
+                <span class="import-field-label">对账月份</span>
+                <el-date-picker v-model="selectedPeriod" type="month" value-format="YYYY-MM" placeholder="选择月份" class="full-width" :disabled="previewing || uploading" @change="resetImportPreview" />
+              </div>
+            </div>
+          </section>
+
+          <section class="import-step">
+            <div class="import-step-header">
+              <span class="import-step-num">2</span>
+              <span class="import-step-title">上传订单文件</span>
+            </div>
+            <p class="import-step-desc">每行填写一台设备，仅支持 .xlsx 文件。</p>
+            <div class="import-file-actions">
+              <button class="btn-secondary import-template-btn" type="button" @click="downloadOrderTemplate">
+                <Download :size="16" />
+                下载订单模板
+              </button>
+              <span>日期填写为 YYYY-MM-DD；计费天数和本月金额由系统计算。</span>
+            </div>
+            <label class="import-upload-area" :class="{ 'upload-loading': previewing || uploading, 'file-selected': selectedFile }">
+              <input id="reconciliation-file" type="file" accept=".xlsx" class="import-file-input" :disabled="previewing || uploading" @change="chooseFile">
+              <template v-if="previewing">
+                <div class="import-spinner"></div>
+                <span>正在解析...</span>
+              </template>
+              <template v-else-if="uploading">
+                <div class="import-spinner"></div>
+                <span>正在导入...</span>
+              </template>
+              <template v-else-if="selectedFile">
+                <Upload :size="24" />
+                <strong>{{ selectedFile.name }}</strong>
+                <span class="import-upload-hint">文件已选择，可解析预览</span>
+              </template>
+              <template v-else>
+                <Upload :size="24" />
+                <span>点击选择 .xlsx 文件</span>
+                <span class="import-upload-hint">选择文件后点击“解析并预览”</span>
+              </template>
+            </label>
+          </section>
+
+          <p class="scope-note">系统按指定电脑品目核对；分公司名称须与系统一致，任一行校验失败都会拒绝整份订单。</p>
+
+          <section v-if="importPreview" class="import-step import-preview" aria-label="订单解析预览">
+            <div class="import-step-header preview-step-header">
+              <span class="import-step-num">3</span>
+              <span class="import-step-title">解析预览</span>
+              <span class="preview-context">{{ importPreview.supplierName }} · {{ importPreview.period }}</span>
+            </div>
+            <div v-if="importTargetTask" class="import-alert import-alert-warning" role="status">
+              将创建第 {{ (importTargetTask.currentVersion || 0) + 1 }} 版并替换当前结果；旧版本仍可追溯。
+            </div>
+            <dl class="preview-metrics">
+              <div><dt>分公司</dt><dd>{{ importPreview.branchCount }}</dd></div>
+              <div><dt>订单</dt><dd>{{ importPreview.orderCount }}</dd></div>
+              <div><dt>设备</dt><dd>{{ importPreview.rowCount }}</dd></div>
+              <div><dt>本月应计</dt><dd>{{ formatMoney(importPreview.totalAmount) }}</dd></div>
+            </dl>
+            <div v-if="importPreview.branchTotals.length" class="preview-branches">
+              <div v-for="branch in importPreview.branchTotals" :key="branch.branchId" class="preview-branch">
+                <span>{{ branch.branchName }} · {{ branch.rowCount }} 台</span>
+                <strong>{{ formatMoney(branch.monthAmount) }}</strong>
+              </div>
+            </div>
+            <div v-if="importPreview.calculationWarnings.length" class="import-alert import-alert-warning" role="status">
+              {{ importPreview.calculationWarnings.length }} 行上传的计费天数或金额与系统计算值不同，导入后以系统计算值为准。
+            </div>
+          </section>
+
+          <div v-if="importError" class="import-alert import-alert-error" role="alert">
+            <strong>{{ importError }}</strong>
+            <ul v-if="importRowErrors.length" class="row-errors">
+              <li v-for="(item, index) in importRowErrors" :key="index">
+                第 {{ item.row || '?' }} 行{{ item.field ? `「${item.field}」` : '' }}：{{ item.message || '数据无效' }}
+              </li>
+            </ul>
           </div>
-          <el-alert v-if="importPreview.calculationWarnings.length" type="warning" :closable="false" show-icon :title="`${importPreview.calculationWarnings.length} 行上传的计费天数或金额与系统计算值不同，导入后以系统计算值为准。`" />
-        </section>
-        <el-alert v-if="importError" type="error" :closable="false" show-icon :title="importError">
-          <ul v-if="importRowErrors.length" class="row-errors">
-            <li v-for="(item, index) in importRowErrors" :key="index">
-              第 {{ item.row || '?' }} 行{{ item.field ? `「${item.field}」` : '' }}：{{ item.message || '数据无效' }}
-            </li>
-          </ul>
-        </el-alert>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-cancel" type="button" :disabled="previewing || uploading" @click="closeImportDialog">取消</button>
+          <button v-if="importPreview" class="btn-secondary" type="button" :disabled="uploading" @click="resetImportPreview">
+            <Refresh :size="16" />
+            重新预览
+          </button>
+          <button v-if="!importPreview" class="btn-confirm" type="button" :disabled="uploading" :aria-busy="previewing" @click="previewImport">
+            <Upload :size="16" />
+            {{ previewing ? '解析中...' : '解析并预览' }}
+          </button>
+          <button v-else class="btn-confirm" type="button" :disabled="previewing" :aria-busy="uploading" @click="submitImport">
+            <Check :size="16" />
+            {{ uploading ? '导入中...' : (importTargetTask ? '替换订单并重新对账' : '确认导入并对账') }}
+          </button>
+        </div>
       </div>
-      <template #footer>
-        <el-button :disabled="previewing || uploading" @click="importDialogOpen = false">取消</el-button>
-        <el-button v-if="importPreview" :disabled="uploading" @click="resetImportPreview">重新预览</el-button>
-        <el-button v-if="!importPreview" type="primary" :icon="Upload" :loading="previewing" :disabled="uploading" @click="previewImport">解析并预览</el-button>
-        <el-button v-else type="primary" :icon="Check" :loading="uploading" :disabled="previewing" @click="submitImport">
-          {{ importTargetTask ? '替换订单并重新对账' : '确认导入并对账' }}
-        </el-button>
-      </template>
-    </el-dialog>
+    </div>
 
     <template v-if="!task">
       <header class="page-header">
@@ -485,13 +730,13 @@ onMounted(loadTasks)
         </div>
         <div class="header-actions">
           <el-button :icon="Refresh" :loading="loading" @click="loadTasks">刷新</el-button>
-          <el-button :icon="Download" @click="downloadOrderTemplate">下载订单模板</el-button>
-          <el-button type="primary" :icon="Upload" @click="openImportDialog">导入订单</el-button>
+          <el-button v-if="canManageReconciliation" :icon="Download" @click="downloadOrderTemplate">下载订单模板</el-button>
+          <el-button v-if="canImportReconciliation && suppliers.length" type="primary" :icon="Upload" @click="openImportDialog">导入订单</el-button>
         </div>
       </header>
 
       <section class="list-toolbar" aria-label="任务筛选">
-        <el-select v-model="supplierFilter" aria-label="按供应商筛选" placeholder="全部供应商" class="supplier-filter">
+        <el-select v-if="suppliers.length" v-model="supplierFilter" aria-label="按供应商筛选" placeholder="全部供应商" class="supplier-filter">
           <el-option label="全部供应商" value="all" />
           <el-option v-for="supplier in suppliers" :key="supplier.id" :label="supplier.name" :value="supplier.id" />
         </el-select>
@@ -500,7 +745,7 @@ onMounted(loadTasks)
           <el-option v-for="period in periodOptions" :key="period" :label="period" :value="period" />
         </el-select>
         <el-button v-if="supplierFilter !== 'all' || periodFilter !== 'all'" text @click="supplierFilter = 'all'; periodFilter = 'all'">清除筛选</el-button>
-        <span class="list-count">{{ filteredTasks.length }} 项任务</span>
+        <span class="list-count">{{ listServerMode ? listTotal : filteredTasks.length }} 项任务</span>
       </section>
 
       <section v-if="unresolvedSummary.totalCount" class="unresolved-summary" aria-label="历史未决差异汇总">
@@ -522,10 +767,10 @@ onMounted(loadTasks)
           <el-table-column label="订单设备" width="110" align="right">
             <template #default="scope">{{ scope.row.rowCount }}</template>
           </el-table-column>
-          <el-table-column label="匹配" width="80" align="right"><template #default="scope">{{ scope.row.counts?.matched || 0 }}</template></el-table-column>
-          <el-table-column label="仅系统有" width="95" align="right"><template #default="scope">{{ scope.row.counts?.system_only || 0 }}</template></el-table-column>
-          <el-table-column label="仅订单有" width="95" align="right"><template #default="scope">{{ scope.row.counts?.order_only || 0 }}</template></el-table-column>
-          <el-table-column label="其他差异" width="95" align="right"><template #default="scope">{{ Math.max(0, taskDifferenceCount(scope.row) - (scope.row.counts?.system_only || 0) - (scope.row.counts?.order_only || 0)) }}</template></el-table-column>
+          <el-table-column label="匹配" width="80" align="right"><template #default="scope">{{ taskResultCount(scope.row, 'matched') }}</template></el-table-column>
+          <el-table-column label="仅系统有" width="95" align="right"><template #default="scope">{{ taskResultCount(scope.row, 'system_only') }}</template></el-table-column>
+          <el-table-column label="仅订单有" width="95" align="right"><template #default="scope">{{ taskResultCount(scope.row, 'order_only') }}</template></el-table-column>
+          <el-table-column label="其他差异" width="95" align="right"><template #default="scope">{{ Math.max(0, taskDifferenceCount(scope.row) - taskResultCount(scope.row, 'system_only') - taskResultCount(scope.row, 'order_only')) }}</template></el-table-column>
           <el-table-column label="本月应计" width="150" align="right">
             <template #default="scope">{{ formatMoney(scope.row.totalAmount) }}</template>
           </el-table-column>
@@ -545,15 +790,22 @@ onMounted(loadTasks)
             </template>
           </el-table-column>
         </el-table>
+        <BasePagination
+          v-if="listServerMode && listTotal > listPageSize"
+          :total="listTotal"
+          :current-page="listPage"
+          :page-size="listPageSize"
+          @change="handleListPaginationChange"
+        />
       </div>
-      <div v-else-if="!loading && tasks.length" class="empty-filter">
+      <div v-else-if="!loading && (tasks.length || supplierFilter !== 'all' || periodFilter !== 'all')" class="empty-filter">
         <el-empty description="没有符合条件的对账任务" />
         <el-button text type="primary" @click="supplierFilter = 'all'; periodFilter = 'all'">清除筛选条件</el-button>
       </div>
       <div v-else-if="!loading" class="empty-start">
         <h2>还没有对账任务</h2>
         <p>导入供应商月度订单后，系统会按序列号核对设备并计算本月金额。</p>
-        <el-button type="primary" :icon="Upload" @click="openImportDialog">导入第一份订单</el-button>
+        <el-button v-if="canImportReconciliation && suppliers.length" type="primary" :icon="Upload" @click="openImportDialog">导入第一份订单</el-button>
       </div>
     </template>
 
@@ -571,9 +823,9 @@ onMounted(loadTasks)
         </div>
         <div class="header-actions">
           <div class="amount-summary"><span>本月应计金额</span><strong>{{ formatMoney(task.totalAmount) }}</strong></div>
-          <el-button :icon="Download" @click="exportTask">导出结果</el-button>
-          <el-button :icon="Download" @click="exportDifferences">导出差异</el-button>
-          <el-button v-if="task.status !== 'archived'" type="primary" :icon="Check" @click="archiveTask">完成并归档</el-button>
+          <el-button v-if="canViewReconciliation" :icon="Download" @click="exportTask">导出结果</el-button>
+          <el-button v-if="canViewReconciliation" :icon="Download" @click="exportDifferences">导出差异</el-button>
+          <el-button v-if="canManageReconciliation && task.status !== 'archived'" type="primary" :icon="Check" @click="archiveTask">完成并归档</el-button>
         </div>
       </header>
 
@@ -587,18 +839,28 @@ onMounted(loadTasks)
               class="result-filter"
               :class="{ active: resultFilter === item.value }"
               :aria-pressed="resultFilter === item.value"
-              @click="resultFilter = item.value"
+              @click="changeResultFilter(item.value)"
             >{{ item.label }}</button>
           </nav>
           <div class="filters">
             <el-input v-model="serialFilter" aria-label="搜索序列号" placeholder="搜索序列号" clearable class="serial-search" />
-            <el-select v-model="branchFilter" aria-label="按分公司筛选" class="branch-select">
+            <el-select v-model="branchFilter" aria-label="按分公司筛选" class="branch-select" @change="handleDetailFilterChange">
               <el-option label="全部分公司" value="all" />
               <el-option v-for="branch in branchOptions" :key="branch.value" :label="branch.label" :value="branch.value" />
             </el-select>
             <el-button v-if="serialFilter || branchFilter !== 'all' || resultFilter !== 'pending'" text @click="clearDetailFilters">重置</el-button>
           </div>
         </div>
+
+        <el-alert
+          v-if="task.scopeDiagnostics && (task.scopeDiagnostics.excludedCount || task.scopeDiagnostics.unknownSupplierCount || task.scopeDiagnostics.foreignSupplierSerials?.length)"
+          class="scope-diagnostics"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="`供应商范围诊断：排除 ${task.scopeDiagnostics.excludedCount} 个系统实例，未知供应商 ${task.scopeDiagnostics.unknownSupplierCount} 个，跨供应商序列号 ${task.scopeDiagnostics.foreignSupplierSerials?.length || 0} 个。`"
+          :description="task.scopeDiagnostics.foreignSupplierSerials?.length ? `跨供应商序列号：${task.scopeDiagnostics.foreignSupplierSerials.join('、')}` : ''"
+        />
 
       <el-alert
         v-if="task.versions.find((version) => version.versionNumber === task?.currentVersion)?.calculationWarnings.length"
@@ -637,7 +899,7 @@ onMounted(loadTasks)
           </el-table-column>
           <el-table-column label="处理" width="100" fixed="right">
             <template #default="scope">
-              <el-button v-if="scope.row.issue" link type="primary" :icon="Edit" @click="openIssue(scope.row)">
+              <el-button v-if="canManageReconciliation && scope.row.issue" link type="primary" :icon="Edit" @click="openIssue(scope.row)">
                 {{ scope.row.issue.status === 'closed' ? '查看' : '处理' }}
               </el-button>
               <span v-else class="muted">—</span>
@@ -658,9 +920,17 @@ onMounted(loadTasks)
         </section>
         <div v-if="!visibleComparisons.length" class="empty-filter">
           {{ resultFilter === 'pending' && resultCount('pending') === 0 ? '没有待填写结论的差异。' : '当前筛选下没有记录。' }}
-          <el-button v-if="resultFilter === 'pending' && resultCount('pending') === 0" text type="primary" @click="resultFilter = 'differences'">查看全部差异</el-button>
+          <el-button v-if="resultFilter === 'pending' && resultCount('pending') === 0" text type="primary" @click="changeResultFilter('differences')">查看全部差异</el-button>
         </div>
       </section>
+
+      <BasePagination
+        v-if="detailServerMode && detailTotal > detailPageSize"
+        :total="detailTotal"
+        :current-page="detailPage"
+        :page-size="detailPageSize"
+        @change="handleDetailPaginationChange"
+      />
 
       <details class="supporting-info">
         <summary>辅助信息 <span>分公司汇总 {{ task.branchTotals.length }} · 历史未决 {{ task.unresolvedIssues.length }} · 导入版本 {{ task.versions.length }}</span></summary>
@@ -683,7 +953,7 @@ onMounted(loadTasks)
             <el-table-column prop="lastPeriod" label="最近出现" width="120" />
             <el-table-column label="状态" width="130"><template #default="scope">{{ scope.row.status === 'not_recurred' ? '本期未重现' : '待处理' }}</template></el-table-column>
             <el-table-column prop="conclusion" label="处理结论" min-width="160" />
-            <el-table-column label="操作" width="100" fixed="right">
+            <el-table-column v-if="canManageReconciliation" label="操作" width="100" fixed="right">
               <template #default="scope"><el-button link type="primary" @click="openIssueRecord(scope.row)">处理</el-button></template>
             </el-table-column>
           </el-table>
@@ -720,9 +990,9 @@ onMounted(loadTasks)
         </div>
       </div>
       <template #footer>
-        <el-button v-if="activeIssue && activeIssue.status !== 'closed'" @click="closeIssue(activeIssue)">确认结案</el-button>
+        <el-button v-if="canManageReconciliation && activeIssue && activeIssue.status !== 'closed'" @click="closeIssue(activeIssue)">确认结案</el-button>
         <el-button @click="issueDialog = false">取消</el-button>
-        <el-button type="primary" :loading="issueSaving" @click="saveIssue">保存记录</el-button>
+        <el-button v-if="canManageReconciliation" type="primary" :loading="issueSaving" @click="saveIssue">保存记录</el-button>
       </template>
     </el-dialog>
   </div>
@@ -756,38 +1026,66 @@ onMounted(loadTasks)
 .empty-start h2 { margin: 0 0 8px; font-size: var(--text-md); }
 .empty-start p { margin: 0 0 18px; color: var(--color-text-secondary); line-height: 1.5; }
 .empty-filter { display: flex; min-height: 120px; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; padding: 20px; color: var(--color-text-secondary); text-align: center; }
-.import-form { display: grid; gap: 14px; }
-.import-meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
-.import-meta-grid :deep(.el-form-item) { min-width: 0; margin-bottom: 0; }
-.import-file-section { display: grid; gap: 8px; }
-.import-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.import-section-heading > div, .file-picker-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.import-section-heading h2 { margin: 0; color: var(--color-text-primary); font-size: var(--text-sm); font-weight: 600; }
-.import-section-heading span, .file-picker-copy > span { color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.5; }
+.modal-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.5); }
+.modal-content { display: flex; width: min(760px, calc(100vw - 32px)); max-height: min(90vh, 860px); flex-direction: column; overflow: hidden; border-radius: 16px; background: var(--color-bg-card); box-shadow: var(--shadow-xl); }
+.modal-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--color-border); }
+.modal-title-block { min-width: 0; }
+.modal-title-block h3 { margin: 0; color: var(--color-text-primary); font-size: var(--text-lg); font-weight: 600; }
+.modal-title-block p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.5; }
+.modal-close { display: flex; width: 32px; height: 32px; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-tertiary); cursor: pointer; font-size: 20px; line-height: 1; }
+.modal-close:hover { background: var(--color-bg-elevated); color: var(--color-text-primary); }
+.modal-close:disabled { cursor: not-allowed; opacity: 0.5; }
+.modal-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: 20px; }
+.modal-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--color-border); }
+.import-step { margin-bottom: 22px; }
+.import-step:last-child { margin-bottom: 0; }
+.import-step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.import-step-num { display: inline-flex; width: 22px; height: 22px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-primary-500); color: #fff; font-size: var(--text-xs); font-weight: 600; }
+.import-step-title { color: var(--color-text-primary); font-size: var(--text-sm); font-weight: 600; }
+.import-step-desc { margin: 0 0 10px; color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: 1.5; }
+.import-meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.import-field { display: grid; min-width: 0; gap: 6px; }
+.import-field-label { color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: 500; }
 .full-width { width: 100%; }
-.file-picker { display: flex; width: 100%; min-height: 64px; align-items: center; gap: 12px; padding: 10px 12px; border: 1px dashed var(--color-border); border-radius: 4px; color: var(--color-text-secondary); cursor: pointer; }
-.file-picker:hover { border-color: var(--color-primary); background: var(--color-background-soft); }
-.file-picker-disabled { cursor: not-allowed; opacity: .65; }
-.file-picker-icon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 4px; background: var(--color-background-soft); color: var(--color-primary-700); }
-.file-picker-copy { flex: 1; }
-.file-picker-copy strong { overflow: hidden; color: var(--color-text-primary); font-size: var(--text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.file-picker-action { flex: 0 0 auto; color: var(--color-primary-700); font-size: var(--text-sm); }
-.scope-note { margin: -4px 0 0; color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: 1.5; }
-.import-preview { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--color-border-light); }
-.import-preview .section-heading { margin: 0; }
-.replacement-alert { margin: 0; }
+.import-file-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
+.import-file-actions > span { color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: 1.5; }
+.import-template-btn svg { width: 16px; height: 16px; }
+.import-upload-area { position: relative; display: flex; min-height: 124px; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px; border: 2px dashed var(--color-border); border-radius: 12px; background: var(--color-bg-page); color: var(--color-text-secondary); cursor: pointer; font-size: var(--text-sm); text-align: center; transition: border-color var(--transition-fast), background var(--transition-fast); }
+.import-upload-area:hover { border-color: var(--color-primary-300); background: var(--color-primary-50); }
+.import-upload-area.file-selected { border-color: var(--color-primary-300); background: var(--color-primary-50); }
+.import-upload-area.upload-loading { cursor: not-allowed; opacity: 0.7; }
+.import-upload-area svg { width: 24px; height: 24px; color: var(--color-primary-500); }
+.import-upload-area strong { max-width: 100%; overflow: hidden; color: var(--color-text-primary); font-size: var(--text-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.import-upload-hint { color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.import-file-input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+.import-upload-area:focus-within { outline: 2px solid var(--color-primary-500); outline-offset: 2px; }
+.import-spinner { width: 20px; height: 20px; border: 2px solid var(--color-border); border-top-color: var(--color-primary-500); border-radius: 50%; animation: import-spin 0.8s linear infinite; }
+@keyframes import-spin { to { transform: rotate(360deg); } }
+.scope-note { margin: -4px 0 18px; color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: 1.5; }
+.import-preview { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid var(--color-border-light); }
+.preview-step-header { flex-wrap: wrap; }
+.preview-context { margin-left: auto; color: var(--color-text-tertiary); font-size: var(--text-xs); }
 .preview-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; }
-.preview-metrics > div { display: grid; gap: 4px; min-width: 0; }
+.preview-metrics > div { display: grid; min-width: 0; gap: 4px; padding: 10px 12px; border: 1px solid var(--color-border-light); border-radius: 8px; background: var(--color-bg-page); }
 .preview-metrics dt { color: var(--color-text-secondary); font-size: var(--text-xs); }
 .preview-metrics dd { margin: 0; color: var(--color-text-primary); font-size: var(--text-md); font-variant-numeric: tabular-nums; font-weight: 600; }
 .preview-branches { display: grid; gap: 0; border-top: 1px solid var(--color-border-light); }
 .preview-branch { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--color-border-light); font-size: var(--text-sm); }
 .preview-branch span { color: var(--color-text-secondary); }
 .preview-branch strong { color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
-.reconciliation-import-dialog :deep(.el-dialog) { display: flex; max-height: 92vh; flex-direction: column; margin-bottom: 4vh; }
-.reconciliation-import-dialog :deep(.el-dialog__body) { min-height: 0; overflow-y: auto; padding-top: 16px; padding-bottom: 16px; }
-.reconciliation-import-dialog :deep(.el-dialog__footer) { flex: 0 0 auto; padding-top: 12px; }
+.import-alert { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 6px; font-size: var(--text-xs); line-height: 1.6; }
+.import-alert-warning { border-color: color-mix(in oklch, var(--color-warning) 55%, var(--color-border)); background: color-mix(in oklch, var(--color-warning) 12%, var(--color-bg-card)); color: var(--color-text-primary); }
+.import-alert-error { border-color: color-mix(in oklch, var(--color-danger) 55%, var(--color-border)); background: color-mix(in oklch, var(--color-danger) 10%, var(--color-bg-card)); color: var(--color-danger); }
 .row-errors { max-height: 180px; overflow: auto; padding-left: 20px; margin: 8px 0 0; line-height: 1.6; }
+.btn-secondary, .btn-confirm, .btn-cancel { display: inline-flex; height: 40px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; padding: 0 16px; border-radius: 8px; cursor: pointer; font: inherit; font-size: var(--text-sm); font-weight: 500; white-space: nowrap; transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast); }
+.modal-footer svg { width: 16px; height: 16px; flex: 0 0 16px; }
+.btn-secondary { border: 1px solid var(--color-border); background: var(--color-bg-card); color: var(--color-text-primary); }
+.btn-secondary:hover:not(:disabled) { border-color: var(--color-primary-300); background: var(--color-primary-50); color: var(--color-primary-700); }
+.btn-confirm { border: 1px solid var(--color-primary-500); background: var(--color-primary-500); color: #fff; }
+.btn-confirm:hover:not(:disabled) { border-color: var(--color-primary-600); background: var(--color-primary-600); }
+.btn-cancel { border: 1px solid var(--color-border); background: var(--color-bg-card); color: var(--color-text-primary); }
+.btn-cancel:hover:not(:disabled) { border-color: var(--color-primary-300); color: var(--color-primary-700); }
+.btn-secondary:disabled, .btn-confirm:disabled, .btn-cancel:disabled { cursor: not-allowed; opacity: 0.5; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .detail-header { align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--color-border-light); }
 .back-button { justify-content: flex-start; padding-left: 0; width: fit-content; }
@@ -808,8 +1106,11 @@ onMounted(loadTasks)
 .filters { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(180px, 240px) auto; align-items: center; gap: 8px; }
 .serial-search, .branch-select { width: 100%; }
 .comparison-table { width: 100%; }
-.comparison-table :deep(.el-table__header-wrapper th) { color: var(--color-text-secondary); font-weight: 600; }
-.comparison-table :deep(.el-table__header-wrapper tr:first-child th) { background: var(--color-background-soft); }
+.comparison-table :deep(th.el-table__cell) {
+  background-color: var(--color-bg-table-header);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
 .muted { color: var(--color-text-tertiary); }
 .calculation-alert { margin: 10px 0; }
 .supporting-info { border-top: 1px solid var(--color-border-light); border-bottom: 1px solid var(--color-border-light); }
@@ -832,10 +1133,15 @@ onMounted(loadTasks)
 @media (max-width: 760px) {
   .page-header, .detail-header { align-items: flex-start; flex-direction: column; }
   .header-actions { width: 100%; justify-content: flex-start; }
+  .modal-overlay { align-items: flex-end; padding: 8px; }
+  .modal-content { width: 100%; max-height: calc(100vh - 16px); border-radius: 12px; }
+  .modal-header, .modal-body { padding-right: 16px; padding-left: 16px; }
+  .modal-footer { padding-right: 16px; padding-left: 16px; }
   .import-meta-grid { grid-template-columns: 1fr; row-gap: 8px; }
   .preview-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .file-picker { gap: 8px; padding: 8px; }
-  .file-picker-action { font-size: var(--text-xs); }
+  .import-file-actions { align-items: flex-start; flex-direction: column; }
+  .import-file-actions > span { width: 100%; }
+  .preview-context { width: 100%; margin-left: 30px; }
   .amount-summary { min-width: 0; width: 100%; padding: 0 0 10px; margin: 0 0 2px; border-right: 0; border-bottom: 1px solid var(--color-border-light); }
   .list-toolbar { align-items: stretch; }
   .unresolved-summary { align-items: stretch; }
