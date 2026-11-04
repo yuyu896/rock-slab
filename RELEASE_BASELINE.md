@@ -52,7 +52,7 @@
 
 注意：候选版 `check_seed_grants` 只报告账号、授权和范围数量，即使普通账号没有显式授权也会通过；不能把部署脚本该步骤通过当作岗位基线已补齐。
 
-本轮只读预检确认：生产仍运行 `e19a8e9`，健康接口返回 `200`，Django system check 通过，当前生产代码的 `migrate --plan` 无待执行迁移；这不代表候选迁移已验证。生产工作树有 3 项本地内容：`image_processing.py` 的 MPO 缩略图支持改动已纳入本地候选工作区并补充测试，尚未提交；`migration-reports/` 下两份未跟踪 XLSX 报告；以及未跟踪的 `nginx/rock-slab.conf`。生产服务器文件未被修改。候选迁移在数据库副本上的验证及旧权限码、岗位基线和退役岗位预览仍未完成。
+本轮只读预检确认：生产仍运行 `e19a8e9`，健康接口返回 `200`，Django system check 通过，当前生产代码的 `migrate --plan` 无待执行迁移；这不代表候选迁移已验证。生产工作树仍有 3 项本地状态：`image_processing.py` 的 MPO 缩略图支持现已纳入候选提交 `a27bd13`，服务器文件与候选 blob 一致；`migration-reports/` 下两份未跟踪 XLSX 位于后端 Docker 构建目录之外；`nginx/rock-slab.conf` 由单独部署的磐盘 Nginx 使用。没有清理或覆盖这些生产文件。候选迁移在数据库副本上的验证及旧权限码、岗位基线和退役岗位预览仍未完成。
 
 ## 发布与回滚顺序
 
