@@ -324,8 +324,19 @@ class CompanyView(APIView):
 
 class CompanyWechatQrView(APIView):
     """集团联系二维码：登录员工可查看，只有系统管理员可替换。"""
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser]
+
+    def get_permissions(self):
+        permissions = [IsAuthenticated]
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            permissions.append(IsAdmin)
+        return [permission() for permission in permissions]
+
+    def get(self, request):
+        company = Company.get_singleton()
+        serializer = CompanySerializer(company)
+        return Response({'wechat_qr_code': serializer.data['wechat_qr_code']})
 
     def post(self, request):
         from core.upload_validation import UploadValidationError, validate_image_upload
