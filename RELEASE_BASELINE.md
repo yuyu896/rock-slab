@@ -7,11 +7,11 @@
 | 项目 | 状态 |
 |---|---|
 | 生产代码基线 | `e19a8e9`（2026-10-29） |
-| 本地 `origin/main` | `20ce72e`，已在隔离发布分支中合并 |
+| 候选代码提交 | `16885f3`，已推送到 `main` |
 | 发布工作区 | `D:\Project\rock-slab-release-baseline` |
-| 发布分支 | `codex/release-baseline-20261104`，本地隔离 worktree；尚未推送 |
+| 发布分支 | `codex/release-baseline-20261104`，本地隔离 worktree；候选提交已推送到 `main` |
 | 候选功能 | 对账工作台与范围限制、确认后的权限体系、岗位基线与员工删除规则，以及二维码读取修复 |
-| 生产写操作 | 未运行迁移、授权迁移、`--apply`、部署或数据修复命令；授权模拟只写入临时副本 |
+| 生产状态 | 未运行数据库迁移、授权迁移、`--apply`、构建、重启或数据修复；仅将已确认与候选 blob 一致的 MPO 文件恢复到生产 `HEAD` 工作区版本，容器源码未挂载，运行服务和数据库未改变 |
 
 候选包含对账提交 `047ff4e`、权限提交 `9a55c12` 和本地发布合并。生产主工作区保留原样；未将其混合改动整体复制到发布候选。实例编号清理测试的预期也已调整为清理后可复用最低空号；该提交仅改测试，不会在部署时运行清理命令或删除生产实例。
 
@@ -66,20 +66,56 @@
 
 注意：候选版 `check_seed_grants` 只报告账号、授权和范围数量，即使普通账号没有显式授权也会通过；不能把部署脚本该步骤通过当作岗位基线已补齐。
 
-生产仍运行 `e19a8e9`，健康接口返回 `200`，旧生产代码的 `migrate --plan` 无待执行迁移。候选代码针对生产数据库的只读迁移计划有 6 项待执行：`transfers.0032`、`assets.0033`、`inventories.0009`、`permissions.0005`、`reconciliation.0002` 和 `reconciliation.0003`；`organizations.0009` 已在生产迁移记录中。候选迁移预演已在数据库副本完成。生产工作树有 3 项本地状态：`image_processing.py` 的 MPO 缩略图支持已纳入候选提交 `a27bd13`，服务器文件与候选 blob 完全一致；`migration-reports/` 下两份未跟踪 XLSX 和 `nginx/rock-slab.conf` 都不在候选 Git 树中，后者由单独部署的磐盘 Nginx 使用。它们均已核实可原样保留，未清理或覆盖。
+生产仍运行 `e19a8e9`，健康接口返回 `200`，`main` 已包含候选代码提交 `16885f3`。旧生产代码的 `migrate --plan` 无待执行迁移；候选代码针对生产数据库有 6 项迁移待执行：`transfers.0032`、`assets.0033`、`inventories.0009`、`permissions.0005`、`reconciliation.0002` 和 `reconciliation.0003`；`organizations.0009` 已在生产迁移记录中。候选迁移预演已在数据库副本完成。生产 MPO 文件原本相对 `HEAD` 有未提交修改，但其 blob 与候选提交 `a27bd13` 完全一致；已只恢复该文件到生产 `HEAD`，容器不挂载源码，因此运行服务未改变。当前保留 `migration-reports/` 下两份未跟踪 XLSX 和 `nginx/rock-slab.conf`，均不在候选 Git 树中且未清理或覆盖。实际 Nginx 容器挂载的是仓库外 `/root/nginx.conf`；仓库内未跟踪的 `nginx/rock-slab.conf` 是另一文件，不应当作活动配置覆盖。
 
 岗位基线确认接口曾在 PostgreSQL 副本中因锁定带可空分公司关联的员工查询失败。候选已改为只锁定员工表（`select_for_update(of=('self',))`），重建隔离镜像后，副本中的 128 人基线应用成功，相关 10 项测试和 Django system check 通过。
 
 ## 发布与回滚顺序
 
-1. 旧权限映射和数据范围规则已确认；将已审阅的隔离候选推送/合并到 `main`。正式执行前重新生成权限迁移计划，避免计划生成后生产授权或组织数据发生变化。
-2. 在维护窗口创建即时数据库备份，并按生产基线对候选迁移做最终检查；生产服务器的三项本地状态已核实可原样保留。
-3. 按已确认顺序执行 schema migration 和单独批准的授权数据操作，再运行岗位授权检查、台账一致性检查、静态资源构建、前端构建、服务重启和健康检查。
+1. 候选已推送到 `main`。正式执行前重新生成权限迁移计划和授权快照，避免计划生成后生产授权或组织数据发生变化；计划与快照保存在 root-only 目录。
+2. 维护窗口开始时创建即时数据库备份。生产 MPO 文件拉取阻塞已清除；保留两项不在候选树中的未跟踪内容，不运行 `git clean`。
+3. 现有 `deploy.sh` 只执行 schema migration、种子检查、台账检查、构建和重启，不会迁移旧权限/数据范围或应用岗位基线。需在对外开放前按已确认顺序执行 schema migration、旧权限与数据范围迁移、岗位基线应用，再进行台账一致性检查、静态资源/前端构建、服务重启和健康检查；维护拦截方式须与生产 Nginx 配置协调。
 4. 部署后核验员工实际权限勾选、数据范围、草稿隔离、审批范围、对账、审计和历史归还只读链路。
+
+### 维护窗口操作清单
+
+1. 先在活动 Nginx 配置 `/root/nginx.conf` 对 `qhpanpan.top` 启用临时维护门禁，只允许负责部署的管理员来源 IP 访问，其余请求返回维护响应；运行 `nginx -t` 通过后再 reload。不要改写仓库内未跟踪的 `nginx/rock-slab.conf`。
+2. 备份生产数据库，确认生产分支仍为 `e19a8e9`、远端候选为 `16885f3`，执行拉取和构建。服务器上只保留 `migration-reports/` 和 `nginx/rock-slab.conf` 两项未跟踪状态；不要运行 `git clean`。
+3. 执行候选 schema migration。随后用 `migrate_granular_permissions` 在 `/root` 权限为 `700` 的新目录中生成最新计划和发布前授权快照；文件含员工信息，不得写到标准输出或普通日志。目录名每次使用新的维护窗口时间：
+
+   ```bash
+   umask 077
+   RELEASE_MIGRATION_DIR="/root/rock-slab-release-YYYYMMDD-HHMM"
+   install -d -m 700 "$RELEASE_MIGRATION_DIR"
+   docker compose run --rm backend python manage.py migrate_granular_permissions \
+     --output "$RELEASE_MIGRATION_DIR/permission-plan.json" \
+     --snapshot-output "$RELEASE_MIGRATION_DIR/authorization-before.json"
+   ```
+
+   核对账号、旧权限映射及数据范围数量符合已确认决策。预览中如不是保留 11 条匹配范围、删除 116 条不匹配范围，或其他映射数量有变化，暂停并重新核对。
+4. 确认计划后用该计划的 `plan_id`、系统管理员 `actor_id` 和新快照路径执行。对计划里的每条保留范围重复传入 `--preserve-scope-id`，对每条删除范围重复传入 `--drop-scope-id`：
+
+   ```bash
+   docker compose run --rm backend python manage.py migrate_granular_permissions \
+     --apply \
+     --plan "$RELEASE_MIGRATION_DIR/permission-plan.json" \
+     --confirm "<预览输出的 plan_id>" \
+     --snapshot "$RELEASE_MIGRATION_DIR/authorization-after.json" \
+     --actor-id "<系统管理员 UUID>" \
+     --accept-unmapped \
+     --preserve-scope-id "<匹配的范围记录 ID>" \
+     --drop-scope-id "<不匹配的范围记录 ID>"
+   ```
+
+   示例中的范围参数需按新预览逐条添加；不得复用旧预演的 ID。命令会检查计划摘要与当前数据库一致；若检查失败，重新生成计划，不得绕过校验。
+5. 在维护门禁仍开启时，用系统管理员进入“权限分配”页，预览并应用岗位基线；确认预览人数和新增/删除数量符合生产当时的在职员工情况。应用后重新预览，确保基线无待应用差异。
+6. 确认台账一致性、授权迁移和岗位基线结果后，完成静态资源/前端构建、服务重启和健康检查；最后移除活动 Nginx 配置中的临时门禁，先 `nginx -t` 再 reload。
+
+现有 `deploy.sh` 不会执行第 3 至第 5 步，所以不能在没有该维护门禁和人工核对的情况下单独运行整套部署。
 
 `deploy.sh` 会打印代码回滚和完整数据库恢复命令。代码回滚不会撤销 schema migration，也不会自动恢复权限授权。若需要完整恢复，必须停后端后恢复部署前数据库备份；恢复会丢弃备份之后产生的全部数据库写入，须安排好停写窗口。权限快照只覆盖授权与数据范围，不能替代数据库备份。
 
 ## 仍未完成的发布门槛
 
-- 候选仍未推送/合并到 `main`；生产部署和授权数据变更均未执行。
-- 正式发布仍需安排维护窗口，重新核对并执行生产授权迁移、岗位基线应用及数据范围更新。
+- 候选 `16885f3` 已推送到 `main`；生产仍运行 `e19a8e9`，尚未部署，数据库和授权数据均未迁移。
+- 生产拉取阻塞已清除；下一步需安排维护窗口，重新生成并核对生产授权迁移计划，执行 6 项候选 schema migration、已确认的旧权限/数据范围迁移和岗位基线应用，再完成业务验证。
