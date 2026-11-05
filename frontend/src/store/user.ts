@@ -25,12 +25,19 @@ export const useUserStore = defineStore('user', () => {
 
   let operationsFetchedAt = 0
 
+  /** camelCase 键转 snake_case（仅处理 pageOperations 内层键） */
+  function toSnakeKeys(obj: Record<string, string[]>): Record<string, string[]> {
+    return Object.fromEntries(
+      Object.entries(obj).map(([k, v]) => [k.replace(/([A-Z])/g, '_$1').toLowerCase(), v])
+    )
+  }
+
   /** 拉取当前用户的管理权限摘要（登录/刷新后调用） */
   async function fetchMyPermissions() {
     try {
       const { data } = await getMyPermissions()
       operations.value = data.operations || []
-      pageOperations.value = data.pageOperations || {}
+      pageOperations.value = toSnakeKeys(data.pageOperations || {})
       operationPrerequisites.value = data.operationPrerequisites || {}
       operationsFetchedAt = Date.now()
     } catch {
