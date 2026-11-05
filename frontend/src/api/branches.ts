@@ -2,7 +2,7 @@
 import request from '@/utils/request'
 import type { Branch } from '@/types'
 
-export function getBranches(params?: { region?: string; scope?: 'write' | 'tree' }) {
+export function getBranches(params?: { region?: string; scope?: 'write' | 'tree' | 'all' }) {
   return request.get<Branch[]>('/api/branches/', { params })
 }
 

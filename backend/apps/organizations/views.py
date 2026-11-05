@@ -145,12 +145,17 @@ class BranchViewSet(viewsets.ModelViewSet):
                 return self._WRITE_OPTION_OPERATIONS
             if request.query_params.get('scope') == 'tree':
                 return ('view_organizations',)
+            if request.query_params.get('scope') == 'all':
+                # 跨范围分公司列表（调拨调入方选择器）：持有任一单据编辑权即可
+                return self._WRITE_OPTION_OPERATIONS
         return None
 
     def get_serializer_class(self):
         if self.action == 'list':
             scope = self.request.query_params.get('scope')
             if scope == 'write':
+                return BranchOptionSerializer
+            if scope == 'all':
                 return BranchOptionSerializer
             if scope == 'tree':
                 if self.request.user.can('edit_organizations'):
@@ -160,6 +165,9 @@ class BranchViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        # scope=all 用于跨范围表单（调拨调入方）：返回全部分公司，不受数据范围限制
+        if self.action == 'list' and self.request.query_params.get('scope') == 'all':
+            return qs
         scope = _scope_for(self.request.user)
         if not scope.all:
             qs = qs.filter(id__in=scope.branches)

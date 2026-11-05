@@ -22,7 +22,7 @@ const canCreate = computed(() => canManageTransfer('transfer', code => userStore
 const canEdit = computed(() => canManageTransfer('transfer', code => userStore.can(code)))
 const canSubmit = computed(() => canManageTransfer('transfer', code => userStore.can(code)))
 const creating = ref(false)
-/** 表单中的调出、调入选项都限于当前账号的数据范围。 */
+/** 调出选项限自己范围（scope=write），调入选项返回全部分公司（scope=all）。 */
 const fromBranchOptions = ref<{ value: string; label: string }[]>([])
 const toBranchOptions = ref<{ value: string; label: string }[]>([])
 const form = ref({
@@ -70,7 +70,7 @@ onMounted(async () => {
   try {
     const [scoped, all] = await Promise.all([
       getBranches({ scope: 'write' }),
-      getBranches(),
+      getBranches({ scope: 'all' }),
     ])
     fromBranchOptions.value = sortBranchesByName(scoped.data.map((b: any) => ({ value: b.id, label: b.name })))
     toBranchOptions.value = sortBranchesByName(all.data.map((b: any) => ({ value: b.id, label: b.name })))
