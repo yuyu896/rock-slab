@@ -417,6 +417,3 @@ def apply_document(transfer):
 
         for key in sorted(touched):
             locked[key].save()
-
-        for key in sorted(touched):
-            locked[key].save()
