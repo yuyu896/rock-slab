@@ -93,6 +93,10 @@ async function fetchReportData() {
     const consumptionRange = consumptionDateRange()
     if (consumptionRange) consumptionParams.dateRange = consumptionRange
     const changesRange = params.dateRange
+    const changesParams = {
+      dateRange: changesRange,
+      ...(params.branches ? { branches: params.branches } : {}),
+    }
     const [overviewRes, branchRes, statusRes, transferRes, categoryRes, consumptionRes, changesRes] = await Promise.all([
       getOverview(params),
       getByBranch(params),
@@ -100,7 +104,7 @@ async function fetchReportData() {
       getTransferReport(params),
       getByCategory(params),
       getConsumptionReport(consumptionParams),
-      getChangesByItem(changesRange ? { dateRange: changesRange } : undefined),
+      getChangesByItem(changesParams),
     ])
     overviewData.value = overviewRes.data
     branchStats.value = branchRes.data
@@ -739,7 +743,7 @@ onMounted(() => {
 <style scoped>
 /* 分公司报表表格定高滚动（总览去重复后唯一表格承载 tab） */
 .branch-table-wrap { max-height: 560px; overflow-y: auto; }
-.branch-table-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-elevated); }
+.branch-table-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-table-header); }
 
 .reports-page {
   max-width: 1400px;
@@ -1318,7 +1322,7 @@ onMounted(() => {
 }
 
 .data-table th {
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-table-header);
   padding: var(--space-3) var(--space-4);
   text-align: left;
   font-size: var(--text-sm);

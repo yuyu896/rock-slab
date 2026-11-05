@@ -39,6 +39,7 @@ onMounted(fetchTransfer)
     type="recovery"
     :doc="transfer"
     :loading="loading"
+    @lifecycle-changed="fetchTransfer"
   >
     <template #extra-view="{ doc }">
       <div class="extra-grid">
@@ -47,7 +48,7 @@ onMounted(fetchTransfer)
         <span v-if="doc.回收去向 === 'dispose' && doc.处置方式 === '出售'" class="extra-item"><label>处置金额</label><span>{{ doc.处置金额 ?? '-' }}</span></span>
         <span class="extra-item"><label>所属部门</label><span>{{ doc.调出部门 || '-' }}</span></span>
         <span class="extra-item"><label>经办人</label><span>{{ doc.经办人 || doc.创建人 || '-' }}</span></span>
-        <span class="extra-item full"><label>备注</label><span>{{ doc.备注 || '-' }}</span></span>
+        <span class="extra-item full remark-item"><label>备注</label><span class="remark-value">{{ doc.备注 || '-' }}</span></span>
       </div>
     </template>
   </TransferDetailLayout>
@@ -59,5 +60,7 @@ onMounted(fetchTransfer)
 .extra-item label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
 .extra-item span { color: var(--color-text-primary); }
 .extra-item.full { flex-basis: 100%; }
+.remark-item { align-items: flex-start; }
+.remark-value { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mono { font-family: var(--font-mono); }
 </style>

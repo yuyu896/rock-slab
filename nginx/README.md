@@ -27,6 +27,24 @@ docker exec root-nginx-1  nginx -t && docker exec root-nginx-1  nginx -s reload 
 docker exec rock-slab-nginx nginx -t && docker exec rock-slab-nginx nginx -s reload # 磐盘层
 ```
 
+## HTTPS 协议头传递
+
+公网入口负责 SSL 终止，必须按浏览器到入口之间的实际协议覆盖 `X-Forwarded-Proto`：
+
+```nginx
+# root-nginx-1 的 qhpanpan.top server block
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+磐盘 Nginx 到 Gunicorn 的连接是内部 HTTP，不能用它自己的 `$scheme` 覆盖公网入口传来的协议。`/api/` location 应保留入口设置的值：
+
+```nginx
+# rock-slab-nginx 的 /api/ location
+proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+```
+
+公网入口必须覆盖客户端自带的该请求头，且 8080 入口只能由受信任的本机代理访问。Django 生产设置使用 `SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')`。修改后分别检查两层 Nginx 配置，再通过 HTTPS API 确认返回的绝对媒体 URL 以 `https://` 开头；不要只检查页面自身的地址栏。
+
 ## 上传体积限制（client_max_body_size）
 
 资产导入模板可达数十 MB。三层链路**任一处**的 `client_max_body_size` 过小都会返回 413：

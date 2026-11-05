@@ -7,7 +7,7 @@
 
 ## 2. 校验助手与图片端点
 
-- [x] 2.1 `core/upload_validation.py` 新增 `validate_image_upload(file)`：Content-Type 白名单（image/jpeg、image/png、image/webp）、≤2MB，违规抛 `UploadValidationError`
+- [x] 2.1 `core/upload_validation.py` 新增 `validate_image_upload(file)`：Content-Type 白名单（image/jpeg、image/png、image/webp），实例图片≤10MB，违规抛 `UploadValidationError`
 - [x] 2.2 `FixedAssetViewSet` 加 `image` action：`POST /api/assets/fixed-assets/{id}/image`（MultiPartParser，字段 `image`）与 `DELETE` 同路径；`required_operations` 挂 `manage_instances`
 - [x] 2.3 端点实现：校验 → 旧文件 `delete(save=False)` → 赋值/置空 → `save(update_fields=['image', 'updated_at'])` → 返回完整实例序列化数据；UploadValidationError 转 400
 - [x] 2.4 架构测试白名单按 `supplement` 先例纳入 image 端点（断言仍禁触碰状态/数量列）

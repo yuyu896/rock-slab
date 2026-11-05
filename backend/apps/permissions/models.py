@@ -123,3 +123,57 @@ class OperationGrant(UUIDModel, TimestampedModel):
 
     def __str__(self):
         return f'{self.user} → {self.code}'
+
+
+class PositionBaselineState(models.Model):
+    """The last administrator-confirmed position baseline configuration."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    version = models.CharField(max_length=32, blank=True, default='')
+    baseline_config = models.JSONField(default=dict, blank=True)
+    updated_by = models.ForeignKey(
+        'users.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='updated_position_baselines',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'permissions_position_baseline_state'
+
+
+class PositionBaselineAssignment(models.Model):
+    """Snapshot of the role baseline against which one user's exceptions apply."""
+
+    user = models.OneToOneField(
+        'users.User', on_delete=models.CASCADE, primary_key=True,
+        related_name='position_baseline_assignment',
+    )
+    version = models.CharField(max_length=32, blank=True, default='')
+    role = models.CharField(max_length=20)
+    baseline_codes = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'permissions_position_baseline_assignment'
+
+
+class PositionPermissionOverride(models.Model):
+    """A user's permission addition or cancellation relative to its baseline."""
+
+    GRANT = 'grant'
+    REVOKE = 'revoke'
+    EFFECT_CHOICES = ((GRANT, '个人追加'), (REVOKE, '个人取消'))
+
+    user = models.ForeignKey(
+        'users.User', on_delete=models.CASCADE,
+        related_name='position_permission_overrides',
+    )
+    code = models.CharField(max_length=50)
+    effect = models.CharField(max_length=8, choices=EFFECT_CHOICES)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'permissions_position_permission_override'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'code'], name='uniq_user_position_override'),
+        ]

@@ -1,5 +1,7 @@
 from rest_framework import serializers
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from apps.categories.models import Category
+from apps.organizations.models import Department
 from .models import AssetStock, FixedAsset, LedgerAdjustment
 
 
@@ -34,13 +36,29 @@ class AssetStockSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AssetStockAdjustmentContextSerializer(serializers.ModelSerializer):
+    """台账调整所需的最小行信息，不暴露完整台账查看字段。"""
+
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+    资产编号 = serializers.CharField(source='item.asset_code', read_only=True)
+    资产名称 = serializers.CharField(source='item.asset_name', read_only=True)
+
+    class Meta:
+        model = AssetStock
+        fields = [
+            'id', 'branch', 'branch_name', '资产编号', '资产名称',
+            '在库数量', '在用数量', '回收库数量',
+        ]
+        read_only_fields = fields
+
+
 class LedgerAdjustmentSerializer(serializers.ModelSerializer):
     """调整单输出；创建由 view 调 ledger service（唯一写入口）执行。"""
 
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     资产编号 = serializers.CharField(source='item.asset_code', read_only=True)
     资产名称 = serializers.CharField(source='item.asset_name', read_only=True)
-    经办人姓名 = serializers.CharField(source='经办人.name', read_only=True, default=None)
+    经办人姓名 = serializers.CharField(read_only=True, default='')
     来源任务 = serializers.CharField(source='source_task.name', read_only=True, default=None)
 
     class Meta:
@@ -54,7 +72,10 @@ class LedgerAdjustmentSerializer(serializers.ModelSerializer):
 
 
 class FixedAssetSerializer(serializers.ModelSerializer):
-    """实例档案输出：品目信息联字典、供应商/单价/采购日期经出生明细行派生（决策 #8）。"""
+    """实例档案输出：品目信息联字典、供应商和采购日期经出生明细行派生。
+
+    采购单价属于采购单据字段，不属于实例档案或实例生平输出。
+    """
 
     branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
     department_name = serializers.CharField(source='department.name', read_only=True, default=None)
@@ -70,9 +91,9 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         read_only=True,
     )
     待补录 = serializers.SerializerMethodField()
-    图片 = serializers.ImageField(source='image', read_only=True)
+    图片 = serializers.SerializerMethodField()
+    缩略图 = serializers.SerializerMethodField()
     供应商 = serializers.SerializerMethodField()
-    单价 = serializers.SerializerMethodField()
     采购日期 = serializers.SerializerMethodField()
 
     class Meta:
@@ -82,13 +103,33 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             '使用人', 'department', 'department_name', 'branch', 'branch_name',
             'item', 'item_code', 'item_name', 'item_spec',
             'asset_category', 'item_category', 'management_type',
-            '入库日期', '供应商', '单价', '采购日期',
-            '备注', '图片', '采购日期', 'created_at', 'updated_at',
+            '入库日期', '供应商', '采购日期',
+            '备注', '图片', '缩略图', '采购日期', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 
     def get_待补录(self, obj):
         return not (obj.序列号 or '').strip()
+
+    def _get_versioned_image_url(self, obj, image_file):
+        if not image_file:
+            return None
+
+        url = image_file.url
+        request = self.context.get('request')
+        if request is not None:
+            url = request.build_absolute_uri(url)
+
+        parts = urlsplit(url)
+        query = [(key, value) for key, value in parse_qsl(parts.query) if key != 'v']
+        query.append(('v', str(obj.image_version)))
+        return urlunsplit(parts._replace(query=urlencode(query)))
+
+    def get_图片(self, obj):
+        return self._get_versioned_image_url(obj, obj.image)
+
+    def get_缩略图(self, obj):
+        return self._get_versioned_image_url(obj, obj.thumbnail)
 
     def get_item_spec(self, obj):
         """规格三级：实例个体覆盖 → 出生日.本批规格 → 品目字典。"""
@@ -106,11 +147,6 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             return ''
         return obj.birth_line.供应商 or obj.birth_line.transfer.供应商 or ''
 
-    def get_单价(self, obj):
-        if obj.birth_line is None:
-            return None
-        return obj.birth_line.单价
-
     def get_采购日期(self, obj):
         # 两级链：实例个体覆盖 → 出生单日期（空=批次口径，同供应商/规格模式）
         if obj.采购日期:
@@ -118,6 +154,64 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         if obj.birth_line is None:
             return None
         return obj.birth_line.transfer.调拨日期
+
+
+class FixedAssetAssigneeTargetSerializer(serializers.ModelSerializer):
+    """更换使用人所需的最小实例信息；不暴露档案、采购、图片或生平字段。"""
+
+    branch_name = serializers.CharField(source='branch.name', read_only=True, default=None)
+    department_name = serializers.CharField(source='department.name', read_only=True, default=None)
+    item_code = serializers.CharField(source='item.asset_code', read_only=True)
+    item_name = serializers.CharField(source='item.asset_name', read_only=True)
+
+    class Meta:
+        model = FixedAsset
+        fields = [
+            'id', '内部编号', '序列号', '当前状态', '使用人',
+            'department', 'department_name', 'branch', 'branch_name',
+            'item_code', 'item_name',
+        ]
+        read_only_fields = fields
+
+
+class FixedAssetEditTargetSerializer(FixedAssetSerializer):
+    """只读出实例编辑所需字段；不包含完整档案、生平或采购单价。"""
+
+    class Meta(FixedAssetSerializer.Meta):
+        fields = [
+            'id', '内部编号', '序列号', '当前状态',
+            'branch', 'branch_name', 'item_code', 'item_name', 'item_spec',
+            '供应商', '采购日期', '备注', '图片', '缩略图',
+            '使用人', 'department', 'department_name',
+        ]
+        read_only_fields = fields
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not user.can('change_instance_assignee'):
+            for name in ('使用人', 'department', 'department_name'):
+                fields.pop(name, None)
+        return fields
+
+
+class FixedAssetImageResponseSerializer(serializers.ModelSerializer):
+    """Image mutation response for editors without full archive-view permission."""
+
+    图片 = serializers.SerializerMethodField()
+    缩略图 = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FixedAsset
+        fields = ['id', '图片', '缩略图']
+        read_only_fields = fields
+
+    def get_图片(self, obj):
+        return FixedAssetSerializer(context=self.context).get_图片(obj)
+
+    def get_缩略图(self, obj):
+        return FixedAssetSerializer(context=self.context).get_缩略图(obj)
 
 
 class FixedAssetSupplementSerializer(serializers.Serializer):
@@ -133,4 +227,22 @@ class FixedAssetSupplementSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'detail': f'补录仅支持 序列号/备注，多余字段：{"、".join(sorted(unknown))}'}
             )
+        return attrs
+
+
+class FixedAssetAssigneeChangeSerializer(serializers.Serializer):
+    """Dedicated handoff request; assignee remains free text, department is dictionary-bound."""
+
+    使用人 = serializers.CharField(max_length=100, trim_whitespace=True)
+    department = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all())
+    原因 = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
+
+    def validate(self, attrs):
+        unknown = set(self.initial_data) - {'使用人', 'department', '原因'}
+        if unknown:
+            raise serializers.ValidationError({
+                'detail': f'更换使用人仅支持 使用人/department/原因，多余字段：{"、".join(sorted(unknown))}'
+            })
+        if not attrs['使用人']:
+            raise serializers.ValidationError({'使用人': ['新使用人不能为空']})
         return attrs

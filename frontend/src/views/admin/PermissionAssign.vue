@@ -1,560 +1,1064 @@
 <template>
-  <div class="permission-assign page-fill">
+  <div class="permission-workspace page-fill">
     <header class="page-header">
-      <h1>权限分配</h1>
-      <p class="hint">
-        岗位定操作、任命定范围、特例才单独授予。三步完成一次任命；岗位模板仅预填勾选，
-        运行时权限以授权表为准，超级管理员内置全部权限。
-      </p>
+      <div>
+        <h1>权限分配</h1>
+        <p class="hint">按账号设置数据范围和业务权限；员工权限按实际生效结果显示。</p>
+      </div>
+      <el-button :disabled="isDirty || loadingBaseline" :loading="loadingBaseline" @click="loadBaselinePreview">
+        核对岗位权限基线
+      </el-button>
     </header>
 
-    <div class="assign-body">
-      <!-- 左：三步 -->
-      <div class="steps">
-        <!-- ① 选人 -->
-        <section class="card">
-          <h2><span class="step-num">1</span>选择员工</h2>
-          <el-select
-            v-model="selectedUserId"
-            filterable
-            placeholder="按姓名 / 手机号搜索…"
-            class="user-select"
-          >
-            <el-option
-              v-for="u in users"
-              :key="u.id"
-              :value="u.id"
-              :label="`${u.name}（${u.phone}）`"
-            >
-              <span>{{ u.name }}</span>
-              <span class="opt-phone">{{ u.phone }} · {{ roleLabel(u.role) }}</span>
-            </el-option>
-          </el-select>
+    <el-dialog
+      v-model="baselineDialogVisible"
+      title="岗位权限基线核对"
+      width="min(1040px, calc(100vw - 32px))"
+      top="5vh"
+      :close-on-click-modal="false"
+    >
+      <div v-if="loadingBaseline" class="baseline-state">正在生成逐员工差异…</div>
+      <template v-else-if="baselinePreview">
+        <div class="baseline-summary">
+          <div><span>当前版本</span><strong>{{ baselinePreview.from_version || '尚未初始化' }}</strong></div>
+          <div><span>待确认版本</span><strong>{{ baselinePreview.to_version }}</strong></div>
+          <div><span>在职普通员工</span><strong>{{ baselinePreview.active_employee_count }}</strong></div>
+          <div><span>有差异员工</span><strong>{{ baselinePreview.changed_employee_count }}</strong></div>
+        </div>
+        <el-alert v-if="baselinePreview.has_changes" type="warning" :closable="false" show-icon>
+          确认后将更新在职员工的岗位基线，保留个人追加和取消以及现有数据范围。停用员工重新启用时同步；未登记旧权限保留并列出核对。
+        </el-alert>
+        <el-alert v-else type="success" :closable="false" show-icon>
+          当前已是最新岗位基线，无需更新。
+        </el-alert>
+
+        <section v-if="baselinePreview.role_changes.length" class="baseline-role-changes">
+          <h3>岗位基线变化</h3>
+          <div v-for="change in baselinePreview.role_changes" :key="change.role" class="baseline-role-row">
+            <strong>{{ change.role_label }}</strong>
+            <span v-if="change.added.length">新增：{{ change.added.map(item => item.label).join('、') }}</span>
+            <span v-if="change.removed.length">取消：{{ change.removed.map(item => item.label).join('、') }}</span>
+          </div>
         </section>
 
-        <template v-if="selectedUser">
-          <!-- ② 岗位模板 -->
-          <section class="card">
-            <h2><span class="step-num">2</span>选择岗位（预填操作码，可增删）</h2>
-            <div class="position-row">
-              <label
-                v-for="t in templates"
-                :key="t.role"
-                class="position-item"
-                :class="{ active: selectedRole === t.role, disabled: t.role === 'admin' && selectedUser.role !== 'admin' }"
-              >
-                <input
-                  type="radio"
-                  :value="t.role"
-                  :disabled="t.role === 'admin' && selectedUser.role !== 'admin'"
-                  :checked="selectedRole === t.role"
-                  @change="onPickRole(t.role)"
-                />
-                <span>{{ t.label }}</span>
-                <span class="scope-hint">{{ scopeTypeLabel(t.scopeType) }}</span>
-              </label>
-            </div>
-            <p v-if="grantsLoading" class="step-desc">正在读取该员工当前授权…</p>
-            <div class="op-grid">
-              <label v-for="op in operations" :key="op.code" class="op-item">
-                <input
-                  type="checkbox"
-                  :checked="isAdminDraft || draftOps.has(op.code)"
-                  :disabled="isAdminDraft || grantsLoading"
-                  @change="onToggleOp(op.code, $event)"
-                />
-                <span>{{ op.label }}</span>
-                <code class="op-code">{{ op.code }}</code>
-              </label>
-            </div>
-            <p v-if="keptExtraCount > 0" class="keep-hint">
-              将保留岗位外的既有授权 {{ keptExtraCount }} 项（显式取消勾选才删除）
-            </p>
-            <button class="btn-primary" :disabled="saving || grantsLoading || !canSave" @click="saveRole">
-              {{ saving ? '保存中…' : '保存岗位' }}
-            </button>
-          </section>
-
-          <!-- ③ 任命节点 -->
-          <section class="card">
-            <h2><span class="step-num">3</span>任命节点（负责人 = 子树范围）</h2>
-            <p class="step-desc">
-              当前岗位建议任命：<strong>{{ scopeTypeLabel(activeTemplate?.scopeType) }}</strong>
-              。任命保存后数据范围即时生效，卸任即回收。
-            </p>
-            <div class="appoint-row">
-              <select v-model="appointType" class="appoint-select">
-                <option value="region">大区负责人</option>
-                <option value="team">行政组长</option>
-                <option value="branch">分公司负责人</option>
-              </select>
-              <select v-model="appointNodeId" class="appoint-select">
-                <option value="">请选择节点…</option>
-                <option v-for="n in appointNodes" :key="n.id" :value="n.id">{{ n.label }}</option>
-              </select>
-              <button class="btn-primary" :disabled="saving || !appointNodeId" @click="saveAppointment">
-                任命
-              </button>
-            </div>
-            <ul class="appoint-list">
-              <li v-for="a in appointments" :key="a.type + a.id">
-                <span>{{ typeLabel(a.type) }}：<strong>{{ a.name }}</strong></span>
-                <button class="btn-link" @click="removeAppointment(a)">卸任</button>
-              </li>
-              <li v-if="!appointments.length" class="empty">暂无任命（范围仅来自额外授权）</li>
-            </ul>
-          </section>
-
-          <!-- 特例调整 -->
-          <section class="card">
-            <h2>特例调整（跨区兼管等）</h2>
-            <div class="scope-add">
-              <select v-model="newScope.type" :disabled="newScope.type === 'all'">
-                <option value="all">整个组织架构（全部数据）</option>
-                <option value="region">大区</option>
-                <option value="branch">分公司</option>
-                <option value="team">行政组</option>
-              </select>
-              <select v-if="newScope.type !== 'all'" v-model="newScope.id">
-                <option value="">请选择…</option>
-                <option v-for="n in scopeOptions" :key="n.id" :value="n.id">{{ n.name }}</option>
-              </select>
-              <button class="btn-primary" :disabled="!canAddScope" @click="addScope">添加授权</button>
-            </div>
-            <p v-if="newScope.type === 'region' && newScope.id" class="region-hint">
-              授予该大区即同时拥有其旗下 <strong>{{ regionBranchCount }}</strong> 个分公司的权限。
-            </p>
-            <ul class="scope-list">
-              <li v-for="s in scopes" :key="s.id">
-                <span v-html="scopeLabel(s)"></span>
-                <button class="btn-link" @click="removeScope(s.id)">移除</button>
-              </li>
-              <li v-if="!scopes.length" class="empty">暂无额外授权</li>
-            </ul>
-          </section>
-        </template>
-      </div>
-
-      <!-- 右：实时权限预览 -->
-      <aside v-if="selectedUser" class="preview">
-        <h2>实时权限预览</h2>
-        <div class="preview-block">
-          <h3>当前生效</h3>
-          <p class="preview-line">岗位：{{ roleLabel(selectedUser.role) }}</p>
-          <p class="preview-line">范围：{{ effectiveRow ? scopeText(effectiveRow.scopeSummary) : '—' }}</p>
-          <p class="preview-line">操作：{{ effectiveRow ? opsText(effectiveRow.operations) : '—' }}</p>
+        <div class="baseline-table-scroll">
+          <table class="baseline-table">
+            <thead>
+              <tr><th>员工</th><th>新增权限</th><th>取消权限</th><th>待核对旧权限</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in baselinePreview.employees" :key="row.user">
+                <td>
+                  <strong>{{ row.name }}</strong>
+                  <small class="baseline-subtitle">{{ row.role_label }} · {{ row.branch_name || '未设置分公司' }}</small>
+                </td>
+                <td>{{ row.added.map(item => item.label).join('、') || '—' }}</td>
+                <td>{{ row.removed.map(item => item.label).join('、') || '—' }}</td>
+                <td>{{ row.legacy_codes.join('、') || '—' }}</td>
+              </tr>
+              <tr v-if="!baselinePreview.employees.length">
+                <td colspan="4" class="baseline-empty">没有员工权限差异或待核对旧权限</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="preview-block pending">
-          <h3>若保存后</h3>
-          <p class="preview-line">岗位：{{ roleLabel(selectedRole) }}</p>
-          <p class="preview-line">
-            范围：
-            {{ previewScopeText }}
-          </p>
-          <p class="preview-line">操作：{{ isAdminDraft ? '全部（内置）' : opsText([...draftOps]) }}</p>
+        <p v-if="baselinePreview.inactive_employee_count" class="baseline-note">
+          {{ baselinePreview.inactive_employee_count }} 名停用员工不在本次同步范围内，重新启用时将同步岗位基线并保留个人调整和数据范围。
+        </p>
+        <p class="baseline-note">
+          本次变更：新增 {{ baselinePreview.added_permission_count }} 项授权，取消 {{ baselinePreview.removed_permission_count }} 项授权；旧权限 {{ baselinePreview.legacy_permission_count }} 项保留待核对。
+        </p>
+      </template>
+      <template #footer>
+        <el-button @click="baselineDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!baselinePreview?.has_changes || loadingBaseline" :loading="applyingBaseline" @click="confirmBaseline">
+          确认应用基线
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <div class="workspace-body">
+      <aside class="people-panel" aria-label="员工列表">
+        <div class="people-heading">
+          <h2>员工</h2>
+          <span>{{ filteredUsers.length }}</span>
+        </div>
+        <div class="people-tools">
+          <el-input v-model="keyword" clearable placeholder="搜索姓名或手机号" aria-label="搜索员工" />
+          <el-button
+            class="filter-toggle"
+            plain
+            :aria-expanded="filterPanelOpen"
+            aria-controls="employee-filter-panel"
+            :aria-label="`${filterPanelOpen ? '收起' : '展开'}员工筛选，${activeFilterCount} 项已启用`"
+            @click="filterPanelOpen = !filterPanelOpen"
+          >
+            <Filter aria-hidden="true" />
+            <span>筛选</span>
+            <span v-if="activeFilterCount" class="filter-count" aria-hidden="true">{{ activeFilterCount }}</span>
+            <ArrowUp v-if="filterPanelOpen" aria-hidden="true" />
+            <ArrowDown v-else aria-hidden="true" />
+          </el-button>
+        </div>
+        <div v-show="filterPanelOpen" id="employee-filter-panel" class="people-filters" aria-label="员工筛选">
+          <el-select v-model="filters.region" clearable filterable placeholder="全部大区" aria-label="按大区筛选" @change="onRegionChange">
+            <el-option v-for="region in regions" :key="region.id" :label="region.name" :value="region.id" />
+          </el-select>
+          <el-select v-model="filters.branch" clearable filterable placeholder="全部分公司" aria-label="按分公司筛选">
+            <el-option v-for="branch in visibleBranches" :key="branch.id" :label="branch.name" :value="branch.id" />
+          </el-select>
+          <el-select v-model="filters.role" clearable filterable placeholder="全部岗位" aria-label="按岗位筛选">
+            <el-option v-for="role in roles" :key="role.code" :label="role.label" :value="role.code" />
+          </el-select>
+          <el-select v-model="filters.status" clearable placeholder="全部账号状态" aria-label="按账号状态筛选">
+            <el-option label="在职" value="active" />
+            <el-option label="已停用" value="inactive" />
+          </el-select>
+          <el-select v-model="filters.authorization" clearable placeholder="全部授权状态" aria-label="按授权状态筛选">
+            <el-option label="有业务权限" value="granted" />
+            <el-option label="无业务权限" value="none" />
+          </el-select>
+          <el-button class="filter-reset" text :disabled="activeFilterCount === 0" @click="resetPeopleFilters">重置筛选</el-button>
+        </div>
+        <div v-if="loadingUsers" class="people-state">正在加载员工…</div>
+        <div v-else-if="!filteredUsers.length" class="people-state">没有匹配的员工</div>
+        <div v-else class="people-list">
+          <button
+            v-for="user in filteredUsers"
+            :key="user.id"
+            type="button"
+            class="person-row"
+            :class="{ selected: selectedUserId === user.id }"
+            :aria-current="selectedUserId === user.id ? 'true' : undefined"
+            @click="selectUser(user.id)"
+          >
+            <span class="person-main">
+              <span class="person-name">{{ user.name }}</span>
+              <span class="person-branch">{{ branchLabel(user) }}</span>
+            </span>
+            <span v-if="selectedUserId === user.id && isDirty" class="unsaved-dot" title="有未保存更改" />
+          </button>
         </div>
       </aside>
+
+      <main class="editor-panel">
+        <div v-if="loadingUsers || loadingAuthorization" class="editor-empty">正在读取授权信息…</div>
+        <div v-else-if="!selectedUser" class="editor-empty">从左侧选择员工以查看或设置授权</div>
+        <template v-else>
+          <section class="employee-heading">
+            <div>
+              <div class="employee-title-row">
+                <h2>{{ authorization?.user.name || selectedUser.name }}</h2>
+                <span class="status-label" :class="{ inactive: authorization?.user.status !== 'active' && authorization?.user.status !== '正常' }">
+                  {{ statusLabel(authorization?.user.status || selectedUser.status) }}
+                </span>
+                <span v-if="isSelectedAdmin" class="admin-label">系统管理员</span>
+                <span class="authorization-label" :class="{ granted: hasBusinessAuthorization(selectedUser) }">
+                  {{ authorizationLabel(selectedUser) }}
+                </span>
+              </div>
+              <p class="employee-meta">
+                {{ authorization?.user.phone || selectedUser.phone }}
+                <span>·</span>{{ roleLabel(authorization?.user.role || selectedUser.role) }}
+                <span>·</span>{{ employeeOrganization }}
+              </p>
+            </div>
+            <span v-if="isDirty" class="draft-indicator">未保存</span>
+            <span v-else class="saved-indicator">{{ isSelectedAdmin ? '系统内置权限' : '当前设置已保存' }}</span>
+          </section>
+
+          <section v-if="isSelectedAdmin" class="admin-summary" aria-live="polite">
+            <strong>系统管理员自动拥有全部业务权限和全组织数据范围。</strong>
+            <span>此账号的权限由系统内置，不能在此逐项修改。</span>
+          </section>
+
+          <section v-if="legacyOperations.length" class="legacy-warning" role="status">
+            <strong>发现 {{ legacyOperations.length }} 项旧权限</strong>
+            <span>旧权限默认保留。核对后可逐项选择撤销，撤销项会随本次保存一起生效。</span>
+            <div class="legacy-list">
+              <label v-for="item in legacyOperationDetails" :key="item.code" class="legacy-option">
+                <input
+                  type="checkbox"
+                  :checked="legacyOperationsToRemove.includes(item.code)"
+                  :disabled="saving"
+                  @change="toggleLegacyOperation(item.code, $event)"
+                />
+                <span>
+                  <strong>撤销 {{ item.label }}</strong>
+                  <small v-if="item.description">{{ item.description }}</small>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="scope-section" aria-labelledby="scope-heading">
+            <div class="section-heading">
+              <div>
+                <h3 id="scope-heading">数据范围</h3>
+                <p>决定账号可以访问哪些组织数据，不会自动增加业务操作权限。</p>
+              </div>
+              <span class="current-summary">当前：{{ currentScopeText }}</span>
+            </div>
+
+            <div class="scope-modes" role="radiogroup" aria-label="数据范围模式">
+              <label class="mode-option" :class="{ active: draftScopeMode === 'default' }">
+                <input v-model="draftScopeMode" type="radio" value="default" :disabled="isSelectedAdmin" />
+                <span><strong>跟随员工归属</strong><small>按员工所属组织确定</small></span>
+              </label>
+              <label class="mode-option" :class="{ active: draftScopeMode === 'custom' }">
+                <input v-model="draftScopeMode" type="radio" value="custom" :disabled="isSelectedAdmin" />
+                <span><strong>自定义组织范围</strong><small>选择一个或多个组织节点</small></span>
+              </label>
+              <label class="mode-option" :class="{ active: draftScopeMode === 'all' }">
+                <input v-model="draftScopeMode" type="radio" value="all" :disabled="isSelectedAdmin" />
+                <span><strong>全部组织</strong><small>仅扩大数据可见范围</small></span>
+              </label>
+            </div>
+
+            <div v-if="draftScopeMode === 'custom' && !isSelectedAdmin" class="scope-picker">
+              <el-tree-select
+                v-model="draftScopeNodeKeys"
+                :data="scopeTree"
+                :props="scopeTreeProps"
+                multiple
+                filterable
+                show-checkbox
+                check-strictly
+                default-expand-all
+                node-key="key"
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                placeholder="搜索并选择组织节点"
+                aria-label="自定义组织范围"
+              />
+              <p v-if="!draftScopeNodeKeys.length" class="scope-warning">自定义范围至少选择一个组织节点。</p>
+              <div v-else class="selected-nodes">
+                <span v-for="key in draftScopeNodeKeys" :key="key" class="scope-chip">{{ nodeLabel(key) }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="operations-section" aria-labelledby="operations-heading">
+            <div class="section-heading">
+              <div>
+                <h3 id="operations-heading">业务权限</h3>
+                <p>按页面模块配置具体操作；导出随对应查看权限开放。</p>
+              </div>
+              <span class="current-summary">{{ selectedModuleCount }} 个已授权模块 · {{ selectedOperationCount }} / {{ operations.length }} 项操作</span>
+            </div>
+
+            <div v-if="!operations.length" class="inline-state">暂无可配置的业务权限</div>
+            <template v-else>
+              <nav v-if="operationGroups.length > 1" class="module-quick-nav" aria-label="权限模块快速定位">
+                <span class="module-quick-nav-label">定位模块</span>
+                <button
+                  v-for="module in operationGroups"
+                  :key="module.code"
+                  type="button"
+                  class="module-quick-link"
+                  @click="scrollToModule(module.code)"
+                >
+                  {{ module.label }}
+                </button>
+              </nav>
+              <div class="module-list">
+              <section
+                v-for="module in operationGroups"
+                :id="moduleSectionId(module.code)"
+                :key="module.code"
+                class="module-group"
+              >
+                <div class="module-heading">
+                  <h4>{{ module.label }}</h4>
+                  <span>{{ module.selectedCount }} / {{ module.operations.length }}</span>
+                </div>
+                <div class="operation-grid">
+                  <label v-for="op in module.operations" :key="op.code" class="operation-option" :class="{ checked: hasOperation(op.code), disabled: isOperationDisabled(op) }">
+                    <input
+                      type="checkbox"
+                      :checked="hasOperation(op.code)"
+                      :disabled="isOperationDisabled(op)"
+                      @change="toggleOperation(op.code, $event)"
+                    />
+                    <span class="operation-copy">
+                      <strong>{{ op.label }}</strong>
+                      <small v-if="op.description">{{ op.description }}</small>
+                    </span>
+                  </label>
+                </div>
+              </section>
+              </div>
+            </template>
+          </section>
+
+          <section v-if="isDirty && !isSelectedAdmin" class="changes-section" aria-live="polite">
+            <div class="section-heading">
+              <div>
+                <h3>待保存变更</h3>
+                <p>确认后将一次性保存数据范围与业务权限。</p>
+              </div>
+              <span class="change-count">{{ changeCount }} 项变更</span>
+            </div>
+            <div class="change-list">
+              <div v-if="scopeDirty" class="change-row">
+                <strong>数据范围</strong>
+                <span>{{ currentScopeText }} <b>→</b> {{ draftScopeText }}</span>
+              </div>
+              <div v-for="op in addedOperations" :key="`add-${op.code}`" class="change-row added">
+                <strong>新增权限</strong><span>{{ op.module_label }} · {{ op.label }}</span>
+              </div>
+              <div v-for="op in removedOperations" :key="`remove-${op.code}`" class="change-row removed">
+                <strong>撤销权限</strong><span>{{ op.module_label }} · {{ op.label }}</span>
+              </div>
+              <div v-for="item in removedLegacyOperationDetails" :key="`remove-legacy-${item.code}`" class="change-row removed">
+                <strong>撤销旧权限</strong><span>{{ item.label }}</span>
+              </div>
+            </div>
+            <label class="reason-field">
+              <span>变更原因 <small>选填</small></span>
+              <el-input v-model="reason" type="textarea" :rows="2" maxlength="300" show-word-limit placeholder="可填写权限调整的背景或依据" />
+            </label>
+          </section>
+
+          <footer v-if="!isSelectedAdmin" class="editor-actions">
+            <span class="action-note">{{ isDirty ? '权限变更将在确认保存后生效' : '修改会先保留为草稿' }}</span>
+            <div>
+              <el-button :disabled="!isDirty || saving" @click="resetDraft">放弃更改</el-button>
+              <el-button type="primary" :disabled="!isDirty || saving || invalidCustomScope" :loading="saving" @click="saveAuthorization">
+                {{ saving ? '保存中' : '确认保存' }}
+              </el-button>
+            </div>
+          </footer>
+        </template>
+      </main>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getUsers, updateUser } from '@/api/users'
-import { handleApiError } from '@/utils/request'
-import { getRegions, updateRegion } from '@/api/regions'
-import { getBranches, updateBranch } from '@/api/branches'
-import { getTeams, updateTeam } from '@/api/teams'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { onBeforeRouteLeave } from 'vue-router'
+import { ArrowDown, ArrowUp, Filter } from '@element-plus/icons-vue'
+import { getUsers } from '@/api/users'
+import { getRegions } from '@/api/regions'
+import { getBranches } from '@/api/branches'
+import { getTeams } from '@/api/teams'
 import {
-  createManagementScope, deleteManagementScope, getManagementScopes,
-  createOperationGrant, deleteOperationGrant, getOperationGrants,
-  getOperationCatalog, getPositionTemplates, getEffectivePermissions,
-  type ManagementScope, type OperationGrant, type OperationItem,
-  type PositionTemplate, type EffectivePermissionRow, type AppointmentItem,
+  getOperationCatalog,
+  getEffectivePermissions,
+  getUserAuthorization,
+  saveUserAuthorization as putUserAuthorization,
+  getPositionBaselinePreview,
+  applyPositionBaseline,
+  type AuthorizationScopeMode,
+  type EffectivePermissionRow,
+  type PositionBaselinePreview,
+  type PermissionOperation,
+  type ScopeNode,
+  type ScopeNodeType,
+  type UserAuthorization,
 } from '@/api/permissions'
 import { ROLE_LABELS } from '@/constants'
-import type { User, Branch, Region, Team } from '@/types'
+import { handleApiError } from '@/utils/request'
+import type { User, Region, Branch, Team } from '@/types'
 
-const users = ref<User[]>([])
-const operations = ref<OperationItem[]>([])
-const templates = ref<PositionTemplate[]>([])
-const selectedUserId = ref('')
-const scopes = ref<ManagementScope[]>([])
-const grants = ref<OperationGrant[]>([])
-const effectiveRows = ref<EffectivePermissionRow[]>([])
-const saving = ref(false)
-const grantsLoading = ref(false)
+type UserListItem = User & { region_name?: string; branch_name?: string }
+type ScopeTreeOption = { key: string; label: string; children?: ScopeTreeOption[] }
 
-const selectedRole = ref('')
-const draftOps = ref<Set<string>>(new Set())
-
-const appointType = ref<'region' | 'team' | 'branch'>('branch')
-const appointNodeId = ref('')
-
-const newScope = reactive<{ type: 'all' | 'region' | 'branch' | 'team'; id: string }>({
-  type: 'region', id: '',
-})
-
+const users = ref<UserListItem[]>([])
+const effectivePermissions = ref<EffectivePermissionRow[]>([])
+const operations = ref<PermissionOperation[]>([])
 const regions = ref<Region[]>([])
 const branches = ref<Branch[]>([])
 const teams = ref<Team[]>([])
+const authorization = ref<UserAuthorization | null>(null)
+const selectedUserId = ref('')
+const keyword = ref('')
+const filters = reactive({ region: '', branch: '', role: '', status: '', authorization: '' })
+const filterPanelOpen = ref(false)
+const loadingUsers = ref(true)
+const loadingAuthorization = ref(false)
+const saving = ref(false)
+const loadingBaseline = ref(false)
+const applyingBaseline = ref(false)
+const baselineDialogVisible = ref(false)
+const baselinePreview = ref<PositionBaselinePreview | null>(null)
+const draftOperations = ref<string[]>([])
+const draftScopeMode = ref<AuthorizationScopeMode>('default')
+const draftScopeNodeKeys = ref<string[]>([])
+const legacyOperationsToRemove = ref<string[]>([])
+const reason = ref('')
 
-const selectedUser = computed(() => users.value.find(u => u.id === selectedUserId.value) || null)
-const isAdminUser = computed(() => selectedUser.value?.role === 'admin')
-/** admin 内置特权按保存后岗位判定（降级时勾选可用、预览按授权口径） */
-const isAdminDraft = computed(() => selectedRole.value === 'admin')
-const activeTemplate = computed(() => templates.value.find(t => t.role === selectedRole.value))
-const effectiveRow = computed(() =>
-  effectiveRows.value.find(r => r.user === selectedUserId.value) || null)
-const appointments = computed<AppointmentItem[]>(() => effectiveRow.value?.appointments ?? [])
-
-const appointNodes = computed(() => {
-  if (appointType.value === 'region') {
-    return regions.value.map(r => ({ id: r.id, label: r.name }))
-  }
-  if (appointType.value === 'team') {
-    return teams.value.map(t => ({ id: t.id, label: `${t.name}（${regionName(t.region)}）` }))
-  }
-  return branches.value.map(b => ({ id: b.id, label: b.name }))
+const selectedUser = computed(() => users.value.find(user => user.id === selectedUserId.value) || null)
+const isSelectedAdmin = computed(() => authorization.value?.user.role === 'admin' || selectedUser.value?.role === 'admin')
+const roles = computed(() => [...new Set(users.value.map(user => user.role))]
+  .map(code => ({ code, label: roleLabel(code) })))
+const visibleBranches = computed(() => branches.value.filter(branch => !filters.region || branch.region === filters.region))
+const activeFilterCount = computed(() => Object.values(filters).filter(Boolean).length)
+const permissionByUserId = computed(() => new Map(effectivePermissions.value.map(row => [row.user || row.id || '', row])))
+const filteredUsers = computed(() => {
+  const query = keyword.value.trim().toLocaleLowerCase()
+  return users.value.filter(user => {
+    const matchesKeyword = !query || `${user.name} ${user.phone}`.toLocaleLowerCase().includes(query)
+    const branchId = user.branch || ''
+    const branch = branches.value.find(item => item.id === branchId)
+    const matchesRegion = !filters.region || branch?.region === filters.region
+    const matchesBranch = !filters.branch || branchId === filters.branch
+    const matchesRole = !filters.role || user.role === filters.role
+    const matchesStatus = !filters.status || (isActive(user.status) ? 'active' : 'inactive') === filters.status
+    const hasAuthorization = hasBusinessAuthorization(user)
+    const matchesAuthorization = !filters.authorization
+      || (filters.authorization === 'granted' ? hasAuthorization : !hasAuthorization)
+    return matchesKeyword && matchesRegion && matchesBranch && matchesRole && matchesStatus && matchesAuthorization
+  })
 })
 
-const scopeOptions = computed(() => {
-  if (newScope.type === 'region') return regions.value
-  if (newScope.type === 'team') return teams.value
-  return branches.value
-})
-const canAddScope = computed(() => newScope.type === 'all' || !!newScope.id)
-const regionBranchCount = computed(() =>
-  newScope.type === 'region' && newScope.id
-    ? branches.value.filter(b => b.region === newScope.id).length
-    : 0,
-)
+const availableScopeNodes = computed<ScopeNode[]>(() => [
+  ...regions.value.map(region => ({ id: region.id, type: 'region' as const, name: region.name })),
+  ...branches.value.map(branch => ({ id: branch.id, type: 'branch' as const, name: branch.name })),
+  ...teams.value.map(team => ({ id: team.id, type: 'team' as const, name: team.name })),
+])
 
-const currentOps = computed(() => new Set(grants.value.map(g => g.code)))
-
-/** 操作码勾选集与既有授权存在差集（含增删两个方向） */
-const opsDirty = computed(() => {
-  if (isAdminDraft.value) return false
-  if (draftOps.value.size !== currentOps.value.size) return true
-  for (const c of draftOps.value) {
-    if (!currentOps.value.has(c)) return true
+const scopeTreeProps = { value: 'key', label: 'label', children: 'children' }
+const scopeTree = computed<ScopeTreeOption[]>(() => regions.value.map(region => {
+  const regionTeams = teams.value.filter(team => team.region === region.id)
+  const teamIds = new Set(regionTeams.map(team => team.id))
+  const teamOptions = regionTeams.map(team => ({
+    key: `team:${team.id}`,
+    label: team.name,
+    children: branches.value
+      .filter(branch => branch.team === team.id)
+      .map(branch => ({ key: `branch:${branch.id}`, label: branch.name })),
+  }))
+  const ungroupedBranches = branches.value
+    .filter(branch => branch.region === region.id && !teamIds.has(branch.team))
+    .map(branch => ({ key: `branch:${branch.id}`, label: branch.name }))
+  return {
+    key: `region:${region.id}`,
+    label: region.name,
+    children: [...teamOptions, ...ungroupedBranches],
   }
-  return false
+}))
+
+const nodeByKey = computed(() => new Map(availableScopeNodes.value.map(node => [scopeNodeKey(node), node])))
+const organizationNames = computed(() => {
+  const user = authorization.value?.user
+  if (!user) return '—'
+  return [user.region_name, user.branch_name].filter(Boolean).join(' / ') || '未设置'
 })
+const employeeOrganization = computed(() => organizationNames.value)
 
-/** 保存可用：岗位变化 或 操作码差集 */
-const canSave = computed(() =>
-  selectedRole.value !== selectedUser.value?.role || opsDirty.value)
+const operationModuleLabels: Record<string, string> = {
+  workbench: '工作台与通知',
+  dictionaries: '基础资料',
+  personnel: '员工与组织',
+  asset_ledger: '资产台账',
+  assets: '资产管理',
+  instances: '实例档案',
+  purchase: '采购入库',
+  assignment: '领用出库',
+  transfer: '调拨',
+  recovery: '回收',
+  inventory: '盘点',
+  reports: '报表与对账',
+  audit: '审计日志',
+  permission_matrix: '权限矩阵',
+}
 
-/** 岗位外保留的既有授权数（当前勾选中不属于所选模板的项；取消勾选即从保留中移除） */
-const keptExtraCount = computed(() => {
-  if (isAdminDraft.value) return 0
-  const tpl = activeTemplate.value
-  const tplOps = tpl && !tpl.allOperations ? new Set(tpl.operations) : new Set<string>()
-  let n = 0
-  for (const c of draftOps.value) {
-    if (!tplOps.has(c)) n++
+const inferredOperationModules: { module: string; matches: (code: string) => boolean }[] = [
+  { module: 'workbench', matches: code => ['view_dashboard', 'view_notifications', 'view_all_notifications', 'view_approval_reports'].includes(code) },
+  { module: 'dictionaries', matches: code => /_(categories|departments|suppliers|dictionary)$/.test(code) },
+  { module: 'personnel', matches: code => /_(users|organizations)$/.test(code) },
+  { module: 'asset_ledger', matches: code => code.includes('asset_ledger') || code === 'adjust_ledger' },
+  { module: 'assets', matches: code => code === 'manage_assets' },
+  { module: 'instances', matches: code => code.includes('instance') },
+  { module: 'purchase', matches: code => code.includes('purchase') },
+  { module: 'assignment', matches: code => code.includes('assignment') },
+  { module: 'transfer', matches: code => code.includes('transfer') },
+  { module: 'recovery', matches: code => code.includes('recovery') },
+  { module: 'inventory', matches: code => code.includes('inventory') },
+  { module: 'reports', matches: code => code === 'view_reports' || code.includes('reconciliation') },
+  { module: 'audit', matches: code => code.includes('audit') },
+  { module: 'permission_matrix', matches: code => code.includes('permission_matrix') },
+]
+
+function operationModule(operation: PermissionOperation) {
+  const declaredModule = operation.module?.trim()
+  if (declaredModule && operationModuleLabels[declaredModule]) return declaredModule
+  const inferredModule = inferredOperationModules.find(({ matches }) => matches(operation.code))?.module
+  return inferredModule || declaredModule || 'other'
+}
+
+const operationGroups = computed(() => {
+  const grouped = new Map<string, { code: string; label: string; operations: PermissionOperation[] }>()
+  for (const operation of operations.value) {
+    const key = operationModule(operation)
+    const declaredLabel = operation.module_label?.trim()
+    const group = grouped.get(key) || {
+      code: key,
+      label: declaredLabel && declaredLabel !== '其他权限'
+        ? declaredLabel
+        : operationModuleLabels[key] || declaredLabel || '其他权限',
+      operations: [],
+    }
+    group.operations.push(operation)
+    grouped.set(key, group)
   }
-  return n
+  return [...grouped.values()].map(group => ({
+    ...group,
+    selectedCount: isSelectedAdmin.value
+      ? group.operations.length
+      : group.operations.filter(operation => draftOperations.value.includes(operation.code)).length,
+  }))
 })
 
-/** 若保存后的范围：当前生效范围 ∪ 待任命节点子树 */
-const previewScopeText = computed(() => {
-  const base = effectiveRow.value?.scopeSummary
-  const parts: string[] = [base ? scopeText(base) : '—']
-  if (appointNodeId.value) {
-    const n = appointNodes.value.find(x => x.id === appointNodeId.value)
-    if (n) parts.push(`+ 任命「${n.label}」子树`)
-  }
-  if (isAdminDraft.value) return '全部（内置）'
-  return parts.join(' ')
+function moduleSectionId(code: string) {
+  return `permission-module-${code}`
+}
+
+function scrollToModule(code: string) {
+  document.getElementById(moduleSectionId(code))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+const selectedOperationCount = computed(() => isSelectedAdmin.value
+  ? operations.value.length
+  : draftOperations.value.length)
+const selectedModuleCount = computed(() => operationGroups.value.filter(group => group.selectedCount > 0).length)
+const legacyOperations = computed(() => authorization.value?.legacy_operations || [])
+const legacyOperationDetails = computed(() => {
+  const details = authorization.value?.legacy_operation_details || []
+  const byCode = new Map(details.map(item => [item.code, item.label]))
+  return legacyOperations.value.map(code => ({
+    code,
+    label: byCode.get(code) || '未登记的旧权限',
+    description: code === 'dispose_assets'
+      ? '不再单独授权，直接处置按回收单权限处理；此旧授权不会自动转成回收单权限。审批回收单适用于重新入库和直接处置。'
+      : code === 'manage_instances'
+        ? '旧权限曾控制实例资料和图片维护，以及直接更换使用人和部门；不会自动变成新目录的查看、编辑、换人或打印权限。'
+        : code === 'adjust_ledger'
+          ? '旧权限用于手工创建台账调整单，历史台账导入流程也接受该权限；不会自动变成“导入资产台账”或“调整资产台账”，需逐账号核对。'
+          : '',
+  }))
 })
 
-function roleLabel(role: string) {
+const currentScopeText = computed(() => {
+  const scope = authorization.value?.scope
+  if (!scope) return '—'
+  if (scope.mode === 'all') return '全部组织'
+  if (scope.mode === 'default') return `跟随员工归属（${employeeOrganization.value}）`
+  return scope.nodes.map(node => `${scopeTypeLabel(node.type)}：${node.name}`).join('、') || '无组织节点'
+})
+
+const draftScopeText = computed(() => {
+  if (draftScopeMode.value === 'all') return '全部组织'
+  if (draftScopeMode.value === 'default') return `跟随员工归属（${employeeOrganization.value}）`
+  return draftScopeNodeKeys.value.map(nodeLabel).join('、') || '无组织节点'
+})
+
+const scopeDirty = computed(() => {
+  const scope = authorization.value?.scope
+  if (!scope || draftScopeMode.value !== scope.mode) return true
+  if (draftScopeMode.value !== 'custom') return false
+  const current = scope.nodes.map(scopeNodeKey).sort()
+  const draft = [...draftScopeNodeKeys.value].sort()
+  return current.length !== draft.length || current.some((key, index) => key !== draft[index])
+})
+
+const isDirty = computed(() => {
+  if (!authorization.value || isSelectedAdmin.value) return false
+  const current = [...authorization.value.operations].sort()
+  const draft = [...draftOperations.value].sort()
+  const operationDirty = current.length !== draft.length || current.some((code, index) => code !== draft[index])
+  return scopeDirty.value || operationDirty || legacyOperationsToRemove.value.length > 0
+})
+
+const operationByCode = computed(() => new Map(operations.value.map(operation => [operation.code, operation])))
+const addedOperations = computed(() => draftOperations.value
+  .filter(code => !authorization.value?.operations.includes(code))
+  .map(code => operationByCode.value.get(code))
+  .filter((operation): operation is PermissionOperation => !!operation))
+const removedOperations = computed(() => (authorization.value?.operations || [])
+  .filter(code => !draftOperations.value.includes(code))
+  .map(code => operationByCode.value.get(code))
+  .filter((operation): operation is PermissionOperation => !!operation))
+const removedLegacyOperationDetails = computed(() => legacyOperationDetails.value
+  .filter(item => legacyOperationsToRemove.value.includes(item.code)))
+const changeCount = computed(() => Number(scopeDirty.value) + addedOperations.value.length
+  + removedOperations.value.length + removedLegacyOperationDetails.value.length)
+const invalidCustomScope = computed(() => draftScopeMode.value === 'custom' && draftScopeNodeKeys.value.length === 0)
+
+function roleLabel(role?: string) {
+  if (!role) return '未设置岗位'
   return ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role
 }
-function scopeTypeLabel(t?: string) {
-  if (t === 'all') return '全部数据'
-  if (t === 'region') return '任命大区'
-  if (t === 'team') return '任命行政组'
-  if (t === 'branch') return '任命分公司'
-  return '—'
-}
-function typeLabel(t: string) {
-  return t === 'region' ? '大区负责人' : t === 'team' ? '行政组长' : '分公司负责人'
-}
-function scopeText(s: { all: boolean; branchCount: number | null }) {
-  return s.all ? '全部' : `${s.branchCount ?? 0} 个分公司`
-}
-function opsText(ops: string[] | null) {
-  if (ops === null) return '全部（内置）'
-  if (!ops.length) return '（无）'
-  return ops.map(c => operations.value.find(o => o.code === c)?.label || c).join('、')
-}
-function regionName(id: string) {
-  return regions.value.find(r => r.id === id)?.name || ''
+
+function statusLabel(status?: string) {
+  if (!status) return '状态未知'
+  if (['active', '正常', '启用', 'enabled'].includes(status)) return '在职'
+  if (['inactive', '禁用', '停用', 'disabled'].includes(status)) return '已停用'
+  return status
 }
 
-function onSelectUser() {
-  const u = selectedUser.value
-  selectedRole.value = u?.role || 'manager'
-  draftOps.value = new Set(grants.value.map(g => g.code))
-  const tpl = templates.value.find(t => t.role === selectedRole.value)
-  if (tpl && tpl.scopeType !== 'all' && tpl.scopeType !== 'region') {
-    appointType.value = tpl.scopeType as 'team' | 'branch'
+function isActive(status?: string) {
+  return ['active', '正常', '启用', 'enabled'].includes(status || '')
+}
+
+function hasBusinessAuthorization(user: UserListItem) {
+  if (user.role === 'admin') return true
+  const row = permissionByUserId.value.get(user.id)
+  return !!row && !!(row.operations?.length || row.legacy_operations?.length)
+}
+
+function authorizationLabel(user: UserListItem) {
+  if (user.role === 'admin') return '系统内置全权'
+  return hasBusinessAuthorization(user) ? '已授予业务权限' : '未授予业务权限'
+}
+
+function branchLabel(user: UserListItem) {
+  const name = user.branchName || user.branch_name
+  if (name) return name
+  return branches.value.find(branch => branch.id === user.branch)?.name || '未设置分公司'
+}
+
+function resetPeopleFilters() {
+  filters.region = ''
+  filters.branch = ''
+  filters.role = ''
+  filters.status = ''
+  filters.authorization = ''
+}
+
+function onRegionChange() {
+  if (filters.branch && !visibleBranches.value.some(branch => branch.id === filters.branch)) filters.branch = ''
+}
+
+function scopeNodeKey(node: ScopeNode) {
+  return `${node.type}:${node.id}`
+}
+
+function scopeNodeLabel(node: ScopeNode) {
+  const path = [node.name]
+  if (node.type === 'team') {
+    const team = teams.value.find(item => item.id === node.id)
+    const region = regions.value.find(item => item.id === team?.region)
+    if (region) path.unshift(region.name)
+  } else if (node.type === 'branch') {
+    const branch = branches.value.find(item => item.id === node.id)
+    const team = teams.value.find(item => item.id === branch?.team)
+    const region = regions.value.find(item => item.id === (team?.region || branch?.region))
+    if (region) path.unshift(region.name)
+    if (team) path.splice(path.length - 1, 0, team.name)
+  }
+  return `${scopeTypeLabel(node.type)} · ${path.join(' / ')}`
+}
+
+function scopeTypeLabel(type: ScopeNodeType) {
+  return type === 'region' ? '大区' : type === 'branch' ? '分公司' : '行政组'
+}
+
+function nodeLabel(key: string) {
+  const node = nodeByKey.value.get(key)
+  if (node) return scopeNodeLabel(node)
+  const [type, ...idParts] = key.split(':')
+  const name = authorization.value?.scope.nodes.find(candidate => scopeNodeKey(candidate) === key)?.name
+  const validType = type === 'region' || type === 'branch' || type === 'team' ? type : 'team'
+  return `${scopeTypeLabel(validType)} · ${name || idParts.join(':')}`
+}
+
+function hasOperation(code: string) {
+  return isSelectedAdmin.value || draftOperations.value.includes(code)
+}
+
+function isOperationDisabled(operation: PermissionOperation) {
+  if (isSelectedAdmin.value) return true
+  if (draftOperations.value.includes(operation.code)) return false
+  return !(operation.prerequisites || []).every(code => draftOperations.value.includes(code))
+}
+
+function toggleOperation(code: string, event: Event) {
+  const checked = (event.target as HTMLInputElement).checked
+  const next = new Set(draftOperations.value)
+  const operation = operationByCode.value.get(code)
+  if (checked) {
+    if (operation && !(operation.prerequisites || []).every(prerequisite => next.has(prerequisite))) return
+    next.add(code)
   } else {
-    appointType.value = 'branch'
+    const removed = new Set([code])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const candidate of operations.value) {
+        if (next.has(candidate.code) && (candidate.prerequisites || []).some(prerequisite => removed.has(prerequisite))) {
+          removed.add(candidate.code)
+          changed = true
+        }
+      }
+    }
+    removed.forEach(removedCode => next.delete(removedCode))
+    const removedLabels = [...removed]
+      .filter(removedCode => removedCode !== code)
+      .map(removedCode => operationByCode.value.get(removedCode)?.label)
+      .filter((label): label is string => !!label)
+    if (removedLabels.length) {
+      ElMessage.warning(`已取消“${operation?.label || code}”，并清除依赖权限：${removedLabels.join('、')}`)
+    }
   }
-  appointNodeId.value = ''
+  draftOperations.value = operations.value.map(operation => operation.code).filter(operationCode => next.has(operationCode))
 }
 
-function onPickRole(role: string) {
-  selectedRole.value = role
-  const tpl = templates.value.find(t => t.role === role)
-  if (tpl && !tpl.allOperations) {
-    // 只补不删：模板 ∪ 既有授权 作为初始勾选（与 migrate_positions 命令原则一致；
-    // admin 源用户既有授权为空 → 并集=模板集，即降级的正确初始态）
-    draftOps.value = new Set([...tpl.operations, ...grants.value.map(g => g.code)])
-  }
-  if (tpl && tpl.scopeType !== 'all') {
-    appointType.value = tpl.scopeType as 'region' | 'team' | 'branch'
+function toggleLegacyOperation(code: string, event: Event) {
+  const checked = (event.target as HTMLInputElement).checked
+  const next = new Set(legacyOperationsToRemove.value)
+  if (checked) next.add(code)
+  else next.delete(code)
+  legacyOperationsToRemove.value = legacyOperations.value.filter(item => next.has(item))
+}
+
+function normalizeRows<T>(data: T[] | { results?: T[] }): T[] {
+  return Array.isArray(data) ? data : data.results || []
+}
+
+function resetDraft() {
+  if (!authorization.value) return
+  draftOperations.value = [...authorization.value.operations]
+  draftScopeMode.value = authorization.value.scope.mode
+  draftScopeNodeKeys.value = authorization.value.scope.nodes.map(scopeNodeKey)
+  legacyOperationsToRemove.value = []
+  reason.value = ''
+}
+
+async function loadAuthorization(userId: string) {
+  selectedUserId.value = userId
+  authorization.value = null
+  loadingAuthorization.value = true
+  reason.value = ''
+  try {
+    const { data } = await getUserAuthorization(userId)
+    if (selectedUserId.value !== userId) return
+    authorization.value = data
+    resetDraft()
+  } catch (error) {
+    if (selectedUserId.value === userId) ElMessage.error(handleApiError(error))
+  } finally {
+    if (selectedUserId.value === userId) loadingAuthorization.value = false
   }
 }
 
-function onToggleOp(code: string, e: Event) {
-  const checked = (e.target as HTMLInputElement).checked
-  const next = new Set(draftOps.value)
-  checked ? next.add(code) : next.delete(code)
-  draftOps.value = next
-}
-
-async function refreshGrants(userId = selectedUserId.value) {
-  if (!userId) {
-    scopes.value = []
-    grants.value = []
-    effectiveRows.value = []
+async function selectUser(userId: string) {
+  if (userId === selectedUserId.value || saving.value) return
+  if (isDirty.value) {
+    try {
+      await ElMessageBox.confirm(
+        '保存当前草稿后切换员工？选择“放弃更改”会丢弃当前草稿。',
+        '有未保存更改',
+        {
+          confirmButtonText: '保存并切换',
+          cancelButtonText: '放弃更改',
+          distinguishCancelAndClose: true,
+          type: 'warning',
+        },
+      )
+      const saved = await saveAuthorization()
+      if (saved) await loadAuthorization(userId)
+    } catch (action) {
+      if (action === 'cancel') await loadAuthorization(userId)
+    }
     return
   }
-  const [s, g, e] = await Promise.all([
-    getManagementScopes({ user: userId }),
-    getOperationGrants({ user: userId }),
-    getEffectivePermissions(),
-  ])
-  if (selectedUserId.value !== userId) return
-  scopes.value = Array.isArray(s.data) ? s.data : (s.data as any).results ?? []
-  grants.value = Array.isArray(g.data) ? g.data : (g.data as any).results ?? []
-  effectiveRows.value = Array.isArray(e.data) ? e.data : []
+  await loadAuthorization(userId)
 }
 
-async function saveRole() {
-  if (!selectedUserId.value || !selectedRole.value) return
+async function saveAuthorization(): Promise<boolean> {
+  if (!authorization.value || !selectedUserId.value || !isDirty.value || isSelectedAdmin.value) return false
+  if (invalidCustomScope.value) {
+    ElMessage.error('自定义范围至少选择一个组织节点')
+    return false
+  }
+  if (draftScopeMode.value === 'custom' && draftScopeNodeKeys.value.some(key => !nodeByKey.value.has(key))) {
+    ElMessage.error('组织节点已失效，请重新选择数据范围')
+    return false
+  }
   saving.value = true
   try {
-    // 岗位 + 操作码快照：岗位写用户，操作码对齐勾选集（增删差量）
-    await updateUser(selectedUserId.value, { role: selectedRole.value } as any)
-    const current = new Set(grants.value.map(g => g.code))
-    for (const code of draftOps.value) {
-      if (!current.has(code)) {
-        const { data } = await createOperationGrant({ user: selectedUserId.value, code })
-        grants.value.push(data)
-      }
+    const scopeNodes = draftScopeMode.value === 'custom'
+      ? draftScopeNodeKeys.value.map(key => nodeByKey.value.get(key)).filter((node): node is ScopeNode => !!node)
+      : []
+    await putUserAuthorization(selectedUserId.value, {
+      operations: [...draftOperations.value],
+      scope: { mode: draftScopeMode.value, nodes: scopeNodes },
+      ...(legacyOperationsToRemove.value.length
+        ? { remove_legacy_operations: [...legacyOperationsToRemove.value] }
+        : {}),
+      ...(reason.value.trim() ? { reason: reason.value.trim() } : {}),
+    })
+    const userId = selectedUserId.value
+    const { data } = await getUserAuthorization(userId)
+    if (selectedUserId.value === userId) {
+      authorization.value = data
+      resetDraft()
     }
-    for (const g of grants.value) {
-      if (!draftOps.value.has(g.code)) {
-        await deleteOperationGrant(g.id)
-      }
-    }
-    grants.value = grants.value.filter(g => draftOps.value.has(g.code))
-    await reloadUser()
-    ElMessage.success('岗位与操作码已保存')
-  } catch (e) {
-    ElMessage.error(handleApiError(e))
+    ElMessage.success('权限已保存')
+    return true
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+    return false
   } finally {
     saving.value = false
   }
 }
 
-async function saveAppointment() {
-  const nodeId = appointNodeId.value
-  if (!nodeId) return
-  saving.value = true
+async function loadBaselinePreview() {
+  if (isDirty.value) {
+    ElMessage.warning('请先保存或放弃当前员工的权限修改，再核对岗位基线')
+    return
+  }
+  baselineDialogVisible.value = true
+  loadingBaseline.value = true
   try {
-    if (appointType.value === 'region') {
-      await updateRegion(nodeId, { manager: selectedUserId.value } as any)
-    } else if (appointType.value === 'team') {
-      await updateTeam(nodeId, { leader: selectedUserId.value } as any)
-    } else {
-      await updateBranch(nodeId, { manager: selectedUserId.value } as any)
+    const { data } = await getPositionBaselinePreview()
+    baselinePreview.value = data
+  } catch (error) {
+    baselineDialogVisible.value = false
+    ElMessage.error(handleApiError(error))
+  } finally {
+    loadingBaseline.value = false
+  }
+}
+
+async function confirmBaseline() {
+  const preview = baselinePreview.value
+  if (!preview?.has_changes || applyingBaseline.value) return
+  try {
+    await ElMessageBox.confirm(
+      `将应用 ${preview.to_version} 基线，更新 ${preview.active_employee_count} 名在职普通员工；员工个人权限调整和数据范围会保留。`,
+      '确认应用岗位权限基线',
+      { confirmButtonText: '确认应用', cancelButtonText: '返回核对', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+
+  applyingBaseline.value = true
+  try {
+    const { data } = await applyPositionBaseline({
+      expected_from_version: preview.from_version,
+      preview_token: preview.preview_token,
+    })
+    const selectedId = selectedUserId.value
+    const [nextPreview, permissionResponse, selectedAuthorization] = await Promise.all([
+      getPositionBaselinePreview(),
+      getEffectivePermissions(),
+      selectedId ? getUserAuthorization(selectedId) : Promise.resolve(null),
+    ])
+    baselinePreview.value = nextPreview.data
+    effectivePermissions.value = permissionResponse.data
+    if (selectedId && selectedAuthorization && selectedUserId.value === selectedId) {
+      authorization.value = selectedAuthorization.data
+      resetDraft()
     }
-    appointNodeId.value = ''
-    await refreshGrants()
-    ElMessage.success('已任命，范围即时生效')
-  } catch (e) {
-    ElMessage.error(handleApiError(e))
+    ElMessage.success(data.detail)
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
   } finally {
-    saving.value = false
+    applyingBaseline.value = false
   }
 }
 
-async function removeAppointment(a: AppointmentItem) {
-  saving.value = true
+async function confirmLeaveWithDraft() {
+  if (!isDirty.value || saving.value) return !saving.value
   try {
-    if (a.type === 'region') await updateRegion(a.id, { manager: null } as any)
-    else if (a.type === 'team') await updateTeam(a.id, { leader: null } as any)
-    else await updateBranch(a.id, { manager: null } as any)
-    await refreshGrants()
-    ElMessage.success('已卸任')
-  } catch (e) {
-    ElMessage.error(handleApiError(e))
-  } finally {
-    saving.value = false
+    await ElMessageBox.confirm(
+      '保存当前权限草稿后离开？选择“放弃并离开”会丢弃未保存更改。',
+      '有未保存更改',
+      {
+        confirmButtonText: '保存并离开',
+        cancelButtonText: '放弃并离开',
+        distinguishCancelAndClose: true,
+        type: 'warning',
+      },
+    )
+    return await saveAuthorization()
+  } catch (action) {
+    if (action === 'cancel') {
+      resetDraft()
+      return true
+    }
+    return false
   }
 }
 
-async function addScope() {
-  if (!selectedUserId.value) return
-  if (newScope.type !== 'all' && !newScope.id) return
-  // 防御：id 必须属于当前类型的选项，避免跨类型残留 id 发错 FK
-  if (newScope.type !== 'all' && !scopeOptions.value.some(n => n.id === newScope.id)) return
-  const payload: Partial<ManagementScope> & { isAllData?: boolean } = { user: selectedUserId.value }
-  if (newScope.type === 'all') payload.isAllData = true
-  else if (newScope.type === 'region') payload.region = newScope.id
-  else if (newScope.type === 'branch') payload.branch = newScope.id
-  else payload.team = newScope.id
-  try {
-    const { data } = await createManagementScope(payload)
-    scopes.value.push(data)
-    newScope.id = ''
-    newScope.type = 'region'
-    await refreshGrants()
-  } catch (e) {
-    ElMessage.error(handleApiError(e))
-  }
+function protectBeforeUnload(event: BeforeUnloadEvent) {
+  if (!isDirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
 }
 
-async function removeScope(id: string) {
-  await deleteManagementScope(id)
-  scopes.value = scopes.value.filter(s => s.id !== id)
-  await refreshGrants()
-}
-
-function branchesUnderRegion(regionId: string | null) {
-  if (!regionId) return []
-  return branches.value.filter(b => b.region === regionId)
-}
-
-function escHtml(v: string | null | undefined) {
-  return (v ?? '—').replace(/[&<>"']/g, c => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
-  ))
-}
-
-function scopeLabel(s: ManagementScope) {
-  const isAll = s.is_all_data ?? (s as any).isAllData
-  if (isAll) return '<strong>整个组织架构（全部数据）</strong>'
-  if (s.region) {
-    const r = regions.value.find(x => x.id === s.region)
-    const cnt = branchesUnderRegion(s.region).length
-    return `大区：<strong>${escHtml(r?.name)}</strong>（含 ${cnt} 个分公司）`
-  }
-  if (s.branch) {
-    const b = branches.value.find(x => x.id === s.branch)
-    return `分公司：<strong>${escHtml(b?.name)}</strong>`
-  }
-  if (s.team) {
-    const t = teams.value.find(x => x.id === s.team)
-    return `行政组：<strong>${escHtml(t?.name)}</strong>`
-  }
-  return '—'
-}
-
-async function reloadUser() {
-  const idx = users.value.findIndex(u => u.id === selectedUserId.value)
-  if (idx >= 0 && selectedUser.value) {
-    users.value[idx] = { ...users.value[idx], role: selectedRole.value as any }
-  }
-  await refreshGrants()
-}
-
-watch(selectedUserId, userId => {
-  scopes.value = []
-  grants.value = []
-  effectiveRows.value = []
-  draftOps.value = new Set()
-  selectedRole.value = selectedUser.value?.role || ''
-  appointNodeId.value = ''
-  grantsLoading.value = !!userId
-  if (!userId) return
-  void refreshGrants(userId)
-    .then(() => {
-      if (selectedUserId.value === userId) onSelectUser()
-    })
-    .catch(error => {
-      if (selectedUserId.value === userId) ElMessage.error(handleApiError(error))
-    })
-    .finally(() => {
-      if (selectedUserId.value === userId) grantsLoading.value = false
-    })
-})
-
-// 切换授权类型时清空已选节点，避免拿着大区的 id 提交成分公司授权
-watch(() => newScope.type, () => {
-  newScope.id = ''
-})
+onBeforeRouteLeave(() => confirmLeaveWithDraft())
 
 onMounted(async () => {
-  const [u, op, tpl, r, b, t] = await Promise.all([
-    getUsers(), getOperationCatalog(), getPositionTemplates(),
-    getRegions(), getBranches(), getTeams(),
-  ])
-  users.value = u.data
-  operations.value = op.data
-  templates.value = tpl.data
-  regions.value = r.data
-  branches.value = b.data
-  teams.value = t.data
+  window.addEventListener('beforeunload', protectBeforeUnload)
+  loadingUsers.value = true
+  try {
+    const [userResponse, operationResponse, permissionResponse, regionResponse, branchResponse, teamResponse] = await Promise.all([
+      getUsers(), getOperationCatalog(), getEffectivePermissions(), getRegions(), getBranches(), getTeams(),
+    ])
+    users.value = normalizeRows(userResponse.data as UserListItem[] | { results?: UserListItem[] })
+    operations.value = operationResponse.data
+    effectivePermissions.value = permissionResponse.data
+    regions.value = normalizeRows(regionResponse.data)
+    branches.value = normalizeRows(branchResponse.data)
+    teams.value = normalizeRows(teamResponse.data)
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    loadingUsers.value = false
+  }
 })
+
+onUnmounted(() => window.removeEventListener('beforeunload', protectBeforeUnload))
 </script>
 
 <style scoped>
-.permission-assign { max-width: 1280px; width: 100%; margin: 0 auto; min-width: 0; overflow-y: auto; }
-.page-header { margin-bottom: var(--space-4); flex-shrink: 0; }
-.page-header h1 { font-size: var(--text-2xl); font-weight: 700; color: var(--color-text-primary); margin: 0; }
-.hint { color: var(--color-text-secondary); font-size: var(--text-sm); margin-top: var(--space-2); line-height: 1.6; }
-.assign-body { display: flex; gap: var(--space-5); align-items: flex-start; flex: 1; min-height: 0; }
-.steps { flex: 1; min-width: 0; }
-.card { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-5); margin-bottom: var(--space-4); }
-.card h2 { font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-3); color: var(--color-text-primary); display: flex; align-items: center; gap: var(--space-2); }
-.step-num { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; background: var(--color-primary-500); color: #fff; border-radius: 50%; font-size: var(--text-xs); font-weight: 600; flex-shrink: 0; }
-.step-desc { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 var(--space-3); }
-.user-select { width: 100%; }
-.opt-phone { float: right; color: var(--color-text-tertiary); font-size: var(--text-xs); }
-.position-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-2); margin-bottom: var(--space-3); }
-.position-item { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; font-size: var(--text-sm); }
-.position-item.active { border-color: var(--color-primary-400); background: var(--color-primary-50); }
-.position-item.disabled { opacity: 0.5; cursor: not-allowed; }
-.scope-hint { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-tertiary); }
-.op-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--space-2); margin-bottom: var(--space-3); }
-.op-item { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); cursor: pointer; font-size: var(--text-sm); }
-.op-code { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-tertiary); }
-.appoint-row, .scope-add { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); flex-wrap: wrap; }
-.appoint-select, .scope-add select { flex: 1; min-width: 160px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-elevated); color: var(--color-text-primary); font-size: var(--text-sm); }
-.appoint-list, .scope-list { list-style: none; padding: 0; margin: 0; }
-.appoint-list li, .scope-list li { display: flex; justify-content: space-between; align-items: center; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border-light); font-size: var(--text-sm); }
-.appoint-list li:last-child, .scope-list li:last-child { border-bottom: none; }
-.empty { color: var(--color-text-tertiary); justify-content: center; border: none; }
-.region-hint { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-primary-50); border-radius: var(--radius-md); }
-.keep-hint { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-bg-page); border: 1px dashed var(--color-border); border-radius: var(--radius-md); }
-.btn-primary { padding: var(--space-2) var(--space-4); background: var(--color-primary-500); color: #fff; border: none; border-radius: var(--radius-md); cursor: pointer; font-size: var(--text-sm); }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-link { background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: var(--text-sm); }
-.preview { width: 340px; flex-shrink: 0; position: sticky; top: 0; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-4); }
-.preview h2 { font-size: var(--text-base); font-weight: 600; margin: 0 0 var(--space-3); }
-.preview-block { padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-bg-page); margin-bottom: var(--space-3); }
-.preview-block.pending { border: 1px dashed var(--color-primary-300); background: var(--color-primary-50); }
-.preview-block h3 { font-size: var(--text-sm); font-weight: 600; margin: 0 0 var(--space-2); color: var(--color-text-secondary); }
-.preview-line { font-size: var(--text-sm); margin: 0 0 var(--space-1); line-height: 1.5; word-break: break-all; }
-.preview-line:last-child { margin-bottom: 0; }
-@media (max-width: 1024px) { .assign-body { flex-direction: column; } .preview { width: 100%; position: static; } }
+.permission-workspace { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 0 auto var(--space-4); width: 100%; max-width: 1500px; flex-shrink: 0; }
+.page-header h1 { margin: 0; color: var(--color-text-primary); font-size: var(--text-2xl); font-weight: 700; }
+.hint { margin: var(--space-2) 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); line-height: 1.5; }
+.baseline-state { min-height: 120px; display: grid; place-items: center; color: var(--color-text-secondary); }
+.baseline-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.baseline-summary > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--color-border-light); border-radius: 6px; }
+.baseline-summary span, .baseline-subtitle, .baseline-note { color: var(--color-text-secondary); font-size: var(--text-xs); }
+.baseline-summary strong { font-size: var(--text-base); }
+.baseline-role-changes { margin: 16px 0; }
+.baseline-role-changes h3 { margin: 0 0 8px; font-size: var(--text-sm); }
+.baseline-role-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; padding: 5px 0; font-size: var(--text-sm); }
+.baseline-role-row span { min-width: 0; }
+.baseline-subtitle { display: block; margin-top: 3px; }
+.baseline-note { margin: 10px 0 0; line-height: 1.5; }
+.baseline-table-scroll { max-height: 390px; overflow: auto; border: 1px solid var(--color-border-light); }
+.baseline-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--text-sm); }
+.baseline-table th, .baseline-table td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-border-light); overflow-wrap: anywhere; }
+.baseline-table th { position: sticky; top: 0; background: var(--color-bg-card); font-weight: 600; }
+.baseline-table th:first-child { width: 18%; }
+.baseline-table th:last-child { width: 20%; }
+.baseline-empty { text-align: center !important; color: var(--color-text-secondary); }
+.workspace-body { display: grid; grid-template-columns: minmax(250px, 290px) minmax(0, 1fr); gap: var(--space-4); width: 100%; max-width: 1500px; min-height: 0; flex: 1; margin: 0 auto; }
+.people-panel, .editor-panel { min-width: 0; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; }
+.people-panel { display: flex; flex-direction: column; padding: var(--space-4); min-height: 0; }
+.people-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); }
+.people-heading h2 { margin: 0; font-size: var(--text-base); }
+.people-heading > span { color: var(--color-text-tertiary); font-size: var(--text-sm); }
+.people-tools { display: flex; align-items: center; gap: 8px; }
+.people-tools :deep(.el-input) { min-width: 0; flex: 1; }
+.filter-toggle { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.filter-toggle :deep(svg) { width: 14px; height: 14px; }
+.filter-count { display: inline-grid; min-width: 18px; height: 18px; padding: 0 4px; place-items: center; color: var(--color-primary-700); background: var(--color-primary-50); border-radius: 9px; font-size: var(--text-xs); line-height: 1; }
+.people-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-light); }
+.people-filters :deep(.el-select) { width: 100%; min-width: 0; }
+.filter-reset { grid-column: 1 / -1; justify-self: end; }
+.people-list { overflow: auto; min-height: 0; margin: var(--space-3) calc(var(--space-2) * -1) 0; }
+.person-row { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; padding: 9px; background: transparent; border: 0; border-left: 3px solid transparent; color: var(--color-text-primary); cursor: pointer; }
+.person-row:hover { background: var(--color-bg-elevated); }
+.person-row.selected { background: var(--color-primary-50); border-left-color: var(--color-primary-500); }
+.person-main { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.person-name { font-size: var(--text-sm); font-weight: 600; }
+.person-branch { overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.unsaved-dot { width: 8px; height: 8px; margin-top: 4px; flex: 0 0 8px; background: var(--color-warning); border-radius: 50%; }
+.people-state, .editor-empty { color: var(--color-text-tertiary); font-size: var(--text-sm); text-align: center; }
+.people-state { padding: 28px 8px; }
+.editor-panel { --editor-panel-padding: clamp(16px, 3vw, 28px); overflow-y: auto; padding: var(--editor-panel-padding); }
+.editor-empty { display: grid; min-height: 260px; place-items: center; }
+.employee-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid var(--color-border-light); }
+.employee-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.employee-title-row h2 { margin: 0; font-size: var(--text-xl); }
+.status-label, .admin-label { padding: 3px 7px; border-radius: 4px; background: var(--color-success-bg, #eaf7ef); color: var(--color-success, #16794b); font-size: var(--text-xs); }
+.status-label.inactive { background: var(--color-bg-elevated); color: var(--color-text-secondary); }
+.admin-label { background: var(--color-primary-50); color: var(--color-primary-700); }
+.authorization-label { padding: 3px 7px; border-radius: 4px; background: var(--color-bg-elevated); color: var(--color-text-secondary); font-size: var(--text-xs); }
+.authorization-label.granted { background: var(--color-primary-50); color: var(--color-primary-700); }
+.employee-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
+.draft-indicator { color: var(--color-warning); font-size: var(--text-sm); white-space: nowrap; }
+.saved-indicator { color: var(--color-text-tertiary); font-size: var(--text-sm); white-space: nowrap; }
+.admin-summary { display: grid; gap: 5px; padding: 13px 15px; margin-top: 18px; border-left: 3px solid var(--color-primary-500); background: var(--color-primary-50); font-size: var(--text-sm); }
+.admin-summary span { color: var(--color-text-secondary); }
+.legacy-warning { display: grid; gap: 7px; padding: 12px 14px; margin-top: 14px; border-left: 3px solid var(--color-warning); background: color-mix(in srgb, var(--color-warning) 9%, white); font-size: var(--text-sm); }
+.legacy-warning > span { color: var(--color-text-secondary); line-height: 1.45; }
+.legacy-list { display: grid; gap: 6px; }
+.legacy-option { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; }
+.legacy-option input { margin-top: 3px; accent-color: var(--color-danger); }
+.legacy-option span { display: grid; gap: 3px; min-width: 0; }
+.legacy-option strong { color: var(--color-text-primary); font-size: var(--text-sm); font-weight: 500; }
+.legacy-option small { color: var(--color-text-secondary); font-size: var(--text-xs); line-height: 1.4; }
+.scope-section, .operations-section, .changes-section { padding: 22px 0; border-bottom: 1px solid var(--color-border-light); }
+.section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.section-heading h3 { margin: 0; color: var(--color-text-primary); font-size: var(--text-base); }
+.section-heading p { margin: 5px 0 0; color: var(--color-text-secondary); font-size: var(--text-sm); line-height: 1.45; }
+.current-summary { color: var(--color-text-secondary); font-size: var(--text-sm); text-align: right; }
+.scope-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.mode-option { display: flex; align-items: flex-start; gap: 9px; min-height: 65px; padding: 11px; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; }
+.mode-option.active { border-color: var(--color-primary-500); background: var(--color-primary-50); }
+.mode-option input { margin-top: 3px; accent-color: var(--color-primary-600); }
+.mode-option span { display: grid; gap: 4px; }
+.mode-option strong { font-size: var(--text-sm); }
+.mode-option small { color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: 1.4; }
+.scope-picker { margin-top: 12px; }
+.scope-picker :deep(.el-tree-select), .scope-picker :deep(.el-select) { width: 100%; }
+.scope-warning { color: var(--color-warning); font-size: var(--text-sm); }
+.selected-nodes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.scope-chip { padding: 4px 8px; background: var(--color-bg-elevated); color: var(--color-text-secondary); font-size: var(--text-xs); border-radius: 4px; }
+.module-list { display: grid; gap: 12px; }
+.module-quick-nav { position: sticky; top: calc(0px - var(--editor-panel-padding) - 1px); z-index: 2; display: flex; align-items: center; gap: 6px; overflow-x: auto; margin: 0 0 12px; padding: 8px 0; background: var(--color-bg-card); scrollbar-width: thin; }
+.module-quick-nav-label { flex: 0 0 auto; color: var(--color-text-tertiary); font-size: var(--text-xs); white-space: nowrap; }
+.module-quick-link { flex: 0 0 auto; min-height: 32px; padding: 6px 10px; color: var(--color-text-secondary); background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; font-size: var(--text-xs); white-space: nowrap; }
+.module-quick-link:hover, .module-quick-link:focus-visible { color: var(--color-primary-700); border-color: var(--color-primary-400); }
+.module-group { scroll-margin-top: 60px; border: 1px solid var(--color-border-light); border-radius: 6px; overflow: hidden; }
+.module-heading { display: flex; justify-content: space-between; align-items: center; padding: 10px 13px; background: var(--color-bg-elevated); }
+.module-heading h4 { margin: 0; font-size: var(--text-sm); font-weight: 600; }
+.module-heading span { color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.operation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--color-border-light); }
+.operation-option { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding: 11px 13px; background: var(--color-bg-card); cursor: pointer; }
+.operation-option.checked { background: color-mix(in srgb, var(--color-primary-50) 56%, white); }
+.operation-option.disabled { cursor: default; }
+.operation-option input { margin-top: 3px; accent-color: var(--color-primary-600); }
+.operation-copy { display: grid; gap: 4px; min-width: 0; }
+.operation-copy strong { font-size: var(--text-sm); font-weight: 500; }
+.operation-copy small { color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: 1.4; }
+.inline-state { padding: 24px 0; color: var(--color-text-tertiary); font-size: var(--text-sm); }
+.changes-section { border-bottom: 0; padding-bottom: 18px; }
+.change-count { color: var(--color-primary-700); font-size: var(--text-sm); white-space: nowrap; }
+.change-list { display: grid; border-top: 1px solid var(--color-border-light); }
+.change-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--color-border-light); font-size: var(--text-sm); }
+.change-row strong { color: var(--color-text-secondary); font-weight: 500; }
+.change-row span { overflow-wrap: anywhere; }
+.change-row b { padding: 0 5px; color: var(--color-text-tertiary); }
+.change-row.added strong { color: var(--color-success, #16794b); }
+.change-row.removed strong { color: var(--color-danger); }
+.reason-field { display: grid; gap: 7px; margin-top: 15px; }
+.reason-field > span { font-size: var(--text-sm); font-weight: 600; }
+.reason-field small { margin-left: 5px; color: var(--color-text-tertiary); font-weight: 400; }
+.editor-actions { position: sticky; bottom: calc(-1 * clamp(16px, 3vw, 28px)); display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 0 calc(-1 * clamp(16px, 3vw, 28px)); padding: 13px clamp(16px, 3vw, 28px); background: var(--color-bg-card); border-top: 1px solid var(--color-border); }
+.action-note { color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.editor-actions > div { display: flex; gap: 8px; }
+@media (max-width: 1000px) { .workspace-body { grid-template-columns: 230px minmax(0, 1fr); } .scope-modes { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .permission-workspace { overflow: auto; }
+  .page-header { align-items: flex-start; flex-direction: column; }
+  .baseline-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .baseline-role-row { grid-template-columns: 1fr; gap: 2px; }
+  .workspace-body { display: flex; flex-direction: column; }
+  .people-panel { max-height: 330px; }
+  .people-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .editor-panel { overflow: visible; }
+  .module-quick-nav { top: 0; }
+  .operation-grid { grid-template-columns: 1fr; }
+  .section-heading { flex-direction: column; }
+  .current-summary { text-align: left; }
+  .editor-actions { align-items: flex-start; flex-direction: column; }
+  .editor-actions > div { width: 100%; justify-content: flex-end; }
+}
+@media (max-width: 480px) {
+  .people-list { grid-template-columns: 1fr; }
+  .change-row { grid-template-columns: 1fr; gap: 4px; }
+}
 </style>

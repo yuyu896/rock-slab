@@ -1,11 +1,24 @@
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from apps.assets.models import AssetStock
 from apps.transfers.models import Transfer, TransferLine
 from apps.permissions.scope import resolve_user_scope
+
+
+class ViewReportsPermission(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.can('view_reports')
+
+
+class ViewDashboardSummaryPermission(BasePermission):
+    def has_permission(self, request, view):
+        user = request.user
+        return user.is_authenticated and (
+            user.can('view_dashboard') or user.can('view_reports')
+        )
 
 
 def _scope_queryset(user, queryset, branch_field=None, transfer_fields=None,
@@ -81,7 +94,7 @@ def _get_date_range_filter(params):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewReportsPermission])
 def branches(request):
     """返回当前用户数据范围内的分公司列表（供报表分公司筛选下拉）。
 
@@ -99,7 +112,7 @@ def branches(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewDashboardSummaryPermission])
 def overview(request):
     """报表概览（P1 台账口径）：总量=台账三列之和，购入金额=已生效采购单合计。"""
     selected = _parse_selected_branches(request.query_params)
@@ -172,7 +185,7 @@ def overview(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewDashboardSummaryPermission])
 def by_branch(request):
     """按分公司统计：数量=台账三列（时点快照），金额=已生效采购单明细行（入库分公司归属）。"""
     selected = _parse_selected_branches(request.query_params)
@@ -233,7 +246,7 @@ def by_branch(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewReportsPermission])
 def changes_by_item(request):
     """变动按品目聚合：每品目一行，各类动作合计（生效单据行，时间范围可选）。
 
@@ -291,7 +304,7 @@ def changes_by_item(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewDashboardSummaryPermission])
 def by_status(request):
     """按状态统计（台账三列口径：在库/在用/回收库）。"""
     selected = _parse_selected_branches(request.query_params)
@@ -319,7 +332,7 @@ def by_status(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewReportsPermission])
 def by_category(request):
     """按资产类目统计（台账总量口径，联品目字典）。"""
     selected = _parse_selected_branches(request.query_params)
@@ -344,7 +357,7 @@ def by_category(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewReportsPermission])
 def consumables(request):
     """部门消耗统计：已生效领用单中消耗品行，部门×品目分组、按月展开（现算聚合，不落表）。
 
@@ -424,7 +437,7 @@ def consumables(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, ViewReportsPermission])
 def transfers(request):
     """调拨报表."""
     selected = _parse_selected_branches(request.query_params)

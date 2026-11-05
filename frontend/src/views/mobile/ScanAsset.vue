@@ -5,10 +5,12 @@ import { getAssetStocks, getFixedAssets } from '@/api/assets'
 import { checkInventoryInstance, getInventoryReport, getInventoryTasks } from '@/api/inventories'
 import { ElMessage } from 'element-plus'
 import { useBarcodeScanner } from '@/composables/useBarcodeScanner'
+import { useUserStore } from '@/store/user'
 import type { AssetStock, FixedAsset } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 // ── 模式：查询（默认）/ 盘点（有进行中实例盘任务时可选，?task= 直达） ──
 type ScanMode = 'query' | 'inventory'
@@ -27,6 +29,7 @@ const invProgress = computed(() => {
 })
 
 async function loadInvTasks() {
+  if (!userStore.can('edit_inventory')) return
   try {
     const { data } = await getInventoryTasks({ status: 'in_progress', pageSize: 50 } as any)
     invTasks.value = ((data as any).results || []).filter((t: any) => t.inventoryKind === 'instance')
@@ -36,6 +39,7 @@ async function loadInvTasks() {
 }
 
 async function selectTask(id: string) {
+  if (!userStore.can('edit_inventory')) return
   invLoading.value = true
   try {
     const { data } = await getInventoryReport(id)
@@ -134,8 +138,12 @@ async function handleQueryScan(code: string) {
   busy.value = true
   try {
     const [stockRes, instRes] = await Promise.all([
-      getAssetStocks({ keyword: code, pageSize: 5 }),
-      getFixedAssets({ keyword: code, pageSize: 5 }),
+      userStore.can('view_asset_ledger')
+        ? getAssetStocks({ keyword: code, pageSize: 5 })
+        : Promise.resolve({ data: { results: [] } }),
+      userStore.can('view_instances')
+        ? getFixedAssets({ keyword: code, pageSize: 5 })
+        : Promise.resolve({ data: { results: [] } }),
     ])
     const rows: AssetStock[] = (stockRes.data as any).results || []
     const instances: FixedAsset[] = (instRes.data as any).results || []
@@ -215,6 +223,7 @@ async function handleInventoryScan(code: string) {
 }
 
 onMounted(async () => {
+  if (!userStore.can('edit_inventory')) return
   await loadInvTasks()
   const taskParam = String(route.query.task || '')
   if (taskParam && invTasks.value.some(t => t.id === taskParam)) {
@@ -233,7 +242,7 @@ onMounted(async () => {
     <div class="mode-switch">
       <button class="mode-btn" :class="{ active: mode === 'query' }" @click="switchMode('query')">查询</button>
       <button
-        v-if="invTasks.length"
+        v-if="userStore.can('edit_inventory') && invTasks.length"
         class="mode-btn"
         :class="{ active: mode === 'inventory' }"
         @click="switchMode('inventory')"

@@ -97,8 +97,23 @@ class TestInstanceListOutput:
         assert data['management_type'] == 'instance'
         assert data['待补录'] is True          # 序列号为空
         assert data['供应商'] == '联想'         # 出生行派生
-        assert str(data['单价']) == '7999.00'
+        assert '单价' not in data
         assert str(data['采购日期']) == '2026-08-24'
+
+    def test_instance_detail_does_not_expose_purchase_unit_price(
+        self, supervisor_user, branch, inst,
+    ):
+        line = _purchase_doc(branch, inst.item)
+        inst.birth_line = line
+        inst.save(update_fields=['birth_line'])
+
+        response = _client_for(supervisor_user).get(
+            f'/api/assets/fixed-assets/{inst.pk}',
+        )
+
+        assert response.status_code == 200
+        assert '单价' not in response.data
+        assert response.data['供应商'] == '联想'
 
     def test_pending_serial_filter(self, supervisor_user, inst):
         from apps.assets.models import FixedAsset
@@ -121,9 +136,79 @@ class TestInstanceListOutput:
 
 
 @pytest.mark.django_db
+class TestInstanceEditPrerequisites:
+    def test_edit_requires_view_instances_and_view_suppliers(
+        self, supervisor_user, branch, second_branch, inst,
+    ):
+        from apps.assets.models import FixedAsset
+        from apps.permissions.models import OperationGrant
+
+        OperationGrant.objects.filter(user=supervisor_user).delete()
+        _grant(supervisor_user, 'edit_instances')
+        outside = FixedAsset.objects.create(
+            item=inst.item, 内部编号='OUTSIDE-1', 当前状态='在库', branch=second_branch,
+        )
+        client = _client_for(supervisor_user)
+
+        assert client.get('/api/assets/fixed-assets/edit-targets').status_code == 403
+        assert client.patch(
+            f'/api/assets/fixed-assets/{inst.pk}/supplement', {'备注': '不得修改'},
+        ).status_code == 403
+        assert client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image', {'image': _image_file()},
+        ).status_code == 403
+        assert client.post(
+            '/api/assets/fixed-assets/batch-update',
+            {'ids': [str(inst.pk)], '备注': '不得修改'}, format='json',
+        ).status_code == 403
+        assert FixedAsset.objects.filter(pk=outside.pk).exists()
+        inst.refresh_from_db()
+        assert inst.备注 == ''
+        assert not inst.image
+
+        assert client.get('/api/assets/fixed-assets').status_code == 403
+        assert client.get(f'/api/assets/fixed-assets/{inst.pk}').status_code == 403
+        assert client.get(f'/api/assets/fixed-assets/{inst.pk}/timeline').status_code == 403
+        assert client.get('/api/assets/fixed-assets/export').status_code == 403
+        assert client.get('/api/assets/fixed-assets/assignee-targets').status_code == 403
+
+    def test_edit_also_requires_supplier_dictionary_view(
+        self, supervisor_user, inst,
+    ):
+        from apps.permissions.models import OperationGrant
+
+        OperationGrant.objects.filter(user=supervisor_user).delete()
+        _grant(supervisor_user, 'view_instances')
+        _grant(supervisor_user, 'edit_instances')
+
+        response = _client_for(supervisor_user).patch(
+            f'/api/assets/fixed-assets/{inst.pk}/supplement', {'备注': '不得修改'},
+        )
+
+        assert response.status_code == 403
+        inst.refresh_from_db()
+        assert inst.备注 == ''
+
+    def test_view_permissions_do_not_grant_instance_edit(self, supervisor_user, inst):
+        from apps.permissions.models import OperationGrant
+
+        OperationGrant.objects.filter(user=supervisor_user).delete()
+        _grant(supervisor_user, 'view_instances')
+        _grant(supervisor_user, 'view_suppliers')
+
+        response = _client_for(supervisor_user).patch(
+            f'/api/assets/fixed-assets/{inst.pk}/supplement', {'备注': '不得修改'},
+        )
+
+        assert response.status_code == 403
+        inst.refresh_from_db()
+        assert inst.备注 == ''
+
+
+@pytest.mark.django_db
 class TestSupplement:
-    def test_supplement_with_manage_instances(self, supervisor_user, inst):
-        _grant(supervisor_user, 'manage_instances')
+    def test_supplement_with_edit_instances(self, supervisor_user, inst):
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.patch(
             f'/api/assets/fixed-assets/{inst.pk}/supplement',
@@ -136,7 +221,7 @@ class TestSupplement:
         assert resp.data['待补录'] is False
 
     def test_supplement_rejects_state_fields(self, supervisor_user, inst):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.patch(
             f'/api/assets/fixed-assets/{inst.pk}/supplement',
@@ -145,6 +230,8 @@ class TestSupplement:
         assert resp.status_code == 400
 
     def test_supplement_denied_without_operation(self, supervisor_user, inst):
+        from apps.permissions.models import OperationGrant
+        OperationGrant.objects.filter(user=supervisor_user, code='edit_instances').delete()
         client = _client_for(supervisor_user)
         resp = client.patch(
             f'/api/assets/fixed-assets/{inst.pk}/supplement',
@@ -153,18 +240,66 @@ class TestSupplement:
         assert resp.status_code == 403
 
 
-def _image_file(name='photo.jpg', content_type='image/jpeg', size_kb=1):
+def _image_file(
+    name='photo.jpg', content_type='image/jpeg', size_kb=1, width=120, height=80,
+):
+    from io import BytesIO
+
     from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image
+
+    image_format = {
+        'image/jpeg': 'JPEG',
+        'image/png': 'PNG',
+        'image/webp': 'WEBP',
+    }.get(content_type, 'JPEG')
+    output = BytesIO()
+    Image.new('RGB', (width, height), (30, 90, 150)).save(output, format=image_format)
+    content = output.getvalue()
+    target_size = size_kb * 1024
+    if target_size > len(content):
+        content += b'\0' * (target_size - len(content))
     return SimpleUploadedFile(
-        name, b'\xff' * (size_kb * 1024), content_type=content_type,
+        name, content, content_type=content_type,
     )
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestInstanceImage:
+    @pytest.fixture(autouse=True)
+    def isolate_media_root(self, tmp_path):
+        from django.test import override_settings
+
+        with override_settings(MEDIA_ROOT=tmp_path):
+            yield
+
+    def test_existing_image_uses_version_zero_url(self, supervisor_user, inst):
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
+        from urllib.parse import parse_qs, urlsplit
+
+        _grant(supervisor_user, 'edit_instances')
+        legacy_name = default_storage.save(
+            'fixed_assets/legacy.jpg', ContentFile(b'legacy image'),
+        )
+        inst.image = legacy_name
+        inst.save(update_fields=['image'])
+
+        response = _client_for(supervisor_user).get(
+            f'/api/assets/fixed-assets/{inst.pk}',
+        )
+
+        assert response.status_code == 200
+        assert parse_qs(urlsplit(response.data['图片']).query)['v'] == ['0']
+        assert response.data['图片'].split('?')[0].endswith('/fixed_assets/legacy.jpg')
+        assert response.data['缩略图'] is None
+        assert default_storage.exists(legacy_name)
+
     def test_upload_image_success(self, supervisor_user, inst):
         from django.core.files.storage import default_storage
-        _grant(supervisor_user, 'manage_instances')
+        from urllib.parse import parse_qs, urlsplit
+
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
@@ -172,12 +307,111 @@ class TestInstanceImage:
         )
         assert resp.status_code == 200
         assert '/media/fixed_assets/' in resp.data['图片']
+        assert parse_qs(urlsplit(resp.data['图片']).query)['v'] == ['1']
+        assert '/media/fixed_assets/' in resp.data['缩略图']
+        assert parse_qs(urlsplit(resp.data['缩略图']).query)['v'] == ['1']
         inst.refresh_from_db()
-        assert inst.image.name.startswith('fixed_assets/')
+        assert inst.image.name.startswith(f'fixed_assets/{inst.pk}/')
+        assert inst.image.name.endswith('.webp')
+        assert inst.thumbnail.name.startswith(f'fixed_assets/{inst.pk}/')
+        assert inst.thumbnail.name.endswith('.webp')
+        assert inst.thumbnail.name != inst.image.name
+        assert inst.image_version == 1
         assert default_storage.exists(inst.image.name)
+        assert default_storage.exists(inst.thumbnail.name)
+
+        response = client.patch(
+            f'/api/assets/fixed-assets/{inst.pk}/supplement', {'备注': '仅修改档案字段'},
+        )
+        assert response.status_code == 200
+        inst.refresh_from_db()
+        assert inst.image_version == 1
+
+    def test_image_response_has_archive_view_fields_without_unit_price(
+        self, supervisor_user, inst,
+    ):
+        _grant(supervisor_user, 'edit_instances')
+        response = _client_for(supervisor_user).post(
+            f'/api/assets/fixed-assets/{inst.pk}/image', {'image': _image_file()},
+        )
+
+        assert response.status_code == 200
+        assert '内部编号' in response.data
+        assert response.data['图片']
+        assert response.data['缩略图']
+        assert '单价' not in response.data
+
+    def test_upload_normalizes_dimensions_and_generates_webp_thumbnail(
+        self, supervisor_user, inst,
+    ):
+        from django.core.files.storage import default_storage
+        from PIL import Image
+
+        _grant(supervisor_user, 'edit_instances')
+        response = _client_for(supervisor_user).post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('large.png', 'image/png', width=3000, height=1500)},
+        )
+
+        assert response.status_code == 200
+        inst.refresh_from_db()
+        with default_storage.open(inst.image.name, 'rb') as source:
+            with Image.open(source) as main:
+                assert main.format == 'WEBP'
+                assert main.size == (2048, 1024)
+        with default_storage.open(inst.thumbnail.name, 'rb') as source:
+            with Image.open(source) as thumbnail:
+                assert thumbnail.format == 'WEBP'
+                assert thumbnail.size == (240, 120)
+
+    def test_upload_rejects_decoded_pixel_limit(self, supervisor_user, inst, monkeypatch):
+        from apps.assets.services import image_processing
+
+        _grant(supervisor_user, 'edit_instances')
+        monkeypatch.setattr(image_processing, 'MAX_DECODED_IMAGE_PIXELS', 100)
+        response = _client_for(supervisor_user).post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file(width=11, height=10)},
+        )
+
+        assert response.status_code == 400
+        assert '解码尺寸' in response.data['detail']
+        inst.refresh_from_db()
+        assert not inst.image
+        assert not inst.thumbnail
+
+    def test_upload_rejects_corrupt_image_without_replacing_existing_pair(
+        self, supervisor_user, inst,
+    ):
+        from django.core.files.storage import default_storage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        _grant(supervisor_user, 'edit_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image', {'image': _image_file()},
+        )
+        assert first.status_code == 200
+        inst.refresh_from_db()
+        old_image = inst.image.name
+        old_thumbnail = inst.thumbnail.name
+        old_version = inst.image_version
+
+        response = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': SimpleUploadedFile('bad.jpg', b'not an image', 'image/jpeg')},
+        )
+
+        assert response.status_code == 400
+        inst.refresh_from_db()
+        assert (inst.image.name, inst.thumbnail.name, inst.image_version) == (
+            old_image, old_thumbnail, old_version,
+        )
+        assert default_storage.exists(old_image)
+        assert default_storage.exists(old_thumbnail)
 
     def test_upload_rejects_bad_content_type(self, supervisor_user, inst):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
@@ -188,45 +422,197 @@ class TestInstanceImage:
         inst.refresh_from_db()
         assert not inst.image
 
-    def test_upload_rejects_oversize(self, supervisor_user, inst):
-        _grant(supervisor_user, 'manage_instances')
+    def test_upload_accepts_photo_over_2mb(self, supervisor_user, inst):
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
             {'image': _image_file(size_kb=3 * 1024)},
         )
+        assert resp.status_code == 200
+        inst.refresh_from_db()
+        assert inst.image
+
+    def test_upload_rejects_oversize(self, supervisor_user, inst):
+        _grant(supervisor_user, 'edit_instances')
+        client = _client_for(supervisor_user)
+        resp = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file(size_kb=11 * 1024)},
+        )
         assert resp.status_code == 400
-        assert '2MB' in resp.data['detail']
+        assert '10MB' in resp.data['detail']
         inst.refresh_from_db()
         assert not inst.image
 
     def test_upload_missing_file(self, supervisor_user, inst):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.post(f'/api/assets/fixed-assets/{inst.pk}/image')
         assert resp.status_code == 400
 
     def test_overwrite_cleans_old_file(self, supervisor_user, inst):
         from django.core.files.storage import default_storage
-        _grant(supervisor_user, 'manage_instances')
+        from urllib.parse import parse_qs, urlsplit
+
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
-        resp = client.post(
+        first = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
-            {'image': _image_file('a.jpg')},
+            {'image': _image_file('same-name.jpg')},
         )
-        old_name = resp.data['图片'].split('/media/')[-1]
-        resp = client.post(
+        assert first.status_code == 200
+        first_url = first.data['图片']
+        inst.refresh_from_db()
+        old_name = inst.image.name
+        old_thumbnail_name = inst.thumbnail.name
+
+        second = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
-            {'image': _image_file('b.jpg')},
+            {'image': _image_file('same-name.jpg')},
         )
-        assert resp.status_code == 200
+        assert second.status_code == 200
+        assert second.data['图片'] != first_url
+        assert parse_qs(urlsplit(second.data['图片']).query)['v'] == ['2']
         assert not default_storage.exists(old_name)
         inst.refresh_from_db()
+        assert inst.image.name != old_name
+        assert inst.image_version == 2
         assert default_storage.exists(inst.image.name)
+
+        detail = client.get(f'/api/assets/fixed-assets/{inst.pk}')
+        assert detail.status_code == 200
+        assert detail.data['图片'] == second.data['图片']
+
+    def test_database_failure_preserves_old_image_and_cleans_new_file(
+        self, supervisor_user, inst, monkeypatch,
+    ):
+        from django.core.files.storage import default_storage
+        from apps.assets.models import FixedAsset
+
+        _grant(supervisor_user, 'edit_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('same-name.jpg')},
+        )
+        assert first.status_code == 200
+        inst.refresh_from_db()
+        old_name = inst.image.name
+        old_thumbnail_name = inst.thumbnail.name
+        old_version = inst.image_version
+
+        storage = inst._meta.get_field('image').storage
+        saved_names = []
+        original_storage_save = storage.save
+
+        def track_storage_save(name, content, max_length=None):
+            saved_name = original_storage_save(name, content, max_length=max_length)
+            saved_names.append(saved_name)
+            return saved_name
+
+        original_model_save = FixedAsset.save
+
+        def fail_image_update(self, *args, **kwargs):
+            if 'image_version' in (kwargs.get('update_fields') or ()):
+                raise RuntimeError('simulated database failure')
+            return original_model_save(self, *args, **kwargs)
+
+        monkeypatch.setattr(storage, 'save', track_storage_save)
+        monkeypatch.setattr(FixedAsset, 'save', fail_image_update)
+        client.raise_request_exception = False
+        response = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('same-name.jpg')},
+        )
+
+        assert response.status_code == 500
+        assert len(saved_names) == 2
+        inst.refresh_from_db()
+        assert inst.image.name == old_name
+        assert inst.thumbnail.name == old_thumbnail_name
+        assert inst.image_version == old_version
+        assert default_storage.exists(old_name)
+        assert default_storage.exists(old_thumbnail_name)
+        assert all(not default_storage.exists(name) for name in saved_names)
+
+    def test_storage_failure_cleans_partial_new_file(self, supervisor_user, inst, monkeypatch):
+        from django.core.files.storage import default_storage
+
+        _grant(supervisor_user, 'edit_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('old.jpg')},
+        )
+        assert first.status_code == 200
+        inst.refresh_from_db()
+        old_name = inst.image.name
+        storage = inst._meta.get_field('image').storage
+        original_storage_save = storage.save
+        written_names = []
+
+        def write_then_fail(name, content, max_length=None):
+            written_name = original_storage_save(name, content, max_length=max_length)
+            written_names.append(written_name)
+            raise OSError('simulated storage failure')
+
+        monkeypatch.setattr(storage, 'save', write_then_fail)
+        client.raise_request_exception = False
+        response = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('new.jpg')},
+        )
+
+        assert response.status_code == 500
+        assert len(written_names) == 1
+        inst.refresh_from_db()
+        assert inst.image.name == old_name
+        assert default_storage.exists(old_name)
+        assert not default_storage.exists(written_names[0])
+
+    def test_thumbnail_storage_failure_preserves_old_pair_and_cleans_new_files(
+        self, supervisor_user, inst, monkeypatch,
+    ):
+        from django.core.files.storage import default_storage
+
+        _grant(supervisor_user, 'edit_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image', {'image': _image_file('old.jpg')},
+        )
+        assert first.status_code == 200
+        inst.refresh_from_db()
+        old_names = (inst.image.name, inst.thumbnail.name)
+        old_version = inst.image_version
+        storage = inst._meta.get_field('image').storage
+        original_storage_save = storage.save
+        writes = []
+
+        def fail_thumbnail_after_write(name, content, max_length=None):
+            saved_name = original_storage_save(name, content, max_length=max_length)
+            writes.append(saved_name)
+            if len(writes) == 2:
+                raise OSError('simulated thumbnail storage failure')
+            return saved_name
+
+        monkeypatch.setattr(storage, 'save', fail_thumbnail_after_write)
+        client.raise_request_exception = False
+        response = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image', {'image': _image_file('new.jpg')},
+        )
+
+        assert response.status_code == 500
+        assert len(writes) == 2
+        inst.refresh_from_db()
+        assert (inst.image.name, inst.thumbnail.name) == old_names
+        assert inst.image_version == old_version
+        assert all(default_storage.exists(name) for name in old_names)
+        assert all(not default_storage.exists(name) for name in writes)
 
     def test_delete_image(self, supervisor_user, inst):
         from django.core.files.storage import default_storage
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
@@ -234,14 +620,89 @@ class TestInstanceImage:
         )
         inst.refresh_from_db()
         name = inst.image.name
+        thumbnail_name = inst.thumbnail.name
         resp = client.delete(f'/api/assets/fixed-assets/{inst.pk}/image')
         assert resp.status_code == 200
         assert resp.data['图片'] is None
+        assert resp.data['缩略图'] is None
         inst.refresh_from_db()
         assert not inst.image
+        assert not inst.thumbnail
+        assert inst.image_version == 2
         assert not default_storage.exists(name)
+        assert not default_storage.exists(thumbnail_name)
+
+    def test_delete_database_failure_preserves_both_references_and_files(
+        self, supervisor_user, inst, monkeypatch,
+    ):
+        from django.core.files.storage import default_storage
+        from apps.assets.models import FixedAsset
+
+        _grant(supervisor_user, 'edit_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image', {'image': _image_file()},
+        )
+        assert first.status_code == 200
+        inst.refresh_from_db()
+        old_names = (inst.image.name, inst.thumbnail.name)
+        old_version = inst.image_version
+        original_save = FixedAsset.save
+
+        def fail_delete(self, *args, **kwargs):
+            if 'image_version' in (kwargs.get('update_fields') or ()):
+                raise RuntimeError('simulated delete database failure')
+            return original_save(self, *args, **kwargs)
+
+        monkeypatch.setattr(FixedAsset, 'save', fail_delete)
+        client.raise_request_exception = False
+        response = client.delete(f'/api/assets/fixed-assets/{inst.pk}/image')
+
+        assert response.status_code == 500
+        inst.refresh_from_db()
+        assert (inst.image.name, inst.thumbnail.name) == old_names
+        assert inst.image_version == old_version
+        assert all(default_storage.exists(name) for name in old_names)
+
+    def test_delete_then_upload_increments_version_and_uses_new_url(self, supervisor_user, inst):
+        from django.core.files.storage import default_storage
+        from urllib.parse import parse_qs, urlsplit
+
+        _grant(supervisor_user, 'edit_instances')
+        client = _client_for(supervisor_user)
+        first = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('photo.jpg')},
+        )
+        assert first.status_code == 200
+        first_url = first.data['图片']
+        inst.refresh_from_db()
+        first_name = inst.image.name
+
+        removed = client.delete(f'/api/assets/fixed-assets/{inst.pk}/image')
+        assert removed.status_code == 200
+        assert removed.data['图片'] is None
+        assert removed.data['缩略图'] is None
+        assert not default_storage.exists(first_name)
+        inst.refresh_from_db()
+        assert inst.image_version == 2
+
+        second = client.post(
+            f'/api/assets/fixed-assets/{inst.pk}/image',
+            {'image': _image_file('photo.jpg')},
+        )
+        assert second.status_code == 200
+        assert second.data['图片'] != first_url
+        assert parse_qs(urlsplit(second.data['图片']).query)['v'] == ['3']
+        inst.refresh_from_db()
+        assert inst.image_version == 3
+        assert inst.image.name != first_name
+        assert inst.thumbnail
+        assert parse_qs(urlsplit(second.data['缩略图']).query)['v'] == ['3']
 
     def test_image_endpoints_denied_without_operation(self, supervisor_user, inst):
+        from apps.permissions.models import OperationGrant
+        OperationGrant.objects.filter(user=supervisor_user, code='edit_instances').delete()
         client = _client_for(supervisor_user)
         resp = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
@@ -254,7 +715,7 @@ class TestInstanceImage:
         assert not inst.image
 
     def test_upload_ignores_state_fields(self, supervisor_user, inst):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.post(
             f'/api/assets/fixed-assets/{inst.pk}/image',
@@ -290,6 +751,9 @@ class TestTimeline:
         assert resp.status_code == 200
         assert resp.data['birth']['供应商'] == '联想'
         assert resp.data['birth']['单据编号'] == 'CG20260824-001'
+        assert '单价' not in resp.data['birth']
+        assert '单价' not in resp.data['instance']
+        assert all('单价' not in row for row in resp.data['timeline'])
         actions = [row['action_type'] for row in resp.data['timeline']]
         assert actions == ['assign', 'purchase']  # 倒序
         assert resp.data['timeline'][0]['使用人'] == '张三'
@@ -408,7 +872,7 @@ class TestBatchUpdate:
         return a, b
 
     def test_batch_supplier_and_remark(self, supervisor_user, branch, item_instance):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         a, b = self._two(branch, item_instance)
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
@@ -423,7 +887,7 @@ class TestBatchUpdate:
 
     def test_batch_serials_pairing(self, supervisor_user, branch, item_instance):
         """空序列号 = 跳过不回滚（编辑弹窗只改其他项时不连带失败）。"""
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         a, b = self._two(branch, item_instance)
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
@@ -438,7 +902,7 @@ class TestBatchUpdate:
 
     def test_edit_dialog_semantics_empty_serial_keeps_other_fields(self, supervisor_user, branch, item_instance):
         """编辑弹窗场景：序列号空 + 改规格/供应商 → 全部生效不回滚。"""
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         a, _ = self._two(branch, item_instance)
         assert a.序列号 == ''  # 前置：待补录
         client = _client_for(supervisor_user)
@@ -450,7 +914,7 @@ class TestBatchUpdate:
         assert a.规格 == '改装版' and a.供应商 == '联想' and a.序列号 == ''
 
     def test_rejects_unknown_fields(self, supervisor_user, branch, inst):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
             'ids': [str(inst.pk)], '当前状态': '在用',
@@ -459,6 +923,8 @@ class TestBatchUpdate:
         assert '多余字段' in resp.data['detail']
 
     def test_requires_permission(self, supervisor_user, inst):
+        from apps.permissions.models import OperationGrant
+        OperationGrant.objects.filter(user=supervisor_user, code='edit_instances').delete()
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
             'ids': [str(inst.pk)], '备注': 'x',
@@ -504,7 +970,7 @@ class TestInstanceLevelSupplier:
         return made, line
 
     def test_batch_supplier_isolated(self, supervisor_user, branch, item_instance):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         made, line = self._three_on_one_line(branch, item_instance)
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
@@ -569,7 +1035,7 @@ class TestSpecOverride:
         assert FixedAssetSerializer(b).data['item_spec'] == '字典规格'  # 回退字典
 
     def test_batch_spec_isolated(self, supervisor_user, branch, item_instance):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         a, b, line = self._two_on_one_line(branch, item_instance)
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
@@ -583,7 +1049,7 @@ class TestSpecOverride:
         assert line.本批规格 == '批次规格'  # 出生行零触碰
 
     def test_whitelist_message_includes_spec(self, supervisor_user, inst):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
             'ids': [str(inst.pk)], '当前状态': '在用',
@@ -613,7 +1079,7 @@ class TestPurchaseDateOverride:
 
     def test_set_date_syncs_entry_date(self, supervisor_user, branch, item_instance):
         import datetime
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         a = self._inst_with_birth(branch, item_instance, '2026-03-01')
         client = _client_for(supervisor_user)
         resp = client.post('/api/assets/fixed-assets/batch-update', {
@@ -630,7 +1096,7 @@ class TestPurchaseDateOverride:
 
     def test_clear_falls_back_to_birth(self, supervisor_user, branch, item_instance):
         import datetime
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         a = self._inst_with_birth(branch, item_instance, '2026-03-01')
         a.采购日期 = datetime.date(2025, 1, 1)
         a.save(update_fields=['采购日期'])
@@ -649,3 +1115,165 @@ class TestPurchaseDateOverride:
         a = self._inst_with_birth(branch, item_instance, '2025-08-20')
         from apps.assets.serializers import FixedAssetSerializer
         assert str(FixedAssetSerializer(a).data['采购日期']) == '2025-08-20'
+
+
+@pytest.mark.django_db(transaction=True)
+class TestFixedAssetThumbnailBackfill:
+    @pytest.fixture(autouse=True)
+    def isolate_media_root(self, tmp_path):
+        from django.test import override_settings
+
+        with override_settings(MEDIA_ROOT=tmp_path):
+            yield
+
+    @staticmethod
+    def _store_legacy_image(instance, name='legacy.jpg'):
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
+
+        uploaded = _image_file(name)
+        original_bytes = uploaded.read()
+        stored_name = default_storage.save(
+            f'fixed_assets/{instance.pk}/{name}', ContentFile(original_bytes),
+        )
+        instance.image = stored_name
+        instance.save(update_fields=['image'])
+        return stored_name, original_bytes
+
+    def test_preview_is_read_only_and_reports_valid_pending_images(self, inst):
+        from io import StringIO
+
+        from django.core.files.storage import default_storage
+        from django.core.management import call_command
+
+        image_name, original_bytes = self._store_legacy_image(inst)
+        inst.image_version = 7
+        inst.save(update_fields=['image_version'])
+        output = StringIO()
+
+        call_command('backfill_fixed_asset_thumbnails', stdout=output)
+
+        assert '待处理=1' in output.getvalue()
+        assert '成功=0' in output.getvalue()
+        inst.refresh_from_db()
+        assert inst.image.name == image_name
+        assert not inst.thumbnail
+        assert inst.image_version == 7
+        assert default_storage.listdir(f'fixed_assets/{inst.pk}')[1] == [
+            image_name.rsplit('/', 1)[-1],
+        ]
+        with default_storage.open(image_name, 'rb') as source:
+            assert source.read() == original_bytes
+
+    def test_execute_is_idempotent_and_keeps_the_source_unchanged(self, inst):
+        from io import StringIO
+
+        from django.core.files.storage import default_storage
+        from django.core.management import call_command
+
+        image_name, original_bytes = self._store_legacy_image(inst)
+        inst.image_version = 9
+        inst.备注 = '保留档案字段'
+        inst.save(update_fields=['image_version', '备注'])
+        first_output = StringIO()
+        call_command('backfill_fixed_asset_thumbnails', execute=True, stdout=first_output)
+
+        assert '成功=1' in first_output.getvalue()
+        inst.refresh_from_db()
+        thumbnail_name = inst.thumbnail.name
+        assert thumbnail_name.endswith('.webp')
+        assert inst.image.name == image_name
+        assert inst.image_version == 9
+        assert inst.备注 == '保留档案字段'
+        with default_storage.open(image_name, 'rb') as source:
+            assert source.read() == original_bytes
+
+        second_output = StringIO()
+        call_command('backfill_fixed_asset_thumbnails', execute=True, stdout=second_output)
+
+        assert '跳过=1' in second_output.getvalue()
+        assert '成功=0' in second_output.getvalue()
+        inst.refresh_from_db()
+        assert inst.thumbnail.name == thumbnail_name
+        assert len(default_storage.listdir(f'fixed_assets/{inst.pk}')[1]) == 2
+
+    def test_one_corrupt_image_does_not_stop_the_batch(self, inst):
+        from io import StringIO
+
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
+        from django.core.management import call_command
+
+        from apps.assets.models import FixedAsset
+
+        self._store_legacy_image(inst)
+        bad = FixedAsset.objects.create(
+            item=inst.item,
+            内部编号='NB-001-BAD-IMAGE',
+            当前状态='在库',
+            branch=inst.branch,
+        )
+        bad.image = default_storage.save(
+            f'fixed_assets/{bad.pk}/broken.jpg', ContentFile(b'not an image'),
+        )
+        bad.save(update_fields=['image'])
+        output = StringIO()
+        errors = StringIO()
+
+        preview = StringIO()
+        call_command('backfill_fixed_asset_thumbnails', stdout=preview)
+        assert '待处理=1' in preview.getvalue()
+        assert '失败=1' in preview.getvalue()
+        inst.refresh_from_db()
+        assert not inst.thumbnail
+
+        call_command(
+            'backfill_fixed_asset_thumbnails', execute=True,
+            stdout=output, stderr=errors, batch_size=1,
+        )
+
+        assert '成功=1' in output.getvalue()
+        assert '失败=1' in output.getvalue()
+        assert str(bad.pk) in errors.getvalue()
+        inst.refresh_from_db()
+        bad.refresh_from_db()
+        assert inst.thumbnail
+        assert not bad.thumbnail
+
+    def test_batch_cursor_resumes_after_the_last_processed_id(self, inst):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        from apps.assets.models import FixedAsset
+
+        assets = [inst]
+        for suffix in ('BATCH-2', 'BATCH-3'):
+            assets.append(FixedAsset.objects.create(
+                item=inst.item,
+                内部编号=f'NB-001-{suffix}',
+                当前状态='在库',
+                branch=inst.branch,
+            ))
+        for asset in assets:
+            self._store_legacy_image(asset, f'{asset.pk}.jpg')
+        ordered_ids = list(FixedAsset.objects.order_by('pk').values_list('pk', flat=True))
+
+        first_output = StringIO()
+        call_command(
+            'backfill_fixed_asset_thumbnails', execute=True, limit=1,
+            stdout=first_output,
+        )
+        second_output = StringIO()
+        call_command(
+            'backfill_fixed_asset_thumbnails', execute=True, limit=1,
+            after_id=str(ordered_ids[0]), stdout=second_output,
+        )
+
+        assert '成功=1' in first_output.getvalue()
+        assert '成功=1' in second_output.getvalue()
+        assert len(ordered_ids) == 3
+        assert f'最后ID={ordered_ids[0]}' in first_output.getvalue()
+        assert f'最后ID={ordered_ids[1]}' in second_output.getvalue()
+        assert all(FixedAsset.objects.get(pk=asset_id).thumbnail for asset_id in ordered_ids[:2])
+        assert not FixedAsset.objects.get(pk=ordered_ids[2]).thumbnail

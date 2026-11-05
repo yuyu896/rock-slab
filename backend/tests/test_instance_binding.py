@@ -322,7 +322,7 @@ class TestDocumentInstanceMatrix:
         row = AssetStock.objects.get(branch=branch, item=item)
         assert row.在库数量 == 5 and row.回收库数量 == 1
 
-    def test_return_clears_user(self, authenticated_client, branch):
+    def test_return_api_is_retired_and_preserves_existing_asset(self, authenticated_client, branch):
         item = _item('IM-R-001')
         _seed(branch, item, in_use=1)
         insts = _make_instances(branch, item, '在用', 1, user='张三')
@@ -330,10 +330,11 @@ class TestDocumentInstanceMatrix:
             '调拨日期': '2026-08-23', '调入分公司': branch.name,
             'items': [_line(item, insts)],
         }, format='json')
-        assert resp.status_code == 201
-        assert _approve(authenticated_client, resp.data['id']).status_code == 200
+        assert resp.status_code == 410
         insts[0].refresh_from_db()
-        assert insts[0].当前状态 == '在库' and insts[0].使用人 == ''
+        assert insts[0].当前状态 == '在用' and insts[0].使用人 == '张三'
+        row = AssetStock.objects.get(branch=branch, item=item)
+        assert (row.在库数量, row.在用数量) == (0, 1)
 
     def test_transfer_moves_branch(self, authenticated_client, branch, second_branch):
         item = _item('IM-T-001')
@@ -850,3 +851,63 @@ class TestRenumberInstances:
         assert FixedAsset.objects.get(branch=second_branch).内部编号 == 'RN-003-CS001-18'
         # 来源组被跳过，序列兜底按段内最大尾号 21 建行（后续发号从 22 起，不撞 18~21）
         assert InstanceSequence.objects.get(item=item, branch=branch).last_no == 21
+
+
+@pytest.mark.django_db
+def test_instance_managed_transfer_details_and_lifecycle_require_instance_view(branch):
+    """Instance serials and lifecycle actions require the instance archive grant."""
+    from django.contrib.auth import get_user_model
+    from apps.permissions.models import ManagementScope, OperationGrant
+    from apps.transfers.models import Transfer
+    from conftest import _client_for
+
+    user = get_user_model().objects.create_user(
+        phone='13999990001', name='权限边界测试员工', password='test123456',
+        role='staff', status='active', branch=branch,
+    )
+    ManagementScope.objects.get_or_create(user=user, branch=branch)
+    for code in (
+        'edit_assignment', 'view_assignment', 'view_asset_ledger', 'view_instances',
+    ):
+        OperationGrant.objects.get_or_create(user=user, code=code)
+
+    client = _client_for(user)
+    item = _item('AUTHZ-INSTANCE-VIEW')
+    _seed(branch, item, stock=1)
+    instance = _make_instances(branch, item, '在库', 1)[0]
+    payload = {
+        '\u8c03\u62e8\u65e5\u671f': '2026-11-04',
+        '\u8c03\u51fa\u5206\u516c\u53f8': branch.name,
+        'draft': True,
+        'items': [{
+            **_line(item, [instance]),
+            '\u4f7f\u7528\u4eba': user.name,
+            'department': str(_dept(branch).id),
+        }],
+    }
+    created = client.post('/api/transfers/assign', payload, format='json')
+    assert created.status_code == status.HTTP_201_CREATED, created.data
+    transfer_id = created.data['id']
+
+    OperationGrant.objects.filter(user=user, code='view_instances').delete()
+
+    detail = client.get(f'/api/transfers/{transfer_id}', format='json')
+    assert detail.status_code == status.HTTP_200_OK, detail.data
+    assert detail.data['lines'][0]['instances'] == []
+    assert instance.内部编号 not in str(detail.data)
+
+    edit = client.patch(
+        f'/api/transfers/{transfer_id}', {'items': payload['items']}, format='json',
+    )
+    assert edit.status_code == status.HTTP_403_FORBIDDEN
+
+    submit = client.post(f'/api/transfers/{transfer_id}/submit', format='json')
+    assert submit.status_code == status.HTTP_403_FORBIDDEN
+    transfer = Transfer.objects.get(pk=transfer_id)
+    assert transfer.审批状态 == '草稿'
+
+    Transfer.objects.filter(pk=transfer_id).update(**{'\u5ba1\u6279\u72b6\u6001': '已驳回'})
+    resubmit = client.post(f'/api/transfers/{transfer_id}/resubmit', format='json')
+    assert resubmit.status_code == status.HTTP_403_FORBIDDEN
+    transfer.refresh_from_db()
+    assert transfer.审批状态 == '已驳回'

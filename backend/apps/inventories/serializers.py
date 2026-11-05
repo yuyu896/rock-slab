@@ -13,16 +13,19 @@ class InventoryItemSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'task', 'stock', 'asset_code', 'asset_name', 'branch_name',
             'expected_qty', 'actual_qty',
-            'result', 'check_count', 'checked_by', 'checked_at',
+            'result', 'check_count', 'checked_by', 'checked_by_name', 'checked_at',
             'remarks', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
 
 
 class InventoryCheckSerializer(serializers.ModelSerializer):
-    checked_by_name = serializers.CharField(source='checked_by.name', read_only=True, default='')
+    checked_by_name = serializers.SerializerMethodField()
     asset_code = serializers.CharField(source='stock.item.asset_code', read_only=True)
     asset_name = serializers.CharField(source='stock.item.asset_name', read_only=True)
+
+    def get_checked_by_name(self, obj):
+        return obj.checked_by_name or (obj.checked_by.name if obj.checked_by else '')
 
     class Meta:
         model = InventoryCheck
@@ -52,7 +55,7 @@ class InventoryInstanceItemSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'task', 'instance', 'instance_code', 'serial_number',
             'item_id', 'unit', 'asset_code', 'asset_name', 'holder', 'department',
-            'result', 'check_count', 'checked_by', 'checked_at',
+            'result', 'check_count', 'checked_by', 'checked_by_name', 'checked_at',
             'remarks', 'created_at', 'updated_at',
                 'instance_status',]
         read_only_fields = ['created_at', 'updated_at']
@@ -72,9 +75,9 @@ class InventoryTaskSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'branch', 'category', 'stock_bin', 'kind',
             'department', 'department_name',
-            'status', 'missed_rule', 'repeat_rule', 'created_by', 'inventory_kind',
+            'status', 'missed_rule', 'repeat_rule', 'created_by', 'created_by_name', 'inventory_kind',
             'started_at', 'submitted_at', 'completed_at',
-            'rejected_at', 'rejected_by', 'reject_reason',
+            'rejected_at', 'rejected_by', 'rejected_by_name', 'reject_reason',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at', 'department']
@@ -106,9 +109,9 @@ class InventoryTaskListSerializer(serializers.ModelSerializer):
         model = InventoryTask
         fields = [
             'id', 'name', 'branch', 'category', 'stock_bin', 'kind', 'department', 'status',
-            'missed_rule', 'repeat_rule', 'created_by', 'inventory_kind',
+            'missed_rule', 'repeat_rule', 'created_by', 'created_by_name', 'inventory_kind',
             'started_at', 'submitted_at', 'completed_at',
-            'rejected_at', 'rejected_by', 'reject_reason',
+            'rejected_at', 'rejected_by', 'rejected_by_name', 'reject_reason',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']

@@ -214,19 +214,22 @@ class TestCategoryImportBySheet:
         assert Category.objects.get(asset_code='CAT-F001').management_type == 'quantity'
 
     def test_stock_guard_blocks_management_change(self, admin_client, branch, make_stock):
-        """已有台账存量的品目，导入改管理方式必须被跳过。"""
+        """单行管理方式冲突会驳回整份文件，不保存同文件中的有效行。"""
+        from apps.categories.models import Category
         from apps.assets.services import ledger
         stock = make_stock('GUA-001', qty=5, column=ledger.COLUMN_IN_USE)
         target = stock.item
         buf = _make_xlsx_multi({
+            '数量管理': [['固定资产类', '办公设备', '应回滚的品目', 'GUA-VALID-001', '台', '', '']],
             '消耗品': [['低值易耗品类', '办公耗材', target.asset_name, target.asset_code, '支', '', '']],
         })
         resp = _upload_url(admin_client, '/api/categories/import', buf)
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
         assert '存量' in resp.data['errors'][0]
         target.refresh_from_db()
         assert target.management_type == 'quantity'
+        assert not Category.objects.filter(asset_code='GUA-VALID-001').exists()
 
     def test_no_stock_change_allowed(self, admin_client, test_category):
         """无存量的品目，导入可改管理方式。"""
@@ -267,10 +270,10 @@ TRANSFER_TYPE_TEMPLATES = {
     },
     'assign': {
         # 领用行使用人/部门必填（修订 2.2）：导入模板加"使用人"列，领用部门解析行级外键
-        'template_headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '用途', '备注'],
-        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', 5, '张三', '行政部', '办公用', ''],
-        'check_fields': {'用途': '办公用'},
-        'line_check_fields': {'数量': 5, '使用人': '张三'},
+        'template_headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '备注'],
+        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', 5, '张三', '行政部', '工位配置'],
+        'check_fields': {},
+        'line_check_fields': {'数量': 5, '使用人': '张三', '备注': '工位配置'},
         'item_check_fields': {},
     },
     'transfer': {
@@ -279,7 +282,7 @@ TRANSFER_TYPE_TEMPLATES = {
                              '调入负责人', '备注'],
         'sample_row': ['2026-03-01', '上海分公司', '行政部', '杭州分公司', '研发部',
                        'TRF-001', '调拨物品C', '规格Y', 3, '部门调整', '赵六', ''],
-        'check_fields': {'调出分公司': '上海分公司', '经办人': '测试管理员'},
+        'check_fields': {'调出分公司': '上海分公司', '调出部门': '行政部', '经办人': '测试管理员'},
         'line_check_fields': {'数量': 3},
         'item_check_fields': {},
     },
@@ -299,6 +302,8 @@ class TestTransferTemplates:
         assert rows == []
         for h in tpl['template_headers']:
             assert h in headers, f"[{ttype}] Missing header: {h}"
+        if ttype == 'assign':
+            assert '用途' not in headers
 
 
 class TestTransferImport:
@@ -338,6 +343,24 @@ class TestTransferImport:
         for field, expected in tpl['item_check_fields'].items():
             actual = getattr(line.item, field)
             assert actual == expected, f"[{ttype}] item {field}: '{actual}' != '{expected}'"
+        if ttype == 'assign':
+            assert t.调出部门 == '' and t.用途 == '' and t.备注 == ''
+
+    def test_assign_import_ignores_legacy_purpose_column(self, admin_client, test_branch):
+        from apps.organizations.models import Department
+        from apps.transfers.models import Transfer
+        Department.objects.get_or_create(name='行政部')
+        headers = ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '用途', '备注']
+        row = [test_branch.name, '2026-03-01', 'AST-TEST-001', 1, '张三', '行政部', '旧用途值', '设备备注']
+
+        response = _upload_url(admin_client, '/api/transfers/import', _make_xlsx(headers, [row]), 'type=assign')
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['imported'] == 1
+        document = Transfer.objects.filter(action_type='assign').latest('created_at')
+        line = document.lines.get()
+        assert line.用途 == ''
+        assert line.备注 == '设备备注'
 
     def test_recovery_import_retired(self, admin_client):
         """回收批量导入已下线（recovery-stock-source-and-cleanup）：导入/模板端点一律 400。"""
@@ -352,29 +375,31 @@ class TestTransferImport:
 
 
     def test_import_rejects_unknown_branch(self, admin_client):
-        # transfer 类型：调出分公司填写不存在的名称 → 该行被拒
+        # transfer 类型：分公司填写不存在的名称 → 整份文件被拒
         tpl = TRANSFER_TYPE_TEMPLATES['transfer']
         row = list(tpl['sample_row'])
         row[1] = '不存在的分公司'  # 调出分公司
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=transfer')
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
         assert any('不存在的分公司' in e for e in resp.data['errors'])
 
-    def test_assign_import_requires_user_and_department(self, admin_client, test_branch):
-        """领用导入行缺使用人/领用部门 → 逐行报错不建单（与表单路径同口径）。"""
+    @pytest.mark.parametrize(('column_index', 'missing_field'), [(4, '使用人'), (5, '领用部门')])
+    def test_assign_import_requires_user_and_department(
+        self, admin_client, test_branch, column_index, missing_field,
+    ):
+        """领用导入行缺使用人/领用部门 → 整份驳回。"""
         from apps.organizations.models import Department
         Department.objects.get_or_create(name='行政部')
         tpl = TRANSFER_TYPE_TEMPLATES['assign']
         row = list(tpl['sample_row'])
-        row[4] = ''  # 使用人留空
-        row[5] = ''  # 领用部门留空
+        row[column_index] = ''
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
-        assert any('使用人' in e for e in resp.data['errors'])
+        assert any(missing_field in e for e in resp.data['errors'])
 
     def test_assign_import_department_not_found(self, admin_client, test_branch):
         """领用部门不在部门字典（全集团扁平）→ 报错点名部门。"""
@@ -383,7 +408,7 @@ class TestTransferImport:
         row[5] = '不存在部'  # 领用部门
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
         assert any('不存在部' in e for e in resp.data['errors'])
 
@@ -407,9 +432,55 @@ class TestTransferImport:
         row[1] = ''  # 调出分公司为空
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=transfer')
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
         assert any('调出分公司为空' in e for e in resp.data['errors'])
+
+    @pytest.mark.parametrize('ttype', ['purchase', 'assign', 'transfer'])
+    def test_one_invalid_row_rejects_every_row(self, admin_client, test_branch, ttype):
+        from apps.categories.models import Category
+        from apps.organizations.models import Branch, Department
+        from apps.transfers.models import Transfer
+
+        template = TRANSFER_TYPE_TEMPLATES[ttype]
+        valid_row = list(template['sample_row'])
+        bad_row = list(valid_row)
+        asset_code_column = template['template_headers'].index('资产编号')
+
+        if ttype == 'assign':
+            Department.objects.get_or_create(name='行政部')
+        elif ttype == 'transfer':
+            source = Branch.objects.create(
+                name='原子调拨调出分公司', code='ATOMIC-FROM', team=test_branch.team,
+            )
+            target = Branch.objects.create(
+                name='原子调拨调入分公司', code='ATOMIC-TO', team=test_branch.team,
+            )
+            valid_row[1] = source.name
+            valid_row[3] = target.name
+            valid_row[asset_code_column] = 'TRF-ATOMIC-GOOD'
+            bad_row[1] = source.name
+            bad_row[3] = target.name
+            Category.objects.create(
+                asset_category='测试类目', item_category='测试分类',
+                asset_name='原子性测试品目', asset_code='TRF-ATOMIC-GOOD',
+                unit='个', management_type='quantity',
+            )
+
+        bad_row[asset_code_column] = 'NOT-REGISTERED'
+        response = _upload_url(
+            admin_client,
+            '/api/transfers/import',
+            _make_xlsx(template['template_headers'], [valid_row, bad_row]),
+            params=f'type={ttype}',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['imported'] == 0
+        assert response.data['imported_lines'] == 0
+        assert any('NOT-REGISTERED' in error for error in response.data['errors']), response.data
+        assert all('是否想找' not in error for error in response.data['errors'])
+        assert not Transfer.objects.filter(action_type=ttype).exists()
 
 
 class TestTransferExport:
@@ -431,6 +502,35 @@ class TestTransferExport:
         resp = admin_client.get(f'/api/transfers/export?type={ttype}')
         headers, rows = _parse_excel_response(resp)
         assert len(rows) >= 1
+
+    def test_transfer_export_uses_header_source_department(self, admin_client):
+        from apps.categories.models import Category
+        from apps.organizations.models import Department
+        from apps.transfers.models import Transfer, TransferLine
+
+        line_department = Department.objects.create(name='明细部门')
+        item = Category.objects.create(
+            asset_category='测试类目', item_category='测试分类',
+            asset_name='调拨导出部门测试', asset_code='EXP-TRANSFER-DEPT-001', unit='个',
+        )
+        transfer = Transfer.objects.create(
+            调拨日期=date(2026, 3, 1),
+            调出部门='单头调出部门',
+            action_type='transfer',
+        )
+        TransferLine.objects.create(
+            transfer=transfer, item=item, 行号=1, 数量=1, department=line_department,
+        )
+
+        response = admin_client.get('/api/transfers/export?type=transfer')
+        headers, rows = _parse_excel_response(response)
+        positions = {name: index for index, name in enumerate(headers)}
+        exported_row = next(
+            row for row in rows
+            if row[positions['资产编号']] == 'EXP-TRANSFER-DEPT-001'
+        )
+
+        assert exported_row[positions['调出部门']] == '单头调出部门'
 
 
 # ===========================================================================
@@ -480,6 +580,45 @@ class TestInventoryImportExport:
         item = InventoryItem.objects.get(task=task, stock=stock)
         assert item.actual_qty == 5
         assert item.result == 'matched'
+
+    def test_import_results_error_rejects_all_rows(self, admin_client, admin_user, branch):
+        from apps.inventories.models import InventoryTask, InventoryItem, InventoryCheck
+        from apps.assets.models import AssetStock
+        from apps.assets.services import ledger
+        from apps.categories.models import Category
+
+        task = InventoryTask.objects.create(
+            name='混合行导入原子性测试', status='in_progress', created_by=admin_user,
+            branch=branch,
+        )
+        item = Category.objects.create(
+            asset_category='测试类目', item_category='测试分类',
+            asset_name='有效盘点品目', asset_code='INV-ATOMIC-001', unit='台',
+        )
+        ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 5, '造数')
+        stock = AssetStock.objects.get(branch=branch, item=item)
+        inventory_item = InventoryItem.objects.create(
+            task=task, stock=stock, expected_qty=5, actual_qty=None,
+            result='unchecked', check_count=0,
+        )
+        headers = ['序号', '资产编号', '资产名称', '规格', '账面数量', '实盘数量', '备注']
+        rows = [
+            [1, 'INV-ATOMIC-001', '有效盘点品目', '', 5, 3, '必须回滚'],
+            [2, 'NOT-IN-TASK', '不在清单内', '', 0, 2, '错误行'],
+        ]
+        response = _upload_url(
+            admin_client, f'/api/inventories/{task.id}/import-result',
+            _make_xlsx(headers, rows),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['imported'] == 0
+        assert any('NOT-IN-TASK' in error for error in response.data['errors'])
+        inventory_item.refresh_from_db()
+        assert inventory_item.actual_qty is None
+        assert inventory_item.result == 'unchecked'
+        assert inventory_item.check_count == 0
+        assert InventoryCheck.objects.filter(task=task).count() == 0
 
 
 # ===========================================================================
@@ -556,8 +695,8 @@ class TestImportMergeDocs:
         assert resp.data['imported'] == 2
         assert Transfer.objects.filter(action_type='purchase', 审批状态='待审批').count() == 2
 
-    def test_purchase_row_error_keeps_group(self, admin_client, test_branch):
-        """组内一行编号不合法 → 该行报错，同组其余行仍合并建单。"""
+    def test_purchase_row_error_rejects_whole_file(self, admin_client, test_branch):
+        """组内一行编号不合法时，其他有效行也不建单。"""
         from apps.transfers.models import Transfer
         headers = TRANSFER_TYPE_TEMPLATES['purchase']['template_headers']
         rows = [
@@ -566,26 +705,55 @@ class TestImportMergeDocs:
         ]
         buf = _make_xlsx(headers, rows)
         resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=purchase')
-        assert resp.data['imported'] == 1 and resp.data['imported_lines'] == 1
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.data['imported'] == 0 and resp.data['imported_lines'] == 0
         assert any('NOT-EXIST' in e for e in resp.data['errors'])
-        doc = Transfer.objects.filter(action_type='purchase').order_by('-created_at').first()
-        assert doc.lines.count() == 1 and doc.lines.first().item.asset_code == 'PUR-001'
+        assert not Transfer.objects.filter(action_type='purchase').exists()
 
-    def test_assign_two_rows_one_doc(self, admin_client, test_branch):
+    def test_assign_rows_with_different_departments_and_notes_merge_and_export(self, admin_client, test_branch):
         from apps.organizations.models import Department
         from apps.transfers.models import Transfer
         Department.objects.get_or_create(name='行政部')
+        Department.objects.get_or_create(name='研发部')
         headers = TRANSFER_TYPE_TEMPLATES['assign']['template_headers']
         rows = [
-            [test_branch.name, '2026-09-14', 'AST-TEST-001', 2, '张三', '行政部', '办公', ''],
-            [test_branch.name, '2026-09-14', 'AST-TEST-001', 3, '李四', '行政部', '办公', ''],
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', 1, '张三', '行政部', '工位配置'],
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', 1, '李四', '研发部', '测试设备'],
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', 1, '王五', '行政部', '存放于前台'],
         ]
         buf = _make_xlsx(headers, rows)
         resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=assign')
-        assert resp.data['imported'] == 1 and resp.data['imported_lines'] == 2
+        assert resp.data['imported'] == 1 and resp.data['imported_lines'] == 3
         doc = Transfer.objects.filter(action_type='assign').order_by('-created_at').first()
-        assert doc.lines.count() == 2
-        assert sorted(doc.lines.values_list('使用人', flat=True)) == ['张三', '李四']
+        assert doc.lines.count() == 3
+        assert doc.调出部门 == '' and doc.用途 == '' and doc.备注 == ''
+        lines = list(doc.lines.select_related('department').order_by('行号'))
+        assert [
+            (line.使用人, line.department.name, line.备注)
+            for line in lines
+        ] == [
+            ('张三', '行政部', '工位配置'),
+            ('李四', '研发部', '测试设备'),
+            ('王五', '行政部', '存放于前台'),
+        ]
+
+        Transfer.objects.filter(pk=doc.pk).update(审批状态='已通过')
+        export = admin_client.get('/api/transfers/export?type=assign')
+        export_headers, export_rows = _parse_excel_response(export)
+        assert '用途' not in export_headers
+        positions = {name: index for index, name in enumerate(export_headers)}
+        assign_rows = [
+            row for row in export_rows
+            if row[positions['资产编号']] == 'AST-TEST-001'
+        ]
+        assert [
+            (row[positions['领用部门']], row[positions['部门累计领用']], row[positions['备注']])
+            for row in assign_rows
+        ] == [
+            ('行政部', 1, '工位配置'),
+            ('研发部', 1, '测试设备'),
+            ('行政部', 1, '存放于前台'),
+        ]
 
 
 @pytest.mark.django_db
@@ -641,7 +809,8 @@ class TestImportFingerprint:
         buf = _make_xlsx(headers, [['2026-09-15', test_branch.name, 'PUR-001', '', 'S', 1, 10, '', '']])
         r1 = self._upload(admin_client, buf)
         assert r1.status_code == 200
-        buf2 = _make_xlsx(headers, [['2026-09-15', test_branch.name, 'PUR-001', '', 'S', 1, 10, '', '']])
+        buf2 = io.BytesIO(buf.getvalue())
+        buf2.name = 'test.xlsx'
         r2 = self._upload(admin_client, buf2)
         assert r2.status_code == 400
         assert '请勿重复上传' in str(r2.data['detail'])

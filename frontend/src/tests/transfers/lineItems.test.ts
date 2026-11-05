@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
 import {
   emptyDraft, draftsToItems, draftsFromLines, type LineDraft,
 } from '@/views/transfers/components/lineDrafts'
 import { transferDocSummary } from '@/types'
 import type { TransferLine } from '@/types'
 import TransferLinesEditor from '@/views/transfers/components/TransferLinesEditor.vue'
+import TransferLinesTable from '@/views/transfers/components/TransferLinesTable.vue'
 
 vi.mock('@/api/assets', () => ({
   getFixedAssets: vi.fn(),
@@ -56,20 +59,65 @@ describe('lineDrafts 助手', () => {
   })
 
   it('draftsToItems 忽略未选品目的行并映射行字段', () => {
-    const d1 = { ...emptyDraft(), item: pickedItem, 数量: 3, 使用人: '张三' }
+    const d1 = { ...emptyDraft(), item: pickedItem, 数量: 3, 使用人: '张三', 备注: '贴资产标签' }
     const d2 = emptyDraft() // 未选品目 → 忽略
     const items = draftsToItems([d1, d2])
     expect(items).toEqual([
-      expect.objectContaining({ item: 'item-1', 数量: 3, 使用人: '张三' }),
+      expect.objectContaining({ item: 'item-1', 数量: 3, 使用人: '张三', 备注: '贴资产标签' }),
     ])
+    expect(items[0]).not.toHaveProperty('用途')
+    expect(items[0]).not.toHaveProperty('unit')
   })
 
   it('draftsFromLines 从既有明细行还原编辑草稿', () => {
-    const drafts = draftsFromLines([line(), line({ 行号: 2, 数量: 5, 使用人: '李四' })])
+    const drafts = draftsFromLines([
+      line({ 备注: '贴资产标签' }),
+      line({ 行号: 2, 数量: 5, 使用人: '李四', 备注: '放在库房' }),
+    ])
     expect(drafts).toHaveLength(2)
     expect(drafts[0].item?.asset_code).toBe('NB-001')
     expect(drafts[0].数量).toBe(2)
     expect(drafts[1].使用人).toBe('李四')
+    expect(drafts[0]).toMatchObject({ 备注: '贴资产标签' })
+    expect(drafts[1]).toMatchObject({ 备注: '放在库房' })
+    expect(drafts[0]).not.toHaveProperty('用途')
+  })
+})
+
+describe('领用明细备注', () => {
+  it('编辑器仅保留备注字段且 textarea 高度固定', async () => {
+    const draft: LineDraft = {
+      ...emptyDraft(), item: pickedItem, 数量: 1, 使用人: '张三', department: 'dept-1',
+      备注: '接显示器',
+    }
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [draft], type: 'assign', branchId: 'b-1' },
+      global: { stubs: { ItemPicker: { template: '<div class="picker-stub" />' } } },
+    })
+
+    await wrapper.find('.line-note').setValue('配套电源适配器')
+    await wrapper.find('.line-note').trigger('change')
+
+    expect(draft).toMatchObject({ 备注: '配套电源适配器' })
+    expect(draft).not.toHaveProperty('用途')
+    expect(wrapper.text()).not.toContain('用途')
+    expect(wrapper.find('.item-cell').text()).not.toContain(pickedItem.asset_name)
+    expect(wrapper.find('.line-note').attributes('rows')).toBe('1')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([expect.objectContaining({ 备注: '配套电源适配器' })])
+  })
+
+  it('详情表不显示用途且备注固定单行，不撑高明细行', () => {
+    const wrapper = mount(TransferLinesTable, {
+      props: {
+        type: 'assign',
+        lines: [line({ 使用人: '张三', departmentName: '技术部', 备注: '配套电源适配器'.repeat(8) })],
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('用途')
+    expect(wrapper.text()).toContain('备注')
+    expect(wrapper.find('.line-remark-content').attributes('title')).toBe('配套电源适配器'.repeat(8))
+    expect(wrapper.find('.total-label').attributes('colspan')).toBe('9')
   })
 })
 
@@ -100,6 +148,77 @@ describe('TransferLinesEditor 增删行与校验', () => {
       },
     })
   }
+
+  it('仍可编辑的四类流转单都把当前品目摘要交给选择器', () => {
+    const types = ['purchase', 'assign', 'transfer', 'recovery'] as const
+    for (const type of types) {
+      const drafts = draftsFromLines([line()])
+      const wrapper = mount(TransferLinesEditor, {
+        props: { modelValue: drafts, type },
+        global: { stubs: { ItemPicker: { name: 'ItemPicker', props: ['modelValue', 'selectedItem'], template: '<div />' } } },
+      })
+
+      const picker = wrapper.findComponent({ name: 'ItemPicker' })
+      expect(picker.props('modelValue')).toBe('item-1')
+      expect(picker.props('selectedItem')).toMatchObject({
+        id: 'item-1', asset_code: 'NB-001', asset_name: '笔记本',
+      })
+      wrapper.unmount()
+    }
+  })
+
+  it('更换品目后更新回显摘要，提交仍使用新品目的 UUID', async () => {
+    const draft = draftsFromLines([line()])[0]
+    const nextItem = { ...pickedItem, id: 'item-2', asset_code: 'MS-002', asset_name: '鼠标' }
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [draft], type: 'purchase' },
+      global: {
+        stubs: {
+          ItemPicker: {
+            name: 'ItemPicker', props: ['modelValue', 'selectedItem'], emits: ['change'], template: '<div />',
+          },
+        },
+      },
+    })
+    const picker = wrapper.findComponent({ name: 'ItemPicker' })
+    expect(picker.props('selectedItem')).toEqual(draft.item)
+
+    picker.vm.$emit('change', nextItem)
+    await nextTick()
+
+    expect(picker.props('modelValue')).toBe('item-2')
+    expect(picker.props('selectedItem')).toEqual(nextItem)
+    const emittedDrafts = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as LineDraft[]
+    expect(draftsToItems(emittedDrafts)[0].item).toBe('item-2')
+  })
+
+  it('单位列从所选品目显示并随品目更新，不扩展单据明细载荷', async () => {
+    const itemPickerStub = {
+      emits: ['change'],
+      template: `<div>
+        <button class="pick-tablet" @click="$emit('change', tablet)">选择台装品目</button>
+        <button class="pick-box" @click="$emit('change', boxed)">选择盒装品目</button>
+      </div>`,
+      data: () => ({
+        tablet: pickedItem,
+        boxed: { ...pickedItem, id: 'item-2', asset_code: 'PAPER-001', unit: '盒' },
+      }),
+    }
+    const wrapper = mount(TransferLinesEditor, {
+      props: { modelValue: [], type: 'purchase' },
+      global: { stubs: { ItemPicker: itemPickerStub } },
+    })
+
+    expect(wrapper.find('.lines-header').text()).toContain('单位')
+    expect(wrapper.find('.unit-cell').text()).toBe('—')
+
+    await wrapper.find('.pick-tablet').trigger('click')
+    expect(wrapper.find('.unit-cell').text()).toBe('台')
+    await wrapper.find('.pick-box').trigger('click')
+    expect(wrapper.find('.unit-cell').text()).toBe('盒')
+    expect(draftsToItems(wrapper.emitted('update:modelValue')?.at(-1)?.[0] as LineDraft[])[0])
+      .not.toHaveProperty('unit')
+  })
 
   it('采购行供应商为字典下拉（只准选，选中落名称）', async () => {
     const wrapper = mountEditor()

@@ -6,6 +6,38 @@ from rest_framework.exceptions import ValidationError
 
 from .models import DocumentSequence
 
+
+def lock_categories(category_ids):
+    """Lock and reread categories before validating or writing transfer lines."""
+    from django.db import connections
+    from django.db.utils import DEFAULT_DB_ALIAS
+    from apps.categories.models import Category
+
+    category_ids = set(category_ids)
+    if not category_ids:
+        return {}
+    queryset = Category.objects
+    if connections[DEFAULT_DB_ALIAS].features.has_select_for_no_key_update:
+        queryset = queryset.select_for_update(no_key=True)
+    else:
+        queryset = queryset.select_for_update()
+    categories = {
+        category.pk: category
+        for category in queryset.filter(pk__in=category_ids).order_by('asset_code')
+    }
+    if set(categories) != category_ids:
+        raise ValidationError({'detail': '单据中的品目已不存在，请刷新后重试'})
+    return categories
+
+
+def lock_line_item_categories(items):
+    """Replace serializer-cached Category objects with locked current rows."""
+    categories = lock_categories(entry['item'].pk for entry in items)
+    for entry in items:
+        entry['item'] = categories[entry['item'].pk]
+    return categories
+
+
 DOC_NUMBER_PREFIXES = {
     'purchase': 'CG',
     'assign': 'LY',
@@ -57,6 +89,35 @@ def _pending_occupation_map(instance_ids, exclude_transfer_id=None):
     for link in qs.order_by('line__transfer__created_at'):
         occupancy.setdefault(link.instance_id, (link.line.transfer.单据编号, link.line.transfer.审批状态))
     return occupancy
+
+
+def lock_line_item_instances(items):
+    """Refresh and lock referenced instances in primary-key order inside the caller's transaction."""
+    from apps.assets.models import FixedAsset
+
+    instance_ids = sorted({
+        instance.pk
+        for entry in items
+        for instance in (entry.get('instances') or [])
+    })
+    if not instance_ids:
+        return
+
+    locked = {
+        instance.pk: instance
+        for instance in FixedAsset.objects.select_for_update()
+        .filter(pk__in=instance_ids)
+        .order_by('pk')
+    }
+    missing = [str(instance_id) for instance_id in instance_ids if instance_id not in locked]
+    if missing:
+        raise ValidationError({
+            'detail': f'实例不存在或已被删除：{"、".join(missing)}',
+            'code': 'INSTANCE_INVALID',
+        })
+
+    for entry in items:
+        entry['instances'] = [locked[instance.pk] for instance in (entry.get('instances') or [])]
 
 
 def validate_line_items_instances(action_type, from_branch, to_branch, assign_source, items,
@@ -183,6 +244,6 @@ def _validate_recovery_stock(action_type, from_branch, items, recovery_dest):
 def validate_disposal_fields(dest, method, amount):
     """处置必填校验（建单/编辑统一收口）：dispose→处置方式必填；出售→金额必填。"""
     if dest == 'dispose' and not method:
-        raise ValidationError({'detail': '直接处置必须选择处置方式（出售/报废/捐赠）'})
+        raise ValidationError({'detail': '直接处置必须选择处置方式（出售/报废/捐赠/退租）'})
     if method == '出售' and (amount is None or amount == ''):
         raise ValidationError({'detail': '处置方式为出售时必须填写处置金额'})

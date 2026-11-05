@@ -96,6 +96,7 @@ export interface Region {
   code: string
   manager: string
   status: EntityStatusType
+  canManage?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -106,7 +107,9 @@ export interface Branch {
   name: string
   code: string
   region: string
+  regionName?: string
   team: string
+  teamName?: string
   address: string
   manager?: string
   phone?: string
@@ -233,6 +236,7 @@ export interface Team {
   leaderName?: string
   memberCount?: number
   status: EntityStatusType
+  canManage?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -274,6 +278,7 @@ export interface TransferLine {
   使用人?: string
   department?: string | null
   departmentName?: string
+  备注?: string
   存放位置?: string
   /** 行关联实例（实例管理品目）：内部编号列表，可跳转实例生平 */
   instances?: { id: string; code: string; 前编号?: string }[]
@@ -288,6 +293,7 @@ export interface TransferLineInput {
   金额?: number | null
   使用人?: string
   department?: string | null
+  备注?: string
   存放位置?: string
   instances?: string[]
 }
@@ -312,7 +318,7 @@ export interface TransferDocument {
   回收分类?: string
   回收去向?: 'restock' | 'dispose' | 'recycle_bin'
   领用来源?: 'stock' | 'recycle_bin'
-  处置方式?: '出售' | '报废' | '捐赠' | ''
+  处置方式?: '出售' | '报废' | '捐赠' | '退租' | ''
   处置金额?: number
   出库日期?: string
   经办人?: string
@@ -326,6 +332,8 @@ export interface TransferDocument {
   canOperate?: boolean
   /** 撤回入口显隐（服务端按账号身份判定）：采购单且待审批且当前用户为创建账号 */
   canWithdraw?: boolean
+  /** 草稿/驳回后编辑和提交权限，由服务端按账号、状态和可操作范围计算 */
+  canEditDraft?: boolean
   canInboundReject?: boolean
   调入方驳回原因?: string
   lines: TransferLine[]
@@ -418,7 +426,7 @@ export interface InventoryInstanceItem {
   updatedAt: string
 }
 
-/** 固定资产实例档案（P2 第二刀：品目联字典、供应商/单价/采购日期经出生行派生） */
+/** 固定资产实例档案（品目联字典、供应商/采购日期经出生行派生；不含采购单价） */
 export interface FixedAsset {
   id: string
   内部编号: string
@@ -440,16 +448,55 @@ export interface FixedAsset {
   managementType?: 'quantity' | 'instance' | 'consumable'
   入库日期?: string | null
   供应商?: string
-  单价?: number | string | null
   采购日期?: string | null
   备注?: string
   /** 物品图片 URL（未上传为空） */
   图片?: string | null
+  /** 列表缩略图 URL；存量图片回填前可能为空 */
+  缩略图?: string | null
   createdAt: string
   updatedAt: string
+  /** Backend serializer names retained for endpoints without response key conversion. */
+  item_code?: string
+  item_name?: string
+  item_spec?: string
+  branch_name?: string | null
+  department_name?: string | null
 }
 
-/** 实例生平（出生信息 + 关联全部明细行倒序） */
+export interface FixedAssetTransferTimelineEvent {
+  kind: 'transfer'
+  event_id: string
+  transferId: string
+  单据编号: string
+  actionType: string
+  日期: string
+  时间: string
+  行号: number
+  品目编号: string
+  数量: number
+  使用人: string
+  部门: string
+  本批规格: string
+  审批状态: string
+  transfer_id?: string
+  action_type?: string
+}
+
+export interface FixedAssetAssigneeChangeTimelineEvent extends Partial<Omit<FixedAssetTransferTimelineEvent, 'kind' | 'event_id'>> {
+  kind: 'assignee_change'
+  event_id: string
+  时间: string
+  旧使用人: string
+  新使用人: string
+  旧部门: string
+  新部门: string
+  操作账号: string
+  操作人: string
+  原因?: string
+}
+
+/** 实例生平：采购出生信息、流转行与专用使用人交接事件按时间倒序 */
 export interface FixedAssetTimeline {
   instance: FixedAsset
   birth: {
@@ -457,22 +504,10 @@ export interface FixedAssetTimeline {
     单据编号: string
     日期: string
     供应商: string
-    单价: number | null
     采购日期: string
+    transfer_id?: string
   } | null
-  timeline: {
-    transferId: string
-    单据编号: string
-    actionType: string
-    日期: string
-    行号: number
-    品目编号: string
-    数量: number
-    使用人: string
-    部门: string
-    本批规格: string
-    审批状态: string
-  }[]
+  timeline: (FixedAssetTransferTimelineEvent | FixedAssetAssigneeChangeTimelineEvent)[]
 }
 
 /** 盘点记录 */

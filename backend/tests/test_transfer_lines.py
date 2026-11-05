@@ -252,10 +252,11 @@ class TestDeleteAndUpdateContract:
         doc_id = self._create_and_approve(authenticated_client, branch, item_id)
         resp = authenticated_client.delete(f'{TRANSFER_LIST_URL}{doc_id}')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.data['detail'] == '仅草稿可删除'
         from apps.transfers.models import Transfer
         assert Transfer.objects.filter(pk=doc_id).exists()
 
-    def test_pending_doc_delete_allowed(self, authenticated_client, branch, item_id):
+    def test_pending_doc_delete_rejected(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-08-06',
             '调入分公司': branch.name,
@@ -263,7 +264,10 @@ class TestDeleteAndUpdateContract:
         }
         resp = authenticated_client.post(_action_url('purchase'), payload, format='json')
         delete = authenticated_client.delete(f"{TRANSFER_LIST_URL}{resp.data['id']}")
-        assert delete.status_code == status.HTTP_204_NO_CONTENT
+        assert delete.status_code == status.HTTP_400_BAD_REQUEST
+        assert delete.data['detail'] == '仅草稿可删除'
+        from apps.transfers.models import Transfer
+        assert Transfer.objects.filter(pk=resp.data['id']).exists()
 
     def test_rejected_doc_edit_replaces_items(self, authenticated_client, branch, item_id):
         payload = {
@@ -288,6 +292,61 @@ class TestDeleteAndUpdateContract:
         assert patch.data['品项数'] == 1
         assert patch.data['lines'][0]['数量'] == 5
         assert [line['行号'] for line in patch.data['lines']] == [1]  # 行号重排
+
+    def test_assign_line_metadata_and_preserves_approval_note_on_edit(
+        self, authenticated_client, branch, item_id, department,
+    ):
+        payload = {
+            '调拨日期': '2026-08-07',
+            '调出分公司': branch.name,
+            '调出部门': '旧式单头部门',
+            '用途': '旧式单头用途',
+            '备注': '旧式单头设备备注',
+            'items': [
+                _line(
+                    item_id, 'AST-TEST-001', 1,
+                    使用人='张三', department=str(department.id),
+                    用途='已取消的旧字段', 备注='行级备注',
+                ),
+            ],
+        }
+        created = authenticated_client.post(_action_url('assign'), payload, format='json')
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.data['调出部门'] == ''
+        assert '用途' not in created.data
+        assert '用途' not in created.data['lines'][0]
+        assert created.data['lines'][0]['备注'] == '行级备注'
+        assert created.data['备注'] == ''
+
+        rejected = authenticated_client.post(
+            _action_url('approve', created.data['id']),
+            {'approved': False, 'reason': '请补充备注说明'},
+            format='json',
+        )
+        assert rejected.status_code == status.HTTP_200_OK
+        approval_note = rejected.data['备注']
+
+        edited = authenticated_client.patch(
+            f'{TRANSFER_LIST_URL}{created.data["id"]}',
+            {
+                '调出部门': '不应写回单头',
+                '用途': '不应写回单头',
+                '备注': '',
+                'items': [
+                    _line(
+                        item_id, 'AST-TEST-001', 1,
+                        使用人='张三', department=str(department.id),
+                        用途='仍应忽略', 备注='修正后的行备注',
+                    ),
+                ],
+            },
+            format='json',
+        )
+        assert edited.status_code == status.HTTP_200_OK
+        assert edited.data['调出部门'] == '' and '用途' not in edited.data
+        assert edited.data['备注'] == approval_note
+        assert '用途' not in edited.data['lines'][0]
+        assert edited.data['lines'][0]['备注'] == '修正后的行备注'
 
 
 @pytest.mark.django_db

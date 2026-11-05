@@ -45,7 +45,8 @@ class TestImportAtomicity:
     def test_midway_failure_rolls_back_all(self, manager_user, branch):
         """行2 应用失败（联动后为负）→ 行1 也回滚，无调整单残留。"""
         from conftest import _client_for
-        _grant(manager_user, 'adjust_ledger')
+        _grant(manager_user, 'import_asset_ledger')
+        _grant(manager_user, 'adjust_asset_ledger')
         item_a = _ensure_item('ATOM-1')
         item_b = _ensure_item('ATOM-2')
         # 底数：A 行 5（导入 10，delta +5）；B 行 0（导入 -3 → 联动后为负必炸）
@@ -75,7 +76,8 @@ class TestImportAtomicity:
         from unittest import mock
         from conftest import _client_for
         from apps.assets.views import AssetStockViewSet
-        _grant(manager_user, 'adjust_ledger')
+        _grant(manager_user, 'import_asset_ledger')
+        _grant(manager_user, 'adjust_asset_ledger')
         item = _ensure_item('ATOM-3')
         AssetStock.objects.create(branch=branch, item=item, 在库数量=0)
         client = _client_for(manager_user)
@@ -104,7 +106,8 @@ class TestImportAtomicity:
 
     def test_normal_confirm_applies_all(self, manager_user, branch):
         from conftest import _client_for
-        _grant(manager_user, 'adjust_ledger')
+        _grant(manager_user, 'import_asset_ledger')
+        _grant(manager_user, 'adjust_asset_ledger')
         item_a = _ensure_item('ATOM-4')
         item_b = _ensure_item('ATOM-5')
         client = _client_for(manager_user)
@@ -124,7 +127,8 @@ class TestImportAtomicity:
     def test_reupload_after_confirm_no_double_apply(self, manager_user, branch):
         """同文件二次确认：无状态重解析差量为零 → applied=0 幂等，无二次变动。"""
         from conftest import _client_for
-        _grant(manager_user, 'adjust_ledger')
+        _grant(manager_user, 'import_asset_ledger')
+        _grant(manager_user, 'adjust_asset_ledger')
         item = _ensure_item('ATOM-6')
         client = _client_for(manager_user)
         first = client.post('/api/assets/summary/import', {

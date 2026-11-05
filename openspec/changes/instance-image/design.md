@@ -17,7 +17,7 @@ MEDIA 基础设施全链路就绪：`MEDIA_ROOT/MEDIA_URL`、开发 Vite 代理 
 
 - 实例挂单张物品图片：上传/更换/删除，`manage_instances` 权限
 - 实例表图片列置于序号列前（第一列），缩略图 + 点击放大
-- 上传校验与文件清理与头像口径完全一致
+- 图片类型白名单与文件清理沿用头像口径，实例图片上限单独设为 10MB
 
 **Non-Goals:**
 
@@ -39,7 +39,7 @@ MEDIA 基础设施全链路就绪：`MEDIA_ROOT/MEDIA_URL`、开发 Vite 代理 
 
 ### D3：校验规则抽到 core/upload_validation.py
 
-新增 `validate_image_upload(file)`：Content-Type 白名单 `image/jpeg|png|webp`、≤2MB，违规抛 `UploadValidationError` → 视图转 400。规则与头像端点逐字一致，users 端后续可收编（本次不动 users，控范围）。Content-Type 不看扩展名（浏览器/代理常改写），与既有 Excel 校验「Content-Type 不作为拒绝依据」的注释口径互不冲突——图片校验看的是 DRF 已解析的 file.content_type，非裸 header。
+实例图片接口使用 `validate_image_upload(file, max_size_mb=10)`：Content-Type 白名单 `image/jpeg|png|webp`、≤10MB，违规抛 `UploadValidationError` → 视图转 400。头像与其他图片接口继续使用 2MB 默认上限。Content-Type 不看扩展名（浏览器/代理常改写），与既有 Excel 校验「Content-Type 不作为拒绝依据」的注释口径互不冲突——图片校验看的是 DRF 已解析的 file.content_type，非裸 header。
 
 ### D4：覆盖/删除即清旧文件
 
@@ -58,7 +58,7 @@ MEDIA 基础设施全链路就绪：`MEDIA_ROOT/MEDIA_URL`、开发 Vite 代理 
 
 ## Risks / Trade-offs
 
-- [媒体目录膨胀] → 2MB 上限 + 单图覆盖式（一实例至多一份文件）
+- [媒体目录膨胀] → 10MB 上限 + 单图覆盖式（一实例至多一份文件）
 - [列表序列化引入性能问题] → ImageField URL 序列化纯字符串拼接，无额外查询/IO，无 N+1
 - [覆盖瞬间并发上传互相覆盖] → 与头像同口径，最后写赢；图片无对账属性，可接受
 - [架构测试误伤] → 端点只写 image 列；实现时跑全量 pytest 验证

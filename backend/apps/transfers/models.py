@@ -52,6 +52,7 @@ class Transfer(UUIDModel, TimestampedModel):
         ('出售', '出售'),
         ('报废', '报废'),
         ('捐赠', '捐赠'),
+        ('退租', '退租'),
     ]
 
     单据编号 = models.CharField('单据编号', max_length=32, unique=True, null=True, blank=True, db_index=True)
@@ -205,7 +206,7 @@ class TransferLine(UUIDModel, TimestampedModel):
     行号 = models.IntegerField('行号')
     数量 = models.PositiveIntegerField('数量')
     本批规格 = models.CharField('本批规格（记录性）', max_length=200, blank=True, default='')
-    供应商 = models.CharField('供应商（行级，空=继承单头）', max_length=200, blank=True, default='')
+    供应商 = models.CharField('供应商（行级，空=继承单头）', max_length=200, blank=True, default='', db_index=True)
     单价 = models.DecimalField('单价', max_digits=12, decimal_places=2, null=True, blank=True)
     金额 = models.DecimalField('金额', max_digits=14, decimal_places=2, null=True, blank=True)
     使用人 = models.CharField('使用人（记录性）', max_length=100, blank=True, default='')
@@ -213,6 +214,8 @@ class TransferLine(UUIDModel, TimestampedModel):
         'organizations.Department', on_delete=models.PROTECT, null=True, blank=True,
         related_name='transfer_lines', verbose_name='领用部门',
     )
+    用途 = models.CharField('用途', max_length=200, blank=True, default='')
+    备注 = models.TextField('备注', blank=True, default='')
     存放位置 = models.CharField('存放位置', max_length=200, blank=True, default='')
     # 处置扣列快照（recovery-stock-source）：处置行生效时实际扣减的台账列与数量，
     # 形如 '在用数量:1' / '在用数量:1,在库数量:2'；对账重放与离线回退的唯一事实源

@@ -11,7 +11,7 @@ const PURCHASE_HEADERS = [
 ]
 
 const ASSIGN_HEADERS = [
-  '分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '用途', '备注',
+  '分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '备注',
 ]
 
 const TRANSFER_HEADERS = [
@@ -22,6 +22,10 @@ const TRANSFER_HEADERS = [
 
 const CATEGORY_HEADERS = [
   '资产类目', '物品分类', '资产名称', '资产编号', '计量单位', '警戒线', '备注',
+]
+
+const RECONCILIATION_HEADERS = [
+  '订单号', '序列号', '分公司', '起租日期', '记账日期', '记账天数', '月租金', '本月金额',
 ]
 
 async function buildTemplate(headers: string[], sheetName: string, filename: string) {
@@ -122,4 +126,8 @@ export function generateCategoryTemplate() {
     ['数量管理', '实例管理', '消耗品'],
     '分类导入模板',
   )
+}
+
+export function generateReconciliationTemplate() {
+  return buildTemplate(RECONCILIATION_HEADERS, '租赁订单', '电脑租赁对账订单模板')
 }

@@ -143,31 +143,24 @@ def second_branch(db, second_team):
 
 
 # ---------------------------------------------------------------------------
-# User fixtures — 岗位样本
+# User fixtures — explicit test grants, independent from role
 # ---------------------------------------------------------------------------
-# 注：解耦后权限由 ManagementScope / OperationGrant 决定，不再由 role 推导。
-# 各角色 fixture 按其"旧有效范围"种子授权，与生产数据迁移保持一致：
-#   - admin           → 不种子（走职位兜底）
-#   - manager         → 授权全部已知 region + 原 manager 隐含的操作
-#   - supervisor      → 授权其 region + 原 supervisor 隐含的操作（存量退役岗位回归）
-#   - leader          → 授权其 branch
-#   - staff           → 授权其 branch（存量退役岗位回归：岗位合并后分公司行政=manager，
-#                        保留 staff 样本验证"存量未换岗用户按既有授权正常工作"）
-LEGACY_OPERATIONS = {
-    'manager': [
-        'manage_users', 'manage_dictionary', 'manage_assets',
-        'approve_transfer', 'approve_inventory',
-        'view_all_notifications', 'view_reports',
-    ],
-    'supervisor': [
-        'manage_users', 'manage_dictionary', 'manage_assets',
-        'approve_transfer', 'approve_inventory',
-    ],
+# Manager/supervisor fixtures are fully provisioned integration actors. Each
+# right is stored as an explicit grant so workflow tests exercise authorized
+# requests; tests for default-deny behavior use ungranted accounts instead.
+from apps.permissions.operations import OPERATION_CATALOG
+
+TEST_INTEGRATION_OPERATIONS = {
+    item['code'] for item in OPERATION_CATALOG
+    if item['code'] not in {
+        'view_reconciliation', 'manage_reconciliation',
+        'view_audit_logs', 'view_permission_matrix',
+    }
 }
 
 
-def _grant_legacy_access(user, role, region=None, branch=None, extra_regions=None):
-    """按旧 role 模型为用户种子管理授权（组织节点 + 业务操作）。"""
+def _grant_test_actor_access(user, region=None, branch=None, extra_regions=None):
+    """Give an integration-test actor explicit operations and data scope."""
     from apps.permissions.models import ManagementScope, OperationGrant
     regions = set()
     if region is not None:
@@ -178,7 +171,7 @@ def _grant_legacy_access(user, role, region=None, branch=None, extra_regions=Non
         ManagementScope.objects.get_or_create(user=user, region_id=rid)
     if branch is not None and not regions:
         ManagementScope.objects.get_or_create(user=user, branch=branch)
-    for code in LEGACY_OPERATIONS.get(role, []):
+    for code in TEST_INTEGRATION_OPERATIONS:
         OperationGrant.objects.get_or_create(user=user, code=code)
     return user
 
@@ -197,8 +190,7 @@ def manager_user(db, region, second_region):
         phone='13900000001', name='测试经理', password='test123456',
         role='manager', status='active',
     )
-    # 原 manager 数据范围=全部 → 授权测试中的全部 region
-    return _grant_legacy_access(user, 'manager', extra_regions=[region, second_region])
+    return _grant_test_actor_access(user, extra_regions=[region, second_region])
 
 
 @pytest.fixture
@@ -207,7 +199,7 @@ def supervisor_user(db, region, branch):
         phone='13900000002', name='测试主管', password='test123456',
         role='supervisor', status='active', branch=branch,
     )
-    return _grant_legacy_access(user, 'supervisor', region=region, branch=branch)
+    return _grant_test_actor_access(user, region=region, branch=branch)
 
 
 @pytest.fixture
@@ -216,7 +208,7 @@ def leader_user(db, branch):
         phone='13900000003', name='测试组长', password='test123456',
         role='leader', status='active', branch=branch,
     )
-    return _grant_legacy_access(user, 'leader', branch=branch)
+    return user
 
 
 @pytest.fixture
@@ -225,7 +217,7 @@ def staff_user(db, branch):
         phone='13900000004', name='测试专员', password='test123456',
         role='staff', status='active', branch=branch,
     )
-    return _grant_legacy_access(user, 'staff', branch=branch)
+    return user
 
 
 # Second-region users for data-scoping tests
@@ -236,9 +228,7 @@ def supervisor_b(db, second_region, second_branch):
         phone='13900000005', name='区域B主管', password='test123456',
         role='supervisor', status='active', branch=second_branch,
     )
-    return _grant_legacy_access(
-        user, 'supervisor', region=second_region, branch=second_branch,
-    )
+    return _grant_test_actor_access(user, region=second_region, branch=second_branch)
 
 
 @pytest.fixture
@@ -247,7 +237,7 @@ def staff_b(db, second_branch):
         phone='13900000006', name='区域B专员', password='test123456',
         role='staff', status='active', branch=second_branch,
     )
-    return _grant_legacy_access(user, 'staff', branch=second_branch)
+    return user
 
 
 # ---------------------------------------------------------------------------

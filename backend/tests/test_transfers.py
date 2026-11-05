@@ -151,9 +151,21 @@ class TestAssignFlow:
 
 @pytest.mark.django_db
 class TestReturnFlow:
-    """归还流程"""
+    """Return is absent from user-facing transfer list and detail routes."""
 
-    def test_return_success(self, authenticated_client, branch, item_id):
+    def _historical_return(self, admin_user, branch, approval_status='草稿'):
+        from apps.transfers.models import Transfer
+        return Transfer.objects.create(
+            单据编号=f'RET-HISTORY-{approval_status}',
+            调拨日期='2026-01-17',
+            调入分公司=branch.name,
+            to_branch=branch,
+            action_type=Transfer.ACTION_RETURN,
+            审批状态=approval_status,
+            created_by=admin_user,
+        )
+
+    def test_return_creation_is_retired(self, authenticated_client, branch, item_id):
         payload = {
             '调拨日期': '2026-01-17',
             '调拨原因': '归还测试',
@@ -161,8 +173,46 @@ class TestReturnFlow:
             'items': [{'item': item_id('AST-TEST-001'), '数量': 1}],
         }
         resp = authenticated_client.post(_action_url('return'), payload, format='json')
-        assert resp.status_code == status.HTTP_201_CREATED
-        assert resp.data['action_type'] == 'return'
+        assert resp.status_code == status.HTTP_410_GONE
+        assert '归还功能已停用' in resp.data['detail']
+
+    def test_historical_return_is_not_exposed_through_transfer_api(
+        self, authenticated_client, admin_user, branch,
+    ):
+        transfer = self._historical_return(admin_user, branch)
+
+        listing = authenticated_client.get(TRANSFER_LIST_URL, format='json')
+        resp = authenticated_client.get(f'{TRANSFER_LIST_URL}{transfer.pk}', format='json')
+
+        assert listing.status_code == status.HTTP_200_OK
+        assert all(row['id'] != str(transfer.pk) for row in listing.data['results'])
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.parametrize(
+        ('approval_status', 'method', 'action', 'payload'),
+        [
+            ('待审批', 'post', 'approve', {'approved': True}),
+            ('草稿', 'post', 'submit', {}),
+            ('已驳回', 'post', 'resubmit', {}),
+            ('待审批', 'post', 'withdraw', {}),
+            ('草稿', 'patch', None, {'备注': '不应修改'}),
+            ('草稿', 'delete', None, None),
+        ],
+    )
+    def test_historical_return_mutations_are_disabled(
+        self, authenticated_client, admin_user, branch,
+        approval_status, method, action, payload,
+    ):
+        transfer = self._historical_return(admin_user, branch, approval_status)
+        url = _action_url(action, transfer.pk) if action else f'{TRANSFER_LIST_URL}{transfer.pk}'
+        response = getattr(authenticated_client, method)(url, payload, format='json')
+
+        assert response.status_code in {
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_410_GONE,
+        }
+        transfer.refresh_from_db()
+        assert transfer.审批状态 == approval_status
 
 
 @pytest.mark.django_db
@@ -211,15 +261,24 @@ class TestRepairScrapRemoved:
 class TestApproveFlow:
     """审批流程"""
 
-    def test_approve_denied_without_approve_transfer_grant(self, authenticated_client, admin_user):
-        from apps.permissions.models import OperationGrant
+    def test_approve_denied_without_approve_purchase_grant(self, authenticated_client, admin_user, branch):
+        from apps.permissions.models import OperationGrant, ManagementScope
+        from apps.transfers.models import Transfer
 
         admin_user.role = 'manager'
         admin_user.save(update_fields=['role'])
-        OperationGrant.objects.filter(user=admin_user, code='approve_transfer').delete()
+        ManagementScope.objects.get_or_create(user=admin_user, branch=branch)
+        OperationGrant.objects.filter(user=admin_user, code='approve_purchase').delete()
+        OperationGrant.objects.get_or_create(user=admin_user, code='view_purchase')
+        transfer = Transfer.objects.create(
+            单据编号='AUTHZ-DENY-APPROVE', 调拨日期='2026-01-15',
+            调入分公司=branch.name, to_branch=branch,
+            action_type=Transfer.ACTION_PURCHASE, 审批状态='待审批',
+            created_by=admin_user,
+        )
 
         resp = authenticated_client.post(
-            _action_url('approve', '00000000-0000-0000-0000-000000000000'),
+            _action_url('approve', transfer.pk),
             {'approved': True},
             format='json',
         )
@@ -330,21 +389,26 @@ class TestApproveAssetSync:
         assert row.在库数量 == 4 and row.在用数量 == 1
         row.refresh_from_db()
 
-    def test_return_approve_moves_ledger(self, authenticated_client, branch, item_id):
+    def test_historical_return_remains_in_ledger_replay(self, branch):
+        from apps.transfers.models import Transfer, TransferLine
         from apps.assets.models import AssetStock
         from apps.assets.services import ledger
         from apps.categories.models import Category
         item = Category.objects.get(asset_code='AST-SYNC-001')
         ledger.apply_adjustment(branch, item, ledger.COLUMN_STOCK, 5, '造数')
         ledger.apply_adjustment(branch, item, ledger.COLUMN_IN_USE, 3, '造数')
-        payload = {
-            '调拨日期': '2026-02-02',
-            '调入分公司': branch.name,
-            'items': [{'item': item_id('AST-SYNC-001'), '数量': 2}],
-        }
-        resp = authenticated_client.post(_action_url('return'), payload, format='json')
-        transfer_id = resp.data['id']
-        authenticated_client.post(_action_url('approve', transfer_id), {'approved': True}, format='json')
+        transfer = Transfer.objects.create(
+            单据编号='RET-HIST-LEDGER',
+            调拨日期='2026-02-02',
+            调入分公司=branch.name,
+            to_branch=branch,
+            action_type=Transfer.ACTION_RETURN,
+            审批状态='已通过',
+        )
+        TransferLine.objects.create(transfer=transfer, 行号=1, item=item, 数量=2)
+
+        ledger.apply_document(transfer)
+
         row = AssetStock.objects.get(branch=branch, item=item)
         assert row.在用数量 == 1 and row.在库数量 == 7
 

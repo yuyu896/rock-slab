@@ -45,3 +45,27 @@ class Category(UUIDModel, TimestampedModel):
 
     def __str__(self):
         return f'{self.asset_name} ({self.asset_code})'
+
+
+class ConsumableMigrationRun(UUIDModel, TimestampedModel):
+    """可恢复导出的清单消耗品迁移运行快照。"""
+
+    STATUS_APPLIED = 'applied'
+    STATUS_REPORTED = 'reported'
+    STATUS_CHOICES = [
+        (STATUS_APPLIED, '已执行待导出'),
+        (STATUS_REPORTED, '已生成报告'),
+    ]
+
+    source_filename = models.CharField('输入文件名', max_length=255)
+    source_sha256 = models.CharField('输入文件 SHA-256', max_length=64)
+    asset_codes = models.JSONField('资产编号清单', default=list)
+    snapshot = models.JSONField('迁移影响快照', default=dict)
+    status = models.CharField('运行状态', max_length=20, choices=STATUS_CHOICES, default=STATUS_APPLIED)
+    report_path = models.CharField('报告路径', max_length=500, blank=True, default='')
+
+    class Meta:
+        db_table = 'categories_consumablemigrationrun'
+        ordering = ['-created_at']
+        verbose_name = '消耗品迁移运行'
+        verbose_name_plural = '消耗品迁移运行'

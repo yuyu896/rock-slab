@@ -8,7 +8,7 @@
 
 - FixedAsset 模型新增 `image`（ImageField，`upload_to='fixed_assets/'`，可空）——档案属性，与序列号补录同构，不经流转单（铁律 2 管数量变动，图片不是数量）
 - 新增实例图片端点：`POST /api/assets/fixed-assets/{id}/image`（multipart 上传，覆盖旧图）与 `DELETE .../image`（删除），均要求 `manage_instances` 操作码
-- 上传校验与头像一致：jpeg/png/webp 白名单、≤2MB；更换/删除时清理旧文件防孤儿
+- 上传校验：jpeg/png/webp 白名单、≤10MB；更换/删除时清理旧文件防孤儿
 - 序列化器输出 `图片`（图片 URL，只读）
 - 实例表列布局：**图片列放在序号列后面（第二列）**，缩略图展示、点击放大预览
 - 操作列新增「图片」按钮（`manage_instances` 可见）：弹窗内上传/更换/删除图片

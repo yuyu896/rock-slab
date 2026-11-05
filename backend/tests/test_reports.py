@@ -35,6 +35,11 @@ def _seed(branch, code, stock=0, in_use=0, recycle=0):
     return item
 
 
+def _grant_report_access(user):
+    from apps.permissions.models import OperationGrant
+    OperationGrant.objects.get_or_create(user=user, code='view_reports')
+
+
 def _seed_purchase(branch, code, qty, amount, when, client_user=None):
     from apps.authentication.models import ExpiringToken
     from rest_framework.test import APIClient
@@ -56,6 +61,38 @@ def _seed_purchase(branch, code, qty, amount, when, client_user=None):
 
 @pytest.mark.django_db
 class TestReportOverview:
+    def test_dashboard_grant_opens_only_summary_endpoints(self, branch):
+        from apps.permissions.models import OperationGrant
+        from apps.users.models import User
+
+        user = User.objects.create_user(
+            phone='13920000091', name='工作台查看者', password='test123456',
+            role='manager', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='view_dashboard')
+        client = _client_for(user)
+
+        assert client.get('/api/reports/overview/').status_code == status.HTTP_200_OK
+        assert client.get('/api/reports/by-branch/').status_code == status.HTTP_200_OK
+        assert client.get('/api/reports/by-status/').status_code == status.HTTP_200_OK
+        assert client.get('/api/reports/transfers/').status_code == status.HTTP_403_FORBIDDEN
+        assert client.get('/api/reports/branches/').status_code == status.HTTP_403_FORBIDDEN
+
+    def test_reports_grant_can_read_shared_summary_endpoints(self, branch):
+        from apps.permissions.models import OperationGrant
+        from apps.users.models import User
+
+        user = User.objects.create_user(
+            phone='13920000092', name='缁熻鎶ヨ〃鏌ョ湅鑰?', password='test123456',
+            role='manager', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='view_reports')
+        client = _client_for(user)
+
+        assert client.get('/api/reports/overview/').status_code == status.HTTP_200_OK
+        assert client.get('/api/reports/by-branch/').status_code == status.HTTP_200_OK
+        assert client.get('/api/reports/by-status/').status_code == status.HTTP_200_OK
+
     def test_overview_empty_database(self, authenticated_client):
         resp = authenticated_client.get('/api/reports/overview/')
         assert resp.status_code == 200
@@ -230,8 +267,11 @@ class TestReportDataScoping:
         assert resp.data['totalAssets'] == 12
 
     def test_supervisor_sees_only_own_region(self, supervisor_user, branch, second_branch):
+        from apps.permissions.models import ManagementScope
         _seed(branch, 'RP-D-003', stock=5)
         _seed(second_branch, 'RP-D-004', stock=7)
+        _grant_report_access(supervisor_user)
+        ManagementScope.objects.get_or_create(user=supervisor_user, region=branch.team.region)
         client = _client_for(supervisor_user)
         resp = client.get('/api/reports/overview/')
         assert resp.data['totalAssets'] == 5
@@ -239,13 +279,17 @@ class TestReportDataScoping:
     def test_staff_sees_only_own_branch(self, staff_user, branch, second_branch):
         _seed(branch, 'RP-D-005', stock=4)
         _seed(second_branch, 'RP-D-006', stock=9)
+        _grant_report_access(staff_user)
         client = _client_for(staff_user)
         resp = client.get('/api/reports/overview/')
         assert resp.data['totalAssets'] == 4
 
     def test_supervisor_by_branch_excludes_other_region(self, supervisor_user, branch, second_branch):
+        from apps.permissions.models import ManagementScope
         _seed(branch, 'RP-D-007', stock=3)
         _seed(second_branch, 'RP-D-008', stock=8)
+        _grant_report_access(supervisor_user)
+        ManagementScope.objects.get_or_create(user=supervisor_user, region=branch.team.region)
         client = _client_for(supervisor_user)
         resp = client.get('/api/reports/by-branch/')
         names = {row['name'] for row in resp.data}
@@ -281,6 +325,32 @@ class TestChangesByItem:
         assert row['cols']['领用'] == 3
         assert row['cols']['回收'] == 1
         assert resp.data['columns'] == ['入库', '领用', '归还', '调拨', '回收']
+
+    def test_historical_return_remains_in_changes_report(self, admin_user, branch, item_id):
+        from apps.transfers.models import Transfer, TransferLine
+
+        item_pk = str(_item('RET-REPORT-001').id)
+        transfer = Transfer.objects.create(
+            单据编号='RET-HIST-REPORT',
+            调拨日期='2026-09-10',
+            action_type='return',
+            审批状态='已通过',
+            调出分公司=branch.name,
+            from_branch=branch,
+            to_branch=branch,
+        )
+        TransferLine.objects.create(
+            transfer=transfer,
+            item_id=item_pk,
+            行号=1,
+            数量=2,
+        )
+
+        response = _client_for(admin_user).get('/api/reports/changes-by-item/')
+
+        assert response.status_code == 200
+        row = next(r for r in response.data['results'] if r['code'] == 'RET-REPORT-001')
+        assert row['cols']['归还'] == 2
 
     def test_date_range_filters(self, admin_user, branch, item_id):
         self._seed(branch, item_id('PUR-001'))

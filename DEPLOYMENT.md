@@ -1,6 +1,8 @@
 # 磐盘生产部署文档
 
-磐盘（Rock Slab）资产管理系统生产环境部署与运维文档。最后更新：2026-06-15。
+磐盘（Rock Slab）资产管理系统生产环境部署与运维文档。发布指引最后核对：2026-11-04；基础设施说明核验截至：2026-06-15。
+
+> **发布提示：** 本文的基础设施说明仍以 2026-06-15 为准。每次发布的候选版本、迁移和数据操作清单，以同目录的 `RELEASE_BASELINE.md` 为准。`deploy.sh` 会从 `origin/main` 拉取代码、执行 schema migration 并重启服务，没有 dry-run 模式；它不会自动迁移旧权限、应用岗位基线或调整数据范围。候选尚未合入 `origin/main`、发布基线中的人工核对未完成或生产工作树改动未保全时，不要运行。不要照抄本文旧的手动拉代码/构建步骤，也不要重复执行第 8 节中的一次性台账迁移命令。
 
 ## 1. 概览
 
@@ -67,10 +69,11 @@ rock-slab-backend（磐盘后端 Gunicorn，监听 8002，host 网络）
 ```bash
 cd /root/rock-slab
 
-# ===== 部署（更新代码后）=====
-git pull origin main
-docker compose build backend        # 重建后端镜像（pip 走阿里云镜像）
-docker compose up -d backend        # 重建容器（entrypoint 自动 migrate + collectstatic）
+# ===== 发布（先审阅 RELEASE_BASELINE.md 与当前候选）=====
+# 仅在 RELEASE_BASELINE.md 的发布门槛完成后，于维护窗口执行。
+# deploy.sh 会先备份数据库，再拉取 origin/main、构建后端、执行 schema migration 和检查、构建前端并重启服务；没有 dry-run 模式。
+# 旧权限码迁移、岗位基线应用及数据范围调整需单独审阅和批准，不由此脚本执行。
+# bash deploy.sh
 
 # ===== 日志 =====
 docker logs -f --tail 50 rock-slab-backend   # 后端实时日志
@@ -123,16 +126,6 @@ cd /root/rock-slab/frontend && npm install && npm run build
 - [ ] 每月：`docker system prune` 清理无用镜像（注意别删在用的）
 - [ ] 关注服务器安全组/防火墙，5432/6379/3306 等数据库端口不应对公网开放
 
-## 8. P1 台账契约上线步骤（资产模型 V2，一次性）
+## 8. 历史步骤：P1 台账契约上线（资产模型 V2）
 
-存量迁移不可逆，顺序严格如下：
-
-1. **全量备份**：`docker exec root-db-1 pg_dump -U <user> <db> > backup_$(date +%F).sql`（备份文件留存）
-2. `bash deploy.sh`——结构迁移（字典字段/台账 V2/部门字典/Transfer 新字段）自动执行；deploy 内置对账检查在期初迁移前应零差异（空台账 + 空流水）
-3. `docker compose run --rm backend python manage.py preview_ledger_migration`——人工审清单：未登记编号（须补字典）、分桶统计、无分公司行、部门归一清单
-4. 补录品目字典 / 修正脏数据后重复预览，直至无阻断项
-5. `docker compose run --rm backend python manage.py migrate_initial_ledger --confirm-backup`——Asset 聚合分桶 → 期初调整单 → 台账入账 + 部门归一（命令自带迁移后对账）
-6. `docker compose run --rm backend python manage.py check_ledger_consistency`——最终确认零差异后放行
-7. 回滚预案：恢复第 1 步备份 + 回滚代码（数据迁移向前不可逆，无 down 迁移）
-
-日常：每次 deploy.sh 都会执行对账检查（台账 == 单据流水），非零退出中止部署。
+本节保留作历史记录，不是当前部署流程。`migrate_initial_ledger --confirm-backup` 属于一次性存量数据迁移；不得因常规发版再次执行。当前候选的数据库和独立数据操作以 `RELEASE_BASELINE.md` 为准，日常部署流程以 `deploy.sh` 为准。

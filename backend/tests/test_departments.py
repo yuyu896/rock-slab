@@ -41,16 +41,70 @@ class TestDepartmentAPI:
         resp = client.post('/api/departments/', {'name': '仓库'}, format='json')
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_edit_permission_controls_create_edit_delete_and_requires_view(self, staff_user):
+        from apps.organizations.models import Department
+        from apps.permissions.models import OperationGrant
+
+        department = Department.objects.create(name='权限测试部门')
+        OperationGrant.objects.create(user=staff_user, code='edit_departments')
+        client = self._auth(staff_user)
+
+        assert client.post('/api/departments/', {'name': '新部门'}, format='json').status_code == 403
+        assert client.patch(
+            f'/api/departments/{department.id}', {'name': '改名部门'}, format='json',
+        ).status_code == 403
+        assert client.delete(f'/api/departments/{department.id}').status_code == 403
+
+        OperationGrant.objects.create(user=staff_user, code='view_departments')
+        created = client.post('/api/departments/', {'name': '新部门'}, format='json')
+        assert created.status_code == status.HTTP_201_CREATED
+        assert client.patch(
+            f'/api/departments/{department.id}', {'name': '改名部门'}, format='json',
+        ).status_code == status.HTTP_200_OK
+        assert client.delete(f'/api/departments/{department.id}').status_code == status.HTTP_204_NO_CONTENT
+
     def test_options_returns_full_flat_set(self, staff_user):
         from apps.organizations.models import Department
+        from apps.permissions.models import OperationGrant
         Department.objects.create(name='行政部')
         Department.objects.create(name='市场部')
+        OperationGrant.objects.get_or_create(user=staff_user, code='view_departments')
         client = self._auth(staff_user)
         resp = client.get('/api/departments/options')
         assert resp.status_code == status.HTTP_200_OK
         names = [d['name'] for d in resp.data]
         assert set(names) == {'行政部', '市场部'}
         assert len(names) == 2
+
+    def test_assignee_options_requires_department_and_instance_view(self, staff_user):
+        from apps.organizations.models import Department
+        from apps.permissions.models import OperationGrant
+
+        Department.objects.create(name='行政部')
+        Department.objects.create(name='市场部')
+        client = self._auth(staff_user)
+
+        denied = client.get('/api/departments/assignee-options')
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+
+        OperationGrant.objects.get_or_create(user=staff_user, code='change_instance_assignee')
+        assert client.get('/api/departments/assignee-options').status_code == status.HTTP_403_FORBIDDEN
+
+        OperationGrant.objects.get_or_create(user=staff_user, code='view_departments')
+        assert client.get('/api/departments/assignee-options').status_code == status.HTTP_403_FORBIDDEN
+
+        OperationGrant.objects.get_or_create(user=staff_user, code='view_instances')
+        response = client.get('/api/departments/assignee-options')
+        assert response.status_code == status.HTTP_200_OK
+        assert {tuple(sorted(department.keys())) for department in response.data} == {
+            ('id', 'name'),
+        }
+        assert {department['name'] for department in response.data} == {'行政部', '市场部'}
+
+        full_list = client.get('/api/departments/')
+        standard_options = client.get('/api/departments/options')
+        assert full_list.status_code == status.HTTP_200_OK
+        assert standard_options.status_code == status.HTTP_200_OK
 
 
 @pytest.mark.django_db

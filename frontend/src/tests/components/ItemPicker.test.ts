@@ -47,6 +47,76 @@ describe('ItemPicker 双数据源（写单表单选项收口）', () => {
     expect(state(wrapper).options[0]).toMatchObject({ id: 'c1', asset_code: 'NB-001' })
   })
 
+  it('已有品目在首次渲染时显示编号和名称，不等待远程检索', async () => {
+    const selectedItem = {
+      id: 'c1', asset_code: 'NB-001', asset_name: '笔记本', specification: '14寸', unit: '台',
+    }
+    const wrapper = mount(ItemPicker, {
+      props: { modelValue: 'c1', selectedItem },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('NB-001 笔记本')
+    expect(getCategories).not.toHaveBeenCalled()
+    expect(state(wrapper).options).toEqual([])
+    expect(state(wrapper).selectedItemLabel).toBe('NB-001 笔记本')
+  })
+
+  it('当前品目不在远程候选中或分公司切换时仍保留标签', async () => {
+    const selectedItem = {
+      id: 'existing-item', asset_code: 'OLD-001', asset_name: '既有设备',
+    }
+    const wrapper = mount(ItemPicker, {
+      props: {
+        modelValue: selectedItem.id,
+        selectedItem,
+        branch: '分公司A',
+        stockColumn: '在库数量',
+      },
+    })
+
+    state(wrapper).remoteSearch('设备')
+    await flushPromises()
+    expect(state(wrapper).options).toHaveLength(2)
+    expect(state(wrapper).options.some((item: any) => item.id === selectedItem.id)).toBe(false)
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
+
+    await wrapper.setProps({ branch: '分公司B' })
+    expect(state(wrapper).options).toHaveLength(0)
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
+
+    await wrapper.setProps({ stockColumn: '在用数量' })
+    expect(state(wrapper).options).toHaveLength(0)
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('OLD-001 既有设备')
+  })
+
+  it('更换已选品目后标签更新，选择器仍以 UUID 为值', async () => {
+    const firstItem = { id: 'c1', asset_code: 'NB-001', asset_name: '笔记本' }
+    const nextItem = { id: 'c2', asset_code: 'MS-002', asset_name: '鼠标' }
+    const wrapper = mount(ItemPicker, {
+      props: { modelValue: firstItem.id, selectedItem: firstItem },
+    })
+
+    await wrapper.setProps({ modelValue: nextItem.id, selectedItem: nextItem })
+    await flushPromises()
+
+    expect(wrapper.find('.el-select__placeholder').text()).toContain('MS-002 鼠标')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('选择远程候选仍发出品目 UUID 和完整品目摘要', async () => {
+    const wrapper = mount(ItemPicker, { props: { modelValue: '' } })
+    state(wrapper).remoteSearch('笔')
+    await flushPromises()
+
+    const select = wrapper.findComponent({ name: 'ElSelect' })
+    select.vm.$emit('update:modelValue', 'c1')
+    select.vm.$emit('change', 'c1')
+
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['c1'])
+    expect(wrapper.emitted('change')?.[0]).toEqual([state(wrapper).options[0]])
+  })
+
   it('有 stockColumn 走台账检索并携带可用数量', async () => {
     const wrapper = mount(ItemPicker, {
       props: { modelValue: '', branch: '分公司A', stockColumn: '在库数量' },
@@ -70,6 +140,23 @@ describe('ItemPicker 双数据源（写单表单选项收口）', () => {
     await flushPromises()
     expect(getAssetStocks).not.toHaveBeenCalled()
     expect(getCategories).not.toHaveBeenCalled()
+  })
+
+  it('缺少实例档案查看权时隐藏实例管理品目', async () => {
+    vi.mocked(getAssetStocks).mockResolvedValueOnce({
+      data: { results: [{
+        item: 'instance-item', 资产编号: 'INST-1', 资产名称: '笔记本', 管理方式: 'instance',
+        在库数量: 1, 在用数量: 0, 回收库数量: 0,
+      }] },
+    } as any)
+    const wrapper = mount(ItemPicker, {
+      props: { modelValue: '', branch: '分公司A', stockColumn: '在库数量', excludeInstance: true },
+    })
+
+    await state(wrapper).remoteSearch('INST-1')
+    await flushPromises()
+
+    expect(state(wrapper).options).toEqual([])
   })
 
   it('excludeConsumable 剔除消耗品行（回收库来源）', async () => {

@@ -1,114 +1,92 @@
-"""数据迁移测试：旧 role → 管理授权种子是否保留既有能力。"""
+"""The retired role-based seed migration must be a safe no-op."""
 import pytest
 from django.test import TransactionTestCase
-from apps.permissions.legacy_seed import (
-    SUPERVISOR_OPERATIONS,
-    MANAGER_OPERATIONS,
-    seed_legacy_grants,
-)
+
+from apps.permissions.legacy_seed import seed_legacy_grants, reverse_legacy_grants
 from apps.permissions.models import ManagementScope, OperationGrant
 
 
-def test_role_operation_constants():
-    """操作码常量与设计一致。"""
-    assert 'manage_users' in SUPERVISOR_OPERATIONS
-    assert 'approve_transfer' in SUPERVISOR_OPERATIONS
-    assert set(SUPERVISOR_OPERATIONS).issubset(set(MANAGER_OPERATIONS))
-    assert 'view_all_notifications' in MANAGER_OPERATIONS
-
-
 @pytest.mark.django_db
-def test_migration_seeds_supervisor_branch_grant_only(branch):
-    """当前模型（无 region 列）：supervisor 仅挂分公司时种子逻辑无可推导区域，不授区域授权。"""
+def test_legacy_seed_hooks_do_not_infer_or_remove_authorizations(branch):
     from apps.users.models import User
 
     user = User.objects.create_user(
-        phone='13700000001', name='主管', password='test123456',
-        role='supervisor', branch=branch,
+        phone='13700000001', name='普通账号', password='test123456',
+        role='manager', branch=branch,
     )
-    ManagementScope.objects.filter(user=user).delete()
-    OperationGrant.objects.filter(user=user).delete()
+    grant = OperationGrant.objects.create(user=user, code='manage_assets')
+    scope = ManagementScope.objects.create(user=user, branch=branch)
+    ungranted = User.objects.create_user(
+        phone='13700000002', name='零授权账号', password='test123456',
+        role='leader', branch=branch,
+    )
 
     seed_legacy_grants()
+    reverse_legacy_grants()
 
-    # region 列已删，历史种子路径（region→区域授权）只能在迁移历史模型语境中触发
-    assert not ManagementScope.objects.filter(user=user).exists()
-    assert not OperationGrant.objects.filter(user=user).exists()
+    assert OperationGrant.objects.filter(pk=grant.pk, user=user).exists()
+    assert ManagementScope.objects.filter(pk=scope.pk, user=user).exists()
+    assert not OperationGrant.objects.filter(user=ungranted).exists()
+    assert not ManagementScope.objects.filter(user=ungranted).exists()
 
 
 class TestHistoricalSeedMigration(TransactionTestCase):
-    """permissions.0002 历史迁移：supervisor 的 region 授权在真实迁移语境中种子。"""
+    """0002 neither grants by role nor deletes explicit records on reverse."""
 
-    def test_supervisor_region_grant_seeded_via_migration(self):
+    def test_migration_is_noop_and_reverse_preserves_existing_records(self):
         from django.db import connection
         from django.db.migrations.executor import MigrationExecutor
 
+        before_0002 = [
+            ('users', '0005_alter_user_role'),
+            ('organizations', '0006_company'),
+            ('permissions', '0001_initial'),
+        ]
+        target_0002 = [
+            ('permissions', '0002_seed_grants_from_legacy_role'),
+        ]
         executor = MigrationExecutor(connection)
-        # 回退到种子迁移之前的历史状态（User 尚有 region 列）
-        executor.migrate([
-            ('users', '0005_alter_user_role'),
-            ('organizations', '0006_company'),
-            ('permissions', '0001_initial'),
-        ])
-        old_state = executor.loader.project_state([
-            ('users', '0005_alter_user_role'),
-            ('organizations', '0006_company'),
-            ('permissions', '0001_initial'),
-        ])
+        executor.migrate(before_0002)
+        old_state = MigrationExecutor(connection).loader.project_state(before_0002)
         OldUser = old_state.apps.get_model('users', 'User')
         OldRegion = old_state.apps.get_model('organizations', 'Region')
-        OldTeam = old_state.apps.get_model('organizations', 'Team')
         OldBranch = old_state.apps.get_model('organizations', 'Branch')
+        OldScope = old_state.apps.get_model('permissions', 'ManagementScope')
+        OldGrant = old_state.apps.get_model('permissions', 'OperationGrant')
 
-        region = OldRegion.objects.create(name='种子区域', code='SEED1', status='active')
-        branch = OldBranch.objects.create(name='种子分公司', code='SD001', region=region, status='active')
-        user = OldUser.objects.create(
-            phone='13700000001', name='主管', password='x',
+        region = OldRegion.objects.create(name='迁移测试区域', code='SEED1', status='active')
+        branch = OldBranch.objects.create(
+            name='迁移测试分公司', code='SD001', region=region, status='active',
+        )
+        existing_user = OldUser.objects.create(
+            phone='13700000001', name='已有授权', password='x',
+            role='manager', status='active', region=region, branch=branch,
+        )
+        no_grant_user = OldUser.objects.create(
+            phone='13700000002', name='无授权账号', password='x',
             role='supervisor', status='active', region=region, branch=branch,
         )
+        existing_scope = OldScope.objects.create(user=existing_user, region=region)
+        existing_grant = OldGrant.objects.create(user=existing_user, code='manage_assets')
+
         try:
-            # loader 缓存 applied 状态，正向用新 executor
-            forward = MigrationExecutor(connection)
-            forward.migrate([('permissions', '0002_seed_grants_from_legacy_role')])
+            MigrationExecutor(connection).migrate(target_0002)
+            migrated_state = MigrationExecutor(connection).loader.project_state(target_0002)
+            MigratedScope = migrated_state.apps.get_model('permissions', 'ManagementScope')
+            MigratedGrant = migrated_state.apps.get_model('permissions', 'OperationGrant')
 
-            assert ManagementScope.objects.filter(user_id=user.id, region_id=region.id).exists()
-            codes = set(OperationGrant.objects.filter(user_id=user.id).values_list('code', flat=True))
-            assert set(SUPERVISOR_OPERATIONS).issubset(codes)
+            assert MigratedScope.objects.filter(pk=existing_scope.pk).exists()
+            assert MigratedGrant.objects.filter(pk=existing_grant.pk).exists()
+            assert not MigratedScope.objects.filter(user_id=no_grant_user.pk).exists()
+            assert not MigratedGrant.objects.filter(user_id=no_grant_user.pk).exists()
+
+            MigrationExecutor(connection).migrate([('permissions', '0001_initial')])
+            reversed_state = MigrationExecutor(connection).loader.project_state(before_0002)
+            ReversedScope = reversed_state.apps.get_model('permissions', 'ManagementScope')
+            ReversedGrant = reversed_state.apps.get_model('permissions', 'OperationGrant')
+            assert ReversedScope.objects.filter(pk=existing_scope.pk).exists()
+            assert ReversedGrant.objects.filter(pk=existing_grant.pk).exists()
         finally:
-            restore = MigrationExecutor(connection)
-            restore.migrate(restore.loader.graph.leaf_nodes())
-
-
-@pytest.mark.django_db
-def test_migration_seeds_leader_staff_branch_grant(branch):
-    """leader/staff 迁移后获得其 branch 授权（无操作码）。"""
-    from apps.users.models import User
-
-    leader = User.objects.create_user(
-        phone='13700000002', name='组长', password='test123456',
-        role='leader', branch=branch,
-    )
-    staff = User.objects.create_user(
-        phone='13700000003', name='专员', password='test123456',
-        role='staff', branch=branch,
-    )
-    seed_legacy_grants()
-
-    assert ManagementScope.objects.filter(user=leader, branch=branch).exists()
-    assert ManagementScope.objects.filter(user=staff, branch=branch).exists()
-    assert not OperationGrant.objects.filter(user=leader).exists()
-    assert not OperationGrant.objects.filter(user=staff).exists()
-
-
-@pytest.mark.django_db
-def test_migration_skips_admin():
-    """admin 不被种子任何授权。"""
-    from apps.users.models import User
-
-    admin = User.objects.create_user(
-        phone='13700000000', name='管理员', password='test123456', role='admin',
-    )
-    seed_legacy_grants()
-
-    assert not ManagementScope.objects.filter(user=admin).exists()
-    assert not OperationGrant.objects.filter(user=admin).exists()
+            MigrationExecutor(connection).migrate(
+                MigrationExecutor(connection).loader.graph.leaf_nodes()
+            )

@@ -10,11 +10,57 @@ class TestBranchScopeWrite:
     def test_scoped_user_gets_only_authorized_branches(
         self, supervisor_user, branch, second_branch,
     ):
+        from apps.permissions.models import OperationGrant
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='edit_purchase')
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='view_purchase')
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='view_categories')
         client = _client_for(supervisor_user)
         resp = client.get('/api/branches/', {'scope': 'write'})
+        assert resp.status_code == 200
         names = [b['name'] for b in resp.data]
         assert names == [branch.name]
         assert second_branch.name not in names
+        assert set(resp.data[0]) == {'id', 'name'}
+
+    def test_purchase_editor_can_read_scoped_minimal_options_without_org_view(
+        self, db, branch, second_branch,
+    ):
+        from django.contrib.auth import get_user_model
+        from apps.permissions.models import OperationGrant
+
+        user = get_user_model().objects.create_user(
+            phone='13900000098', name='仅采购创建权限', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='edit_purchase')
+        OperationGrant.objects.create(user=user, code='view_purchase')
+        OperationGrant.objects.create(user=user, code='view_categories')
+
+        response = _client_for(user).get('/api/branches/', {'scope': 'write'})
+
+        assert response.status_code == 200
+        assert response.data == [{'id': str(branch.id), 'name': branch.name}]
+        assert second_branch.name not in [row['name'] for row in response.data]
+
+    def test_org_view_permission_alone_cannot_read_write_options(
+        self, db, branch,
+    ):
+        from django.contrib.auth import get_user_model
+        from apps.permissions.models import OperationGrant
+
+        user = get_user_model().objects.create_user(
+            phone='13900000097', name='只有组织查看权限', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='view_organizations')
+
+        response = _client_for(user).get('/api/branches/', {'scope': 'write'})
+
+        assert response.status_code == 403
+        # 普通组织页面仍由独立的查看分公司权限控制。
+        normal_list = _client_for(user).get('/api/branches/')
+        assert normal_list.status_code == 200
+        assert [row['name'] for row in normal_list.data] == [branch.name]
 
     def test_admin_gets_all_with_scope_write(self, admin_user, branch, second_branch):
         client = _client_for(admin_user)
@@ -22,19 +68,27 @@ class TestBranchScopeWrite:
         assert {b['name'] for b in resp.data} == {branch.name, second_branch.name}
 
     def test_no_scope_param_returns_all(self, supervisor_user, branch, second_branch):
+        from apps.permissions.models import ManagementScope, OperationGrant
+        OperationGrant.objects.get_or_create(user=supervisor_user, code='view_organizations')
+        ManagementScope.objects.get_or_create(user=supervisor_user, is_all_data=True)
         client = _client_for(supervisor_user)
         resp = client.get('/api/branches/')
         assert {b['name'] for b in resp.data} == {branch.name, second_branch.name}
 
-    def test_unauthorized_user_gets_empty_list(self, db, branch, second_branch):
+    def test_create_permission_with_empty_scope_gets_empty_list(self, db, branch, second_branch):
         from django.contrib.auth import get_user_model
+        from apps.permissions.models import OperationGrant
         User = get_user_model()
         user = User.objects.create_user(
             phone='13900000099', name='无授权用户', password='test123456',
-            role='staff', status='active',
+            role='manager', status='active',
         )
+        OperationGrant.objects.create(user=user, code='edit_purchase')
+        OperationGrant.objects.create(user=user, code='view_purchase')
+        OperationGrant.objects.create(user=user, code='view_categories')
         client = _client_for(user)
         resp = client.get('/api/branches/', {'scope': 'write'})
+        assert resp.status_code == 200
         assert resp.data == []
 
     def test_branch_scope_write_unauthenticated_rejected(self, db, branch):

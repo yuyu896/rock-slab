@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { transferAsset } from '@/api/transfers'
+import { useRoute, useRouter } from 'vue-router'
+import { getTransfer, resubmitTransfer, submitTransfer, transferAsset, updateTransfer } from '@/api/transfers'
 import { lookupCategoryByCode } from '@/api/categories'
-import { getCategories } from '@/api/categories'
+import { lookupAvailableTransferItem } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { useUserStore } from '@/store/user'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import type { Category, Branch } from '@/types'
+import type { Branch } from '@/types'
+import { canManageTransfer } from '@/utils/permissionGroups'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 
 const form = ref({
@@ -24,12 +26,20 @@ const form = ref({
   备注: '',
 })
 
-const categories = ref<Category[]>([])
-/** 调出=授权范围（扣数方收口）；调入=全量（单边化设计，调入方不要求授权） */
+/** 表单中的调出、调入选项都限于当前账号的数据范围。 */
 const fromBranches = ref<Branch[]>([])
 const toBranches = ref<Branch[]>([])
 const loading = ref(false)
 const submitting = ref(false)
+const editingId = ref<string | null>(null)
+const editingStatus = ref<'草稿' | '已驳回' | null>(null)
+const requestedEditId = typeof route.query.id === 'string' ? route.query.id : ''
+const canCreate = computed(() => canManageTransfer('transfer', code => userStore.can(code)))
+const canSaveDraft = computed(() => requestedEditId
+  ? Boolean(editingId.value) && canManageTransfer('transfer', code => userStore.can(code))
+  : canCreate.value)
+const canSubmitDocument = computed(() => canManageTransfer('transfer', code => userStore.can(code))
+  && (requestedEditId ? Boolean(editingId.value) : canCreate.value))
 
 // 当前用户所属分公司
 const currentBranch = computed(() => userStore.profile?.branch || '')
@@ -37,16 +47,12 @@ const currentBranch = computed(() => userStore.profile?.branch || '')
 async function fetchOptions() {
   loading.value = true
   try {
-    const [catRes, scopedRes, allRes] = await Promise.all([
-      getCategories().catch(() => ({ data: [] as Category[] })),
-      getBranches({ scope: 'write' }).catch(() => ({ data: [] as Branch[] })),
-      getBranches().catch(() => ({ data: [] as Branch[] })),
-    ])
-    categories.value = Array.isArray(catRes.data) ? catRes.data : (catRes.data as any).results || []
-    fromBranches.value = Array.isArray(scopedRes.data) ? scopedRes.data : (scopedRes.data as any).results || []
-    toBranches.value = Array.isArray(allRes.data) ? allRes.data : (allRes.data as any).results || []
+    const branchRes = await getBranches({ scope: 'write' }).catch(() => ({ data: [] as Branch[] }))
+    const branches = Array.isArray(branchRes.data) ? branchRes.data : (branchRes.data as any).results || []
+    fromBranches.value = branches
+    toBranches.value = branches
     // 默认调出分公司为当前用户所属分公司
-    if (currentBranch.value) {
+    if (currentBranch.value && !requestedEditId) {
       form.value.fromBranch = currentBranch.value
     }
   } catch {
@@ -56,7 +62,42 @@ async function fetchOptions() {
   }
 }
 
-async function handleSubmit() {
+async function loadExisting() {
+  const id = requestedEditId
+  if (!id) return
+  try {
+    const { data } = await getTransfer(id)
+    if (!data.canEditDraft || !['草稿', '已驳回'].includes(data.审批状态)) {
+      ElMessage.warning('当前账号无权编辑此单据，或单据状态已变化')
+      return
+    }
+    const line = data.lines?.[0]
+    editingId.value = id
+    editingStatus.value = data.审批状态 as '草稿' | '已驳回'
+    form.value = {
+      调拨日期: data.调拨日期 || '',
+      资产编号: line?.itemCode || '',
+      资产名称: line?.itemName || '',
+      fromBranch: data.from_branch || data.调出分公司 || '',
+      toBranch: data.to_branch || data.调入分公司 || '',
+      调拨数量: line?.数量 || 1,
+      调拨原因: data.调拨原因 || '',
+      备注: data.备注 || '',
+    }
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  }
+}
+
+async function handleSubmit(asDraft = false) {
+  if (requestedEditId && editingId.value !== requestedEditId) {
+    ElMessage.warning('单据未能加载或无权编辑，未执行提交')
+    return
+  }
+  if (asDraft && editingStatus.value === '已驳回') {
+    ElMessage.warning('已驳回单据需要修改后重新提交')
+    return
+  }
   if (!form.value.资产编号.trim()) {
     ElMessage.warning('请输入资产编号')
     return
@@ -73,16 +114,29 @@ async function handleSubmit() {
   submitting.value = true
   try {
     // 编号 → 字典品目 uuid（明细行品目引用一律 FK）
-    const { data: item } = await lookupCategoryByCode(form.value.资产编号.trim())
-    await transferAsset({
+    const branchName = fromBranches.value.find(
+      branch => branch.id === form.value.fromBranch || branch.name === form.value.fromBranch,
+    )?.name || ''
+    const itemId = editingId.value
+      ? (await lookupCategoryByCode(form.value.资产编号.trim())).data.id
+      : await lookupAvailableTransferItem(branchName, form.value.资产编号.trim())
+    const payload = {
       调拨日期: form.value.调拨日期 || new Date().toISOString().slice(0, 10),
       fromBranch: form.value.fromBranch || undefined,
       toBranch: form.value.toBranch || undefined,
       调拨原因: form.value.调拨原因,
       备注: form.value.备注,
-      items: [{ item: item.id, 数量: form.value.调拨数量 }],
-    })
-    ElMessage.success('调拨申请已提交')
+      items: [{ item: itemId, 数量: form.value.调拨数量 }],
+    }
+    if (editingId.value) {
+      await updateTransfer(editingId.value, payload)
+      if (!asDraft) {
+        await (editingStatus.value === '已驳回' ? resubmitTransfer(editingId.value) : submitTransfer(editingId.value))
+      }
+    } else {
+      await transferAsset({ ...payload, draft: asDraft || undefined })
+    }
+    ElMessage.success(asDraft && editingStatus.value !== '已驳回' ? '已保存为草稿' : editingStatus.value === '已驳回' ? '已修改并重新提交' : '调拨申请已提交')
     router.back()
   } catch (error) {
     ElMessage.error(handleApiError(error))
@@ -97,6 +151,7 @@ function goBack() {
 
 onMounted(() => {
   fetchOptions()
+  loadExisting()
 })
 </script>
 
@@ -109,7 +164,7 @@ onMounted(() => {
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <h1>提交调拨</h1>
+      <h1>{{ editingId ? '编辑调拨' : '提交调拨' }}</h1>
       <span class="header-spacer"></span>
     </div>
 
@@ -187,9 +242,12 @@ onMounted(() => {
 
     <!-- 提交按钮 -->
     <div class="submit-section">
-      <button class="submit-btn" @click="handleSubmit" :disabled="submitting">
-        {{ submitting ? '提交中...' : '提交调拨' }}
-      </button>
+      <div class="submit-actions">
+        <button v-if="canSaveDraft" class="draft-btn" @click="handleSubmit(true)" :disabled="submitting || editingStatus === '已驳回'">保存草稿</button>
+        <button v-if="canSubmitDocument" class="submit-btn" @click="handleSubmit(false)" :disabled="submitting">
+          {{ submitting ? '提交中...' : editingStatus === '已驳回' ? '保存并重新提交' : '提交调拨' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -215,4 +273,8 @@ onMounted(() => {
 .submit-section { position: fixed; bottom: 0; left: 0; right: 0; padding: var(--space-4); background: var(--color-bg-card); border-top: 1px solid var(--color-border); max-width: 480px; margin: 0 auto; }
 .submit-btn { width: 100%; height: 48px; border: none; border-radius: 12px; background: var(--color-primary-500); color: white; font-size: 16px; font-weight: 500; cursor: pointer; }
 .submit-btn:disabled { opacity: 0.5; }
+.submit-actions { display: flex; gap: var(--space-3); }
+.draft-btn { flex: 1; height: 48px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg-card); color: var(--color-text-primary); font-size: 15px; cursor: pointer; }
+.submit-btn { flex: 1; }
+.draft-btn:disabled { opacity: .5; }
 </style>

@@ -2,8 +2,8 @@
 import request from '@/utils/request'
 import type { Region } from '@/types'
 
-export function getRegions() {
-  return request.get<Region[]>('/api/regions/')
+export function getRegions(params?: { scope?: 'tree' }) {
+  return request.get<Region[]>('/api/regions/', { params })
 }
 
 export function getRegion(id: string) {

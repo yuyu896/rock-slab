@@ -17,14 +17,26 @@ const userPhone = computed(() => userStore.profile?.phone || '')
 const userRole = computed(() => userStore.profile?.role || '')
 const roleLabel = (role: string) => ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role
 
-const menuItems = [
-  { key: 'my-assets', label: '我的资产', icon: 'box', path: '/mobile/my-assets' },
-  { key: 'my-transfers', label: '我的申请', icon: 'transfer', path: '/mobile/my-transfers' },
-  { key: 'notifications', label: '消息通知', icon: 'bell', badge: true, path: '/mobile/notifications' },
+const menuItems = computed(() => [
+  ...(userStore.canAccessPage('mobile_assets')
+    ? [{ key: 'assets', label: '资产查询', icon: 'box', path: '/mobile/assets' }]
+    : []),
+  ...(userStore.canAccessPage('mobile_my_documents')
+    ? [{ key: 'my-transfers', label: '我的申请', icon: 'transfer', path: '/mobile/my-transfers' }]
+    : []),
+  ...(userStore.canAccessPage('mobile_approvals')
+    ? [{ key: 'approval', label: '审批中心', icon: 'check', path: '/mobile/approval' }]
+    : []),
+  ...(userStore.canAccessPage('mobile_inventory')
+    ? [{ key: 'inventory', label: '盘点任务', icon: 'box', path: '/mobile/inventory' }]
+    : []),
+  ...(userStore.canAccessPage('mobile_notifications')
+    ? [{ key: 'notifications', label: userStore.can('view_notifications') ? '消息通知' : '审批报告', icon: 'bell', badge: true, path: '/mobile/notifications' }]
+    : []),
   { key: 'settings', label: '系统设置', icon: 'settings', path: '/mobile/settings' },
   { key: 'help', label: '帮助与反馈', icon: 'help', path: '/mobile/help' },
   { key: 'about', label: '关于我们', icon: 'info', path: '/mobile/about' },
-]
+])
 
 // 修改密码
 const passwordDialogVisible = ref(false)
@@ -103,13 +115,14 @@ async function handleLogout() {
 
 // 获取未读通知数量
 onMounted(() => {
-  notificationStore.fetchUnreadCount()
+  if (userStore.can('view_notifications')) notificationStore.fetchUnreadCount()
 })
 
 function getIcon(name: string): string {
   const icons: Record<string, string> = {
     box: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0-1 1.73v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>`,
     transfer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+    check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>`,
     bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
     settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-.33-1.82l.06-.06a2 2 0 1 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33z"/></svg>`,
     help: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg>`,

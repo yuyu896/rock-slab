@@ -1,8 +1,16 @@
+import os
+import uuid
+
 from django.db import models
 from django.core.validators import RegexValidator
 from core.models import UUIDModel, TimestampedModel
 
 BRANCH_CODE_REGEX = r'^[A-Z]{2,4}[0-9]{3}$'
+
+
+def company_wechat_qr_upload_path(_instance, filename):
+    extension = os.path.splitext(filename)[1].lower()
+    return f'company/contact/wechat-{uuid.uuid4().hex}{extension}'
 
 
 class Region(UUIDModel, TimestampedModel):
@@ -98,6 +106,9 @@ class Team(UUIDModel, TimestampedModel):
 class Company(UUIDModel, TimestampedModel):
     """集团（系统单例，顶层组织名）"""
     name = models.CharField('集团名称', max_length=100, default='启航集团')
+    wechat_qr_code = models.ImageField(
+        '联系微信二维码', upload_to=company_wechat_qr_upload_path, null=True, blank=True,
+    )
 
     class Meta:
         db_table = 'organizations_company'

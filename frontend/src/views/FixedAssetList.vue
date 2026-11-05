@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getFixedAssets, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, batchUpdateFixedAssets, supplementFixedAsset } from '@/api/assets'
+import { getFixedAssets, getFixedAssetAssigneeTargets, getFixedAssetEditTargets, exportFixedAssets, getFixedAssetTimeline, uploadFixedAssetImage, deleteFixedAssetImage, changeFixedAssetAssignee, batchUpdateFixedAssets, supplementFixedAsset } from '@/api/assets'
 import type { FixedAsset, FixedAssetTimeline } from '@/types'
 import { getBranches } from '@/api/branches'
-import { getSuppliers, type Supplier } from '@/api/suppliers'
+import { getInstanceSupplierOptions, type Supplier } from '@/api/suppliers'
+import { getAssigneeDepartmentOptions, type Department } from '@/api/departments'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePermission } from '@/hooks/usePermission'
@@ -15,9 +16,14 @@ import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AssetPrintDialog from './assets/AssetPrintDialog.vue'
 import { INSTANCE_STATUS_OPTIONS } from '@/constants'
+import { compressFixedAssetImage } from '@/utils/compressFixedAssetImage'
 
 const { can } = usePermission()
-const canSupplement = computed(() => can('manage_instances'))
+const canChangeAssignee = computed(() => can('change_instance_assignee'))
+const canViewInstances = computed(() => can('view_instances'))
+const canSupplement = computed(() => can('edit_instances'))
+const canPrintInstanceLabel = computed(() => canViewInstances.value && can('print_instance_label'))
+const canOpenBatchActions = computed(() => canViewInstances.value && (canSupplement.value || canPrintInstanceLabel.value))
 const route = useRoute()
 
 const filters = ref({
@@ -37,8 +43,8 @@ const supplierOptions = ref<Supplier[]>([])
 
 async function fetchSuppliers() {
   try {
-    const { data } = await getSuppliers({ pageSize: 100 })
-    supplierOptions.value = data.results
+    const { data } = await getInstanceSupplierOptions()
+    supplierOptions.value = data
   } catch {
     supplierOptions.value = []
   }
@@ -72,16 +78,39 @@ async function handleExport() {
   }
 }
 
-// ── 行编辑（归一弹窗：序列号/备注/规格/供应商/图片，manage_instances） ──
+// ── 行编辑（档案维护与使用人交接共用保存入口） ──
 const editing = ref<FixedAsset | null>(null)
 const editForm = ref<{ 序列号: string; 备注: string; 规格: string; 供应商: string; 采购日期: string | null }>({ 序列号: '', 备注: '', 规格: '', 供应商: '', 采购日期: null })
 const editSaving = ref(false)
+const assigneeForm = ref({ 使用人: '', department: '', 原因: '' })
+const assigneeDepartments = ref<Department[]>([])
+const assigneeDepartmentsLoading = ref(false)
+const assigneeDirty = computed(() => {
+  const asset = editing.value
+  if (!canChangeAssignee.value || !asset || asset.当前状态 !== '在用') return false
+  return assigneeForm.value.使用人.trim() !== (asset.使用人 || '').trim()
+    || assigneeForm.value.department !== (asset.department || '')
+})
 const editVisibleProxy = computed({
   get: () => editing.value !== null,
-  set: (v: boolean) => { if (!v) editing.value = null },
+  set: (v: boolean) => { if (!v) closeEditDialog() },
 })
 
+function closeEditDialog() {
+  editing.value = null
+  clearTimeline()
+}
+
+async function refreshEditedAsset(assetId: string) {
+  await fetchAssets()
+  const latest = assets.value.find((item) => item.id === assetId)
+  if (latest && editing.value?.id === assetId) {
+    editing.value = { ...editing.value, ...latest }
+  }
+}
+
 function openEdit(asset: FixedAsset) {
+  clearTimeline()
   editing.value = asset
   editForm.value = {
     序列号: asset.序列号 || '',
@@ -90,42 +119,121 @@ function openEdit(asset: FixedAsset) {
     供应商: asset.供应商 || '',
     采购日期: asset.采购日期 || null,
   }
-  openTimeline(asset)  // 右栏生平并行拉取（不阻塞左栏编辑）
+  assigneeForm.value = {
+    使用人: asset.使用人 || '',
+    department: asset.department || '',
+    原因: '',
+  }
+  assigneeDepartments.value = []
+  if (canChangeAssignee.value && asset.当前状态 === '在用') void fetchAssigneeDepartments()
+  if (canViewInstances.value) void openTimeline(asset)
 }
 
 async function handleEditSave() {
-  if (!editing.value) return
-  editSaving.value = true
-  try {
-    // 序列号/备注走补录接口（serial-uniqueness UI 收口）：支持清空（空=回到待补录）
-    // 与同分公司查重；batch_update 的 空=不改 语义无法清空序列号
-    await supplementFixedAsset(editing.value.id, {
-      序列号: editForm.value.序列号,
-      备注: editForm.value.备注,
-    })
-    const hadDate = !!editing.value.采购日期  // 原有个体日期：清空即清除覆盖
-    const { data } = await batchUpdateFixedAssets({
-      ids: [editing.value.id],
-      规格: editForm.value.规格,
-      供应商: editForm.value.供应商,
-      ...(editForm.value.采购日期 || hadDate ? { 采购日期: editForm.value.采购日期 || '' } : {}),
-    })
-    const errs = data.errors || []
-    if (errs.length) {
-      ElMessage.warning(`保存部分失败：${errs[0]}${errs.length > 1 ? ' 等' : ''}`)
-      return  // 弹窗保留，供修正重试
+  const asset = editing.value
+  if (!asset) return
+
+  const shouldChangeAssignee = canChangeAssignee.value && assigneeDirty.value
+  const shouldSaveMetadata = canSupplement.value
+  let assigneeName = ''
+  let assigneeDepartment: Department | undefined
+  if (shouldChangeAssignee) {
+    assigneeName = assigneeForm.value.使用人.trim()
+    if (!assigneeName) {
+      ElMessage.warning('请输入使用人姓名')
+      return
     }
+    assigneeDepartment = assigneeDepartments.value.find((item) => item.id === assigneeForm.value.department)
+    if (!assigneeDepartment) {
+      ElMessage.warning('请选择有效部门')
+      return
+    }
+  }
+
+  editSaving.value = true
+  let metadataPartiallySaved = false
+  let metadataSaved = false
+  try {
+    if (shouldSaveMetadata) {
+      // 序列号/备注走补录接口（serial-uniqueness UI 收口）：支持清空（空=回到待补录）
+      // 与同分公司查重；batch_update 的 空=不改 语义无法清空序列号
+      await supplementFixedAsset(asset.id, {
+        序列号: editForm.value.序列号,
+        备注: editForm.value.备注,
+      })
+      metadataPartiallySaved = true
+      const hadDate = !!asset.采购日期  // 原有个体日期：清空即清除覆盖
+      const { data } = await batchUpdateFixedAssets({
+        ids: [asset.id],
+        规格: editForm.value.规格,
+        供应商: editForm.value.供应商,
+        ...(editForm.value.采购日期 || hadDate ? { 采购日期: editForm.value.采购日期 || '' } : {}),
+      })
+      const errs = data.errors || []
+      if (errs.length) {
+        const assigneeNote = shouldChangeAssignee ? '；使用人和部门未变更' : ''
+        ElMessage.warning(`保存部分失败：${errs[0]}${errs.length > 1 ? ' 等' : ''}${assigneeNote}`)
+        if (metadataPartiallySaved) await refreshEditedAsset(asset.id)
+        return  // 弹窗保留，供修正重试
+      }
+      metadataSaved = true
+    }
+
+    if (shouldChangeAssignee && assigneeDepartment) {
+      const { data: changeData } = await changeFixedAssetAssignee(asset.id, {
+        使用人: assigneeName,
+        department: assigneeDepartment.id,
+        ...(assigneeForm.value.原因.trim() ? { 原因: assigneeForm.value.原因.trim() } : {}),
+      })
+      const updated = {
+        ...asset,
+        ...changeData.asset,
+        使用人: changeData.asset.使用人 || assigneeName,
+        department: changeData.asset.department || assigneeDepartment.id,
+        departmentName: changeData.asset.departmentName || assigneeDepartment.name,
+      }
+      applyAssigneeUpdate(updated)
+      assigneeForm.value = {
+        使用人: updated.使用人,
+        department: updated.department || assigneeDepartment.id,
+        原因: '',
+      }
+    }
+
     ElMessage.success('已保存')
-    editing.value = null
+    closeEditDialog()
     await fetchAssets()
   } catch (error) {
-    ElMessage.error(handleApiError(error))
+    const message = handleApiError(error)
+    if (metadataPartiallySaved || shouldChangeAssignee) await refreshEditedAsset(asset.id)
+    if (shouldChangeAssignee && metadataSaved) {
+      ElMessage.error(`档案信息已保存，但使用人和部门变更失败：${message}`)
+    } else if (shouldChangeAssignee && metadataPartiallySaved) {
+      ElMessage.error(`档案信息可能已部分保存，使用人和部门未变更：${message}`)
+    } else if (shouldChangeAssignee) {
+      ElMessage.error(`使用人和部门未变更：${message}`)
+    } else {
+      ElMessage.error(message)
+    }
   } finally {
     editSaving.value = false
   }
 }
 
-// ── 物品图片（编辑弹窗内即时上传/更换/删除，manage_instances，覆盖即清旧图） ──
+async function fetchAssigneeDepartments() {
+  assigneeDepartmentsLoading.value = true
+  try {
+    const { data } = await getAssigneeDepartmentOptions()
+    assigneeDepartments.value = data
+  } catch (error) {
+    assigneeDepartments.value = []
+    ElMessage.error(handleApiError(error))
+  } finally {
+    assigneeDepartmentsLoading.value = false
+  }
+}
+
+// ── 物品图片（编辑弹窗内即时上传/更换/删除，覆盖即清旧图） ──
 const imageSaving = ref(false)
 
 async function uploadImage(file: File) {
@@ -165,7 +273,7 @@ function imagePreviewFor(asset: FixedAsset): string {
 }
 
 const editImageInput = ref<HTMLInputElement | null>(null)
-function handleEditImageSelect(e: Event) {
+async function handleEditImageSelect(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file || !editing.value) return
@@ -175,13 +283,19 @@ function handleEditImageSelect(e: Event) {
     input.value = ''
     return
   }
-  if (file.size > 2 * 1024 * 1024) {
-    ElMessage.error('图片大小不能超过 2MB')
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('图片大小不能超过 10MB')
     input.value = ''
     return
   }
-  uploadImage(file)
-  input.value = ''
+  try {
+    const uploadFile = await compressFixedAssetImage(file)
+    await uploadImage(uploadFile)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '图片处理失败，请重新选择文件')
+  } finally {
+    input.value = ''
+  }
 }
 
 async function handleEditImageDelete() {
@@ -195,8 +309,17 @@ async function handleEditImageDelete() {
 /** 响应即最新档案：就地更新列表行，免整页刷新 */
 function applyImageUpdate(updated: FixedAsset) {
   const row = assets.value.find(a => a.id === updated.id)
-  if (row) row.图片 = updated.图片
-  if (editing.value) editing.value = { ...editing.value, 图片: updated.图片 }
+  if (row) {
+    row.图片 = updated.图片
+    row.缩略图 = updated.缩略图
+  }
+  if (editing.value) editing.value = { ...editing.value, 图片: updated.图片, 缩略图: updated.缩略图 }
+}
+
+function applyAssigneeUpdate(updated: FixedAsset) {
+  const rowIndex = assets.value.findIndex((asset) => asset.id === updated.id)
+  if (rowIndex >= 0) assets.value[rowIndex] = { ...assets.value[rowIndex], ...updated }
+  if (editing.value?.id === updated.id) editing.value = { ...editing.value, ...updated }
 }
 
 /** 生平类型列中文标签（未知动作值兜底原值，防御存量脏数据） */
@@ -204,25 +327,47 @@ function transferTypeLabel(actionType?: string): string {
   return (TRANSFER_TYPES as Record<string, { label: string }>)[actionType ?? '']?.label ?? actionType ?? '-'
 }
 
+function formatTimelineDate(value?: string): string {
+  if (!value) return '-'
+  return value.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? value
+}
+
 // ── 生平（出生信息 + 关联全部明细行倒序） ──
 const timeline = ref<FixedAssetTimeline | null>(null)
 const timelineLoading = ref(false)
-const timelineVisibleProxy = computed({
-  get: () => timeline.value !== null || timelineLoading.value,
-  set: (v: boolean) => { if (!v) timeline.value = null },
-})
+const timelineAsset = ref<FixedAsset | null>(null)
+const timelineError = ref('')
+let timelineRequestToken = 0
+
+function clearTimeline() {
+  timelineRequestToken += 1
+  timeline.value = null
+  timelineAsset.value = null
+  timelineLoading.value = false
+  timelineError.value = ''
+}
 
 async function openTimeline(asset: FixedAsset) {
+  const requestToken = ++timelineRequestToken
+  timelineAsset.value = asset
   timeline.value = null
+  timelineError.value = ''
   timelineLoading.value = true
   try {
     const { data } = await getFixedAssetTimeline(asset.id)
-    timeline.value = data
+    if (requestToken === timelineRequestToken) timeline.value = data
   } catch (error) {
-    ElMessage.error(handleApiError(error))
+    if (requestToken === timelineRequestToken) {
+      timelineError.value = handleApiError(error)
+      ElMessage.error(timelineError.value)
+    }
   } finally {
-    timelineLoading.value = false
+    if (requestToken === timelineRequestToken) timelineLoading.value = false
   }
+}
+
+function retryTimeline() {
+  if (timelineAsset.value) void openTimeline(timelineAsset.value)
 }
 
 // ── 标签打印（单行 + 勾选批量） ──
@@ -265,7 +410,7 @@ function printSelected() {
   showPrintDialog.value = true
 }
 
-// ── 批量操作（manage_instances）：供应商/备注/序列号 ──
+// ── 批量操作 ──
 const batchMenuOpen = ref(false)
 const batchDialog = ref<'supplier' | 'spec' | 'remark' | 'serial' | null>(null)
 const batchValue = ref('')
@@ -349,6 +494,63 @@ function toPrintShape(item: FixedAsset) {
 async function fetchAssets() {
   loading.value = true
   try {
+    if (!canViewInstances.value) {
+      if (canSupplement.value) {
+        const { data } = await getFixedAssetEditTargets({
+          page: pagination.value.page,
+          pageSize: pagination.value.pageSize,
+          edit_keyword: filters.value.keyword || undefined,
+        })
+        assets.value = data.results.map((target) => ({
+          id: target.id,
+          内部编号: target.内部编号,
+          序列号: target.序列号,
+          当前状态: target.当前状态,
+          使用人: target.使用人,
+          department: target.department,
+          departmentName: target.departmentName,
+          branch: target.branch,
+          branchName: target.branchName,
+          item: '',
+          itemCode: target.itemCode,
+          itemName: target.itemName,
+          itemSpec: target.itemSpec,
+          供应商: target.供应商,
+          采购日期: target.采购日期,
+          备注: target.备注,
+          图片: target.图片,
+          createdAt: '',
+          updatedAt: '',
+        }))
+        pagination.value.total = data.count
+        return
+      }
+
+      const { data } = await getFixedAssetAssigneeTargets({
+        page: pagination.value.page,
+        pageSize: pagination.value.pageSize,
+        keyword: filters.value.keyword || undefined,
+      })
+      assets.value = data.results.map((target) => ({
+        id: target.id,
+        内部编号: target.内部编号,
+        序列号: target.序列号,
+        当前状态: target.当前状态,
+        使用人: target.使用人,
+        department: target.department,
+        departmentName: target.departmentName,
+        branch: target.branch,
+        branchName: target.branchName,
+        item: '',
+        itemCode: target.itemCode,
+        itemName: target.itemName,
+        createdAt: '',
+        updatedAt: '',
+      }))
+      pagination.value.total = data.count
+      return
+    }
+
     const { data } = await getFixedAssets({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
@@ -387,30 +589,40 @@ const handlePaginationChange = (page: number, pageSize: number) => {
 
 watch(filters, () => { selectedIds.value = new Set(); pagination.value.page = 1; fetchAssets() }, { deep: true })
 
-onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
+onMounted(() => {
+  fetchAssets()
+  if (canViewInstances.value) {
+    fetchBranches()
+  }
+  if (canSupplement.value) fetchSuppliers()
+})
 </script>
 
 <template>
   <div class="fixed-asset-page page-fill">
     <div class="page-header">
       <div class="header-info">
-        <h1 class="page-title">固定资产实例</h1>
-        <p class="page-desc">一物一档 · 共{{ pagination.total }}台 · 变动经流转单</p>
+        <h1 class="page-title">{{ canViewInstances ? '固定资产实例' : canSupplement ? '实例维护' : '更换使用人' }}</h1>
+        <p class="page-desc">
+          <template v-if="canViewInstances">一物一档 · 共{{ pagination.total }}台 · 责任人变更留有记录</template>
+          <template v-else-if="canSupplement">仅显示授权范围内可编辑的实例</template>
+          <template v-else>仅显示授权范围内可更换使用人的在用实例</template>
+        </p>
       </div>
       <div class="header-actions">
-        <div v-if="canSupplement" class="batch-wrap">
+        <div v-if="canOpenBatchActions" class="batch-wrap">
           <button class="btn-secondary" @click="batchMenuOpen = !batchMenuOpen">
             批量操作{{ selectedIds.size ? `（${selectedIds.size}）` : '' }} ▾
           </button>
           <div v-if="batchMenuOpen" class="batch-menu" @mouseleave="batchMenuOpen = false">
-            <button :disabled="!selectedIds.size" @click="printSelected">打印标签</button>
-            <button :disabled="!selectedIds.size" @click="openBatch('supplier')">修改供应商</button>
-            <button :disabled="!selectedIds.size" @click="openBatch('spec')">修改规格</button>
-            <button :disabled="!selectedIds.size" @click="openBatch('remark')">修改备注</button>
-            <button :disabled="!selectedIds.size" @click="openBatch('serial')">补录序列号</button>
+            <button v-if="canPrintInstanceLabel" :disabled="!selectedIds.size" @click="printSelected">打印标签</button>
+            <button v-if="canSupplement" :disabled="!selectedIds.size" @click="openBatch('supplier')">修改供应商</button>
+            <button v-if="canSupplement" :disabled="!selectedIds.size" @click="openBatch('spec')">修改规格</button>
+            <button v-if="canSupplement" :disabled="!selectedIds.size" @click="openBatch('remark')">修改备注</button>
+            <button v-if="canSupplement" :disabled="!selectedIds.size" @click="openBatch('serial')">补录序列号</button>
           </div>
         </div>
-        <button class="btn-secondary" @click="handleExport" :disabled="exporting">
+        <button v-if="canViewInstances" class="btn-secondary" @click="handleExport" :disabled="exporting">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -428,26 +640,28 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
           <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
           </svg>
-          <input v-model="filters.keyword" type="text" placeholder="搜索内部编号、品目、序列号、使用人..." class="filter-input" />
+          <input v-model="filters.keyword" type="text" :placeholder="canViewInstances ? '搜索内部编号、品目、序列号、使用人...' : canChangeAssignee ? '搜索分公司、内部编号、品目、序列号、使用人...' : '搜索分公司、内部编号、品目、序列号...'" class="filter-input" />
         </div>
-        <div class="filter-item grow">
-          <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
-        </div>
-        <div class="filter-item">
-          <select v-model="filters.status" class="filter-select">
-            <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
-        </div>
-        <label class="pending-filter">
-          <input v-model="filters.pendingSerial" type="checkbox" />
-          仅看待补录
-        </label>
+        <template v-if="canViewInstances">
+          <div class="filter-item grow">
+            <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
+          </div>
+          <div class="filter-item">
+            <select v-model="filters.status" class="filter-select">
+              <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </div>
+          <label class="pending-filter">
+            <input v-model="filters.pendingSerial" type="checkbox" />
+            仅看待补录
+          </label>
+        </template>
         <button class="filter-reset" @click="resetFilters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>重置</button>
       </div>
     </div>
 
     <!-- 表格 -->
-    <div class="table-container">
+    <div v-if="canViewInstances" class="table-container">
       <table class="data-table">
         <thead>
           <tr>
@@ -479,9 +693,10 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
             <td class="image-cell">
               <el-image
                 v-if="item.图片"
-                :src="item.图片"
+                :src="item.缩略图 || item.图片"
                 :preview-src-list="[item.图片]"
                 preview-teleported
+                :lazy="true"
                 fit="cover"
                 class="row-thumb"
               />
@@ -504,13 +719,13 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
             <td><span class="date-text">{{ item.采购日期 || '-' }}</span></td>
             <td>{{ item.备注 || '-' }}</td>
             <td class="action-col">
-              <button v-if="canSupplement" class="action-btn" title="编辑" @click="openEdit(item)">
+      <button v-if="canSupplement || canChangeAssignee" class="action-btn" title="编辑" @click="openEdit(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
               </button>
-              <button class="action-btn" title="打印标签" @click="printSingleLabel(item)">
+              <button v-if="canPrintInstanceLabel" class="action-btn" title="打印标签" @click="printSingleLabel(item)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="6 9 6 2 18 2 18 9"/>
                   <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
@@ -523,84 +738,170 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
       </table>
     </div>
 
+    <div v-else class="table-container">
+      <table class="data-table assignee-target-table">
+        <thead>
+          <tr>
+            <th>分公司</th><th>内部编号</th><th>品目编号</th><th>品目名称</th><th>序列号</th>
+            <th v-if="canChangeAssignee">当前使用人 / 部门</th><th>当前状态</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="loading"><td :colspan="canChangeAssignee ? 8 : 7" class="empty-cell">加载中...</td></tr>
+          <tr v-else-if="assets.length === 0"><td :colspan="canChangeAssignee ? 8 : 7" class="empty-cell">{{ canSupplement ? '暂无可编辑的实例' : '暂无可更换的在用实例' }}</td></tr>
+          <tr v-for="item in assets" :key="item.id" v-else>
+            <td>{{ item.branchName || '-' }}</td>
+            <td><span class="asset-code">{{ item.内部编号 }}</span></td>
+            <td>{{ item.itemCode }}</td>
+            <td>{{ item.itemName || '-' }}</td>
+            <td>{{ item.序列号 || '-' }}</td>
+            <td v-if="canChangeAssignee">{{ item.使用人 || '-' }}<span v-if="item.departmentName"> / {{ item.departmentName }}</span></td>
+            <td>{{ item.当前状态 || '-' }}</td>
+            <td class="action-col">
+              <button v-if="canSupplement || canChangeAssignee" class="action-btn" :title="canSupplement ? '编辑' : '更换使用人'" @click="openEdit(item)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <BasePagination :total="pagination.total" :current-page="pagination.page" :page-size="pagination.pageSize" @change="handlePaginationChange" />
 
-    <!-- 行编辑弹窗（双栏：左编辑 右生平） -->
-    <el-dialog v-model="editVisibleProxy" title="编辑实例" width="1160px" :close-on-click-modal="false" top="6vh">
-      <div v-if="editing" class="edit-dual">
-        <!-- 左栏：编辑表单 -->
-        <div class="edit-pane">
-          <el-form label-width="72px">
+    <!-- 单台资产编辑 -->
+    <el-dialog v-model="editVisibleProxy" class="asset-edit-dialog" :title="canSupplement ? '编辑实例' : '更换使用人'" width="min(1240px, calc(100vw - 32px))" :close-on-click-modal="false" top="4vh">
+      <div v-if="editing" class="edit-dual" :class="{ 'assignee-only': !canViewInstances }">
+        <div class="edit-form-scroll">
+          <el-form label-width="110px">
             <el-form-item label="内部编号"><span class="asset-code">{{ editing.内部编号 }}</span></el-form-item>
             <el-form-item label="品目名称">{{ editing.itemName || '-' }}</el-form-item>
-            <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
-            <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
-            <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入；清空=回到待补录" /></el-form-item>
-            <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
-            <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
-            <el-form-item label="供应商">
-              <el-select v-model="editForm.供应商" placeholder="继承出生单" style="width: 100%">
-                <el-option label="继承出生单（清空覆盖）" value="" />
-                <el-option v-for="sp in supplierOptions" :key="sp.id" :label="sp.name" :value="sp.name" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="采购日期">
-              <el-date-picker v-model="editForm.采购日期" type="date" value-format="YYYY-MM-DD" placeholder="空=沿用出生单日期" style="width: 100%" clearable />
-            </el-form-item>
-            <el-form-item label="物品图片">
+            <template v-if="!canViewInstances">
+              <el-form-item label="分公司">{{ editing.branchName || '-' }}</el-form-item>
+              <el-form-item v-if="!canSupplement" label="序列号">{{ editing.序列号 || '-' }}</el-form-item>
+              <el-form-item label="当前状态">{{ editing.当前状态 }}</el-form-item>
+            </template>
+            <div v-if="canViewInstances || canChangeAssignee" class="assignee-section">
+              <div class="assignee-section-title">使用人和部门</div>
+              <template v-if="editing.当前状态 === '在用' && canChangeAssignee">
+                <el-form-item label="使用人">
+                  <el-input v-model="assigneeForm.使用人" placeholder="请输入使用人姓名" :disabled="editSaving" />
+                </el-form-item>
+                <el-form-item label="部门">
+                  <el-select
+                    v-model="assigneeForm.department"
+                    placeholder="请选择部门"
+                    filterable
+                    :loading="assigneeDepartmentsLoading"
+                    :disabled="assigneeDepartmentsLoading || assigneeDepartments.length === 0 || editSaving"
+                    style="width: 100%"
+                  >
+                    <el-option v-for="department in assigneeDepartments" :key="department.id" :label="department.name" :value="department.id" />
+                  </el-select>
+                  <span v-if="!assigneeDepartmentsLoading && assigneeDepartments.length === 0" class="assignee-department-error">部门选项不可用，请关闭后重试</span>
+                </el-form-item>
+                <el-form-item label="原因（可选）">
+                  <el-input v-model="assigneeForm.原因" type="textarea" :rows="2" placeholder="填写交接原因" :disabled="editSaving" />
+                </el-form-item>
+              </template>
+              <template v-else>
+                <el-form-item label="使用人">{{ editing.使用人 || '-' }}</el-form-item>
+                <el-form-item label="部门">{{ editing.departmentName || '-' }}</el-form-item>
+                <p v-if="editing.当前状态 !== '在用'" class="assignee-readonly-hint">仅在用实例可更换使用人和部门</p>
+                <p v-else class="assignee-readonly-hint">当前账号没有更换使用人和部门权限</p>
+              </template>
+            </div>
+            <template v-if="canSupplement">
+              <el-form-item label="序列号"><el-input v-model="editForm.序列号" placeholder="扫码或手工录入；清空=回到待补录" /></el-form-item>
+              <el-form-item label="备注"><el-input v-model="editForm.备注" type="textarea" :rows="2" /></el-form-item>
+              <el-form-item label="规格"><el-input v-model="editForm.规格" placeholder="修改后实例档案显示此规格" /></el-form-item>
+              <el-form-item label="供应商">
+                <el-select v-model="editForm.供应商" placeholder="继承出生单" style="width: 100%">
+                  <el-option label="继承出生单（清空覆盖）" value="" />
+                  <el-option v-for="sp in supplierOptions" :key="sp.id" :label="sp.name" :value="sp.name" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="采购日期">
+                <el-date-picker v-model="editForm.采购日期" type="date" value-format="YYYY-MM-DD" placeholder="空=沿用出生单日期" style="width: 100%" clearable />
+              </el-form-item>
+            </template>
+            <template v-else-if="canViewInstances">
+                <el-form-item label="序列号">{{ editing.序列号 || '-' }}</el-form-item>
+                <el-form-item label="备注">{{ editing.备注 || '-' }}</el-form-item>
+                <el-form-item label="规格">{{ editing.itemSpec || '-' }}</el-form-item>
+                <el-form-item label="供应商">{{ editing.供应商 || '-' }}</el-form-item>
+                <el-form-item label="采购日期">{{ editing.采购日期 || '-' }}</el-form-item>
+            </template>
+            <el-form-item v-if="canSupplement || canViewInstances" label="物品图片">
               <div class="edit-image-block">
                 <el-image v-if="imagePreviewFor(editing)" :src="imagePreviewFor(editing)" fit="cover" class="edit-image-large" :preview-src-list="[imagePreviewFor(editing)!]" preview-teleported />
                 <div v-else class="edit-image-empty">暂无图片</div>
-                <input ref="editImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" @change="handleEditImageSelect" />
-                <div class="edit-image-actions">
-                  <el-button size="small" @click="editImageInput?.click()">{{ imagePreviewFor(editing) ? '更换图片' : '上传图片' }}</el-button>
-                  <el-button v-if="imagePreviewFor(editing)" size="small" @click="handleEditImageDelete">删除</el-button>
-                </div>
+                <template v-if="canSupplement">
+                  <input ref="editImageInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" @change="handleEditImageSelect" />
+                  <div class="edit-image-actions">
+                    <el-button size="small" @click="editImageInput?.click()">{{ imagePreviewFor(editing) ? '更换图片' : '上传图片' }}</el-button>
+                    <el-button v-if="imagePreviewFor(editing)" size="small" @click="handleEditImageDelete">删除</el-button>
+                  </div>
+                  <span class="image-size-hint">JPG、PNG、WebP，单张不超过 10MB</span>
+                </template>
               </div>
             </el-form-item>
           </el-form>
         </div>
-        <!-- 右栏：实例生平 -->
-        <div class="edit-pane timeline-pane">
-          <div v-if="timelineLoading" class="timeline-empty">生平加载中...</div>
-          <div v-else-if="!timeline" class="timeline-empty">暂无生平数据</div>
-          <template v-else>
-            <div class="timeline-head">
-              <div class="timeline-code">{{ timeline.instance.内部编号 }}</div>
-              <div class="timeline-meta">
-                {{ timeline.instance.itemCode }} · {{ timeline.instance.itemName }} ·
-                <StatusBadge :status="timeline.instance.当前状态" />
-              </div>
-              <div class="timeline-meta dim">
-                供应商：{{ timeline.birth?.供应商 || '（存量档案）' }}
-                <template v-if="timeline.birth?.采购日期"> · 采购日期：{{ timeline.birth.采购日期 }}</template>
-              </div>
+        <section v-if="canViewInstances" class="timeline-pane" aria-label="资产生平">
+          <h3 class="timeline-pane-title">资产生平</h3>
+          <div class="timeline-scroll">
+            <div v-if="timelineLoading" class="timeline-empty">生平加载中...</div>
+            <div v-else-if="timelineError" class="timeline-empty">
+              {{ timelineError }}
+              <el-button size="small" @click="retryTimeline">重试</el-button>
             </div>
-            <table class="data-table timeline-table">
-              <thead>
-                <tr><th>日期</th><th>单据</th><th>类型</th><th>使用人</th><th>状态</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in timeline.timeline" :key="row.transferId + '-' + row.行号">
-                  <td><span class="date-text">{{ row.日期 }}</span></td>
-                  <td>{{ row.单据编号 || '-' }}</td>
-                  <td>{{ transferTypeLabel(row.actionType) }}</td>
-                  <td>{{ row.使用人 || '-' }}</td>
-                  <td>{{ row.审批状态 }}</td>
-                </tr>
-                <tr v-if="timeline.timeline.length === 0"><td colspan="5" class="empty-cell">暂无流转记录</td></tr>
-              </tbody>
-            </table>
-          </template>
-        </div>
+            <template v-else-if="timeline">
+              <div class="timeline-summary">
+                <div class="timeline-summary-code">{{ timeline.instance.内部编号 }}</div>
+                <div class="timeline-summary-meta">
+                  {{ timeline.instance.itemCode }} · {{ timeline.instance.itemName }} ·
+                  <StatusBadge :status="timeline.instance.当前状态" />
+                </div>
+                <div class="timeline-summary-meta dim">
+                  供应商：{{ timeline.birth?.供应商 || '（存量档案）' }}
+                  <template v-if="timeline.birth?.采购日期"> · 采购日期：{{ timeline.birth.采购日期 }}</template>
+                </div>
+              </div>
+              <div class="timeline-table-scroll">
+                <table class="data-table timeline-table">
+                  <thead>
+                    <tr><th>日期</th><th>单据</th><th>类型</th><th>使用人</th><th>状态</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in timeline.timeline" :key="row.event_id">
+                      <td><span class="date-text">{{ formatTimelineDate(row.kind === 'assignee_change' ? row.时间 : row.日期) }}</span></td>
+                      <td class="timeline-document-cell">{{ row.kind === 'transfer' ? (row.单据编号 || '-') : '-' }}</td>
+                      <td>{{ row.kind === 'assignee_change' ? '使用人变更' : transferTypeLabel(row.actionType) }}</td>
+                      <td>
+                        <template v-if="row.kind === 'assignee_change'">
+                          {{ row.新使用人 || '-' }}<span v-if="row.新部门"> / {{ row.新部门 }}</span>
+                        </template>
+                        <template v-else>{{ row.使用人 || '-' }}<span v-if="row.部门"> / {{ row.部门 }}</span></template>
+                      </td>
+                      <td>{{ row.kind === 'assignee_change' ? '已生效' : row.审批状态 }}</td>
+                    </tr>
+                    <tr v-if="timeline.timeline.length === 0"><td colspan="5" class="empty-cell">暂无流转记录</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
+        </section>
       </div>
       <template #footer>
-        <el-button @click="editing = null">取消</el-button>
-        <el-button type="primary" :loading="editSaving" @click="handleEditSave">保存</el-button>
+        <el-button :disabled="editSaving" @click="closeEditDialog">取消</el-button>
+        <el-button type="primary" :loading="editSaving" :disabled="(assigneeDirty && assigneeDepartmentsLoading) || (!canSupplement && !assigneeDirty)" @click="handleEditSave">保存</el-button>
       </template>
     </el-dialog>
-
-
 
     <!-- 批量操作弹窗 -->
     <el-dialog v-model="batchVisibleProxy" :title="batchTitle" width="460px" :close-on-click-modal="false">
@@ -662,7 +963,7 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .filter-reset:hover { color: var(--color-primary-500); border-color: var(--color-primary-500); }
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow-x: auto; overflow-y: auto; flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; }
-.data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-elevated); }
+.data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-table-header); }
 .data-table th { padding: var(--space-3) var(--space-4); text-align: left; font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 .data-table td { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--color-text-primary); border-bottom: 1px solid var(--color-border-light); vertical-align: middle; }
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }
@@ -670,19 +971,31 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .asset-code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-primary-600); background: var(--color-primary-50); padding: 2px 8px; border-radius: 4px; }
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); font-size: var(--text-xs); white-space: nowrap; }
 .pending-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: var(--text-xs); color: var(--color-warning, #b45309); background: var(--color-warning-bg, #fef3c7); }
-/* 编辑弹窗双栏 */
-.edit-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-.edit-pane { min-width: 0; }
-.timeline-pane { max-height: 62vh; overflow-y: auto; padding-left: 16px; border-left: 1px solid var(--color-border); }
-.timeline-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.timeline-code { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--color-primary-600); }
-.timeline-meta { font-size: var(--text-sm); color: var(--color-text-secondary); }
-.timeline-meta.dim { color: var(--color-text-tertiary); font-size: var(--text-xs); }
-.edit-image-block { display: flex; flex-direction: column; gap: 8px; }
-.edit-image-large { width: 160px; height: 120px; border-radius: 8px; display: block; }
-.edit-image-empty { width: 160px; height: 120px; border-radius: 8px; border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--text-sm); }
+:global(.asset-edit-dialog) { margin-bottom: 0; }
+.edit-dual { display: grid; grid-template-columns: minmax(360px, .43fr) minmax(520px, .57fr); gap: var(--space-6); align-items: start; }
+.edit-dual.assignee-only { grid-template-columns: minmax(0, 1fr); }
+.edit-form-scroll { max-height: 74vh; overflow-y: auto; overflow-x: hidden; padding: 0 8px 0 0; }
+.edit-image-block { display: flex; flex-direction: column; gap: 8px; width: min(160px, 100%); max-width: 100%; }
+.edit-image-large, .edit-image-empty { width: 100%; max-width: 160px; aspect-ratio: 4 / 3; height: auto; border-radius: 8px; }
+.edit-image-large { display: block; }
+.edit-image-empty { border: 1px dashed var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--text-sm); }
 .edit-image-actions { display: flex; gap: 8px; }
-@media (max-width: 768px) { .edit-dual { grid-template-columns: 1fr; } .timeline-pane { border-left: none; padding-left: 0; border-top: 1px solid var(--color-border); padding-top: 12px; } }
+.image-size-hint { color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.assignee-section { margin: var(--space-2) 0 var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.assignee-section-title { margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
+.assignee-department-error, .assignee-readonly-hint { display: block; margin-top: 6px; color: var(--color-text-tertiary); font-size: var(--text-xs); }
+.timeline-pane { min-width: 0; border-left: 1px solid var(--color-border); padding-left: var(--space-6); }
+.timeline-pane-title { margin: 0 0 var(--space-3); color: var(--color-text-primary); font-size: var(--text-base); font-weight: 600; }
+.timeline-scroll { max-height: 74vh; overflow: auto; padding-right: 8px; }
+.timeline-summary { margin-bottom: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.timeline-summary-code { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--color-primary-600); }
+.timeline-summary-meta { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--color-text-secondary); }
+.timeline-summary-meta.dim { font-size: var(--text-xs); color: var(--color-text-tertiary); }
+.timeline-table th, .timeline-table td { padding: var(--space-2) var(--space-3); }
+.timeline-table th:first-child { width: 108px; }
+.timeline-document-cell { white-space: nowrap; }
+.timeline-table-scroll { width: 100%; overflow: visible; }
+.timeline-empty { text-align: center; color: var(--color-text-tertiary); padding: var(--space-8); }
 .image-cell { width: 56px; }
 .check-col { width: 36px; text-align: center; }
 .batch-wrap { position: relative; }
@@ -706,11 +1019,13 @@ onMounted(() => { fetchAssets(); fetchBranches(); fetchSuppliers() })
 .action-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-right: var(--space-1); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; color: var(--color-text-secondary); }
 .action-btn:hover { border-color: var(--color-primary-300); color: var(--color-primary-600); }
 .action-btn svg { width: 15px; height: 15px; }
-.timeline-head { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4); }
-.timeline-code { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--color-primary-600); }
-.timeline-meta { font-size: var(--text-sm); color: var(--color-text-secondary); }
-.timeline-meta.dim { color: var(--color-text-tertiary); font-size: var(--text-xs); }
-.timeline-table th, .timeline-table td { padding: var(--space-2) var(--space-3); }
-.timeline-empty { text-align: center; color: var(--color-text-tertiary); padding: var(--space-8); }
+@media (max-width: 980px) {
+  .edit-dual { grid-template-columns: minmax(0, 1fr); max-height: calc(100dvh - 180px); overflow-y: auto; overflow-x: hidden; }
+  .edit-form-scroll { max-height: none; overflow: visible; padding-right: 0; }
+  .timeline-pane { border-left: 0; border-top: 1px solid var(--color-border); padding: var(--space-5) 0 0; }
+  .timeline-scroll { max-height: none; overflow: visible; padding-right: 0; }
+  .timeline-table-scroll { overflow-x: auto; overflow-y: hidden; }
+  .timeline-table thead th { position: static; }
+}
 @media (max-width: 768px) { .page-header { flex-direction: column; align-items: flex-start; gap: var(--space-4); } .filter-row { flex-wrap: wrap; } .filter-item.search { flex: 1 1 100%; } }
 </style>

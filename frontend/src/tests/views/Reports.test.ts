@@ -150,6 +150,19 @@ describe('Reports 报表页真实数据契约（P3 刀二）', () => {
     expect(cells).toEqual(['1', 'NB-1', '笔记本', '台', '15', '3', '0', '0', '1'])
   })
 
+  it('变动明细查询沿用当前分公司筛选', async () => {
+    const { getChangesByItem } = await import('@/api/reports')
+    const wrapper = await mountReports()
+    ;(wrapper.vm as any).selectedBranches = ['branch-a', 'branch-b']
+
+    await (wrapper.vm as any).fetchReportData()
+    await flushPromises()
+
+    expect(getChangesByItem).toHaveBeenLastCalledWith(expect.objectContaining({
+      branches: 'branch-a,branch-b',
+    }))
+  })
+
   it('消耗统计表按月份列展开并渲染总计行', async () => {
     const wrapper = await mountReports()
     const tab = wrapper.findAll('.tab-btn').find(b => b.text() === '消耗统计')

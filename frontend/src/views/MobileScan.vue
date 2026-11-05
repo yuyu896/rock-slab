@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getInventoryTask, getInventoryProgress, checkInventoryItem, checkInventoryInstance, getInventoryChecks, getInventoryReport, submitInventory } from '@/api/inventories'
+import { getInventoryTask, getInventoryProgress, checkInventoryItem, checkInventoryInstance, getInventoryChecks, getInventoryScanItems, submitInventory } from '@/api/inventories'
 import { getAssetStocks } from '@/api/assets'
+import { useUserStore } from '@/store/user'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { AssetStock } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
+const canManageInventory = computed(() => userStore.can('edit_inventory'))
 const taskId = route.params.taskId as string
 
 // 摄像头扫码相关
@@ -32,6 +35,7 @@ function toggleCamera() {
 }
 
 async function startCamera() {
+  if (!canManageInventory.value) return
   // 数量盘物资无二维码可扫：脚本层守卫，防 URL 直达绕过界面隐藏
   if (!isInstanceTask.value) return
   if (!barcodeDetectorSupported.value) {
@@ -136,6 +140,7 @@ const progress = computed(() => {
 
 // 获取任务详情和进度
 async function fetchTaskData() {
+  if (!canManageInventory.value) return
   try {
     const [taskRes, progressRes] = await Promise.all([
       getInventoryTask(taskId),
@@ -160,8 +165,8 @@ async function fetchTaskData() {
 /** 实例盘：拉清单（最近扫描按核对时间倒序展示） */
 async function fetchInstanceItems() {
   try {
-    const { data } = await getInventoryReport(taskId)
-    instanceItems.value = data.items ?? []
+    const { data } = await getInventoryScanItems(taskId)
+    instanceItems.value = data ?? []
     recentScans.value = [...instanceItems.value]
       .filter((i: any) => i.checkedAt)
       .sort((a: any, b: any) => b.checkedAt.localeCompare(a.checkedAt))
@@ -189,6 +194,7 @@ async function fetchRecentChecks() {
 
 // 扫码处理 — 台账盘：查台账行弹数量确认；实例盘：按内部编号/序列号直接打钩
 const handleScan = async () => {
+  if (!canManageInventory.value) return
   if (!scanInput.value.trim()) return
 
   if (isInstanceTask.value) {
@@ -254,6 +260,7 @@ const handleInstanceScan = async () => {
 
 // 确认盘点结果
 const confirmScan = async () => {
+  if (!canManageInventory.value) return
   if (!currentScanResult.value) return
 
   try {
@@ -277,6 +284,7 @@ const formatCheckTime = (value: string) => value ? value.slice(0, 16).replace('T
 
 // 完成盘点
 const finishInventory = async () => {
+  if (!canManageInventory.value) return
   try {
     await submitInventory(taskId)
     ElMessage.success('盘点已提交审核')
@@ -304,6 +312,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 onMounted(() => {
+  if (!canManageInventory.value) return
   window.addEventListener('keydown', handleKeydown)
   fetchTaskData()
   fetchRecentChecks()
@@ -389,7 +398,7 @@ onUnmounted(() => {
           class="scan-input"
           @keyup.enter="handleScan"
         />
-        <button class="scan-btn" @click="handleScan" :disabled="isScanning">
+        <button v-if="canManageInventory" class="scan-btn" @click="handleScan" :disabled="isScanning">
           <svg v-if="!isScanning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"/>
             <path d="M21 21l-4.35-4.35"/>
@@ -399,7 +408,7 @@ onUnmounted(() => {
             <path d="M12 6v6l4 2"/>
           </svg>
         </button>
-        <button v-if="isInstanceTask" class="camera-toggle-btn" @click="toggleCamera" :class="{ active: showCamera }">
+        <button v-if="canManageInventory && isInstanceTask" class="camera-toggle-btn" @click="toggleCamera" :class="{ active: showCamera }">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
             <circle cx="12" cy="13" r="4"/>
@@ -475,7 +484,7 @@ onUnmounted(() => {
         </svg>
         暂停盘点
       </button>
-      <button class="bottom-btn primary" @click="finishInventory">
+      <button v-if="canManageInventory" class="bottom-btn primary" @click="finishInventory">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
           <polyline points="22 4 12 14.01 9 11.01"/>
@@ -531,7 +540,7 @@ onUnmounted(() => {
 
         <div class="modal-footer">
           <button class="modal-btn cancel" @click="showResultModal = false">取消</button>
-          <button class="modal-btn confirm" @click="confirmScan">确认</button>
+          <button v-if="canManageInventory" class="modal-btn confirm" @click="confirmScan">确认</button>
         </div>
       </div>
     </div>

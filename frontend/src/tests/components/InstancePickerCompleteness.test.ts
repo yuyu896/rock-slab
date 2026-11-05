@@ -19,7 +19,7 @@ function makeInst(i: number) {
 async function mountPicker(props: Record<string, unknown> = {}) {
   const wrapper = mount(InstancePicker, {
     props: {
-      itemCode: 'X', status: '在库', branchName: '北京分公司',
+      itemCode: 'X', type: 'assign', status: '在库', branchName: '北京分公司',
       modelValue: [], expanded: false, ...props,
     },
   })

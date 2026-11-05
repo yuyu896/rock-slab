@@ -1,21 +1,27 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import TransferLinesTable from './TransferLinesTable.vue'
+import TransferLifecycleActions from './TransferLifecycleActions.vue'
 import { useUserStore } from '@/store/user'
 import type { TransferDocument } from '@/types'
-import type { TransferType } from '@/constants'
+import type { ActiveTransferActionType } from '@/utils/permissionGroups'
+import { TRANSFER_PERMISSION_OPERATIONS } from '@/utils/permissionGroups'
 
 /** 单据详情统一布局：一行元信息 + 类型专属字段（slot）+ 明细表 + 审批/编辑按钮（slot） */
 const props = defineProps<{
   title: string
   backPath: string
   doc: TransferDocument | null
-  type: TransferType
+  type: ActiveTransferActionType
   loading?: boolean
 }>()
 
 const router = useRouter()
 const userStore = useUserStore()
+const transferPermissions = computed(() => TRANSFER_PERMISSION_OPERATIONS[props.type])
+const canApprove = computed(() => userStore.can(transferPermissions.value.approve))
+const canRejectInbound = computed(() => props.type === 'transfer' && userStore.can('edit_transfer'))
 
 /** 返回优先走浏览器历史（带回列表页的 query 筛选与页码）；直达详情无来路时回退 backPath */
 function goBack() {
@@ -31,6 +37,7 @@ const emit = defineEmits<{
   (e: 'approve'): void
   (e: 'reject'): void
   (e: 'inboundReject'): void
+  (e: 'lifecycleChanged'): void
 }>()
 
 function branchText(doc: TransferDocument) {
@@ -73,12 +80,20 @@ function branchText(doc: TransferDocument) {
       <slot name="extra-edit" :doc="doc" />
 
       <div class="detail-footer">
+        <TransferLifecycleActions
+          v-if="props.type !== 'purchase'"
+          :doc="doc"
+          :type="props.type"
+          :show-withdraw="true"
+          @changed="emit('lifecycleChanged')"
+          @deleted="goBack"
+        />
         <slot name="footer" :doc="doc">
-          <template v-if="userStore.can('approve_transfer') && doc.审批状态 === '待审批' && doc.canOperate !== false">
+          <template v-if="canApprove && doc.审批状态 === '待审批' && doc.canOperate !== false">
             <button class="btn-approve" @click="emit('approve')">通过</button>
             <button class="btn-reject" @click="emit('reject')">驳回</button>
           </template>
-          <template v-else-if="userStore.can('manage_assets') && doc.审批状态 === '待审批' && doc.canOperate === false && doc.canInboundReject">
+          <template v-else-if="canRejectInbound && doc.审批状态 === '待审批' && doc.canOperate === false && doc.canInboundReject">
             <button class="btn-reject" @click="emit('inboundReject')">驳回（调入方）</button>
           </template>
         </slot>
@@ -88,7 +103,7 @@ function branchText(doc: TransferDocument) {
 </template>
 
 <style scoped>
-.detail-page { max-width: 1600px; margin: 0 auto; }
+.detail-page { width: 100%; max-width: 1600px; margin: 0 auto; }
 .page-header { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-6); }
 .back-btn { display: inline-flex; align-items: center; gap: var(--space-1); height: 36px; padding: 0 var(--space-3); background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-sm); color: var(--color-text-secondary); cursor: pointer; }
 .back-btn:hover { color: var(--color-primary-500); border-color: var(--color-primary-300); }
@@ -103,7 +118,7 @@ function branchText(doc: TransferDocument) {
 .mono { font-family: var(--font-mono); }
 .status-text { font-weight: 600; }
 .lines-title { font-size: 15px; font-weight: 600; margin: 0; }
-.detail-footer { display: flex; justify-content: flex-end; gap: var(--space-3); }
+.detail-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); }
 .btn-approve { height: 40px; padding: 0 20px; border-radius: 8px; border: none; background: var(--color-primary-500); color: #fff; cursor: pointer; font-size: var(--text-sm); }
 .btn-reject { height: 40px; padding: 0 20px; border-radius: 8px; border: none; background: oklch(0.92 0.10 25); color: var(--color-danger); cursor: pointer; font-size: var(--text-sm); }
 </style>

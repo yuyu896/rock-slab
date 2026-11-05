@@ -6,6 +6,8 @@ from apps.assets.services import ledger as ledger
 from apps.categories.models import Category
 from apps.organizations.models import Department
 from apps.inventories.models import InventoryTask, InventoryInstanceItem
+from apps.permissions.models import OperationGrant
+from apps.users.models import User
 
 INVENTORY_LIST_URL = '/api/inventories/'
 
@@ -80,6 +82,84 @@ class TestStockBinInventory:
             name='老任务', branch=branch, department=department, kind='instance',
         )
         assert legacy.is_instance_inventory is True
+
+
+@pytest.mark.django_db
+def test_inventory_editor_can_view_all_task_statuses_within_scope(branch, second_branch):
+    editor = User.objects.create_user(
+        phone='13988000001', name='盘点编辑员', password='test123456',
+        role='manager', status='active', branch=branch,
+    )
+    OperationGrant.objects.create(user=editor, code='edit_inventory')
+    OperationGrant.objects.create(user=editor, code='view_inventory')
+    local = InventoryTask.objects.create(
+        name='本分公司进行中', branch=branch, status='in_progress',
+    )
+    local_pending = InventoryTask.objects.create(name='本分公司待盘点', branch=branch, status='pending')
+    InventoryTask.objects.create(
+        name='其他分公司进行中', branch=second_branch, status='in_progress',
+    )
+
+    from rest_framework.test import APIClient
+    client = APIClient()
+    client.force_authenticate(user=editor)
+    response = client.get(INVENTORY_LIST_URL)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert {row['id'] for row in response.data['results']} == {
+        str(local.id), str(local_pending.id),
+    }
+
+    report = client.get(_action('report', local.id))
+    assert report.status_code == status.HTTP_200_OK
+    checks = client.get(_action('checks', local.id))
+    assert checks.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+def test_view_inventory_user_can_read_task_checks(branch):
+    viewer = User.objects.create_user(
+        phone='13988000002', name='盘点查看员', password='test123456',
+        role='manager', status='active', branch=branch,
+    )
+    OperationGrant.objects.create(user=viewer, code='view_inventory')
+    task = InventoryTask.objects.create(
+        name='可查看的进行中任务', branch=branch, status='in_progress',
+    )
+
+    from rest_framework.test import APIClient
+    client = APIClient()
+    client.force_authenticate(user=viewer)
+    response = client.get(_action('checks', task.id))
+
+    assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+def test_inventory_editor_can_read_checks_for_all_visible_tasks(branch):
+    creator = User.objects.create_user(
+        phone='13988000003', name='盘点创建兼导入员', password='test123456',
+        role='manager', status='active', branch=branch,
+    )
+    OperationGrant.objects.create(user=creator, code='edit_inventory')
+    OperationGrant.objects.create(user=creator, code='view_inventory')
+    own_task = InventoryTask.objects.create(
+        name='本人创建的进行中任务', branch=branch, status='in_progress',
+        created_by=creator,
+    )
+    other_task = InventoryTask.objects.create(
+        name='他人创建的进行中任务', branch=branch, status='in_progress',
+    )
+
+    from rest_framework.test import APIClient
+    client = APIClient()
+    client.force_authenticate(user=creator)
+
+    own_response = client.get(_action('checks', own_task.id))
+    other_response = client.get(_action('checks', other_task.id))
+
+    assert own_response.status_code == status.HTTP_200_OK
+    assert other_response.status_code == status.HTTP_200_OK
 
 
 @pytest.mark.django_db
@@ -297,19 +377,17 @@ class TestInstanceInventory:
         resp = authenticated_client.post(
             _action('import-result', task.id), {'file': self._xlsx(headers, rows)}, format='multipart',
         )
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()['imported'] == 3
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()['imported'] == 0
         errors = resp.json()['errors']
         assert any('已找到/未找到' in e for e in errors)
         assert any('不在盘点范围' in e for e in errors)
 
         entries = {e.instance.内部编号: e for e in task.instance_items.select_related('instance')}
-        assert entries[instances[0].内部编号].result == 'matched'
-        assert entries[instances[0].内部编号].remarks == '线上核对'
-        assert entries[instances[0].内部编号].check_count == 1
-        assert entries[instances[0].内部编号].checked_by == entries[instances[0].内部编号].checked_by
-        assert entries[instances[2].内部编号].result == 'missing'
-        assert entries[instances[3].内部编号].result == 'unchecked'  # 非法值行未回写
+        assert all(entry.result == 'unchecked' for entry in entries.values())
+        assert all(entry.remarks == '' for entry in entries.values())
+        assert all(entry.check_count == 0 for entry in entries.values())
+        assert all(entry.checked_by is None for entry in entries.values())
 
     def test_instance_import_pending_rejected(self, authenticated_client, branch, inst_item, department):
         """pending 状态实例盘任务导入被拒。"""

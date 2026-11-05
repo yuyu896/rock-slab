@@ -6,9 +6,11 @@ import { ElMessage } from 'element-plus'
 import { transferDocSummary } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
+import TransferLifecycleActions from './components/TransferLifecycleActions.vue'
 
 const {
   typeLabel, typeColor,
+  canCreate,
   canApproveTransfer,
   filters, pagination, loading, transfers, branchOptions, statusOptions,
   stats, getStatusStyle, fetchTransfers, resetFilters,
@@ -42,7 +44,7 @@ function openCreatePage() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           导出
         </button>
-        <button class="btn-primary" @click="openCreatePage">
+        <button v-if="canCreate" class="btn-primary" @click="openCreatePage">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           新建回收
         </button>
@@ -81,7 +83,7 @@ function openCreatePage() {
           <tr>
             <th>单号</th><th>回收日期</th><th>分公司</th><th>去向</th>
             <th>品项</th><th class="col-num">品项数</th><th class="col-num">总数量</th>
-            <th>所属部门</th><th>状态</th><th>经办人</th><th>备注</th><th>操作</th>
+            <th>所属部门</th><th>状态</th><th>经办人</th><th class="remark-column">备注</th><th class="action-column">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -96,12 +98,15 @@ function openCreatePage() {
             <td>{{ item.调出部门 || '-' }}</td>
             <td><span class="status-badge" :style="getStatusStyle(item.审批状态)">{{ item.审批状态 }}</span></td>
             <td>{{ item.经办人 || item.创建人 || '-' }}</td>
-            <td>{{ item.备注 || '-' }}</td>
-            <td>
-              <div class="action-buttons">
+            <td class="remark-column">
+              <span class="remark-text" :title="item.备注 || '-'">{{ item.备注 || '-' }}</span>
+            </td>
+            <td class="action-column">
+              <div class="action-buttons transfer-action-buttons">
                 <button class="action-btn" @click="router.push('/transfers/recovery/' + item.id)">详情</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn approve" @click="handleApprove(item)">通过</button>
                 <button v-if="canApproveTransfer && item.审批状态 === '待审批'" class="action-btn reject" @click="handleReject(item)">驳回</button>
+                <TransferLifecycleActions compact :doc="item" type="recovery" @changed="fetchTransfers" @deleted="fetchTransfers" />
               </div>
             </td>
           </tr>
@@ -153,9 +158,16 @@ function openCreatePage() {
 .table-container { background: var(--color-bg-card); border-radius: 12px; border: 1px solid var(--color-border); overflow: auto; margin-bottom: var(--space-4); flex: 1; min-height: 200px; }
 .data-table { width: 100%; border-collapse: collapse; min-width: 1400px; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; }
-.data-table th { background: var(--color-bg-elevated); padding: var(--space-3) var(--space-3); text-align: left; font-size: var(--text-xs); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.data-table th { background: var(--color-bg-table-header); padding: var(--space-3) var(--space-3); text-align: left; font-size: var(--text-xs); font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 .data-table td { padding: var(--space-3); font-size: var(--text-sm); color: var(--color-text-primary); border-bottom: 1px solid var(--color-border-light); vertical-align: middle; white-space: nowrap; }
 .data-table tbody tr:hover { background: var(--color-bg-elevated); }
+.data-table th.remark-column, .data-table td.remark-column { width: 240px; min-width: 240px; max-width: 240px; }
+.data-table td.remark-column { overflow: hidden; }
+.remark-text { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-table th.action-column, .data-table td.action-column { position: sticky; right: 0; width: 220px; min-width: 220px; max-width: 220px; box-shadow: -4px 0 0 var(--color-border-light); }
+.data-table th.action-column { z-index: 3; background: var(--color-bg-elevated); }
+.data-table td.action-column { z-index: 2; background: var(--color-bg-card); }
+.data-table tbody tr:hover td.action-column { background: var(--color-bg-elevated); }
 .date-text { font-family: var(--font-mono); color: var(--color-text-secondary); font-size: var(--text-xs); }
 .asset-code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary-600); background: var(--color-primary-50); padding: 2px 6px; border-radius: 4px; }
 .asset-name { font-weight: 500; }

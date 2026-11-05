@@ -10,9 +10,9 @@ from .serializers import DepartmentSerializer
 
 
 class DepartmentViewSet(viewsets.ModelViewSet):
-    """部门字典（全集团扁平）：管理需 manage_organizations；options 端点供表单下拉（登录即可）。
+    """全集团扁平的部门字典；读取和维护分别受对应操作权限控制。
 
-    扁平字典无分公司维度，不做数据范围过滤（部门不参与数据范围推导，同品目字典待遇）。
+    options 端点与列表使用相同的查看权限。部门不参与数据范围推导。
     """
 
     queryset = Department.objects.all()
@@ -20,10 +20,14 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
     required_operations = {
-        'create': 'manage_organizations',
-        'update': 'manage_organizations',
-        'partial_update': 'manage_organizations',
-        'destroy': 'manage_organizations',
+        'list': 'view_departments',
+        'retrieve': 'view_departments',
+        'options': 'view_departments',
+        'assignee_options': ('change_instance_assignee', 'view_instances', 'view_departments'),
+        'create': ('edit_departments', 'view_departments'),
+        'update': ('edit_departments', 'view_departments'),
+        'partial_update': ('edit_departments', 'view_departments'),
+        'destroy': ('edit_departments', 'view_departments'),
     }
 
     def create(self, request, *args, **kwargs):
@@ -39,6 +43,14 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='options')
     def options(self, request):
         """返回全集团部门选项（表单下拉）。"""
+        return Response([
+            {'id': str(d.id), 'name': d.name}
+            for d in self.get_queryset().order_by('name')
+        ])
+
+    @action(detail=False, methods=['get'], url_path='assignee-options')
+    def assignee_options(self, request):
+        """仅供使用人变更表单选择部门；不开放部门字典页面权限。"""
         return Response([
             {'id': str(d.id), 'name': d.name}
             for d in self.get_queryset().order_by('name')

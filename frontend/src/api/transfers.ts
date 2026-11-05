@@ -18,12 +18,18 @@ export function getTransfers(params?: PaginationParams & {
   assetCode?: string
   keyword?: string
   createdAtGte?: string
+  mine?: boolean
 }) {
   return request.get<PaginatedResponse<TransferDocument>>('/api/transfers/', { params })
 }
 
 export function getTransfer(id: string) {
   return request.get<TransferDocument>(`/api/transfers/${id}`)
+}
+
+/** 删除尚未提交的流转草稿（服务端按单据类型校验权限） */
+export function deleteTransferDraft(id: string) {
+  return request.delete(`/api/transfers/${id}`)
 }
 
 /** 修改流转（仅已驳回可改；items 传了=整体替换，不传=保留原明细行） */
@@ -37,22 +43,17 @@ export function purchaseAsset(data: TransferPayload & { draft?: boolean }) {
 }
 
 /** 资产领用 */
-export function assignAsset(data: TransferPayload) {
+export function assignAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/assign', data)
 }
 
-/** 资产归还 */
-export function returnAsset(data: TransferPayload) {
-  return request.post<TransferDocument>('/api/transfers/return', data)
-}
-
 /** 资产调拨 */
-export function transferAsset(data: TransferPayload) {
+export function transferAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/transfer', data)
 }
 
 /** 资产回收（统一走审批流：待审批 → 审批通过生效；行内即时通道已下线） */
-export function recoverAsset(data: TransferPayload) {
+export function recoverAsset(data: TransferPayload & { draft?: boolean }) {
   return request.post<TransferDocument>('/api/transfers/recovery', data)
 }
 
@@ -97,7 +98,12 @@ export function getPendingTransfers(params?: PaginationParams) {
 export function importTransfers(file: File, type?: string) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<{ imported: number; errors: string[] }>('/api/transfers/import', formData, {
+  return request.post<{
+    imported: number
+    imported_lines: number
+    errors: string[]
+    detail?: string
+  }>('/api/transfers/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     params: type ? { type } : undefined,
   })
@@ -108,7 +114,24 @@ export function exportTransfers(params?: Record<string, string>) {
   return request.get<Blob>('/api/transfers/export', { params, responseType: 'blob' })
 }
 
-/** 回收台账：直接处置的物资明细流水（只读，单据派生） */
+export interface RecoveryLedgerRow {
+  日期: string
+  单据编号: string
+  分公司: string
+  品目编号: string
+  品目名称: string
+  规格: string
+  数量: number
+  内部编号: string
+  处置方式: string
+  处置金额: number | string | null
+  经办人: string
+  备注: string
+  实例ID: string | null
+  单据ID: string
+}
+
+/** 物资处置台账：直接处置的物资明细流水（只读，单据派生） */
 export function getRecoveryLedger(params?: {
   page?: number
   pageSize?: number
@@ -118,12 +141,17 @@ export function getRecoveryLedger(params?: {
   dateFrom?: string
   dateTo?: string
 }) {
-  return request.get<{ count: number; results: Record<string, unknown>[] }>(
+  return request.get<{
+    count: number
+    results: RecoveryLedgerRow[]
+    disposal_income?: number | string
+    disposalIncome?: number | string
+  }>(
     '/api/transfers/recovery-ledger', { params },
   )
 }
 
-/** 回收台账导出（遵循筛选） */
+/** 物资处置台账导出（遵循筛选） */
 export function exportRecoveryLedger(params?: Record<string, string>) {
   return request.get<Blob>('/api/transfers/recovery-ledger/export', { params, responseType: 'blob' })
 }

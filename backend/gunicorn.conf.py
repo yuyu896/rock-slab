@@ -7,7 +7,7 @@ bind = f"0.0.0.0:{os.environ.get('PORT', '8000')}"
 # Worker processes
 workers = int(os.environ.get('GUNICORN_WORKERS', multiprocessing.cpu_count() * 2 + 1))
 worker_class = 'gthread'
-threads = int(os.environ.get('GUNICORN_THREADS', '2'))
+threads = int(os.environ.get('GUNICORN_THREADS', '3'))
 
 # Timeouts
 timeout = 120

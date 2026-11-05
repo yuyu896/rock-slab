@@ -15,7 +15,7 @@ from django.db.models import Count
 
 from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment
 from apps.assets.services.ledger import _line_plan, dispose_spec_deltas
-from apps.categories.models import Category
+from apps.categories.models import Category, ConsumableMigrationRun
 from apps.transfers.models import Transfer
 
 EFFECTIVE_TRANSFER_STATUSES = ('已通过', '已入库')
@@ -62,6 +62,16 @@ class Command(BaseCommand):
         if initial_time is not None:
             transfers = transfers.filter(created_at__gte=initial_time)
 
+        # A targeted consumable migration changes the current planning rule,
+        # while historical assignment documents retain quantity-management
+        # semantics. Replay those pre-migration documents with the old rule.
+        quantity_until = {}
+        for run in ConsumableMigrationRun.objects.filter(
+            status__in=(ConsumableMigrationRun.STATUS_APPLIED, ConsumableMigrationRun.STATUS_REPORTED),
+        ).order_by('created_at'):
+            for code in run.asset_codes or ():
+                quantity_until.setdefault(code, run.created_at)
+
         for t in transfers:
             for line in t.lines.all():
                 # 处置行按「处置扣列」快照重放（生效时事实；缺失按旧规则在用×数量）
@@ -69,7 +79,18 @@ class Command(BaseCommand):
                     for branch, item, column, delta in dispose_spec_deltas(t.from_branch, line, line.处置扣列):
                         bump(branch, item, column, delta)
                     continue
-                for branch, item, column, delta in _line_plan(t, line):
+                item = line.item
+                original_management_type = item.management_type
+                if (
+                    item.asset_code in quantity_until
+                    and t.created_at < quantity_until[item.asset_code]
+                ):
+                    item.management_type = Category.MANAGEMENT_QUANTITY
+                try:
+                    plan = _line_plan(t, line)
+                finally:
+                    item.management_type = original_management_type
+                for branch, item, column, delta in plan:
                     bump(branch, item, column, delta)
 
         # 逐行比对（不变量一）

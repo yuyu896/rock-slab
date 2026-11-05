@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.db import transaction
 from .models import Category
 
 
@@ -111,17 +112,19 @@ class CategorySerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         """更新时验证资产编号与管理方式存量约束"""
-        new_type = validated_data.get('management_type')
-        if new_type and new_type != instance.management_type:
-            locked, why = management_stock_status(instance)
-            if locked:
-                raise serializers.ValidationError({
-                    'management_type': [
-                        f'该品目{why}，不可切换管理方式；数量→实例方向请先清零台账存量，'
-                        '实例→数量方向因档案永久保留不可切换'
-                    ],
-                })
-        asset_code = validated_data.get('asset_code', instance.asset_code)
-        if Category.objects.filter(asset_code=asset_code).exclude(pk=instance.pk).exists():
-            raise serializers.ValidationError({'asset_code': ['资产编号已存在，请使用其他编号']})
-        return super().update(instance, validated_data)
+        with transaction.atomic():
+            instance = Category.objects.select_for_update().get(pk=instance.pk)
+            new_type = validated_data.get('management_type')
+            if new_type and new_type != instance.management_type:
+                locked, why = management_stock_status(instance)
+                if locked:
+                    raise serializers.ValidationError({
+                        'management_type': [
+                            f'该品目{why}，不可切换管理方式；数量→实例方向请先清零台账存量，'
+                            '实例→数量方向因档案永久保留不可切换'
+                        ],
+                    })
+            asset_code = validated_data.get('asset_code', instance.asset_code)
+            if Category.objects.filter(asset_code=asset_code).exclude(pk=instance.pk).exists():
+                raise serializers.ValidationError({'asset_code': ['资产编号已存在，请使用其他编号']})
+            return super().update(instance, validated_data)

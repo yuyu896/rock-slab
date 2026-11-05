@@ -1,7 +1,7 @@
 """authz-write-scope-fixes 回归：三处越权写修复。
 
 ① batch-update 逐实例范围校验（范围外进 errors 不落库）
-② 调拨单删除仅调出方可操作（perform_destroy 加守护）
+② 调拨草稿删除仅调出方可操作
 ③ 任命/免任仅 admin（组织 serializer 值变更校验，manage_organizations 不隐含任命权）
 """
 import datetime
@@ -53,7 +53,7 @@ def _transfer_doc(from_branch, to_branch, code):
 @pytest.mark.django_db
 class TestBatchUpdateScope:
     def test_out_of_scope_instance_rejected(self, supervisor_user, branch, second_branch, item_instance):
-        _grant(supervisor_user, 'manage_instances')
+        _grant(supervisor_user, 'edit_instances')
         own = _instance(branch, item_instance, 'AS-S1', 'AS-S1')
         other = _instance(second_branch, item_instance, 'AS-S2', 'AS-S2')
         client = _client_for(supervisor_user)
@@ -62,11 +62,36 @@ class TestBatchUpdateScope:
         }, format='json')
         assert resp.status_code == 200
         assert resp.data['updated'] == 1
-        assert resp.data['errors'] == [f'{other.内部编号}: 分公司不在授权范围']
+        assert resp.data['errors'] == [f'{other.pk}: 分公司不在授权范围']
         own.refresh_from_db()
         other.refresh_from_db()
         assert own.备注 == 'x'
         assert (other.备注 or '') == ''
+
+    def test_out_of_scope_disposed_instance_does_not_reveal_disposal_state(
+        self, supervisor_user, branch, second_branch, item_instance,
+    ):
+        _grant(supervisor_user, 'edit_instances')
+        from apps.transfers.models import TransferLineInstance
+
+        other = _instance(second_branch, item_instance, 'AS-S3', 'AS-S3')
+        disposal = Transfer.objects.create(
+            单据编号='HS20260928-S3', 调拨日期=datetime.date(2026, 9, 28),
+            调出分公司=second_branch.name, from_branch=second_branch,
+            action_type='recovery', 回收去向='dispose', 审批状态='已通过',
+        )
+        disposal_line = TransferLine.objects.create(
+            transfer=disposal, item=item_instance, 行号=1, 数量=1,
+        )
+        TransferLineInstance.objects.create(line=disposal_line, instance=other)
+
+        client = _client_for(supervisor_user)
+        resp = client.post('/api/assets/fixed-assets/batch-update', {
+            'ids': [str(other.pk)], '备注': '越权写入',
+        }, format='json')
+        assert resp.status_code == 200
+        assert resp.data['errors'] == [f'{other.pk}: 分公司不在授权范围']
+        assert '已直接处置' not in str(resp.data['errors'])
 
     def test_admin_updates_across_branches(self, admin_user, branch, second_branch, item_instance):
         own = _instance(branch, item_instance, 'AS-A1', 'AS-A1')
@@ -79,38 +104,50 @@ class TestBatchUpdateScope:
 
 
 @pytest.mark.django_db
-class TestTransferDestroyScope:
+class TestTransferDraftDelete:
     def test_to_branch_side_cannot_delete(self, supervisor_user, branch, second_branch):
         doc = _transfer_doc(second_branch, branch, 'TD-IN-1')
+        doc.审批状态 = '草稿'
+        doc.created_by = supervisor_user
+        doc.save(update_fields=['审批状态', 'created_by'])
+        _grant(supervisor_user, 'delete_transfer_draft')
         client = _client_for(supervisor_user)
         resp = client.delete(f'/api/transfers/{doc.pk}')
         assert resp.status_code == 400
-        assert '只读' in str(resp.data)
+        # The creator is on the receiving side but the transfer's write scope
+        # is anchored to its source branch, which is outside this user's scope.
         assert Transfer.objects.filter(pk=doc.pk).exists()
 
-    def test_from_branch_side_can_delete(self, admin_user, branch, second_branch):
+    def test_admin_cannot_delete_another_users_draft_from_either_branch(
+        self, admin_user, supervisor_user, branch, second_branch,
+    ):
         doc = _transfer_doc(second_branch, branch, 'TD-OUT-1')
+        doc.审批状态 = '草稿'
+        doc.created_by = supervisor_user
+        doc.save(update_fields=['审批状态', 'created_by'])
         client = _client_for(admin_user)
         resp = client.delete(f'/api/transfers/{doc.pk}')
-        assert resp.status_code == 204
-        assert not Transfer.objects.filter(pk=doc.pk).exists()
+        assert resp.status_code == 404
+        assert Transfer.objects.filter(pk=doc.pk, 审批状态='草稿').exists()
 
-    def test_non_transfer_delete_unaffected(self, supervisor_user, branch):
+    def test_non_draft_document_cannot_be_deleted(self, admin_user, supervisor_user, branch):
         doc = Transfer.objects.create(
             单据编号='TD-P1', 调拨日期=datetime.date(2026, 9, 28),
             调入分公司=branch.name, to_branch=branch,
             action_type='purchase', 审批状态='待审批', created_by=supervisor_user,
         )
-        client = _client_for(supervisor_user)
+        client = _client_for(admin_user)
         resp = client.delete(f'/api/transfers/{doc.pk}')
-        assert resp.status_code == 204
-        assert not Transfer.objects.filter(pk=doc.pk).exists()
+        assert resp.status_code == 400
+        assert '仅草稿可删除' in str(resp.data)
+        assert Transfer.objects.filter(pk=doc.pk).exists()
 
 
 @pytest.mark.django_db
 class TestAppointmentAdminOnly:
     def test_non_admin_cannot_change_branch_manager(self, supervisor_user, branch):
-        _grant(supervisor_user, 'manage_organizations')
+        _grant(supervisor_user, 'view_organizations')
+        _grant(supervisor_user, 'edit_organizations')
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/branches/{branch.pk}', {
             'manager': supervisor_user.pk,
@@ -123,7 +160,8 @@ class TestAppointmentAdminOnly:
     def test_non_admin_unchanged_value_and_node_edit_pass(self, supervisor_user, branch, leader_user):
         from apps.organizations.models import Branch
         Branch.objects.filter(pk=branch.pk).update(manager=leader_user)
-        _grant(supervisor_user, 'manage_organizations')
+        _grant(supervisor_user, 'view_organizations')
+        _grant(supervisor_user, 'edit_organizations')
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/branches/{branch.pk}', {
             'manager': leader_user.pk, 'address': '新地址',
@@ -142,7 +180,8 @@ class TestAppointmentAdminOnly:
         assert branch.manager == leader_user
 
     def test_non_admin_cannot_create_with_manager(self, supervisor_user, team):
-        _grant(supervisor_user, 'manage_organizations')
+        _grant(supervisor_user, 'view_organizations')
+        _grant(supervisor_user, 'edit_organizations')
         client = _client_for(supervisor_user)
         resp = client.post('/api/branches/', {
             'name': '越权新建', 'code': 'YQ001', 'team': team.pk,
@@ -152,7 +191,8 @@ class TestAppointmentAdminOnly:
         assert '任命' in str(resp.data)
 
     def test_non_admin_cannot_change_team_leader(self, supervisor_user, team):
-        _grant(supervisor_user, 'manage_organizations')
+        _grant(supervisor_user, 'view_organizations')
+        _grant(supervisor_user, 'edit_organizations')
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/teams/{team.pk}', {
             'leader': supervisor_user.pk,
@@ -160,7 +200,8 @@ class TestAppointmentAdminOnly:
         assert resp.status_code == 400
 
     def test_non_admin_cannot_change_region_manager(self, supervisor_user, region):
-        _grant(supervisor_user, 'manage_organizations')
+        _grant(supervisor_user, 'view_organizations')
+        _grant(supervisor_user, 'edit_organizations')
         client = _client_for(supervisor_user)
         resp = client.patch(f'/api/regions/{region.pk}', {
             'manager': supervisor_user.pk,

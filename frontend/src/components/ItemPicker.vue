@@ -18,6 +18,10 @@ const props = defineProps<{
   stockColumn?: string
   /** 剔除消耗品（回收库来源：领出即耗用品目不得走回收库） */
   excludeConsumable?: boolean
+  /** Hide instance-managed items when the current user cannot read instance records. */
+  excludeInstance?: boolean
+  /** 当前明细已选品目，用于首次渲染时将 UUID 解析为可读标签 */
+  selectedItem?: ItemSummary | null
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
@@ -37,6 +41,11 @@ const COLUMN_LABELS: Record<string, string> = {
 const usesLedger = computed(() => Boolean(props.stockColumn))
 const columnLabel = computed(() => COLUMN_LABELS[props.stockColumn ?? ''] ?? '')
 const disabled = computed(() => usesLedger.value && !props.branch)
+const selectedItemLabel = computed(() => {
+  const selected = props.selectedItem
+  if (!selected || selected.id !== props.modelValue) return ''
+  return [selected.asset_code, selected.asset_name].filter(Boolean).join(' ')
+})
 const placeholder = computed(() => {
   if (disabled.value) return '请先选择分公司'
   return props.placeholder || '输入编号或名称检索品目'
@@ -59,6 +68,7 @@ async function remoteSearch(query: string) {
       // 台账接口输出中文键，映射为 ItemSummary；qty 供选项行展示可用数量
       options.value = ((data as any).results ?? [])
         .filter((c: any) => !(props.excludeConsumable && c.管理方式 === 'consumable'))
+        .filter((c: any) => !(props.excludeInstance && c.管理方式 === 'instance'))
         .map((c: any) => ({
           id: c.item,
           asset_code: c.资产编号,
@@ -95,7 +105,7 @@ async function remoteSearch(query: string) {
 
 /** 分公司/扣数列变化后旧选项失效，清空待重查 */
 watch(
-  () => [props.branch, props.stockColumn],
+  () => [props.branch, props.stockColumn, props.excludeInstance],
   () => {
     options.value = []
   },
@@ -122,6 +132,9 @@ function onChange(value: string) {
     @change="onChange"
     @visible-change="(open: boolean) => open && !options.length && remoteSearch('')"
   >
+    <template #label="{ label }">
+      <span>{{ selectedItemLabel || label }}</span>
+    </template>
     <ElOption v-for="opt in options" :key="opt.id" :value="opt.id" :label="`${opt.asset_code} ${opt.asset_name}`">
       <div class="item-option">
         <span class="item-code">{{ opt.asset_code }}</span>

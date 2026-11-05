@@ -127,6 +127,57 @@ class TestCategoryPermissions:
         resp = client.post(CATEGORY_URL, payload)
         assert resp.status_code == 201
 
+    def test_edit_permission_controls_all_writes_and_requires_view(self, branch, category):
+        from apps.permissions.models import OperationGrant
+        from apps.users.models import User
+
+        user = User.objects.create_user(
+            phone='13920000991', name='品目维护员', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='edit_categories')
+        client = _client_for(user)
+
+        payload = {
+            'asset_category': '电子设备',
+            'item_category': '笔记本',
+            'asset_name': '新建名称',
+            'asset_code': 'EDIT-ONLY-001',
+            'unit': '台',
+        }
+        assert client.post(CATEGORY_URL, payload, format='json').status_code == 403
+        assert client.patch(
+            f'{CATEGORY_URL}{category.id}', {'asset_name': '更新名称'}, format='json',
+        ).status_code == 403
+        assert client.delete(f'{CATEGORY_URL}{category.id}').status_code == 403
+
+        OperationGrant.objects.create(user=user, code='view_categories')
+        created = client.post(CATEGORY_URL, payload, format='json')
+        assert created.status_code == 201
+        assert client.patch(
+            f'{CATEGORY_URL}{category.id}', {'asset_name': '更新名称'}, format='json',
+        ).status_code == 200
+        assert client.delete(f'{CATEGORY_URL}{category.id}').status_code == 204
+
+    def test_legacy_create_permission_does_not_grant_writes(self, branch, category):
+        from apps.permissions.models import OperationGrant
+        from apps.users.models import User
+
+        user = User.objects.create_user(
+            phone='13920000992', name='旧品目权限', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='create_categories')
+        OperationGrant.objects.create(user=user, code='view_categories')
+        client = _client_for(user)
+
+        response = client.post(CATEGORY_URL, {
+            'asset_category': '电子设备', 'item_category': '笔记本',
+            'asset_name': '旧码不能新增', 'asset_code': 'LEGACY-CATEGORY-001', 'unit': '台',
+        }, format='json')
+
+        assert response.status_code == 403
+
 
 # ---------------------------------------------------------------------------
 # Import / Export
@@ -153,17 +204,48 @@ class TestCategoryTemplate:
         assert data['imported'] == 2
         assert Category.objects.filter(asset_code='IMP-001').exists()
 
-    def test_import_missing_required_fields(self, admin_user):
-        client = _client_for(admin_user)
-        # Row with empty required fields (asset_name is empty)
+    def test_import_requires_edit_and_view_categories(self, branch):
+        from apps.permissions.models import OperationGrant
+        from apps.users.models import User
+
+        user = User.objects.create_user(
+            phone='13920000993', name='品目导入员', password='test123456',
+            role='manager', status='active', branch=branch,
+        )
+        OperationGrant.objects.create(user=user, code='edit_categories')
+        client = _client_for(user)
         buf = _build_import_xlsx([
+            ('固定资产', '办公设备', '导入品目', 'EDIT-IMPORT-001', '台', None, ''),
+        ])
+
+        denied = client.post(f'{CATEGORY_URL}import', {'file': buf}, format='multipart')
+        assert denied.status_code == 403
+
+        OperationGrant.objects.create(user=user, code='view_categories')
+        buf = _build_import_xlsx([
+            ('固定资产', '办公设备', '导入品目', 'EDIT-IMPORT-001', '台', None, ''),
+        ])
+        allowed = client.post(f'{CATEGORY_URL}import', {'file': buf}, format='multipart')
+        assert allowed.status_code == 200
+        assert allowed.data['imported'] == 1
+
+    def test_import_error_rejects_all_rows(self, admin_user, category):
+        from apps.categories.models import Category
+        client = _client_for(admin_user)
+        original_name = category.asset_name
+        buf = _build_import_xlsx([
+            ('固定资产', '办公设备', '应回滚的更新', category.asset_code, '台', None, ''),
+            ('固定资产', '办公设备', '应回滚的新建', 'ATOMIC-VALID-001', '台', None, ''),
             ('固定资产', '办公设备', '', 'MISS-001', '台', None, ''),
         ])
         resp = client.post(f'{CATEGORY_URL}import', {'file': buf}, format='multipart')
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         data = resp.json()
         assert data['imported'] == 0
         assert len(data['errors']) >= 1
+        category.refresh_from_db()
+        assert category.asset_name == original_name
+        assert not Category.objects.filter(asset_code='ATOMIC-VALID-001').exists()
 
     def test_export_xlsx(self, admin_user, category):
         client = _client_for(admin_user)
@@ -271,7 +353,8 @@ class TestCategoryLookup:
         assert resp.status_code == 400
 
     def test_lookup_readable_by_staff(self, staff_user, category):
-        # 反查是读操作，填表需要，所有登录用户可用
+        from apps.permissions.models import OperationGrant
+        OperationGrant.objects.get_or_create(user=staff_user, code='view_categories')
         client = _client_for(staff_user)
         resp = client.get(f'{CATEGORY_URL}lookup', {'asset_code': category.asset_code})
         assert resp.status_code == 200
@@ -356,17 +439,19 @@ class TestItemDictionary:
         assert data['规格'] == '定义规格'
         assert '默认供应商' in data
 
-    def test_transfer_with_unregistered_code_rejected_with_suggestion(self, admin_user, branch):
-        """P2 起创建走 items[].item（品目 uuid，FK 即户籍保证）；编号字符串入口只剩批量导入，
-        「未登记编号拒绝 + difflib 相近提示」契约随之由导入路径承载。"""
+    def test_transfer_import_unregistered_code_rejects_file_without_suggestions(self, admin_user, branch):
+        """采购导入遇未登记品目时整份驳回，只提示行号和文件中的编号。"""
         from apps.categories.models import Category
-        # 相近编号 AST-TEST-001/002 已由 conftest 预登记，供 difflib 提示命中
+        from apps.transfers.models import Transfer
+        # AST-TEST-001 已登记，作为同文件中的有效行，验证不会部分创建单据。
         assert Category.objects.filter(asset_code='AST-TEST-001').exists()
 
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.append(['采购日期', '分公司', '资产编号', '规格型号',
                    '供应商', '采购数量', '单价', '需求部门', '备注'])
+        ws.append(['2026-08-23', branch.name, 'AST-TEST-001', '',
+                   '', 1, None, '', ''])
         ws.append(['2026-08-23', branch.name, 'AST-TEST-002X', '',
                    '', 1, None, '', ''])
         buf = io.BytesIO()
@@ -378,11 +463,13 @@ class TestItemDictionary:
         resp = client.post(
             '/api/transfers/import?type=purchase', {'file': buf}, format='multipart',
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         data = resp.json()
         assert data['imported'] == 0
         assert any('未在品目字典登记' in e for e in data['errors'])
-        assert any('是否想找' in e for e in data['errors'])
+        assert any('AST-TEST-002X' in e for e in data['errors'])
+        assert all('是否想找' not in e and 'AST-TEST-001' not in e for e in data['errors'])
+        assert not Transfer.objects.filter(action_type='purchase').exists()
 
 
 @pytest.mark.django_db

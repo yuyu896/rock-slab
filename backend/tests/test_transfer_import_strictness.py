@@ -50,20 +50,20 @@ def _seed_dictionary(db, branch):
 class TestQtyStrictness:
     def test_empty_qty_row_errors(self, admin_client):
         resp = _upload(admin_client, _purchase_file(''))
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
         assert any('数量必须为正整数' in e for e in resp.data['errors'])
 
     def test_decimal_qty_row_errors(self, admin_client):
         resp = _upload(admin_client, _purchase_file(2.9))
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
         assert any('数量必须为正整数' in e for e in resp.data['errors'])
 
     def test_zero_qty_row_errors(self, admin_client):
         # 旧实现 0 会被 falsy 判定默认成 1——严格化后报错
         resp = _upload(admin_client, _purchase_file(0))
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert any('数量必须为正整数' in e for e in resp.data['errors'])
 
     def test_integer_float_qty_accepted(self, admin_client):
@@ -90,8 +90,8 @@ class TestFingerprintAtomicClaim:
         assert Transfer.objects.filter(action_type='purchase').count() == 1
 
     def test_failed_rows_still_claim_fingerprint(self, admin_client):
-        """行级失败也占指纹（占位不回收）：同文件重传 400，改内容（新指纹）可重传。"""
+        """整份驳回也占指纹：同文件重传 400，改内容后可重传。"""
         bad = _upload(admin_client, _purchase_file(2.9))
-        assert bad.status_code == status.HTTP_200_OK and bad.data['imported'] == 0
+        assert bad.status_code == status.HTTP_400_BAD_REQUEST and bad.data['imported'] == 0
         again = _upload(admin_client, _purchase_file(2.9))
         assert again.status_code == status.HTTP_400_BAD_REQUEST

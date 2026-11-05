@@ -12,6 +12,12 @@ from apps.assets.services import ledger
 from apps.categories.models import Category
 from apps.notifications.models import ApprovalCC, Notification
 from apps.organizations.models import Branch
+from apps.reconciliation.models import (
+    ReconciliationComparison,
+    ReconciliationTask,
+    ReconciliationUploadVersion,
+)
+from apps.suppliers.models import Supplier
 from apps.transfers.models import Transfer, TransferLine, TransferLineInstance
 
 
@@ -121,9 +127,33 @@ def test_apply_deletes_targets_and_preserves_purchase_history(yangzhou, admin_us
         recipient=admin_user,
         approval_snapshot={'status': 'approved'},
     )
+    supplier = Supplier.objects.create(name='清理历史测试供应商')
+    task = ReconciliationTask.objects.create(
+        supplier=supplier,
+        period=datetime.date(2026, 9, 1),
+        created_by=admin_user,
+    )
+    version = ReconciliationUploadVersion.objects.create(
+        task=task,
+        version_number=1,
+        uploaded_by=admin_user,
+        file='',
+    )
+    reconciliation = ReconciliationComparison.objects.create(
+        version=version,
+        result_type=ReconciliationComparison.RESULT_SYSTEM_MISSING_SERIAL,
+        system_instance_id=single_target.pk,
+        system_serial_original='',
+        system_branch_id=yangzhou.pk,
+        system_branch_name=yangzhou.name,
+        system_status=FixedAsset.STATUS_IN_STOCK,
+        item_code=item1.asset_code,
+        item_name=item1.asset_name,
+    )
 
     preview = _run()
     assert '1 条审批抄送' in preview
+    assert '保留 1 条对账历史快照' in preview
 
     output = _run('--apply')
 
@@ -133,6 +163,10 @@ def test_apply_deletes_targets_and_preserves_purchase_history(yangzhou, admin_us
     assert not TransferLine.objects.filter(pk=single_line_id).exists()
     assert not Notification.objects.filter(related_object_id=single_doc.pk).exists()
     assert not ApprovalCC.objects.filter(transfer_id=single_doc.pk).exists()
+    reconciliation.refresh_from_db()
+    assert reconciliation.internal_code == 'A-a00001-YZ001-1'
+    assert reconciliation.system_instance_id == single_target.pk
+    assert reconciliation.result_type == ReconciliationComparison.RESULT_SYSTEM_MISSING_SERIAL
     assert Transfer.objects.filter(pk=multi_doc.pk).exists()
     assert multi_doc.lines.count() == 7
     multi_line.refresh_from_db()

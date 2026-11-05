@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  getUsers, createUser, updateUser, deleteUser,
+  getUsers, createUser, updateUser, deleteUser, getUserDeletePreview,
+  type UserDeleteResponsibility, type UserLegacyDraftCandidate,
 } from '@/api/users'
 import { getRegions, createRegion, updateRegion, deleteRegion } from '@/api/regions'
 import { getBranches, createBranch, updateBranch, deleteBranch } from '@/api/branches'
@@ -15,16 +16,20 @@ import { ROLE_LABELS } from '@/constants'
 import type { User, Region, Branch, Team } from '@/types'
 import { filterEmployeesByNode, sortEmployeesByRole, type NodeType } from '@/utils/orgTree'
 
-const { canManageUsers, canManageOrganizations } = usePermission()
+const { can } = usePermission()
+
+const canEditUsers = computed(() => can('view_users') && can('edit_users'))
+const canEditOrganizations = computed(() => can('view_organizations') && can('edit_organizations'))
+const canDeleteOrganizations = computed(() => can('view_organizations') && can('delete_organizations'))
 
 const regions = ref<Region[]>([])
-const company = ref<{ id: string; name: string } | null>(null)
+const company = ref<{ id: string; name: string; canCreateRegion?: boolean } | null>(null)
 const branches = ref<Branch[]>([])
 const teams = ref<Team[]>([])
 const users = ref<User[]>([])
 const loading = ref(false)
 
-interface SelectedNode { type: NodeType; id: string; rawId: string; label: string }
+interface SelectedNode { type: NodeType; id: string; rawId: string; label: string; canManage?: boolean; canCreateChild?: boolean }
 const selectedNode = ref<SelectedNode | null>(null)
 const expandedNodes = ref<Set<string>>(new Set(['group-root']))
 const searchKeyword = ref('')
@@ -35,6 +40,8 @@ interface TreeNode {
   label: string
   rawId: string
   children: TreeNode[]
+  canManage?: boolean
+  canCreateChild?: boolean
 }
 
 const orgTree = computed<TreeNode[]>(() => {
@@ -43,13 +50,18 @@ const orgTree = computed<TreeNode[]>(() => {
       .filter(t => t.region === r.id)
       .map(t => ({
         key: `team-${t.id}`, type: 'team', label: t.name, rawId: t.id,
+        canManage: t.canManage, canCreateChild: t.canManage,
         children: sortBranchesByName(branches.value.filter(b => b.team === t.id))
-          .map(b => ({ key: `branch-${b.id}`, type: 'branch', label: b.name, rawId: b.id, children: [] })),
+          .map(b => ({ key: `branch-${b.id}`, type: 'branch', label: b.name, rawId: b.id, canManage: true, children: [] })),
       }))
-    return { key: `region-${r.id}`, type: 'region', label: `${r.name}（${r.code}）`, rawId: r.id, children: teamNodes }
+    return {
+      key: `region-${r.id}`, type: 'region', label: `${r.name}（${r.code}）`, rawId: r.id,
+      canManage: r.canManage, canCreateChild: r.canManage, children: teamNodes,
+    }
   })
   return [{
-    key: 'group-root', type: 'group', label: company.value?.name || '启航集团', rawId: '', children: regionNodes,
+    key: 'group-root', type: 'group', label: company.value?.name || '启航集团', rawId: '',
+    canCreateChild: company.value?.canCreateRegion, children: regionNodes,
   }]
 })
 
@@ -69,7 +81,10 @@ function nodeCount(node: TreeNode): number {
 
 function selectNode(node: TreeNode) {
   searchKeyword.value = ''
-  selectedNode.value = { type: node.type, id: node.key, rawId: node.rawId, label: node.label }
+  selectedNode.value = {
+    type: node.type, id: node.key, rawId: node.rawId, label: node.label,
+    canManage: node.canManage, canCreateChild: node.canCreateChild,
+  }
 }
 function toggleExpand(key: string) {
   const s = new Set(expandedNodes.value)
@@ -77,12 +92,25 @@ function toggleExpand(key: string) {
   expandedNodes.value = s
 }
 
+function canManageSelectedOrganization() {
+  return selectedNode.value?.canManage === true
+}
+
 // ===== 弹窗（组织 / 员工 通用） =====
 type EditType = 'region' | 'team' | 'branch' | 'user'
-const showModal = ref(false)
 const saving = ref(false)
 const editingItem = ref<Record<string, any> | null>(null)
 const editingEmployee = ref<Record<string, any> | null>(null)
+const deletingEmployee = ref<{
+  id: string
+  name: string
+  responsibilities: UserDeleteResponsibility[]
+  successors: Record<string, string>
+  legacyDrafts: UserLegacyDraftCandidate[]
+  deleteLegacyDrafts: Record<string, boolean>
+  legacyDraftsReviewed: boolean
+} | null>(null)
+const deletingEmployeeSaving = ref(false)
 
 // 存量退役岗位（supervisor/staff）：编辑时下拉需能显示当前值，追加禁用选项
 const retiredRoleLabel = computed(() => {
@@ -127,42 +155,20 @@ function addItem(type: EditType) {
   if (type === 'team') base.region = currentRegionId.value
   if (type === 'branch') base.team = currentTeamId.value
   editingItem.value = base
-  showModal.value = true
 }
 
-function editRegion(r: Region | undefined) { if (!r) return; editingItem.value = { type: 'region', isNew: false, id: r.id, name: r.name, code: r.code, manager: r.manager, status: r.status } ; showModal.value = true }
-function editTeam(t: Team | undefined) { if (!t) return; editingItem.value = { type: 'team', isNew: false, id: t.id, name: t.name, region: t.region, leader: t.leader, status: t.status } ; showModal.value = true }
-function editBranch(b: Branch | undefined) { if (!b) return; editingItem.value = { type: 'branch', isNew: false, id: b.id, name: b.name, code: b.code, team: b.team, address: b.address, phone: b.phone, manager: b.manager, status: b.status } ; showModal.value = true }
+function editRegion(r: Region | undefined) { if (!r) return; editingItem.value = { type: 'region', isNew: false, id: r.id, name: r.name, code: r.code, manager: r.manager, status: r.status } }
+function editTeam(t: Team | undefined) { if (!t) return; editingItem.value = { type: 'team', isNew: false, id: t.id, name: t.name, region: t.region, leader: t.leader, status: t.status } }
+function editBranch(b: Branch | undefined) { if (!b) return; editingItem.value = { type: 'branch', isNew: false, id: b.id, name: b.name, code: b.code, team: b.team, address: b.address, phone: b.phone, manager: b.manager, status: b.status } }
 function editUser(u: User) {
   editingEmployee.value = { isNew: false, id: u.id, name: u.name, phone: u.phone, role: u.role, branch: u.branch || '', status: u.status }
 }
 
-// ===== 移动员工（区域 → 行政组 → 分公司 三级级联导航，仅写分公司） =====
-const moveState = ref<{ employee: User; region: string; team: string; branch: string } | null>(null)
-const moveTeamOptions = computed(() => {
-  const r = moveState.value?.region
-  return r ? teams.value.filter(t => t.region === r) : []
-})
-const moveBranchOptions = computed(() => {
-  const s = moveState.value
-  if (!s?.team) return []
-  return branches.value.filter(b => b.team === s.team)
-})
-function regionOfBranch(branchId?: string): string {
-  if (!branchId) return ''
-  const teamId = branches.value.find(b => b.id === branchId)?.team
-  return teams.value.find(t => t.id === teamId)?.region || ''
-}
+// Branch choices are already limited to the operator's writable scope.
+const moveState = ref<{ employee: User; branch: string } | null>(null)
 function startMove(emp: User) {
-  moveState.value = { employee: emp, region: regionOfBranch(emp.branch), team: '', branch: '' }
+  moveState.value = { employee: emp, branch: emp.branch || '' }
 }
-// 切换区域/行政组时清空下级，避免提交到不匹配的目标
-watch(() => moveState.value?.region, () => {
-  if (moveState.value) { moveState.value.team = ''; moveState.value.branch = '' }
-})
-watch(() => moveState.value?.team, () => {
-  if (moveState.value) moveState.value.branch = ''
-})
 async function confirmMove() {
   const s = moveState.value
   if (!s?.branch) { ElMessage.warning('请选择目标分公司'); return }
@@ -198,7 +204,6 @@ async function saveItem() {
       item.isNew ? await createBranch(payload) : await updateBranch(item.id, payload)
     }
     ElMessage.success(item.isNew ? '创建成功' : '保存成功')
-    showModal.value = false
     editingItem.value = null
     await loadAll()
   } catch (e) {
@@ -234,6 +239,10 @@ async function saveEmployee() {
 
 async function removeItem(item: Region | Team | Branch | User, type: EditType) {
   const label = (item as any).name || (item as any).phone
+  if (type === 'user') {
+    await beginDeleteEmployee(item as User)
+    return
+  }
   try {
     await ElMessageBox.confirm(`确定删除「${label}」？`, '删除确认', { type: 'warning' })
   } catch { return }
@@ -241,7 +250,6 @@ async function removeItem(item: Region | Team | Branch | User, type: EditType) {
     if (type === 'region') await deleteRegion(item.id)
     else if (type === 'team') await deleteTeam(item.id)
     else if (type === 'branch') await deleteBranch(item.id)
-    else await deleteUser(item.id)
     ElMessage.success('已删除')
     await loadAll()
   } catch (e) {
@@ -249,15 +257,119 @@ async function removeItem(item: Region | Team | Branch | User, type: EditType) {
   }
 }
 
+async function beginDeleteEmployee(user: User) {
+  try {
+    const { data } = await getUserDeletePreview(user.id)
+    const legacyDrafts = data.legacy_draft_candidates || []
+    if (data.responsibilities.length || legacyDrafts.length) {
+      deletingEmployee.value = {
+        id: user.id,
+        name: user.name,
+        responsibilities: data.responsibilities,
+        successors: {},
+        legacyDrafts,
+        deleteLegacyDrafts: Object.fromEntries(legacyDrafts.map(row => [row.id, false])),
+        legacyDraftsReviewed: false,
+      }
+      return
+    }
+    await ElMessageBox.confirm(
+      `删除后将永久移除「${user.name}」的员工账号，且不能恢复。`,
+      '删除员工确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' },
+    )
+    await deleteUser(user.id)
+    ElMessage.success('员工账号已删除')
+    await loadAll()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(handleApiError(error))
+  }
+}
+
+async function confirmDeleteEmployee() {
+  const state = deletingEmployee.value
+  if (!state || deletingEmployeeSaving.value) return
+  if (state.responsibilities.some(row => !state.successors[row.key] || !row.candidates.length)) return
+  if (state.legacyDrafts.length && !state.legacyDraftsReviewed) return
+  deletingEmployeeSaving.value = true
+  try {
+    await deleteUser(state.id, state.responsibilities.map(row => ({
+      node_type: row.node_type,
+      node_id: row.id,
+      user_id: state.successors[row.key],
+    })), state.legacyDrafts.map(row => row.id), state.legacyDrafts
+      .filter(row => state.deleteLegacyDrafts[row.id])
+      .map(row => row.id))
+    deletingEmployee.value = null
+    ElMessage.success('员工账号已删除')
+    await loadAll()
+  } catch (error) {
+    ElMessage.error(handleApiError(error))
+  } finally {
+    deletingEmployeeSaving.value = false
+  }
+}
+
+function removeSelectedOrganization() {
+  const node = selectedNode.value
+  if (!node) return
+  if (node.type === 'region') {
+    const item = regions.value.find(region => region.id === node.rawId)
+    if (item) void removeItem(item, 'region')
+  } else if (node.type === 'team') {
+    const item = teams.value.find(team => team.id === node.rawId)
+    if (item) void removeItem(item, 'team')
+  } else if (node.type === 'branch') {
+    const item = branches.value.find(branch => branch.id === node.rawId)
+    if (item) void removeItem(item, 'branch')
+  }
+}
+
 async function loadAll() {
   loading.value = true
   try {
-    const [c, r, b, t, u] = await Promise.all([getCompany(), getRegions(), getBranches(), getTeams(), getUsers()])
-    company.value = c.data
-    regions.value = r.data
-    branches.value = b.data
-    teams.value = t.data
-    users.value = u.data
+    const canViewOrganizations = can('view_organizations')
+    const canViewUsers = can('view_users')
+    const canWriteOrganizations = canEditOrganizations.value || canDeleteOrganizations.value
+    const canWriteUsers = canEditUsers.value
+    const needsBranchOptions = canEditUsers.value
+    const [c, r, b, t, u] = await Promise.all([
+      canWriteOrganizations
+        ? getCompany({ scope: 'tree' })
+        : canViewOrganizations ? getCompany() : Promise.resolve(null),
+      canViewOrganizations
+        ? getRegions()
+        : canWriteOrganizations ? getRegions({ scope: 'tree' }) : Promise.resolve(null),
+      canViewOrganizations
+        ? getBranches()
+        : canWriteOrganizations ? getBranches({ scope: 'tree' })
+          : needsBranchOptions ? getBranches({ scope: 'write' }) : Promise.resolve(null),
+      canViewOrganizations
+        ? getTeams()
+        : canWriteOrganizations ? getTeams({ scope: 'tree' }) : Promise.resolve(null),
+      canViewUsers
+        ? getUsers()
+        : canWriteUsers ? getUsers({ scope: 'write' }) : Promise.resolve(null),
+    ])
+    const companyData = c?.data as (typeof company.value & { can_create_region?: boolean }) | null | undefined
+    company.value = companyData ? {
+      ...companyData,
+      canCreateRegion: companyData.canCreateRegion ?? companyData.can_create_region,
+    } : null
+    regions.value = (r?.data ?? []).map(region => ({
+      ...region,
+      canManage: region.canManage ?? (region as typeof region & { can_manage?: boolean }).can_manage,
+    }))
+    branches.value = b?.data ?? []
+    teams.value = (t?.data ?? []).map(team => ({
+      ...team,
+      canManage: team.canManage ?? (team as typeof team & { can_manage?: boolean }).can_manage,
+    }))
+    users.value = u?.data ?? []
+    if (!canViewOrganizations && orgTree.value[0] && !selectedNode.value) {
+      selectNode(orgTree.value[0])
+    }
   } catch (e) {
     ElMessage.error(handleApiError(e))
   } finally {
@@ -289,9 +401,15 @@ async function saveCompany() {
   }
 }
 
-function getBranchName(id?: string) { return id ? (branches.value.find(b => b.id === id)?.name || '-') : '-' }
-function getTeamName(id?: string) { return id ? (teams.value.find(t => t.id === id)?.name || '-') : '-' }
-function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id === id)?.name || '-') : '-' }
+function getBranchName(id?: string, fallback?: string) {
+  return id ? (branches.value.find(b => b.id === id)?.name || fallback || '-') : '-'
+}
+function getTeamName(id?: string) {
+  return id ? (teams.value.find(t => t.id === id)?.name || branches.value.find(b => b.team === id)?.teamName || '-') : '-'
+}
+function getRegionName(id?: string) {
+  return id ? (regions.value.find(r => r.id === id)?.name || branches.value.find(b => b.region === id)?.regionName || '-') : '-'
+}
 </script>
 
 <template>
@@ -393,26 +511,27 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
           </template>
         </div>
         <div class="header-actions">
-          <template v-if="!searchKeyword && selectedNode && canManageOrganizations">
+          <template v-if="!searchKeyword && selectedNode">
             <!-- 集团根：编辑集团 + 新增区域 -->
-            <button v-if="selectedNode.type === 'group'" class="action-btn" @click="startEditCompany">编辑集团</button>
-            <button v-if="selectedNode.type === 'group'" class="action-btn primary" @click="addItem('region')">+ 区域</button>
+            <button v-if="selectedNode.type === 'group' && canEditOrganizations && company?.canCreateRegion" class="action-btn" @click="startEditCompany">编辑集团</button>
+            <button v-if="selectedNode.type === 'group' && canEditOrganizations && selectedNode.canCreateChild" class="action-btn primary" @click="addItem('region')">+ 区域</button>
             <!-- 区域：编辑区域 + 新增行政组 -->
-            <button v-if="selectedNode.type === 'region'" class="action-btn" @click="editRegion(regions.find(r => r.id === selectedNode?.rawId))">编辑区域</button>
-            <button v-if="selectedNode.type === 'region'" class="action-btn primary" @click="addItem('team')">+ 行政组</button>
+            <button v-if="selectedNode.type === 'region' && canEditOrganizations && canManageSelectedOrganization()" class="action-btn" @click="editRegion(regions.find(r => r.id === selectedNode?.rawId))">编辑区域</button>
+            <button v-if="selectedNode.type === 'region' && canEditOrganizations && canManageSelectedOrganization()" class="action-btn primary" @click="addItem('team')">+ 行政组</button>
             <!-- 行政组：编辑组 + 新增分公司 -->
-            <button v-if="selectedNode.type === 'team' && selectedNode.rawId" class="action-btn" @click="editTeam(teams.find(t => t.id === selectedNode?.rawId))">编辑行政组</button>
-            <button v-if="selectedNode.type === 'team' && selectedNode.rawId" class="action-btn primary" @click="addItem('branch')">+ 分公司</button>
+            <button v-if="selectedNode.type === 'team' && selectedNode.rawId && canEditOrganizations && canManageSelectedOrganization()" class="action-btn" @click="editTeam(teams.find(t => t.id === selectedNode?.rawId))">编辑行政组</button>
+            <button v-if="selectedNode.type === 'team' && selectedNode.rawId && canEditOrganizations && canManageSelectedOrganization()" class="action-btn primary" @click="addItem('branch')">+ 分公司</button>
             <!-- 分公司：编辑分公司 -->
-            <button v-if="selectedNode.type === 'branch'" class="action-btn" @click="editBranch(branches.find(b => b.id === selectedNode?.rawId))">编辑分公司</button>
+            <button v-if="selectedNode.type === 'branch' && canEditOrganizations && canManageSelectedOrganization()" class="action-btn" @click="editBranch(branches.find(b => b.id === selectedNode?.rawId))">编辑分公司</button>
+            <button v-if="selectedNode.type !== 'group' && canDeleteOrganizations && canManageSelectedOrganization()" class="action-btn danger" @click="removeSelectedOrganization">删除节点</button>
           </template>
         </div>
       </div>
 
       <!-- 员工操作栏 -->
-      <div v-if="!searchKeyword && selectedNode && canManageUsers" class="employee-actions">
+      <div v-if="!searchKeyword && selectedNode && canEditUsers" class="employee-actions">
         <button class="action-btn primary" @click="addItem('user')">+ 创建员工</button>
-        <span class="actions-hint">点击员工行可编辑</span>
+        <span class="actions-hint">点击员工行可编辑或移动</span>
       </div>
 
       <!-- 员工列表 -->
@@ -421,17 +540,22 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
         <table v-else class="employee-table">
           <thead>
             <tr>
-              <th>姓名</th><th>职务</th><th>所属组织</th><th>账号</th><th>所属分公司</th><th v-if="canManageUsers">操作</th>
+              <th>姓名</th>
+              <th v-if="can('view_users')">职务</th>
+              <th v-if="can('view_users')">所属组织</th>
+              <th v-if="can('view_users')">账号</th>
+              <th>所属分公司</th>
+              <th v-if="canEditUsers">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="emp in employees" :key="emp.id">
-              <td :class="{ clickable: canManageUsers }" @click="canManageUsers && editUser(emp)">{{ emp.name }}</td>
-              <td>{{ ROLE_LABELS[emp.role] || emp.role }}</td>
-              <td>{{ getTeamName(branches.find(b => b.id === emp.branch)?.team) }}</td>
-              <td>{{ emp.phone }}</td>
-              <td>{{ getBranchName(emp.branch) }}</td>
-              <td v-if="canManageUsers">
+              <td :class="{ clickable: canEditUsers }" @click="canEditUsers && editUser(emp)">{{ emp.name }}</td>
+              <td v-if="can('view_users')">{{ ROLE_LABELS[emp.role] || emp.role }}</td>
+              <td v-if="can('view_users')">{{ getTeamName(branches.find(b => b.id === emp.branch)?.team) }}</td>
+              <td v-if="can('view_users')">{{ emp.phone }}</td>
+              <td>{{ getBranchName(emp.branch, emp.branchName) }}</td>
+              <td v-if="canEditUsers">
                 <button class="row-btn" @click="editUser(emp)">编辑</button>
                 <button class="row-btn" @click="startMove(emp)">移动</button>
                 <button class="row-btn danger" @click="removeItem(emp, 'user')">删除</button>
@@ -445,6 +569,45 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
       </div>
       </template>
     </main>
+
+    <div v-if="deletingEmployee" class="modal-mask" @click.self="deletingEmployee = null">
+      <div class="modal employee-delete-modal">
+        <div class="modal-header">
+          <h3>删除员工账号</h3>
+          <button class="modal-close" @click="deletingEmployee = null">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="delete-warning">删除「{{ deletingEmployee.name }}」后，账号将被永久移除。请先为其负责的组织节点指定在职接任人。</p>
+          <div v-for="responsibility in deletingEmployee.responsibilities" :key="responsibility.key" class="form-row">
+            <label>{{ responsibility.type }}：{{ responsibility.name }} <span class="req">*</span></label>
+            <select v-model="deletingEmployee.successors[responsibility.key]" class="form-input">
+              <option value="">请选择接任人</option>
+              <option v-for="candidate in responsibility.candidates" :key="candidate.id" :value="candidate.id">{{ candidate.name }}</option>
+            </select>
+            <small v-if="!responsibility.candidates.length" class="delete-error">该节点没有符合条件的在职接任人，请先安排负责人。</small>
+          </div>
+          <section v-if="deletingEmployee.legacyDrafts.length" class="legacy-draft-review">
+            <p class="delete-warning">以下旧草稿没有账号关联，只能根据创建人姓名或手机号初步匹配。请逐条核对，勾选需要随员工一起删除的单据；未勾选的单据会保留。</p>
+            <label v-for="draft in deletingEmployee.legacyDrafts" :key="draft.id" class="legacy-draft-row">
+              <input v-model="deletingEmployee.deleteLegacyDrafts[draft.id]" type="checkbox" />
+              <span>{{ draft.document_number }} · {{ draft.action_type }} · {{ draft.date || '日期未知' }} · 创建人记录：{{ draft.creator_snapshot }}</span>
+            </label>
+            <label class="legacy-drafts-reviewed">
+              <input v-model="deletingEmployee.legacyDraftsReviewed" type="checkbox" />
+              我已逐条核对这些旧草稿
+            </label>
+          </section>
+        </div>
+        <div class="modal-footer">
+          <button class="action-btn" @click="deletingEmployee = null">取消</button>
+          <button
+            class="action-btn danger"
+            :disabled="deletingEmployeeSaving || deletingEmployee.responsibilities.some(row => !row.candidates.length || !deletingEmployee?.successors[row.key]) || (deletingEmployee.legacyDrafts.length > 0 && !deletingEmployee.legacyDraftsReviewed)"
+            @click="confirmDeleteEmployee"
+          >{{ deletingEmployeeSaving ? '删除中…' : '确认删除' }}</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 通用弹窗：新增/编辑 组织/员工 -->
     <div v-if="editingItem" class="modal-mask" @click.self="editingItem = null">
@@ -497,7 +660,7 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
           </div>
         </div>
         <div class="modal-footer">
-          <button class="action-btn" :disabled="saving" @click="showModal = false">取消</button>
+          <button class="action-btn" :disabled="saving" @click="editingItem = null">取消</button>
           <button class="action-btn primary" :disabled="saving" @click="saveItem">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
@@ -516,29 +679,12 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
             <div class="move-employee-name">{{ moveState.employee.name }}（{{ moveState.employee.phone }}）</div>
           </div>
           <div class="form-row">
-            <label>目标区域 <span class="req">*</span></label>
-            <select v-model="moveState.region" class="form-input">
-              <option value="">请选择</option>
-              <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>目标行政组 <span class="req">*</span></label>
-            <select v-model="moveState.team" class="form-input">
-              <option value="">请选择</option>
-              <option v-for="t in moveTeamOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
-          </div>
-          <div class="form-row">
             <label>目标分公司 <span class="req">*</span></label>
             <select v-model="moveState.branch" class="form-input">
               <option value="">请选择</option>
-              <option v-for="b in moveBranchOptions" :key="b.id" :value="b.id">{{ b.name }}</option>
+              <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
             </select>
           </div>
-          <p v-if="moveState?.branch" class="move-team-hint">
-            将归属行政组：<strong>{{ getTeamName(branches.find(b => b.id === moveState?.branch)?.team) }}</strong>
-          </p>
         </div>
         <div class="modal-footer">
           <button class="action-btn" :disabled="saving" @click="moveState = null">取消</button>
@@ -617,7 +763,7 @@ function getRegionName(id?: string) { return id ? (regions.value.find(r => r.id 
 .empty-main { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); }
 .employee-table { width: 100%; border-collapse: collapse; background: var(--color-bg-card); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); }
 .employee-table th, .employee-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--color-border-light); font-size: 0.9rem; }
-.employee-table th { background: var(--color-bg-page); color: var(--color-text-secondary); font-weight: 600; }
+.employee-table th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-table-header); color: var(--color-text-secondary); font-weight: 600; }
 .employee-table tbody tr:hover { background: var(--color-primary-50); }
 .employee-table tbody tr:last-child td { border-bottom: none; }
 td.clickable { cursor: pointer; color: var(--color-primary-600); font-weight: 500; }
@@ -629,6 +775,9 @@ td.clickable { cursor: pointer; color: var(--color-primary-600); font-weight: 50
 /* 弹窗 */
 .modal-mask { position: fixed; inset: 0; background: oklch(0.2 0.02 250 / 0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .modal { width: 460px; max-width: 92vw; max-height: 88vh; overflow-y: auto; background: var(--color-bg-card); border-radius: 10px; box-shadow: var(--shadow-xl); }
+.employee-delete-modal { width: min(560px, calc(100vw - 32px)); }
+.delete-warning { margin: 0 0 6px; line-height: 1.5; }
+.delete-error { color: var(--color-danger); }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--color-border-light); }
 .modal-header h3 { margin: 0; font-size: 1.05rem; }
 .modal-close { border: none; background: none; font-size: 1.4rem; cursor: pointer; color: var(--color-text-tertiary); line-height: 1; }

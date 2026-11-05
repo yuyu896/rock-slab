@@ -15,6 +15,10 @@ export function createDepartment(data: { name: string }) {
   return request.post<Department>('/api/departments/', data)
 }
 
+export function updateDepartment(id: string, data: { name: string }) {
+  return request.patch<Department>(`/api/departments/${id}`, data)
+}
+
 export function deleteDepartment(id: string) {
   return request.delete(`/api/departments/${id}`)
 }
@@ -22,4 +26,9 @@ export function deleteDepartment(id: string) {
 /** 返回全集团部门选项（表单下拉；登录即可） */
 export function getDepartmentOptions() {
   return request.get<Department[]>('/api/departments/options')
+}
+
+/** 换人表单专用部门选项，仅返回 ID 和名称。 */
+export function getAssigneeDepartmentOptions() {
+  return request.get<Department[]>('/api/departments/assignee-options')
 }

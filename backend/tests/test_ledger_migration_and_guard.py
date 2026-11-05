@@ -73,6 +73,56 @@ class TestCheckLedgerConsistency:
         code, _ = _check()
         assert code == 0
 
+    def test_historical_assignment_uses_quantity_rule_after_consumable_migration(self, branch):
+        from datetime import date, timedelta
+        from django.utils import timezone
+        from apps.assets.models import AssetStock
+        from apps.categories.models import Category, ConsumableMigrationRun
+        from apps.transfers.models import Transfer, TransferLine
+
+        item = _item('CK-MIGRATED-001')
+        transfer = Transfer.objects.create(**{
+            '\u8c03\u62e8\u65e5\u671f': date(2026, 10, 1),
+            '\u8c03\u51fa\u5206\u516c\u53f8': branch.name,
+            'from_branch': branch,
+            'action_type': 'assign',
+            '\u5ba1\u6279\u72b6\u6001': '\u5df2\u901a\u8fc7',
+        })
+        TransferLine.objects.create(
+            transfer=transfer, item=item,
+            **{'\u884c\u53f7': 1, '\u6570\u91cf': 5},
+        )
+        Transfer.objects.filter(pk=transfer.pk).update(
+            created_at=timezone.now() - timedelta(days=1),
+        )
+        item.management_type = Category.MANAGEMENT_CONSUMABLE
+        item.save(update_fields=['management_type'])
+        AssetStock.objects.create(branch=branch, item=item, **{'\u5728\u7528\u6570\u91cf': 0})
+        LedgerAdjustment.objects.create(
+            branch=branch, item=item,
+            **{
+                '\u76ee\u6807\u5217': LedgerAdjustment.TARGET_IN_USE,
+                '\u53d8\u52a8\u91cf': -5,
+                '\u4e8b\u7531': '\u6d88\u8017\u54c1\u8fc1\u79fb test',
+            },
+        )
+        LedgerAdjustment.objects.create(
+            branch=branch, item=item,
+            **{
+                '\u76ee\u6807\u5217': LedgerAdjustment.TARGET_STOCK,
+                '\u53d8\u52a8\u91cf': 5,
+                '\u4e8b\u7531': '\u671f\u521d test',
+            },
+        )
+        ConsumableMigrationRun.objects.create(
+            source_filename='codes.xlsx', source_sha256='0' * 64,
+            asset_codes=[item.asset_code], snapshot={},
+        )
+
+        code, text = _check()
+
+        assert code == 0, text
+
 
 # ---------------------------------------------------------------------------
 # 架构测试：唯一写入口

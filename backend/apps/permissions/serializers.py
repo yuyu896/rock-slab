@@ -2,7 +2,7 @@ from rest_framework import serializers
 from apps.organizations.models import Region, Branch, Team
 from apps.users.models import User
 from .models import ManagementScope, OperationGrant
-from .operations import OPERATIONS
+from .operations import LEGACY_OPERATIONS, OPERATION_CATALOG, OPERATIONS
 
 
 class OperationGrantSerializer(serializers.ModelSerializer):
@@ -14,7 +14,7 @@ class OperationGrantSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def get_label(self, obj):
-        return OPERATIONS.get(obj.code, obj.code)
+        return OPERATIONS.get(obj.code, LEGACY_OPERATIONS.get(obj.code, obj.code))
 
 
 class ManagementScopeSerializer(serializers.ModelSerializer):
@@ -75,7 +75,10 @@ class UserPermissionSummarySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'phone', 'role', 'management_scopes', 'operations']
 
     def get_operations(self, obj):
-        return list(obj.operation_grants.values_list('code', flat=True))
+        if obj.role == 'admin':
+            return [item['code'] for item in OPERATION_CATALOG]
+        catalog_codes = [item['code'] for item in OPERATION_CATALOG]
+        return list(obj.operation_grants.filter(code__in=catalog_codes).values_list('code', flat=True))
 
 
 class OperationCatalogSerializer(serializers.Serializer):

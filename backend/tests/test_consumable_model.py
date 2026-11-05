@@ -105,8 +105,8 @@ class TestConsumableDocConstraints:
             '调拨日期': '2026-08-27', '调入分公司': branch.name,
             'items': [{'item': item_id('CM-5'), '数量': 1}],
         }, format='json')
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert '消耗品无可归还' in str(resp.data['detail'])
+        assert resp.status_code == status.HTTP_410_GONE
+        assert '归还功能已停用' in str(resp.data['detail'])
 
     def test_purchase_and_transfer_work(self, authenticated_client, branch, second_branch, item_id):
         _seed(branch, 'CM-6', stock=0)

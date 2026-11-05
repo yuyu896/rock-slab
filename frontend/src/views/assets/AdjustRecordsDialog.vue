@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { getLedgerAdjustments } from '@/api/assets'
 import { getBranches } from '@/api/branches'
 import { handleApiError } from '@/utils/request'
@@ -7,9 +7,12 @@ import { ElMessage } from 'element-plus'
 import type { LedgerAdjustment } from '@/types'
 import BasePagination from '@/components/BasePagination.vue'
 import BranchFilterSelect from '@/components/BranchFilterSelect.vue'
+import { usePermission } from '@/hooks/usePermission'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
+const { can } = usePermission()
+const canViewOrganizations = computed(() => can('view_organizations'))
 
 const filters = ref({ branch: [] as string[], assetCode: '', dateFrom: '', dateTo: '' })
 const branchOptions = ref<{ value: string; label: string }[]>([])
@@ -26,7 +29,7 @@ watch(() => props.visible, (v) => {
 }, { immediate: true })
 
 async function fetchBranches() {
-  if (branchOptions.value.length > 0) return
+  if (!canViewOrganizations.value || branchOptions.value.length > 0) return
   try {
     const { data } = await getBranches()
     branchOptions.value = data.map((b: any) => ({ value: String(b.id), label: b.name }))
@@ -41,7 +44,7 @@ async function fetchRows() {
     const { data } = await getLedgerAdjustments({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      branch: filters.value.branch.length ? filters.value.branch.join(',') : undefined,
+      branch: canViewOrganizations.value && filters.value.branch.length ? filters.value.branch.join(',') : undefined,
       assetCode: filters.value.assetCode.trim() || undefined,
       dateFrom: filters.value.dateFrom || undefined,
       dateTo: filters.value.dateTo || undefined,
@@ -90,7 +93,7 @@ function fmtColumn(value: string) {
 
       <div class="modal-body">
         <div class="filter-row">
-          <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
+          <BranchFilterSelect v-if="canViewOrganizations" v-model="filters.branch" :options="branchOptions" />
           <input v-model="filters.assetCode" type="text" class="filter-input" placeholder="资产编号" @keyup.enter="applyFilters" />
           <input v-model="filters.dateFrom" type="date" class="filter-input date" aria-label="开始日期" />
           <span class="date-sep">至</span>
@@ -193,7 +196,7 @@ function fmtColumn(value: string) {
   text-align: left; padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm); font-weight: 500; color: var(--color-text-secondary);
   border-bottom: 1px solid var(--color-border); white-space: nowrap;
-  position: sticky; top: 0; background: var(--color-bg-elevated); z-index: 1;
+  position: sticky; top: 0; background: var(--color-bg-table-header); z-index: 1;
 }
 .data-table td {
   padding: var(--space-2) var(--space-3); font-size: var(--text-sm);

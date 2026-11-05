@@ -1,6 +1,6 @@
 import difflib
 import io
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -26,13 +26,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
     filterset_class = CategoryFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
     pagination_class = StandardPagination
-    # 创建/更新/删除/导入需 manage_dictionary（品目字典）；读取无声明即放行
+    # All maintenance actions share edit_categories and require dictionary read access.
     required_operations = {
-        'create': 'manage_dictionary',
-        'update': 'manage_dictionary',
-        'partial_update': 'manage_dictionary',
-        'destroy': 'manage_dictionary',
-        'import_excel': 'manage_dictionary',
+        'list': 'view_categories',
+        'retrieve': 'view_categories',
+        'lookup': 'view_categories',
+        'export_excel': 'view_categories',
+        'download_template': ('edit_categories', 'view_categories'),
+        'create': ('edit_categories', 'view_categories'),
+        'update': ('edit_categories', 'view_categories'),
+        'partial_update': ('edit_categories', 'view_categories'),
+        'destroy': ('edit_categories', 'view_categories'),
+        'import_excel': ('edit_categories', 'view_categories'),
     }
 
     @action(detail=False, methods=['get'], url_path='lookup')
@@ -186,6 +191,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return response
 
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser], url_path='import')
+    @transaction.atomic
     def import_excel(self, request):
         """Excel 批量导入分类：sheet 名定管理方式。
 
@@ -240,6 +246,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         total_imported = 0
         all_errors = []
         sheet_stats = []
+        import_savepoint = transaction.savepoint()
 
         for ws, management_type in targets:
             imported = 0
@@ -256,29 +263,32 @@ class CategoryViewSet(viewsets.ModelViewSet):
                         errors.append(f'第 {i} 行: 必填字段不能为空')
                         continue
 
-                    existing = Category.objects.filter(asset_code=asset_code).first()
-                    if existing and existing.management_type != management_type:
-                        locked, reason = management_stock_status(existing)
-                        if locked:
-                            label = Category.MANAGEMENT_LABELS.get(management_type, management_type)
-                            errors.append(
-                                f'第 {i} 行: {asset_code} 已有存量（{reason}），'
-                                f'管理方式不可改为「{label}」，已跳过'
-                            )
-                            continue
+                    with transaction.atomic():
+                        existing = Category.objects.select_for_update().filter(
+                            asset_code=asset_code,
+                        ).first()
+                        if existing and existing.management_type != management_type:
+                            locked, reason = management_stock_status(existing)
+                            if locked:
+                                label = Category.MANAGEMENT_LABELS.get(management_type, management_type)
+                                errors.append(
+                                    f'第 {i} 行: {asset_code} 已有存量（{reason}），'
+                                    f'管理方式不可改为「{label}」，已跳过'
+                                )
+                                continue
 
-                    Category.objects.update_or_create(
-                        asset_code=asset_code,
-                        defaults={
-                            'asset_category': asset_category,
-                            'item_category': item_category,
-                            'asset_name': asset_name,
-                            'unit': unit,
-                            'management_type': management_type,
-                            'warning_line': int(row[5]) if row[5] else None,
-                            'remarks': str(row[6] or ''),
-                        },
-                    )
+                        Category.objects.update_or_create(
+                            asset_code=asset_code,
+                            defaults={
+                                'asset_category': asset_category,
+                                'item_category': item_category,
+                                'asset_name': asset_name,
+                                'unit': unit,
+                                'management_type': management_type,
+                                'warning_line': int(row[5]) if row[5] else None,
+                                'remarks': str(row[6] or ''),
+                            },
+                        )
                     imported += 1
                 except Exception as e:
                     errors.append(f'第 {i} 行: {str(e)}')
@@ -292,6 +302,21 @@ class CategoryViewSet(viewsets.ModelViewSet):
             total_imported += imported
             all_errors.extend(errors)
 
+        if all_errors:
+            transaction.savepoint_rollback(import_savepoint)
+            for sheet in sheet_stats:
+                sheet['imported'] = 0
+            wb.close()
+            return Response({
+                'detail': '文件存在错误，已驳回，未导入任何品目',
+                'imported': 0,
+                'errors': all_errors,
+                'sheets': sheet_stats,
+                'skipped_sheets': skipped_sheets,
+                'fallback': fallback,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        transaction.savepoint_commit(import_savepoint)
         wb.close()
         return Response({
             'imported': total_imported,

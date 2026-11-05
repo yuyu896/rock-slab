@@ -1,15 +1,21 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import TransferDetailLayout from './components/TransferDetailLayout.vue'
+import TransferLifecycleActions from './components/TransferLifecycleActions.vue'
 import { draftsFromLines, draftsToItems, type LineDraft } from './components/lineDrafts'
 import TransferLinesEditor from './components/TransferLinesEditor.vue'
 import { getTransfer, updateTransfer, resubmitTransfer, submitTransfer, withdrawTransfer } from '@/api/transfers'
 import { handleApiError } from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useUserStore } from '@/store/user'
+import { TRANSFER_PERMISSION_OPERATIONS } from '@/utils/permissionGroups'
 import type { TransferDocument } from '@/types'
 
 const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore()
+const purchasePermissions = TRANSFER_PERMISSION_OPERATIONS.purchase
 const transfer = ref<TransferDocument | null>(null)
 const loading = ref(false)
 const editing = ref(false)
@@ -35,6 +41,7 @@ async function fetchTransfer() {
 /** 撤回入口显隐由服务端 canWithdraw 判定（账号身份，purchase-withdraw-creator-fk） */
 
 async function withdrawDoc(doc: TransferDocument) {
+  if (!userStore.can(purchasePermissions.withdraw)) return
   try {
     await ElMessageBox.confirm('撤回后单据回到草稿，可修改后重新提交', '确认撤回？', {
       confirmButtonText: '撤回',
@@ -55,6 +62,7 @@ async function withdrawDoc(doc: TransferDocument) {
 }
 
 async function submitDraft(doc: TransferDocument) {
+  if (!userStore.can(purchasePermissions.submit) || doc.canEditDraft !== true) return
   try {
     await submitTransfer(doc.id)
     ElMessage.success('已提交审批')
@@ -65,7 +73,7 @@ async function submitDraft(doc: TransferDocument) {
 }
 
 function startEdit(from: 'rejected' | 'draft') {
-  if (!transfer.value) return
+  if (!userStore.can(purchasePermissions.edit) || transfer.value?.canEditDraft !== true) return
   editFrom.value = from
   editForm.value = { ...transfer.value }
   editLines.value = draftsFromLines(transfer.value.lines ?? [])
@@ -73,7 +81,7 @@ function startEdit(from: 'rejected' | 'draft') {
 }
 
 async function saveAndSubmit() {
-  if (!transfer.value) return
+  if (!transfer.value || !userStore.can(purchasePermissions.edit) || !userStore.can(purchasePermissions.submit)) return
   const items = draftsToItems(editLines.value)
   if (items.length === 0 || !linesEditor.value?.validate()) {
     ElMessage.warning('每行请选择品目并填写数量（≥1）')
@@ -131,13 +139,21 @@ onMounted(fetchTransfer)
     </template>
 
     <template #footer="{ doc }">
-      <template v-if="!editing && doc.canWithdraw">
+      <TransferLifecycleActions
+        v-if="!editing"
+        :doc="doc"
+        type="purchase"
+        :show-edit="false"
+        :show-submit="false"
+        @deleted="router.push('/transfers/purchase')"
+      />
+      <template v-if="!editing && userStore.can(purchasePermissions.withdraw) && doc.canWithdraw">
         <button class="btn-cancel" @click="withdrawDoc(doc)">撤回</button>
       </template>
-      <template v-if="!editing && doc.审批状态 === '已驳回'">
+      <template v-if="!editing && userStore.can(purchasePermissions.edit) && doc.canEditDraft === true && doc.审批状态 === '已驳回'">
         <button class="btn-primary" @click="startEdit('rejected')">修改</button>
       </template>
-      <template v-if="!editing && doc.审批状态 === '草稿'">
+      <template v-if="!editing && userStore.can(purchasePermissions.edit) && doc.canEditDraft === true && doc.审批状态 === '草稿'">
         <button class="btn-cancel" @click="startEdit('draft')">修改</button>
         <button class="btn-primary" @click="submitDraft(doc)">提交审批</button>
       </template>

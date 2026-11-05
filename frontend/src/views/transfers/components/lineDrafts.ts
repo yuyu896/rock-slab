@@ -14,6 +14,7 @@ export interface LineDraft {
   金额Auto?: boolean
   使用人: string
   department: string | null
+  备注: string
   存放位置: string
   /** 选中的实例（id 提交、code 回显）；实例管理品目的绑定类单据必填 */
   instances: { id: string; code: string }[]
@@ -33,6 +34,7 @@ export function emptyDraft(): LineDraft {
     金额Auto: false,
     使用人: '',
     department: null,
+    备注: '',
     存放位置: '',
     instances: [],
   }
@@ -51,6 +53,7 @@ export function draftsToItems(drafts: LineDraft[]): TransferLineInput[] {
       金额: d.金额 ?? undefined,
       使用人: d.使用人 || undefined,
       department: d.department ?? undefined,
+      备注: d.备注 || undefined,
       存放位置: d.存放位置 || undefined,
       instances: d.instances.length ? d.instances.map((i) => i.id) : undefined,
     }))
@@ -78,6 +81,7 @@ export function draftsFromLines(lines: TransferLine[]): LineDraft[] {
     draft.金额 = line.金额 ?? null
     draft.使用人 = line.使用人 || ''
     draft.department = line.department ?? null
+    draft.备注 = line.备注 || ''
     draft.存放位置 = line.存放位置 || ''
     draft.instances = (line.instances || []).map((i) => ({ id: i.id, code: i.code }))
     return draft
