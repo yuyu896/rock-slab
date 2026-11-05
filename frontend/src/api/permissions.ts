@@ -28,8 +28,8 @@ export interface AuthorizationUser {
   status: string
   region: string | null
   branch: string | null
-  region_name: string | null
-  branch_name: string | null
+  regionName: string | null
+  branchName: string | null
 }
 
 export interface UserAuthorization {
@@ -39,8 +39,8 @@ export interface UserAuthorization {
     nodes: ScopeNode[]
   }
   operations: string[]
-  legacy_operations?: string[]
-  legacy_operation_details?: { code: string; label: string }[]
+  legacyOperations?: string[]
+  legacyOperationDetails?: { code: string; label: string }[]
 }
 
 export interface EffectivePermissionRow {
@@ -52,17 +52,16 @@ export interface EffectivePermissionRow {
   status?: string
   region?: string | null
   branch?: string | null
-  region_name?: string | null
-  branch_name?: string | null
+  regionName?: string | null
+  branchName?: string | null
   scope?: {
     mode?: AuthorizationScopeMode
     summary?: string
     nodes?: ScopeNode[]
   }
-  scope_summary?: string
   scopeSummary?: { all: boolean; branchCount: number | null }
   operations: string[] | null
-  legacy_operations?: string[]
+  legacyOperations?: string[]
 }
 
 export interface EffectivePermissionFilters {
@@ -88,32 +87,32 @@ export interface PositionBaselineEmployeeDifference {
   name: string
   phone: string
   role: string
-  role_label: string
-  branch_name: string | null
+  roleLabel: string
+  branchName: string | null
   added: PositionBaselinePermission[]
   removed: PositionBaselinePermission[]
-  legacy_codes: string[]
-  scope_preserved: boolean
+  legacyCodes: string[]
+  scopePreserved: boolean
 }
 
 export interface PositionBaselinePreview {
-  from_version: string | null
-  to_version: string
-  has_changes: boolean
-  active_employee_count: number
-  changed_employee_count: number
-  added_permission_count: number
-  removed_permission_count: number
-  legacy_permission_count: number
-  inactive_employee_count: number
-  role_changes: {
+  fromVersion: string | null
+  toVersion: string
+  hasChanges: boolean
+  activeEmployeeCount: number
+  changedEmployeeCount: number
+  addedPermissionCount: number
+  removedPermissionCount: number
+  legacyPermissionCount: number
+  inactiveEmployeeCount: number
+  roleChanges: {
     role: string
-    role_label: string
+    roleLabel: string
     added: PositionBaselinePermission[]
     removed: PositionBaselinePermission[]
   }[]
   employees: PositionBaselineEmployeeDifference[]
-  preview_token: string
+  previewToken: string
 }
 
 export interface MyPermissionSummary {

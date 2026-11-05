@@ -20,22 +20,22 @@
       <div v-if="loadingBaseline" class="baseline-state">正在生成逐员工差异…</div>
       <template v-else-if="baselinePreview">
         <div class="baseline-summary">
-          <div><span>当前版本</span><strong>{{ baselinePreview.from_version || '尚未初始化' }}</strong></div>
-          <div><span>待确认版本</span><strong>{{ baselinePreview.to_version }}</strong></div>
-          <div><span>在职普通员工</span><strong>{{ baselinePreview.active_employee_count }}</strong></div>
-          <div><span>有差异员工</span><strong>{{ baselinePreview.changed_employee_count }}</strong></div>
+          <div><span>当前版本</span><strong>{{ baselinePreview.fromVersion || '尚未初始化' }}</strong></div>
+          <div><span>待确认版本</span><strong>{{ baselinePreview.toVersion }}</strong></div>
+          <div><span>在职普通员工</span><strong>{{ baselinePreview.activeEmployeeCount }}</strong></div>
+          <div><span>有差异员工</span><strong>{{ baselinePreview.changedEmployeeCount }}</strong></div>
         </div>
-        <el-alert v-if="baselinePreview.has_changes" type="warning" :closable="false" show-icon>
+        <el-alert v-if="baselinePreview.hasChanges" type="warning" :closable="false" show-icon>
           确认后将更新在职员工的岗位基线，保留个人追加和取消以及现有数据范围。停用员工重新启用时同步；未登记旧权限保留并列出核对。
         </el-alert>
         <el-alert v-else type="success" :closable="false" show-icon>
           当前已是最新岗位基线，无需更新。
         </el-alert>
 
-        <section v-if="baselinePreview.role_changes.length" class="baseline-role-changes">
+        <section v-if="baselinePreview.roleChanges.length" class="baseline-role-changes">
           <h3>岗位基线变化</h3>
-          <div v-for="change in baselinePreview.role_changes" :key="change.role" class="baseline-role-row">
-            <strong>{{ change.role_label }}</strong>
+          <div v-for="change in baselinePreview.roleChanges" :key="change.role" class="baseline-role-row">
+            <strong>{{ change.roleLabel }}</strong>
             <span v-if="change.added.length">新增：{{ change.added.map(item => item.label).join('、') }}</span>
             <span v-if="change.removed.length">取消：{{ change.removed.map(item => item.label).join('、') }}</span>
           </div>
@@ -50,11 +50,11 @@
               <tr v-for="row in baselinePreview.employees" :key="row.user">
                 <td>
                   <strong>{{ row.name }}</strong>
-                  <small class="baseline-subtitle">{{ row.role_label }} · {{ row.branch_name || '未设置分公司' }}</small>
+                  <small class="baseline-subtitle">{{ row.roleLabel }} · {{ row.branchName || '未设置分公司' }}</small>
                 </td>
                 <td>{{ row.added.map(item => item.label).join('、') || '—' }}</td>
                 <td>{{ row.removed.map(item => item.label).join('、') || '—' }}</td>
-                <td>{{ row.legacy_codes.join('、') || '—' }}</td>
+                <td>{{ row.legacyCodes.join('、') || '—' }}</td>
               </tr>
               <tr v-if="!baselinePreview.employees.length">
                 <td colspan="4" class="baseline-empty">没有员工权限差异或待核对旧权限</td>
@@ -62,16 +62,16 @@
             </tbody>
           </table>
         </div>
-        <p v-if="baselinePreview.inactive_employee_count" class="baseline-note">
-          {{ baselinePreview.inactive_employee_count }} 名停用员工不在本次同步范围内，重新启用时将同步岗位基线并保留个人调整和数据范围。
+        <p v-if="baselinePreview.inactiveEmployeeCount" class="baseline-note">
+          {{ baselinePreview.inactiveEmployeeCount }} 名停用员工不在本次同步范围内，重新启用时将同步岗位基线并保留个人调整和数据范围。
         </p>
         <p class="baseline-note">
-          本次变更：新增 {{ baselinePreview.added_permission_count }} 项授权，取消 {{ baselinePreview.removed_permission_count }} 项授权；旧权限 {{ baselinePreview.legacy_permission_count }} 项保留待核对。
+          本次变更：新增 {{ baselinePreview.addedPermissionCount }} 项授权，取消 {{ baselinePreview.removedPermissionCount }} 项授权；旧权限 {{ baselinePreview.legacyPermissionCount }} 项保留待核对。
         </p>
       </template>
       <template #footer>
         <el-button @click="baselineDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :disabled="!baselinePreview?.has_changes || loadingBaseline" :loading="applyingBaseline" @click="confirmBaseline">
+        <el-button type="primary" :disabled="!baselinePreview?.hasChanges || loadingBaseline" :loading="applyingBaseline" @click="confirmBaseline">
           确认应用基线
         </el-button>
       </template>
@@ -446,7 +446,7 @@ const nodeByKey = computed(() => new Map(availableScopeNodes.value.map(node => [
 const organizationNames = computed(() => {
   const user = authorization.value?.user
   if (!user) return '—'
-  return [user.region_name, user.branch_name].filter(Boolean).join(' / ') || '未设置'
+  return [user.regionName, user.branchName].filter(Boolean).join(' / ') || '未设置'
 })
 const employeeOrganization = computed(() => organizationNames.value)
 
@@ -526,9 +526,9 @@ const selectedOperationCount = computed(() => isSelectedAdmin.value
   ? operations.value.length
   : draftOperations.value.length)
 const selectedModuleCount = computed(() => operationGroups.value.filter(group => group.selectedCount > 0).length)
-const legacyOperations = computed(() => authorization.value?.legacy_operations || [])
+const legacyOperations = computed(() => authorization.value?.legacyOperations || [])
 const legacyOperationDetails = computed(() => {
-  const details = authorization.value?.legacy_operation_details || []
+  const details = authorization.value?.legacyOperationDetails || []
   const byCode = new Map(details.map(item => [item.code, item.label]))
   return legacyOperations.value.map(code => ({
     code,
@@ -608,7 +608,7 @@ function isActive(status?: string) {
 function hasBusinessAuthorization(user: UserListItem) {
   if (user.role === 'admin') return true
   const row = permissionByUserId.value.get(user.id)
-  return !!row && !!(row.operations?.length || row.legacy_operations?.length)
+  return !!row && !!(row.operations?.length || row.legacyOperations?.length)
 }
 
 function authorizationLabel(user: UserListItem) {
@@ -617,7 +617,7 @@ function authorizationLabel(user: UserListItem) {
 }
 
 function branchLabel(user: UserListItem) {
-  const name = user.branchName || user.branch_name
+  const name = user.branchName
   if (name) return name
   return branches.value.find(branch => branch.id === user.branch)?.name || '未设置分公司'
 }
@@ -829,10 +829,10 @@ async function loadBaselinePreview() {
 
 async function confirmBaseline() {
   const preview = baselinePreview.value
-  if (!preview?.has_changes || applyingBaseline.value) return
+  if (!preview?.hasChanges || applyingBaseline.value) return
   try {
     await ElMessageBox.confirm(
-      `将应用 ${preview.to_version} 基线，更新 ${preview.active_employee_count} 名在职普通员工；员工个人权限调整和数据范围会保留。`,
+      `将应用 ${preview.toVersion} 基线，更新 ${preview.activeEmployeeCount} 名在职普通员工；员工个人权限调整和数据范围会保留。`,
       '确认应用岗位权限基线',
       { confirmButtonText: '确认应用', cancelButtonText: '返回核对', type: 'warning' },
     )
@@ -843,8 +843,8 @@ async function confirmBaseline() {
   applyingBaseline.value = true
   try {
     const { data } = await applyPositionBaseline({
-      expected_from_version: preview.from_version,
-      preview_token: preview.preview_token,
+      expected_from_version: preview.fromVersion,
+      preview_token: preview.previewToken,
     })
     const selectedId = selectedUserId.value
     const [nextPreview, permissionResponse, selectedAuthorization] = await Promise.all([

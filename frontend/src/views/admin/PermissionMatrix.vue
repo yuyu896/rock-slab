@@ -77,8 +77,8 @@
                     {{ unknownOperations(row).length }} 项权限不在当前目录
                   </span>
                 </template>
-                <span v-if="row.legacy_operations?.length" class="legacy-permissions">
-                  {{ row.legacy_operations.length }} 项旧权限待迁移
+                <span v-if="row.legacyOperations?.length" class="legacy-permissions">
+                  {{ row.legacyOperations.length }} 项旧权限待迁移
                 </span>
               </td>
             </tr>
@@ -174,19 +174,19 @@ function isAdmin(row: EffectivePermissionRow) {
 }
 
 function organizationText(row: EffectivePermissionRow) {
-  return [row.region_name, row.branch_name].filter(Boolean).join(' / ') || '未设置'
+  return [row.regionName, row.branchName].filter(Boolean).join(' / ') || '未设置'
 }
 
 function scopeText(row: EffectivePermissionRow) {
   const scope = row.scope
-  if (isAdmin(row) || scope?.mode === 'all' || row.scopeSummary?.all) return '全部组织'
-  if (scope?.summary || row.scope_summary) return scope?.summary || row.scope_summary || ''
+  const summary = row.scopeSummary
+  if (isAdmin(row) || scope?.mode === 'all' || summary?.all) return '全部组织'
+  if (scope?.summary || summary) return scope?.summary || (summary ? `${summary.branchCount ?? 0} 个分公司` : '') || ''
   if (scope?.mode === 'default') return `跟随员工归属（${organizationText(row)}）`
   if (scope?.mode === 'custom' && scope.nodes?.length) {
     return scope.nodes.map(node => `${node.name}`).join('、')
   }
   if (scope?.mode === 'custom') return '自定义范围：无组织节点'
-  if (row.scopeSummary) return `${row.scopeSummary.branchCount ?? 0} 个分公司`
   return '跟随员工归属'
 }
 
