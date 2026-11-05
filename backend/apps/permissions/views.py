@@ -236,7 +236,7 @@ def _save_user_authorization(request, user_id):
 
     with transaction.atomic():
         user = get_object_or_404(
-            User.objects.select_for_update().select_related('branch__team__region').prefetch_related(
+            User.objects.select_for_update(of=('self',)).select_related('branch__team__region').prefetch_related(
                 'management_scopes__region', 'management_scopes__branch',
                 'management_scopes__team', 'operation_grants',
             ),
