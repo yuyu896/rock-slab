@@ -12,6 +12,10 @@ export const useUserStore = defineStore('user', () => {
   const profile = ref<User | null>(null)
   /** 当前用户持有的业务操作授权码集合（admin 恒真，不依赖此集合） */
   const operations = ref<string[]>([])
+  /** 页面入口的授权关系由后端权限目录提供，避免前端导航各自维护权限码列表。 */
+  const pageOperations = ref<Record<string, string[]>>({})
+  /** 操作前置由同一后端权限目录提供，避免运行时重复维护。 */
+  const operationPrerequisites = ref<Record<string, string[]>>({})
   /** profile 是否已就绪（路由守卫等待用；登出重置） */
   const profileLoaded = ref(false)
 
@@ -26,9 +30,13 @@ export const useUserStore = defineStore('user', () => {
     try {
       const { data } = await getMyPermissions()
       operations.value = data.operations || []
+      pageOperations.value = data.pageOperations || {}
+      operationPrerequisites.value = data.operationPrerequisites || {}
       operationsFetchedAt = Date.now()
     } catch {
       operations.value = []
+      pageOperations.value = {}
+      operationPrerequisites.value = {}
     }
   }
 
@@ -57,6 +65,8 @@ export const useUserStore = defineStore('user', () => {
       token.value = null
       profile.value = null
       operations.value = []
+      pageOperations.value = {}
+      operationPrerequisites.value = {}
       profileLoaded.value = false
       localStorage.removeItem(TOKEN_KEY)
     }
@@ -74,6 +84,12 @@ export const useUserStore = defineStore('user', () => {
   function can(code: string): boolean {
     if (profile.value?.role === 'admin') return true
     return operations.value.includes(code)
+      && (operationPrerequisites.value[code] || []).every(prerequisite => operations.value.includes(prerequisite))
+  }
+
+  function canAccessPage(page: string): boolean {
+    if (profile.value?.role === 'admin') return true
+    return (pageOperations.value[page] || []).some(can)
   }
 
   /** 是否拥有指定角色 */
@@ -94,6 +110,7 @@ export const useUserStore = defineStore('user', () => {
     profile,
     profileLoaded,
     operations,
+    pageOperations,
     refreshOperationsIfStale,
     isLoggedIn,
     isAdmin,
@@ -102,6 +119,7 @@ export const useUserStore = defineStore('user', () => {
     fetchProfile,
     fetchMyPermissions,
     can,
+    canAccessPage,
     hasRole,
     hasMinRole,
   }
