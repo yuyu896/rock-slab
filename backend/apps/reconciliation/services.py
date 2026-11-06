@@ -635,7 +635,7 @@ def rematch_task(task, user):
     return version_number
 
 
-def update_issue(issue, user, status=None, conclusion=None, note=None):
+def update_issue(issue, user, status=None, conclusion=None, note=None, conclusion_type=None):
     old = {'status': issue.status, 'conclusion': issue.conclusion, 'note': issue.note}
     if status is not None:
         if status not in (ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_CLOSED):
@@ -650,6 +650,12 @@ def update_issue(issue, user, status=None, conclusion=None, note=None):
         issue.conclusion = conclusion.strip()
     if note is not None:
         issue.note = note.strip()
+    if conclusion_type is not None:
+        valid_values = {v for v, _ in ReconciliationIssue.CONCLUSION_CHOICES}
+        valid_values.add('')
+        if conclusion_type not in valid_values:
+            raise ValidationError({'conclusion_type': '无效的结论类型'})
+        issue.conclusion_type = conclusion_type
     issue.handled_by = user
     issue.handled_by_name = user.name
     issue.handled_at = timezone.now()

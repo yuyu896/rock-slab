@@ -457,10 +457,11 @@ class ReconciliationIssueView(ReconciliationPermissionView):
             status=request.data.get('status'),
             conclusion=request.data.get('conclusion'),
             note=request.data.get('note'),
+            conclusion_type=request.data.get('conclusion_type'),
         )
         return Response({
             'id': str(issue.pk), 'status': issue.status,
-            'conclusion': issue.conclusion, 'note': issue.note,
+            'conclusion': issue.conclusion, 'conclusion_type': issue.conclusion_type, 'note': issue.note,
             'handled_by': issue.handled_by.name if issue.handled_by else issue.handled_by_name or None,
             'handled_at': issue.handled_at,
         })
