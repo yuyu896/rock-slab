@@ -648,3 +648,73 @@ def task_summary(task, pending_count=None):
         summary['pending_count'] = pending_count
         return summary
     return build_version_summary(task, version)
+
+
+def build_branch_summary(task, scope):
+    """按分公司聚合对账差异状态，返回列表供 branch-summary 接口使用。"""
+    version = task.current_version
+    if version is None:
+        return []
+
+    comparisons = version.comparisons.all()
+
+    if not scope.all:
+        if not scope.branches:
+            return []
+        branches_in_scope = scope.branches
+        has_visible = Q(order_row__branch_id__in=branches_in_scope) | Q(system_branch_id__in=branches_in_scope)
+        has_hidden = (
+            Q(order_row__branch_id__isnull=False) & ~Q(order_row__branch_id__in=branches_in_scope)
+        ) | (
+            Q(system_branch_id__isnull=False) & ~Q(system_branch_id__in=branches_in_scope)
+        )
+        comparisons = comparisons.filter(has_visible).exclude(has_hidden)
+
+    comparisons = comparisons.select_related('order_row__branch', 'issue').all()
+
+    buckets = {}
+    for comp in comparisons:
+        if comp.order_row_id is not None:
+            branch_id = str(comp.order_row.branch_id)
+            branch_name = comp.order_row.branch.name
+        elif comp.system_branch_id is not None:
+            branch_id = str(comp.system_branch_id)
+            branch_name = comp.system_branch_name
+        else:
+            continue
+
+        if branch_id not in buckets:
+            buckets[branch_id] = {
+                'branch_id': branch_id,
+                'branch_name': branch_name,
+                'order_count': 0,
+                'matched_count': 0,
+                'diff_count': 0,
+                'pending_count': 0,
+                'month_amount': Decimal('0.00'),
+            }
+
+        bucket = buckets[branch_id]
+        bucket['order_count'] += 1
+
+        if comp.result_type == ReconciliationComparison.RESULT_MATCHED:
+            bucket['matched_count'] += 1
+            if comp.order_row.month_amount is not None:
+                bucket['month_amount'] += comp.order_row.month_amount
+        else:
+            bucket['diff_count'] += 1
+            if (
+                comp.issue_id is not None
+                and comp.issue.conclusion_type == ''
+                and comp.issue.status in (
+                    ReconciliationIssue.STATUS_OPEN,
+                    ReconciliationIssue.STATUS_NOT_RECURRED,
+                )
+            ):
+                bucket['pending_count'] += 1
+
+    result = sorted(buckets.values(), key=lambda b: b['branch_name'])
+    return [
+        {**b, 'month_amount': str(b['month_amount'].quantize(CENT))}
+        for b in result
+    ]

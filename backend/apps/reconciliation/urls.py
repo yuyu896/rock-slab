@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    BranchSummaryView,
     ReconciliationExportView,
     ReconciliationIssueView,
     ReconciliationTaskDetailView,
@@ -15,6 +16,7 @@ urlpatterns = [
     path('tasks/import', ReconciliationTaskUploadView.as_view()),
     path('tasks/<uuid:pk>', ReconciliationTaskDetailView.as_view()),
     path('tasks/<uuid:pk>/archive', ReconciliationTaskDetailView.as_view()),
+    path('tasks/<uuid:pk>/branch-summary', BranchSummaryView.as_view()),
     path('issues/<uuid:pk>', ReconciliationIssueView.as_view()),
     path('export', ReconciliationExportView.as_view()),
 ]

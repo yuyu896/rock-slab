@@ -25,6 +25,7 @@ from apps.reconciliation.models import (
     ReconciliationTask,
 )
 from apps.reconciliation.services import (
+    build_branch_summary,
     import_reconciliation_order,
     preview_reconciliation_order,
     task_summary,
@@ -535,3 +536,16 @@ class ReconciliationExportView(ReconciliationPermissionView):
         )
         response['Content-Disposition'] = f'attachment; filename="reconciliation-{task.period:%Y-%m}.xlsx"'
         return response
+
+
+class BranchSummaryView(ReconciliationPermissionView):
+    def get(self, request, pk):
+        scope = resolve_user_scope(request.user)
+        task = get_object_or_404(
+            _task_queryset_for_scope(
+                ReconciliationTask.objects.select_related('supplier', 'current_version'),
+                scope,
+            ),
+            pk=pk,
+        )
+        return Response(build_branch_summary(task, scope))
