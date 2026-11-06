@@ -88,9 +88,18 @@ class ReconciliationIssue(UUIDModel, TimestampedModel):
         (STATUS_OPEN, '待处理'), (STATUS_NOT_RECURRED, '本期未重现'), (STATUS_CLOSED, '已结案'),
     ]
 
+    CONCLUSION_CHOICES = [
+        ('system_not_registered', '系统未登记已补录'),
+        ('serial_corrected', '序列号已纠正'),
+        ('supplier_overbilled', '供应商多报'),
+        ('supplier_underbilled', '供应商少报'),
+        ('period_adjustment', '期间调整'),
+    ]
+
     supplier = models.ForeignKey('suppliers.Supplier', on_delete=models.PROTECT, related_name='reconciliation_issues')
     issue_key = models.CharField(max_length=64, unique=True)
     issue_type = models.CharField(max_length=32)
+    conclusion_type = models.CharField('结论类型', max_length=32, choices=CONCLUSION_CHOICES, blank=True, default='')
     serial_normalized = models.CharField(max_length=200, blank=True, default='')
     first_period = models.DateField()
     last_period = models.DateField()
