@@ -72,54 +72,13 @@ class TestBranchSummary:
         assert row_a_data['order_count'] == 1
         assert row_a_data['matched_count'] == 1
         assert row_a_data['diff_count'] == 0
-        assert row_a_data['pending_count'] == 0
         assert row_a_data['month_amount'] == '100.00'
 
         row_b_data = data[str(second_branch.pk)]
         assert row_b_data['order_count'] == 1
         assert row_b_data['matched_count'] == 0
         assert row_b_data['diff_count'] == 1
-        assert row_b_data['pending_count'] == 1
         assert row_b_data['month_amount'] == '0.00'
-
-    def test_summary_pending_uses_conclusion_type(self, admin_user, branch):
-        supplier = Supplier.objects.create(name='结论类型测试供应商')
-        task, version = self._make_task_version(supplier)
-
-        # diff with conclusion_type set -> NOT pending
-        issue_resolved = ReconciliationIssue.objects.create(
-            supplier=supplier, issue_key='ct-resolved',
-            issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            first_period=task.period, last_period=task.period,
-            conclusion_type='supplier_overbilled',
-        )
-        row1 = self._make_order_row(version, branch, row_number=1)
-        ReconciliationComparison.objects.create(
-            version=version, result_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            order_row=row1, issue=issue_resolved,
-        )
-
-        # diff with empty conclusion_type -> IS pending
-        issue_pending = ReconciliationIssue.objects.create(
-            supplier=supplier, issue_key='ct-pending',
-            issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            first_period=task.period, last_period=task.period,
-            conclusion_type='',
-        )
-        row2 = self._make_order_row(version, branch, row_number=2)
-        ReconciliationComparison.objects.create(
-            version=version, result_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            order_row=row2, issue=issue_pending,
-        )
-
-        client = _client_for(admin_user)
-        response = client.get(f'/api/reconciliation/tasks/{task.pk}/branch-summary')
-
-        assert response.status_code == 200
-        assert len(response.data) == 1
-        row = response.data[0]
-        assert row['diff_count'] == 2
-        assert row['pending_count'] == 1
 
     def test_summary_scope_filtered(self, branch, second_branch):
         supplier = Supplier.objects.create(name='范围过滤汇总供应商')
@@ -200,4 +159,3 @@ class TestBranchSummary:
         assert row['order_count'] == 1
         assert row['diff_count'] == 1
         assert row['matched_count'] == 0
-        assert row['pending_count'] == 1

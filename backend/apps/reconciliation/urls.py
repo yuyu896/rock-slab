@@ -4,7 +4,6 @@ from .views import (
     BranchSummaryView,
     PaymentSummaryView,
     ReconciliationExportView,
-    ReconciliationIssueView,
     ReconciliationTaskDetailView,
     ReconciliationTaskListView,
     ReconciliationTaskPreviewView,
@@ -21,6 +20,5 @@ urlpatterns = [
     path('tasks/<uuid:pk>/branch-summary', BranchSummaryView.as_view()),
     path('tasks/<uuid:pk>/rematch', RematchView.as_view()),
     path('tasks/<uuid:pk>/payment', PaymentSummaryView.as_view()),
-    path('issues/<uuid:pk>', ReconciliationIssueView.as_view()),
     path('export', ReconciliationExportView.as_view()),
 ]

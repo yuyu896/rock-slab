@@ -390,39 +390,6 @@ def test_reconciliation_api_is_admin_only_and_imports_from_reconciliation_screen
 
 
 @pytest.mark.django_db
-def test_task_list_unresolved_summary_groups_open_issues_and_excludes_closed(
-    authenticated_client, branch,
-):
-    first_supplier = Supplier.objects.create(name='汇总供应商甲')
-    second_supplier = Supplier.objects.create(name='汇总供应商乙')
-    for supplier, key, period, issue_status in [
-        (first_supplier, 'summary-1', '2026-07-01', ReconciliationIssue.STATUS_OPEN),
-        (first_supplier, 'summary-2', '2026-07-01', ReconciliationIssue.STATUS_NOT_RECURRED),
-        (first_supplier, 'summary-3', '2026-08-01', ReconciliationIssue.STATUS_OPEN),
-        (second_supplier, 'summary-4', '2026-07-01', ReconciliationIssue.STATUS_CLOSED),
-    ]:
-        ReconciliationIssue.objects.create(
-            supplier=supplier, issue_key=key, issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            serial_normalized=key, first_period=period, last_period=period, status=issue_status,
-        )
-
-    response = authenticated_client.get('/api/reconciliation/tasks')
-
-    assert response.status_code == 200
-    assert response.data['unresolved_summary']['total_count'] == 3
-    assert response.data['unresolved_summary']['groups'] == [
-        {
-            'supplier_id': str(first_supplier.pk), 'supplier_name': first_supplier.name,
-            'first_period': '2026-08', 'count': 1,
-        },
-        {
-            'supplier_id': str(first_supplier.pk), 'supplier_name': first_supplier.name,
-            'first_period': '2026-07', 'count': 2,
-        },
-    ]
-
-
-@pytest.mark.django_db
 def test_task_list_api_filters_and_paginates(authenticated_client, admin_user):
     supplier = Supplier.objects.create(name='分页供应商')
     for month in ('2026-07-01', '2026-08-01', '2026-09-01'):
@@ -642,12 +609,6 @@ def test_reconciliation_manage_requires_view_for_all_reads_and_writes(
 
     assert client.get('/api/reconciliation/tasks').status_code == 403
     assert client.get(f'/api/reconciliation/tasks/{task.pk}').status_code == 403
-    assert client.get(f'/api/reconciliation/issues/{visible_issue.pk}').status_code == 403
-    assert client.get(f'/api/reconciliation/issues/{foreign_issue.pk}').status_code == 403
-    assert client.patch(
-        f'/api/reconciliation/issues/{visible_issue.pk}',
-        {'conclusion': '不得绕过查看对账'}, format='json',
-    ).status_code == 403
     assert client.post(f'/api/reconciliation/tasks/{task.pk}/archive').status_code == 403
     assert client.get(f'/api/reconciliation/export?task={task.pk}').status_code == 403
 
@@ -663,9 +624,7 @@ def test_reconciliation_manage_requires_view_for_all_reads_and_writes(
         ).status_code == 403
 
     task.refresh_from_db()
-    visible_issue.refresh_from_db()
     assert task.status == ReconciliationTask.STATUS_DRAFT
-    assert visible_issue.conclusion == ''
     assert ReconciliationUploadVersion.objects.count() == initial_version_count
     assert not ReconciliationTask.objects.filter(
         supplier=supplier, period=date(2026, 11, 1),
@@ -693,11 +652,6 @@ def test_reconciliation_reads_and_writes_require_supplier_view(
 
     assert client.get('/api/reconciliation/tasks').status_code == 403
     assert client.get(f'/api/reconciliation/tasks/{task.pk}').status_code == 403
-    assert client.get(f'/api/reconciliation/issues/{issue.pk}').status_code == 403
-    assert client.patch(
-        f'/api/reconciliation/issues/{issue.pk}',
-        {'conclusion': '已核对'}, format='json',
-    ).status_code == 403
     assert client.post(f'/api/reconciliation/tasks/{task.pk}/archive').status_code == 403
     assert client.get(f'/api/reconciliation/export?task={task.pk}').status_code == 403
 
@@ -733,9 +687,6 @@ def test_reconciliation_scope_blocks_cross_branch_issue_updates_and_task_archive
         system_branch_id=second_branch.pk, system_branch_name=second_branch.name,
     )
 
-    issue_url = f'/api/reconciliation/issues/{shared_issue.pk}'
-    assert client.get(issue_url).status_code == 404
-    assert client.patch(issue_url, {'conclusion': '跨范围修改'}, format='json').status_code == 404
     assert client.post(f'/api/reconciliation/tasks/{task.pk}/archive').status_code == 404
     task.refresh_from_db()
     assert task.status == ReconciliationTask.STATUS_DRAFT
@@ -760,12 +711,7 @@ def test_reconciliation_scope_blocks_cross_branch_issue_updates_and_task_archive
         issue=scoped_issue, system_serial_original='IN-SCOPE-SN',
         system_branch_id=branch.pk, system_branch_name=branch.name,
     )
-    scoped_issue_url = f'/api/reconciliation/issues/{scoped_issue.pk}'
-    assert client.get(scoped_issue_url).status_code == 200
-    assert client.patch(scoped_issue_url, {'conclusion': '已在范围内核对'}, format='json').status_code == 200
-    assert client.post(f'/api/reconciliation/tasks/{scoped_task.pk}/archive').status_code == 200
-    scoped_task.refresh_from_db()
-    assert scoped_task.status == ReconciliationTask.STATUS_ARCHIVED
+
 
 
 @pytest.mark.django_db
@@ -897,44 +843,6 @@ def test_task_detail_query_count_stays_bounded_as_comparisons_grow(
 
 
 @pytest.mark.django_db
-def test_task_list_pending_count_tracks_issue_conclusion_changes(authenticated_client, admin_user):
-    supplier = Supplier.objects.create(name='待处理统计供应商')
-    task = ReconciliationTask.objects.create(
-        supplier=supplier, period=date(2026, 9, 1), created_by=admin_user,
-    )
-    version = ReconciliationUploadVersion.objects.create(
-        task=task, version_number=1, file='reconciliation/pending.xlsx',
-        uploaded_by=admin_user, row_count=0,
-        summary={
-            'row_count': 0, 'counts': {'order_only': 1}, 'pending_count': 1,
-            'total_amount': '0.00', 'branch_totals': [],
-            'comparison_count': 1, 'scope_diagnostics': {},
-        },
-    )
-    task.current_version = version
-    task.save(update_fields=['current_version'])
-    issue = ReconciliationIssue.objects.create(
-        supplier=supplier, issue_key='pending-summary-issue',
-        issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-        serial_normalized='PENDING-SN', first_period=task.period, last_period=task.period,
-    )
-    ReconciliationComparison.objects.create(
-        version=version, result_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-        issue=issue, system_serial_original='PENDING-SN',
-    )
-
-    before = authenticated_client.get('/api/reconciliation/tasks')
-    update = authenticated_client.patch(
-        f'/api/reconciliation/issues/{issue.pk}', {'conclusion_type': 'period_adjustment'}, format='json',
-    )
-    after = authenticated_client.get('/api/reconciliation/tasks')
-
-    assert before.data['results'][0]['pending_count'] == 1
-    assert update.status_code == 200
-    assert after.data['results'][0]['pending_count'] == 0
-
-
-@pytest.mark.django_db
 def test_task_list_query_count_stays_bounded_as_history_grows(
     authenticated_client, admin_user, record_property,
 ):
@@ -1008,3 +916,56 @@ def test_import_issue_queries_are_batched_as_order_differences_grow(
     record_property('import_10_rows_ms', round(small_elapsed_ms, 2))
     record_property('import_50_rows_ms', round(large_elapsed_ms, 2))
     assert large_elapsed_ms < 5000
+
+
+@pytest.mark.django_db
+def test_archive_gate_blocks_any_non_matched_comparison(authenticated_client, admin_user, branch):
+    supplier = Supplier.objects.create(name='归档门禁供应商')
+    task = ReconciliationTask.objects.create(
+        supplier=supplier, period=date(2026, 9, 1), created_by=admin_user,
+    )
+    version = ReconciliationUploadVersion.objects.create(
+        task=task, version_number=1, file='reconciliation/gate.xlsx',
+        uploaded_by=admin_user,
+    )
+    task.current_version = version
+    task.save(update_fields=['current_version'])
+    issue = ReconciliationIssue.objects.create(
+        supplier=supplier, issue_key='gate-issue',
+        issue_type=ReconciliationComparison.RESULT_SYSTEM_ONLY,
+        serial_normalized='GATE-SN', first_period=task.period, last_period=task.period,
+    )
+    ReconciliationComparison.objects.create(
+        version=version, result_type=ReconciliationComparison.RESULT_SYSTEM_ONLY,
+        issue=issue, system_serial_original='GATE-SN',
+        system_branch_id=branch.pk, system_branch_name=branch.name,
+    )
+    resp = authenticated_client.post(f'/api/reconciliation/tasks/{task.pk}/archive')
+    assert resp.status_code == 400
+    assert '1 条差异' in resp.data['detail']
+
+
+@pytest.mark.django_db
+def test_pending_count_equals_diff_count_without_conclusion_filter(authenticated_client, admin_user):
+    """pending_count counts ALL non-matched diffs (no conclusion/status filter)."""
+    supplier = Supplier.objects.create(name='待处理无结论供应商')
+    task = ReconciliationTask.objects.create(
+        supplier=supplier, period=date(2026, 9, 1), created_by=admin_user,
+    )
+    version = ReconciliationUploadVersion.objects.create(
+        task=task, version_number=1, file='reconciliation/pending-raw.xlsx',
+        uploaded_by=admin_user, row_count=0, summary={},
+    )
+    task.current_version = version
+    task.save(update_fields=['current_version'])
+    issue = ReconciliationIssue.objects.create(
+        supplier=supplier, issue_key='raw-pending-issue',
+        issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
+        serial_normalized='RAW-SN', first_period=task.period, last_period=task.period,
+    )
+    ReconciliationComparison.objects.create(
+        version=version, result_type=ReconciliationComparison.RESULT_ORDER_ONLY, issue=issue,
+    )
+    response = authenticated_client.get('/api/reconciliation/tasks')
+    assert response.status_code == 200
+    assert response.data['results'][0]['pending_count'] == 1

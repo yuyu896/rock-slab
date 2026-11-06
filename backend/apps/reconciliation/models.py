@@ -81,44 +81,15 @@ class ReconciliationOrderRow(UUIDModel):
 
 
 class ReconciliationIssue(UUIDModel, TimestampedModel):
-    STATUS_OPEN = 'open'
-    STATUS_NOT_RECURRED = 'not_recurred'
-    STATUS_CLOSED = 'closed'
-    STATUS_CHOICES = [
-        (STATUS_OPEN, '待处理'), (STATUS_NOT_RECURRED, '本期未重现'), (STATUS_CLOSED, '已结案'),
-    ]
-
-    CONCLUSION_CHOICES = [
-        ('system_not_registered', '系统未登记已补录'),
-        ('serial_corrected', '序列号已纠正'),
-        ('supplier_overbilled', '供应商多报'),
-        ('supplier_underbilled', '供应商少报'),
-        ('period_adjustment', '期间调整'),
-    ]
-
     supplier = models.ForeignKey('suppliers.Supplier', on_delete=models.PROTECT, related_name='reconciliation_issues')
     issue_key = models.CharField(max_length=64, unique=True)
     issue_type = models.CharField(max_length=32)
-    conclusion_type = models.CharField('结论类型', max_length=32, choices=CONCLUSION_CHOICES, blank=True, default='')
     serial_normalized = models.CharField(max_length=200, blank=True, default='')
     first_period = models.DateField()
     last_period = models.DateField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_OPEN)
-    conclusion = models.CharField(max_length=100, blank=True, default='')
-    note = models.TextField(blank=True, default='')
-    handled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-    handled_by_name = models.CharField('处理人姓名快照', max_length=100, blank=True, default='')
-    handled_at = models.DateTimeField(null=True, blank=True)
-    closed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='closed_reconciliation_issues',
-    )
-    closed_by_name = models.CharField('结案人姓名快照', max_length=100, blank=True, default='')
-    closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'reconciliation_issue'
-        indexes = [models.Index(fields=['supplier', 'status', 'last_period'])]
 
 
 class ReconciliationComparison(UUIDModel):
@@ -157,20 +128,3 @@ class ReconciliationComparison(UUIDModel):
     class Meta:
         db_table = 'reconciliation_comparison'
         ordering = ['order_row__row_number', 'internal_code']
-
-
-class ReconciliationIssueHistory(UUIDModel):
-    issue = models.ForeignKey(ReconciliationIssue, on_delete=models.PROTECT, related_name='history')
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-    user_name = models.CharField('操作人姓名快照', max_length=100, blank=True, default='')
-    old_status = models.CharField(max_length=20, blank=True, default='')
-    new_status = models.CharField(max_length=20)
-    old_conclusion = models.CharField(max_length=100, blank=True, default='')
-    new_conclusion = models.CharField(max_length=100, blank=True, default='')
-    old_note = models.TextField(blank=True, default='')
-    new_note = models.TextField(blank=True, default='')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = 'reconciliation_issue_history'
-        ordering = ['-created_at']

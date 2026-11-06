@@ -62,17 +62,18 @@ class TestPaymentSummary:
         assert Decimal(data['pending_amount']) == Decimal('0.00')
         assert Decimal(data['total_amount']) == Decimal('500.00')
         assert data['can_archive'] is True
+        assert len(data['branches']) == 1
+        assert data['branches'][0]['branch_name'] == branch.name
+        assert len(data['branches'][0]['rows']) == 1
 
-    def test_unconcluded_diff_in_pending(self, admin_user, branch, supplier):
-        """未结论差异行（conclusion_type=''）计入 pending，不计 confirmed."""
+    def test_diff_row_in_pending(self, admin_user, branch, supplier):
+        """差异行金额计入 pending_amount."""
         task, version = _make_task_with_version(supplier)
         order_row = _make_order_row(version, branch, row_number=1, amount='300.00')
         issue = ReconciliationIssue.objects.create(
             supplier=supplier, issue_key='pay-pending-test',
             issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
             first_period=task.period, last_period=task.period,
-            conclusion_type='',
-            status=ReconciliationIssue.STATUS_OPEN,
         )
         ReconciliationComparison.objects.create(
             version=version,
@@ -91,53 +92,21 @@ class TestPaymentSummary:
         assert Decimal(data['total_amount']) == Decimal('300.00')
         assert data['can_archive'] is False
 
-    def test_concluded_diff_in_confirmed(self, admin_user, branch, supplier):
-        """conclusion_type 非空的差异行计入 confirmed_amount."""
-        task, version = _make_task_with_version(supplier)
-        order_row = _make_order_row(version, branch, row_number=1, amount='200.00')
-        issue = ReconciliationIssue.objects.create(
-            supplier=supplier, issue_key='pay-concluded-test',
-            issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            first_period=task.period, last_period=task.period,
-            conclusion_type='supplier_overbilled',
-            status=ReconciliationIssue.STATUS_OPEN,
-        )
-        ReconciliationComparison.objects.create(
-            version=version,
-            result_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            order_row=order_row,
-            issue=issue,
-        )
-
-        client = _client_for(admin_user)
-        response = client.get(f'/api/reconciliation/tasks/{task.pk}/payment')
-
-        assert response.status_code == 200
-        data = response.data
-        assert Decimal(data['confirmed_amount']) == Decimal('200.00')
-        assert Decimal(data['pending_amount']) == Decimal('0.00')
-        assert data['can_archive'] is True
-
-    def test_can_archive_requires_zero_pending(self, admin_user, branch, supplier):
-        """pending=0 时 can_archive=True；pending>0 时 can_archive=False."""
+    def test_can_archive_requires_zero_diffs(self, admin_user, branch, supplier):
+        """can_archive=False 时有差异；所有行匹配时 can_archive=True."""
         task, version = _make_task_with_version(supplier)
 
-        # Matched row (confirmed)
         row1 = _make_order_row(version, branch, row_number=1, amount='100.00')
         ReconciliationComparison.objects.create(
             version=version,
             result_type=ReconciliationComparison.RESULT_MATCHED,
             order_row=row1,
         )
-
-        # Open unconcluded diff (pending)
         row2 = _make_order_row(version, branch, row_number=2, amount='50.00')
         issue = ReconciliationIssue.objects.create(
             supplier=supplier, issue_key='pay-archive-test',
             issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
             first_period=task.period, last_period=task.period,
-            conclusion_type='',
-            status=ReconciliationIssue.STATUS_OPEN,
         )
         ReconciliationComparison.objects.create(
             version=version,
@@ -153,18 +122,8 @@ class TestPaymentSummary:
         assert Decimal(response.data['confirmed_amount']) == Decimal('100.00')
         assert Decimal(response.data['pending_amount']) == Decimal('50.00')
 
-        # Resolve the issue (set conclusion_type)
-        issue.conclusion_type = 'period_adjustment'
-        issue.save(update_fields=['conclusion_type'])
-
-        response2 = client.get(f'/api/reconciliation/tasks/{task.pk}/payment')
-        assert response2.status_code == 200
-        assert response2.data['can_archive'] is True
-        assert Decimal(response2.data['confirmed_amount']) == Decimal('150.00')
-        assert Decimal(response2.data['pending_amount']) == Decimal('0.00')
-
-    def test_rows_contains_all_comparisons(self, admin_user, branch, supplier):
-        """rows 包含所有 comparison 行（matched + diff）."""
+    def test_branches_contains_all_rows(self, admin_user, branch, supplier):
+        """branches[].rows 包含所有 comparison 行（matched + diff）."""
         task, version = _make_task_with_version(supplier)
         row1 = _make_order_row(version, branch, row_number=1, amount='100.00')
         row2 = _make_order_row(version, branch, row_number=2, amount='200.00')
@@ -172,7 +131,6 @@ class TestPaymentSummary:
             supplier=supplier, issue_key='pay-rows-test',
             issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
             first_period=task.period, last_period=task.period,
-            conclusion_type='',
         )
         ReconciliationComparison.objects.create(
             version=version,
@@ -189,45 +147,21 @@ class TestPaymentSummary:
         client = _client_for(admin_user)
         response = client.get(f'/api/reconciliation/tasks/{task.pk}/payment')
         assert response.status_code == 200
-        assert len(response.data['rows']) == 2
-        serials = {r['serial'] for r in response.data['rows']}
+        assert len(response.data['branches']) == 1
+        rows = response.data['branches'][0]['rows']
+        assert len(rows) == 2
+        serials = {r['serial'] for r in rows}
         assert 'SN-001' in serials
         assert 'SN-002' in serials
 
-    def test_not_recurred_unconcluded_in_pending(self, admin_user, branch, supplier):
-        """not_recurred 状态且无结论的差异行也计入 pending."""
-        task, version = _make_task_with_version(supplier)
-        order_row = _make_order_row(version, branch, row_number=1, amount='150.00')
-        issue = ReconciliationIssue.objects.create(
-            supplier=supplier, issue_key='pay-notrecurred-test',
-            issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            first_period=task.period, last_period=task.period,
-            conclusion_type='',
-            status=ReconciliationIssue.STATUS_NOT_RECURRED,
-        )
-        ReconciliationComparison.objects.create(
-            version=version,
-            result_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            order_row=order_row,
-            issue=issue,
-        )
-
-        client = _client_for(admin_user)
-        response = client.get(f'/api/reconciliation/tasks/{task.pk}/payment')
-        assert response.status_code == 200
-        assert Decimal(response.data['pending_amount']) == Decimal('150.00')
-        assert response.data['can_archive'] is False
-
-    def test_archive_gate_blocks_when_pending(self, admin_user, branch, supplier):
-        """归档时若有未处理差异应被拒绝."""
+    def test_archive_gate_blocks_when_diff_present(self, admin_user, branch, supplier):
+        """归档时若有差异应被拒绝."""
         task, version = _make_task_with_version(supplier)
         order_row = _make_order_row(version, branch, row_number=1, amount='100.00')
         issue = ReconciliationIssue.objects.create(
             supplier=supplier, issue_key='pay-archivegate-test',
             issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
             first_period=task.period, last_period=task.period,
-            conclusion_type='',
-            status=ReconciliationIssue.STATUS_OPEN,
         )
         ReconciliationComparison.objects.create(
             version=version,
@@ -240,22 +174,14 @@ class TestPaymentSummary:
         response = client.post(f'/api/reconciliation/tasks/{task.pk}/archive')
         assert response.status_code == 400
 
-    def test_archive_gate_passes_when_no_pending(self, admin_user, branch, supplier):
-        """归档时若无未处理差异应允许通过."""
+    def test_archive_gate_passes_when_all_matched(self, admin_user, branch, supplier):
+        """归档时若无差异应允许通过."""
         task, version = _make_task_with_version(supplier)
         order_row = _make_order_row(version, branch, row_number=1, amount='100.00')
-        issue = ReconciliationIssue.objects.create(
-            supplier=supplier, issue_key='pay-archivegate-pass-test',
-            issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
-            first_period=task.period, last_period=task.period,
-            conclusion_type='supplier_overbilled',
-            status=ReconciliationIssue.STATUS_OPEN,
-        )
         ReconciliationComparison.objects.create(
             version=version,
-            result_type=ReconciliationComparison.RESULT_ORDER_ONLY,
+            result_type=ReconciliationComparison.RESULT_MATCHED,
             order_row=order_row,
-            issue=issue,
         )
 
         client = _client_for(admin_user)
@@ -263,7 +189,7 @@ class TestPaymentSummary:
         assert response.status_code == 200
 
     def test_payment_export(self, admin_user, branch, supplier):
-        """?type=payment 导出 Excel，包含正确列标题."""
+        """?type=payment 导出 Excel，包含正确列标题。"""
         task, version = _make_task_with_version(supplier)
         order_row = _make_order_row(version, branch, row_number=1, amount='100.00')
         ReconciliationComparison.objects.create(
@@ -286,8 +212,7 @@ class TestPaymentSummary:
         assert '序列号' in headers
         assert '分公司' in headers
         assert '本月金额' in headers
-        assert '结论' in headers
-        # Should have data row
+        assert '结论' not in headers
         assert ws.max_row >= 2
 
     def test_system_duplicate_amount_counted_once(self, admin_user, branch, supplier):
@@ -298,9 +223,7 @@ class TestPaymentSummary:
             supplier=supplier, issue_key='pay-dup-test',
             issue_type=ReconciliationComparison.RESULT_SYSTEM_DUPLICATE,
             first_period=task.period, last_period=task.period,
-            conclusion_type='', status=ReconciliationIssue.STATUS_OPEN,
         )
-        # Two system instances share the same order_row → amount must not double-count
         ReconciliationComparison.objects.create(
             version=version, result_type=ReconciliationComparison.RESULT_SYSTEM_DUPLICATE,
             order_row=order_row, issue=issue, internal_code='DUP-1',
@@ -318,7 +241,6 @@ class TestPaymentSummary:
         assert Decimal(data['confirmed_amount']) == Decimal('0.00')
         assert Decimal(data['total_amount']) == Decimal('100.00')
 
-        # Branch summary: order_count counts the order_row once, not twice
         response2 = client.get(f'/api/reconciliation/tasks/{task.pk}/branch-summary')
         assert response2.status_code == 200
         summary = response2.data
@@ -327,3 +249,30 @@ class TestPaymentSummary:
         assert summary[0]['diff_count'] == 1
         assert Decimal(summary[0]['month_amount']) == Decimal('0.00')
 
+    def test_multi_branch_structure(self, admin_user, branch, second_branch, supplier):
+        """branches[] 按分公司分组，每组有独立汇总金额."""
+        task, version = _make_task_with_version(supplier)
+        row_a = _make_order_row(version, branch, row_number=1, amount='100.00')
+        row_b = _make_order_row(version, second_branch, row_number=2, amount='200.00')
+        ReconciliationComparison.objects.create(
+            version=version, result_type=ReconciliationComparison.RESULT_MATCHED, order_row=row_a,
+        )
+        issue = ReconciliationIssue.objects.create(
+            supplier=supplier, issue_key='multi-branch-issue',
+            issue_type=ReconciliationComparison.RESULT_ORDER_ONLY,
+            first_period=task.period, last_period=task.period,
+        )
+        ReconciliationComparison.objects.create(
+            version=version, result_type=ReconciliationComparison.RESULT_ORDER_ONLY,
+            order_row=row_b, issue=issue,
+        )
+
+        client = _client_for(admin_user)
+        response = client.get(f'/api/reconciliation/tasks/{task.pk}/payment')
+        assert response.status_code == 200
+        data = response.data
+        assert len(data['branches']) == 2
+        branch_map = {b['branch_id']: b for b in data['branches']}
+        assert Decimal(branch_map[str(branch.pk)]['confirmed_amount']) == Decimal('100.00')
+        assert Decimal(branch_map[str(second_branch.pk)]['pending_amount']) == Decimal('200.00')
+        assert data['can_archive'] is False
