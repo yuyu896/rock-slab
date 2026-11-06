@@ -31,6 +31,22 @@ HEADERS = ('订单号', '序列号', '分公司', '起租日期', '记账日期'
 CENT = Decimal('0.01')
 
 
+def _comparison_queryset_for_scope(queryset, scope):
+    if scope.all:
+        return queryset
+    if not scope.branches:
+        return queryset.none()
+
+    branches = scope.branches
+    has_visible_branch = Q(order_row__branch_id__in=branches) | Q(system_branch_id__in=branches)
+    has_hidden_branch = (
+        Q(order_row__branch_id__isnull=False) & ~Q(order_row__branch_id__in=branches)
+    ) | (
+        Q(system_branch_id__isnull=False) & ~Q(system_branch_id__in=branches)
+    )
+    return queryset.filter(has_visible_branch).exclude(has_hidden_branch)
+
+
 def normalize_serial(value):
     return str(value or '').strip().upper()
 
@@ -656,21 +672,9 @@ def build_branch_summary(task, scope):
     if version is None:
         return []
 
-    comparisons = version.comparisons.all()
-
-    if not scope.all:
-        if not scope.branches:
-            return []
-        branches_in_scope = scope.branches
-        has_visible = Q(order_row__branch_id__in=branches_in_scope) | Q(system_branch_id__in=branches_in_scope)
-        has_hidden = (
-            Q(order_row__branch_id__isnull=False) & ~Q(order_row__branch_id__in=branches_in_scope)
-        ) | (
-            Q(system_branch_id__isnull=False) & ~Q(system_branch_id__in=branches_in_scope)
-        )
-        comparisons = comparisons.filter(has_visible).exclude(has_hidden)
-
-    comparisons = comparisons.select_related('order_row__branch', 'issue').all()
+    comparisons = _comparison_queryset_for_scope(
+        version.comparisons.all(), scope,
+    ).select_related('order_row__branch', 'issue')
 
     buckets = {}
     for comp in comparisons:

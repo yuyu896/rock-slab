@@ -26,6 +26,7 @@ from apps.reconciliation.models import (
 )
 from apps.reconciliation.services import (
     build_branch_summary,
+    _comparison_queryset_for_scope,
     import_reconciliation_order,
     preview_reconciliation_order,
     task_summary,
@@ -53,22 +54,6 @@ class ReconciliationPermissionView(APIView):
 class ReconciliationImportPermissionView(ReconciliationPermissionView):
     def get_required_operations(self, request):
         return ('manage_reconciliation', 'view_suppliers')
-
-
-def _comparison_queryset_for_scope(queryset, scope):
-    if scope.all:
-        return queryset
-    if not scope.branches:
-        return queryset.none()
-
-    branches = scope.branches
-    has_visible_branch = Q(order_row__branch_id__in=branches) | Q(system_branch_id__in=branches)
-    has_hidden_branch = (
-        Q(order_row__branch_id__isnull=False) & ~Q(order_row__branch_id__in=branches)
-    ) | (
-        Q(system_branch_id__isnull=False) & ~Q(system_branch_id__in=branches)
-    )
-    return queryset.filter(has_visible_branch).exclude(has_hidden_branch)
 
 
 def _task_queryset_for_scope(queryset, scope, require_all_comparisons=False):
