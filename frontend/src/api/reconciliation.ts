@@ -252,3 +252,35 @@ export function exportReconciliationDifferences(id: string) {
     params: { task: id, type: 'differences' }, responseType: 'blob',
   })
 }
+
+export interface ReconciliationPaymentRow {
+  serial: string | null
+  branch: string
+  internalCode: string
+  leaseStartDate: string | null
+  accountingDate: string | null
+  billingDays: number | null
+  monthlyRent: string | null
+  monthAmount: string | null
+  billingStatus: 'billable' | 'not_started' | null
+  conclusionType: string
+}
+
+export interface ReconciliationPaymentSummary {
+  confirmedAmount: string
+  pendingAmount: string
+  totalAmount: string
+  canArchive: boolean
+  rows: ReconciliationPaymentRow[]
+}
+
+export function getPaymentSummary(taskId: string) {
+  return request.get<unknown>(`/api/reconciliation/tasks/${taskId}/payment`)
+    .then((response) => camelizeResponse<ReconciliationPaymentSummary>(response))
+}
+
+export function exportPayment(taskId: string) {
+  return request.get<Blob>('/api/reconciliation/export', {
+    params: { task: taskId, type: 'payment' }, responseType: 'blob',
+  })
+}
