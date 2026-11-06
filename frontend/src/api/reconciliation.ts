@@ -87,14 +87,8 @@ export interface ReconciliationImportPreview {
 
 export interface ReconciliationIssue {
   id: string
-  status: 'open' | 'not_recurred' | 'closed'
-  conclusion: string
-  conclusionType: string
-  note: string
   firstPeriod: string
   lastPeriod: string
-  handledBy?: string | null
-  handledAt?: string | null
 }
 
 export interface ReconciliationComparison {
@@ -212,18 +206,7 @@ export interface BranchSummaryItem {
   orderCount: number
   matchedCount: number
   diffCount: number
-  pendingCount: number
   monthAmount: string
-}
-
-export function updateReconciliationIssue(id: string, data: {
-  status?: ReconciliationIssue['status']
-  conclusion?: string
-  conclusionType?: string
-  note?: string
-}) {
-  return request.patch<unknown>(`/api/reconciliation/issues/${id}`, data)
-    .then((response) => camelizeResponse<ReconciliationIssue>(response))
 }
 
 export function getBranchSummary(taskId: string) {
@@ -234,11 +217,6 @@ export function getBranchSummary(taskId: string) {
 export function rematchTask(taskId: string) {
   return request.post<unknown>(`/api/reconciliation/tasks/${taskId}/rematch`)
     .then((response) => camelizeResponse<{ version: number }>(response))
-}
-
-export function getReconciliationIssueHistory(id: string) {
-  return request.get<unknown>(`/api/reconciliation/issues/${id}`)
-    .then((response) => camelizeResponse<{ history: Array<Record<string, string>> }>(response))
 }
 
 export function exportReconciliationTask(id: string) {
@@ -255,15 +233,23 @@ export function exportReconciliationDifferences(id: string) {
 
 export interface ReconciliationPaymentRow {
   serial: string | null
-  branch: string
   internalCode: string
+  resultType: string
   leaseStartDate: string | null
   accountingDate: string | null
   billingDays: number | null
   monthlyRent: string | null
   monthAmount: string | null
-  billingStatus: 'billable' | 'not_started' | null
-  conclusionType: string
+}
+
+export interface ReconciliationPaymentBranch {
+  branchId: string
+  branchName: string
+  confirmedAmount: string
+  pendingAmount: string
+  totalAmount: string
+  diffCount: number
+  rows: ReconciliationPaymentRow[]
 }
 
 export interface ReconciliationPaymentSummary {
@@ -271,7 +257,7 @@ export interface ReconciliationPaymentSummary {
   pendingAmount: string
   totalAmount: string
   canArchive: boolean
-  rows: ReconciliationPaymentRow[]
+  branches: ReconciliationPaymentBranch[]
 }
 
 export function getPaymentSummary(taskId: string) {

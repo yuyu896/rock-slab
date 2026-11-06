@@ -6,8 +6,8 @@ import {
   getPaymentSummary,
   exportPayment,
   archiveReconciliationTask,
-  type ReconciliationPaymentRow,
   type ReconciliationPaymentSummary,
+  type ReconciliationPaymentBranch,
 } from '@/api/reconciliation'
 import { useUserStore } from '@/store/user'
 import { useReconciliationTask } from '@/composables/useReconciliationTask'
@@ -24,18 +24,7 @@ const loading = ref(false)
 const archiving = ref(false)
 const exporting = ref(false)
 
-const CONCLUSION_LABELS: Record<string, string> = {
-  '': '待处理',
-  system_not_registered: '系统未登记已补录',
-  serial_corrected: '序列号已纠正',
-  supplier_overbilled: '供应商多报',
-  supplier_underbilled: '供应商少报',
-  period_adjustment: '期间调整',
-}
-
-function conclusionLabel(type: string) {
-  return CONCLUSION_LABELS[type] ?? type
-}
+const expandedBranches = ref(new Set<string>())
 
 function formatMoney(value: string | null | undefined) {
   if (!value) return '—'
@@ -47,22 +36,19 @@ function formatDate(value: string | null | undefined) {
   return value
 }
 
-function billingStatusLabel(status: ReconciliationPaymentRow['billingStatus']) {
-  if (status === 'not_started') return '本期未开始'
-  if (status === 'billable') return '正常'
-  return '—'
+function resultTypeLabel(t: string) {
+  const m: Record<string, string> = {
+    matched: '匹配',
+    branch_mismatch: '分公司不一致',
+    order_only: '仅订单有',
+    system_only: '仅系统有',
+    system_duplicate: '序列号重复',
+    system_missing_serial: '缺少序列号',
+  }
+  return m[t] ?? t
 }
 
-function billingStatusType(status: ReconciliationPaymentRow['billingStatus']): '' | 'success' | 'warning' | 'danger' {
-  if (status === 'billable') return 'success'
-  if (status === 'not_started') return 'warning'
-  return ''
-}
-
-const pendingRowCount = computed(() => {
-  if (!summary.value) return 0
-  return summary.value.rows.filter((r) => r.conclusionType === '').length
-})
+const pendingRowCount = computed(() => summary.value?.branches.reduce((s: number, b: ReconciliationPaymentBranch) => s + b.diffCount, 0) ?? 0)
 
 async function loadSummary() {
   if (!currentTaskId.value) return
@@ -201,55 +187,60 @@ watch(() => currentTaskId.value, (newId) => {
       <div class="table-wrap">
         <el-table
           v-loading="loading"
-          :data="summary?.rows ?? []"
+          :data="summary?.branches ?? []"
+          row-key="branchId"
           stripe
           class="payment-table"
         >
-          <el-table-column prop="serial" label="序列号" min-width="140" show-overflow-tooltip>
+          <el-table-column type="expand">
             <template #default="scope">
-              <span>{{ scope.row.serial ?? '—' }}</span>
+              <el-table :data="scope.row.rows" size="small" class="detail-table">
+                <el-table-column prop="serial" label="序列号" min-width="140" show-overflow-tooltip>
+                  <template #default="d">{{ d.row.serial ?? '—' }}</template>
+                </el-table-column>
+                <el-table-column prop="internalCode" label="内部编号" width="120" show-overflow-tooltip />
+                <el-table-column label="差异类型" width="130">
+                  <template #default="d">{{ resultTypeLabel(d.row.resultType) }}</template>
+                </el-table-column>
+                <el-table-column label="起租日期" width="120">
+                  <template #default="d">{{ formatDate(d.row.leaseStartDate) }}</template>
+                </el-table-column>
+                <el-table-column label="记账日期" width="120">
+                  <template #default="d">{{ formatDate(d.row.accountingDate) }}</template>
+                </el-table-column>
+                <el-table-column label="计费天数" width="90" align="right">
+                  <template #default="d">{{ d.row.billingDays ?? '—' }}</template>
+                </el-table-column>
+                <el-table-column label="月租金" width="130" align="right">
+                  <template #default="d">{{ formatMoney(d.row.monthlyRent) }}</template>
+                </el-table-column>
+                <el-table-column label="本月金额" width="130" align="right">
+                  <template #default="d">{{ formatMoney(d.row.monthAmount) }}</template>
+                </el-table-column>
+              </el-table>
             </template>
           </el-table-column>
-          <el-table-column prop="branch" label="分公司" min-width="120" show-overflow-tooltip />
-          <el-table-column prop="internalCode" label="内部编号" width="120" show-overflow-tooltip />
-          <el-table-column label="起租日期" width="120">
-            <template #default="scope">{{ formatDate(scope.row.leaseStartDate) }}</template>
+          <el-table-column prop="branchName" label="分公司" min-width="140" />
+          <el-table-column label="已确认金额" width="140" align="right">
+            <template #default="scope">{{ formatMoney(scope.row.confirmedAmount) }}</template>
           </el-table-column>
-          <el-table-column label="记账日期" width="120">
-            <template #default="scope">{{ formatDate(scope.row.accountingDate) }}</template>
-          </el-table-column>
-          <el-table-column label="计费天数" width="90" align="right">
+          <el-table-column label="待确认金额" width="140" align="right">
             <template #default="scope">
-              <span>{{ scope.row.billingDays ?? '—' }}</span>
+              <span :class="Number(scope.row.pendingAmount) > 0 ? 'amount-pending' : ''">
+                {{ formatMoney(scope.row.pendingAmount) }}
+              </span>
             </template>
           </el-table-column>
-          <el-table-column label="月租金" width="130" align="right">
-            <template #default="scope">{{ formatMoney(scope.row.monthlyRent) }}</template>
+          <el-table-column label="本月合计" width="130" align="right">
+            <template #default="scope">{{ formatMoney(scope.row.totalAmount) }}</template>
           </el-table-column>
-          <el-table-column label="本月金额" width="130" align="right">
-            <template #default="scope">{{ formatMoney(scope.row.monthAmount) }}</template>
-          </el-table-column>
-          <el-table-column label="计费状态" width="110" align="center">
+          <el-table-column label="差异数" width="80" align="right">
             <template #default="scope">
-              <el-tag v-if="scope.row.billingStatus" :type="billingStatusType(scope.row.billingStatus)" size="small" effect="light">
-                {{ billingStatusLabel(scope.row.billingStatus) }}
-              </el-tag>
-              <span v-else class="muted">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="结论" width="130" align="center">
-            <template #default="scope">
-              <el-tag
-                :type="scope.row.conclusionType === '' ? 'warning' : 'info'"
-                size="small"
-                effect="light"
-              >
-                {{ conclusionLabel(scope.row.conclusionType) }}
-              </el-tag>
+              <span :class="scope.row.diffCount > 0 ? 'count-diff' : ''">{{ scope.row.diffCount }}</span>
             </template>
           </el-table-column>
         </el-table>
-        <div v-if="!loading && !(summary?.rows ?? []).length" class="empty-filter">暂无付款明细数据。</div>
+        <div v-if="!loading && !(summary?.branches ?? []).length" class="empty-filter">暂无付款明细数据。</div>
       </div>
     </template>
   </div>
@@ -274,6 +265,9 @@ watch(() => currentTaskId.value, (newId) => {
 .table-wrap { min-width: 0; }
 .payment-table { width: 100%; }
 .payment-table :deep(th.el-table__cell) { background-color: var(--color-bg-table-header); color: var(--color-text-secondary); font-weight: 600; }
+.detail-table { width: 100%; }
+.detail-table :deep(th.el-table__cell) { background-color: var(--color-bg-elevated); color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: 600; }
+.count-diff { color: color-mix(in oklch, var(--color-warning) 80%, var(--color-text-primary)); font-weight: 600; }
 
 .muted { color: var(--color-text-tertiary); }
 

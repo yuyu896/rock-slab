@@ -48,7 +48,6 @@ vi.mock('@/api/reconciliation', () => ({
   getBranchSummary: vi.fn(),
   rematchTask: vi.fn(),
   getReconciliationTask: vi.fn(),
-  updateReconciliationIssue: vi.fn(),
 }))
 
 import ReconciliationDifferences from '@/views/reconciliation/ReconciliationDifferences.vue'
@@ -56,7 +55,6 @@ import {
   getBranchSummary,
   rematchTask,
   getReconciliationTask,
-  updateReconciliationIssue,
 } from '@/api/reconciliation'
 
 const ButtonStub = defineComponent({
@@ -179,8 +177,8 @@ const mountPage = () => mount(ReconciliationDifferences, {
 })
 
 const branchSummary = [
-  { branchId: 'b1', branchName: '杭州分公司', orderCount: 5, matchedCount: 3, diffCount: 2, pendingCount: 1, monthAmount: '1234.56' },
-  { branchId: 'b2', branchName: '上海分公司', orderCount: 4, matchedCount: 4, diffCount: 0, pendingCount: 0, monthAmount: '5678.90' },
+  { branchId: 'b1', branchName: '杭州分公司', orderCount: 5, matchedCount: 3, diffCount: 2, monthAmount: '1234.56' },
+  { branchId: 'b2', branchName: '上海分公司', orderCount: 4, matchedCount: 4, diffCount: 0, monthAmount: '5678.90' },
 ]
 
 const comparisonDetail = {
@@ -207,7 +205,7 @@ const comparisonDetail = {
       leaseStartDate: null, accountingDate: null, billingDays: null,
       monthlyRent: null, monthAmount: '100.00', uploadedBillingDays: null,
       uploadedMonthAmount: null, billingStatus: null,
-      issue: { id: 'issue-1', status: 'open' as const, conclusion: '', conclusionType: '', note: '', firstPeriod: '', lastPeriod: '' },
+      issue: { id: 'issue-1', firstPeriod: '', lastPeriod: '' },
     },
   ],
   versions: [],
@@ -223,7 +221,6 @@ describe('ReconciliationDifferences 页2', () => {
     vi.mocked(getBranchSummary).mockResolvedValue({ data: branchSummary } as any)
     vi.mocked(rematchTask).mockResolvedValue({ data: { version: 2 } } as any)
     vi.mocked(getReconciliationTask).mockResolvedValue({ data: comparisonDetail } as any)
-    vi.mocked(updateReconciliationIssue).mockResolvedValue({ data: {} } as any)
   })
 
   afterEach(() => vi.unstubAllGlobals())
@@ -238,8 +235,6 @@ describe('ReconciliationDifferences 页2', () => {
     expect(kpi.exists()).toBe(true)
     expect(kpi.text()).toContain('总差异数')
     expect(kpi.text()).toContain('2')
-    expect(kpi.text()).toContain('待结论')
-    expect(kpi.text()).toContain('1')
     expect(kpi.text()).toContain('匹配率')
     // matchRate = matched(7)/orders(9) * 100 = 77.8%
     expect(kpi.text()).toContain('77.8%')
@@ -270,7 +265,7 @@ describe('ReconciliationDifferences 页2', () => {
     wrapper.unmount()
   })
 
-  it('展开行结论下拉变更调用 updateReconciliationIssue', async () => {
+  it('展开行加载明细比对，仅读不写入', async () => {
     const wrapper = mountPage()
     await flushPromises()
 
@@ -282,13 +277,6 @@ describe('ReconciliationDifferences 页2', () => {
 
     // Expand triggers getReconciliationTask with branch param, filtered to differences only
     expect(getReconciliationTask).toHaveBeenCalledWith('task-1', { branch: 'b1', result: 'differences' })
-
-    // Directly call the conclusion handler (simulates user selecting a conclusion)
-    const comparison = comparisonDetail.comparisons[0]
-    vm.handleConclusionChange(comparison, 'supplier_overbilled')
-    await flushPromises()
-
-    expect(updateReconciliationIssue).toHaveBeenCalledWith('issue-1', { conclusionType: 'supplier_overbilled' })
     wrapper.unmount()
   })
 })

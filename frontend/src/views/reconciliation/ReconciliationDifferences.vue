@@ -6,7 +6,6 @@ import {
   getBranchSummary,
   getReconciliationTask,
   rematchTask,
-  updateReconciliationIssue,
   type BranchSummaryItem,
   type ReconciliationComparison,
 } from '@/api/reconciliation'
@@ -27,18 +26,6 @@ const rematching = ref(false)
 // Expanded detail: branchId -> comparisons (lazily loaded on first expand)
 const branchDetailCache = ref<Record<string, ReconciliationComparison[]>>({})
 const loadingBranchId = ref<string | null>(null)
-
-// Note editing state: issueId -> draft value
-const noteEditing = ref<Record<string, string>>({})
-
-const CONCLUSION_OPTIONS = [
-  { value: '', label: '待处理' },
-  { value: 'system_not_registered', label: '系统未登记已补录' },
-  { value: 'serial_corrected', label: '序列号已纠正' },
-  { value: 'supplier_overbilled', label: '供应商多报' },
-  { value: 'supplier_underbilled', label: '供应商少报' },
-  { value: 'period_adjustment', label: '期间调整' },
-]
 
 async function loadBranchSummary() {
   if (!currentTaskId.value) return
@@ -74,12 +61,7 @@ async function loadComparisons(branchId: string) {
   loadingBranchId.value = branchId
   try {
     const { data } = await getReconciliationTask(currentTaskId.value, { branch: branchId, result: 'differences' })
-    const comps = data.comparisons ?? []
-    branchDetailCache.value[branchId] = comps
-    // Initialise note drafts
-    for (const row of comps) {
-      if (row.issue) noteEditing.value[row.issue.id] = row.issue.note ?? ''
-    }
+    branchDetailCache.value[branchId] = data.comparisons ?? []
   } catch {
     ElMessage.error('加载明细失败')
   } finally {
@@ -94,43 +76,8 @@ function handleExpandChange(row: BranchSummaryItem, expandedRows: BranchSummaryI
   }
 }
 
-async function handleConclusionChange(comparison: ReconciliationComparison, value: string) {
-  if (!comparison.issue) return
-  try {
-    await updateReconciliationIssue(comparison.issue.id, { conclusionType: value })
-    // Update cache in-place so the dropdown reflects the saved value immediately
-    for (const comps of Object.values(branchDetailCache.value)) {
-      const cached = comps.find((c) => c.id === comparison.id)
-      if (cached?.issue) { cached.issue.conclusionType = value; break }
-    }
-    await loadBranchSummary()
-  } catch {
-    ElMessage.error('保存结论失败')
-  }
-}
-
-function onConclusionChange(comparison: ReconciliationComparison, val: unknown) {
-  void handleConclusionChange(comparison, String(val))
-}
-
-async function handleNoteBlur(comparison: ReconciliationComparison) {
-  if (!comparison.issue) return
-  const note = noteEditing.value[comparison.issue.id] ?? ''
-  try {
-    await updateReconciliationIssue(comparison.issue.id, { note })
-    // Update cache in-place so the note stays consistent
-    for (const comps of Object.values(branchDetailCache.value)) {
-      const cached = comps.find((c) => c.id === comparison.id)
-      if (cached?.issue) { cached.issue.note = note; break }
-    }
-  } catch {
-    ElMessage.error('保存备注失败')
-  }
-}
-
 // KPI sums
 const totalDiffCount = computed(() => branches.value.reduce((sum, b) => sum + b.diffCount, 0))
-const totalPendingCount = computed(() => branches.value.reduce((sum, b) => sum + b.pendingCount, 0))
 const totalOrderCount = computed(() => branches.value.reduce((sum, b) => sum + b.orderCount, 0))
 const totalMatchedCount = computed(() => branches.value.reduce((sum, b) => sum + b.matchedCount, 0))
 const matchRate = computed(() => {
@@ -139,8 +86,7 @@ const matchRate = computed(() => {
 })
 
 function branchStatusIcon(branch: BranchSummaryItem) {
-  if (branch.pendingCount > 0) return '🔴'
-  if (branch.diffCount > 0) return '🟡'
+  if (branch.diffCount > 0) return '🔴'
   return '✅'
 }
 
@@ -218,10 +164,6 @@ watch(() => currentTaskId.value, (newId) => {
           <strong class="kpi-value kpi-diff">{{ totalDiffCount }}</strong>
         </div>
         <div class="kpi-item">
-          <span class="kpi-label">待结论</span>
-          <strong class="kpi-value kpi-pending">{{ totalPendingCount }}</strong>
-        </div>
-        <div class="kpi-item">
           <span class="kpi-label">匹配率</span>
           <strong class="kpi-value">{{ matchRate }}</strong>
         </div>
@@ -259,38 +201,6 @@ watch(() => currentTaskId.value, (newId) => {
                   <el-table-column prop="supplierBranch" label="分公司" min-width="120" show-overflow-tooltip />
                   <el-table-column prop="systemBranch" label="系统分公司" min-width="120" show-overflow-tooltip />
                   <el-table-column prop="internalCode" label="内部编号" width="120" show-overflow-tooltip />
-                  <el-table-column label="结论" width="170">
-                    <template #default="detail">
-                      <el-select
-                        v-if="detail.row.issue"
-                        :model-value="detail.row.issue.conclusionType ?? ''"
-                        size="small"
-                        class="conclusion-select"
-                        @change="(val: unknown) => onConclusionChange(detail.row, val)"
-                      >
-                        <el-option
-                          v-for="opt in CONCLUSION_OPTIONS"
-                          :key="opt.value"
-                          :value="opt.value"
-                          :label="opt.label"
-                        />
-                      </el-select>
-                      <span v-else class="muted">—</span>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="备注" min-width="150">
-                    <template #default="detail">
-                      <input
-                        v-if="detail.row.issue"
-                        v-model="noteEditing[detail.row.issue.id]"
-                        class="note-input"
-                        type="text"
-                        placeholder="添加备注"
-                        @blur="handleNoteBlur(detail.row)"
-                      >
-                      <span v-else class="muted">—</span>
-                    </template>
-                  </el-table-column>
                 </el-table>
                 <div
                   v-if="loadingBranchId !== scope.row.branchId
@@ -310,11 +220,6 @@ watch(() => currentTaskId.value, (newId) => {
           <el-table-column label="差异数" width="80" align="right">
             <template #default="scope">
               <span :class="scope.row.diffCount > 0 ? 'count-diff' : ''">{{ scope.row.diffCount }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="待结论" width="80" align="right">
-            <template #default="scope">
-              <span :class="scope.row.pendingCount > 0 ? 'count-pending' : ''">{{ scope.row.pendingCount }}</span>
             </template>
           </el-table-column>
           <el-table-column label="本月金额" width="130" align="right">
@@ -339,7 +244,6 @@ watch(() => currentTaskId.value, (newId) => {
 .kpi-label { color: var(--color-text-secondary); font-size: var(--text-xs); }
 .kpi-value { font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .kpi-diff { color: color-mix(in oklch, var(--color-warning) 80%, var(--color-text-primary)); }
-.kpi-pending { color: var(--color-danger); }
 .table-wrap { min-width: 0; }
 .branch-table { width: 100%; }
 .branch-table :deep(th.el-table__cell) { background-color: var(--color-bg-table-header); color: var(--color-text-secondary); font-weight: 600; }
@@ -347,11 +251,7 @@ watch(() => currentTaskId.value, (newId) => {
 .expand-loading { padding: 20px; color: var(--color-text-secondary); text-align: center; font-size: var(--text-sm); }
 .detail-table { width: 100%; }
 .detail-table :deep(th.el-table__cell) { background-color: var(--color-bg-elevated); color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: 600; }
-.conclusion-select { width: 100%; }
-.note-input { width: 100%; padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-card); color: var(--color-text-primary); font: inherit; font-size: var(--text-xs); outline: none; }
-.note-input:focus { border-color: var(--color-primary-400); }
 .count-diff { color: color-mix(in oklch, var(--color-warning) 80%, var(--color-text-primary)); font-weight: 600; }
-.count-pending { color: var(--color-danger); font-weight: 600; }
 .muted { color: var(--color-text-tertiary); }
 .empty-start { max-width: 560px; padding: 64px 0; }
 .empty-start h2 { margin: 0 0 8px; font-size: var(--text-md); }

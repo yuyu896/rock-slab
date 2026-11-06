@@ -137,42 +137,56 @@ const mountPage = () => mount(ReconciliationPayment, {
   },
 })
 
-const mockRows = [
+const mockBranches = [
   {
-    serial: 'ABC001',
-    branch: '杭州分公司',
-    internalCode: 'IC-1',
-    leaseStartDate: '2026-01-01',
-    accountingDate: '2026-11-01',
-    billingDays: 30,
-    monthlyRent: '1000.00',
-    monthAmount: '1000.00',
-    billingStatus: 'billable' as const,
-    conclusionType: '',
+    branchId: 'b1',
+    branchName: '杭州分公司',
+    confirmedAmount: '2000.00',
+    pendingAmount: '0.00',
+    totalAmount: '2000.00',
+    diffCount: 0,
+    rows: [
+      {
+        serial: 'ABC001',
+        internalCode: 'IC-1',
+        resultType: 'matched',
+        leaseStartDate: '2026-01-01',
+        accountingDate: '2026-11-01',
+        billingDays: 30,
+        monthlyRent: '1000.00',
+        monthAmount: '1000.00',
+      },
+      {
+        serial: 'ABC003',
+        internalCode: 'IC-3',
+        resultType: 'matched',
+        leaseStartDate: '2026-03-01',
+        accountingDate: '2026-11-01',
+        billingDays: 30,
+        monthlyRent: '2000.00',
+        monthAmount: '2000.00',
+      },
+    ],
   },
   {
-    serial: 'ABC002',
-    branch: '上海分公司',
-    internalCode: 'IC-2',
-    leaseStartDate: null,
-    accountingDate: null,
-    billingDays: null,
-    monthlyRent: null,
-    monthAmount: '500.00',
-    billingStatus: 'not_started' as const,
-    conclusionType: 'supplier_overbilled',
-  },
-  {
-    serial: 'ABC003',
-    branch: '杭州分公司',
-    internalCode: 'IC-3',
-    leaseStartDate: '2026-03-01',
-    accountingDate: '2026-11-01',
-    billingDays: 30,
-    monthlyRent: '2000.00',
-    monthAmount: '2000.00',
-    billingStatus: 'billable' as const,
-    conclusionType: 'serial_corrected',
+    branchId: 'b2',
+    branchName: '上海分公司',
+    confirmedAmount: '500.00',
+    pendingAmount: '1000.00',
+    totalAmount: '1500.00',
+    diffCount: 1,
+    rows: [
+      {
+        serial: 'ABC002',
+        internalCode: 'IC-2',
+        resultType: 'order_only',
+        leaseStartDate: null,
+        accountingDate: null,
+        billingDays: null,
+        monthlyRent: null,
+        monthAmount: '500.00',
+      },
+    ],
   },
 ]
 
@@ -182,7 +196,7 @@ function makeSummary(canArchive: boolean) {
     pendingAmount: '1000.00',
     totalAmount: '3500.00',
     canArchive,
-    rows: mockRows,
+    branches: mockBranches,
   }
 }
 
@@ -219,7 +233,7 @@ describe('ReconciliationPayment 页3', () => {
   })
 
   it('canArchive=false 时归档按钮禁用且 tooltip 显示未处理差异数', async () => {
-    // 1 row with conclusionType === '' => pendingRowCount = 1
+    // b2 has diffCount=1 => pendingRowCount = 1
     vi.mocked(getPaymentSummary).mockResolvedValue({ data: makeSummary(false) } as any)
 
     const wrapper = mountPage()
@@ -233,7 +247,6 @@ describe('ReconciliationPayment 页3', () => {
     const buttons = wrapper.findAll('button')
     const archiveBtn = buttons.find((b) => b.text().includes('归档'))
     expect(archiveBtn).toBeDefined()
-    // The button should be disabled (summary.canArchive is false)
     expect(archiveBtn!.attributes('disabled')).toBeDefined()
 
     wrapper.unmount()
@@ -245,11 +258,8 @@ describe('ReconciliationPayment 页3', () => {
     const wrapper = mountPage()
     await flushPromises()
 
-    // The table stub renders rows based on the data prop; check that all 3 rows' serials appear
+    // Master table shows branch names; serials are in expanded rows
     const text = wrapper.text()
-    expect(text).toContain('ABC001')
-    expect(text).toContain('ABC002')
-    expect(text).toContain('ABC003')
     expect(text).toContain('杭州分公司')
     expect(text).toContain('上海分公司')
 
