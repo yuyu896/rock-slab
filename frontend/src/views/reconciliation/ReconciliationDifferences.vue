@@ -152,18 +152,19 @@ function formatMoney(value: string | null | undefined) {
 function resultTypeLabel(resultType: string) {
   const map: Record<string, string> = {
     matched: '匹配',
-    serial_diff: '序列号差异',
-    amount_diff: '金额差异',
-    supplier_only: '仅供应商',
-    system_only: '仅系统',
+    branch_mismatch: '分公司不一致',
+    order_only: '仅订单有',
+    system_only: '仅系统有',
+    system_duplicate: '序列号重复',
+    system_missing_serial: '缺少序列号',
   }
   return map[resultType] ?? resultType
 }
 
 function resultTagType(resultType: string): '' | 'success' | 'warning' | 'danger' {
   if (resultType === 'matched') return 'success'
-  if (resultType === 'supplier_only' || resultType === 'system_only') return 'danger'
-  if (resultType === 'serial_diff' || resultType === 'amount_diff') return 'warning'
+  if (resultType === 'order_only' || resultType === 'system_only') return 'danger'
+  if (resultType === 'branch_mismatch' || resultType === 'system_duplicate' || resultType === 'system_missing_serial') return 'warning'
   return ''
 }
 

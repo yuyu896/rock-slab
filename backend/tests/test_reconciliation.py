@@ -925,7 +925,7 @@ def test_task_list_pending_count_tracks_issue_conclusion_changes(authenticated_c
 
     before = authenticated_client.get('/api/reconciliation/tasks')
     update = authenticated_client.patch(
-        f'/api/reconciliation/issues/{issue.pk}', {'conclusion': '已核对'}, format='json',
+        f'/api/reconciliation/issues/{issue.pk}', {'conclusion_type': 'period_adjustment'}, format='json',
     )
     after = authenticated_client.get('/api/reconciliation/tasks')
 

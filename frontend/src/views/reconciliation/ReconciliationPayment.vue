@@ -26,11 +26,11 @@ const exporting = ref(false)
 
 const CONCLUSION_LABELS: Record<string, string> = {
   '': '待处理',
-  system_not_registered: '系统未录入',
-  serial_corrected: '序列号已修正',
-  supplier_overbilled: '供应商多收',
-  supplier_underbilled: '供应商少收',
-  period_adjustment: '跨期调整',
+  system_not_registered: '系统未登记已补录',
+  serial_corrected: '序列号已纠正',
+  supplier_overbilled: '供应商多报',
+  supplier_underbilled: '供应商少报',
+  period_adjustment: '期间调整',
 }
 
 function conclusionLabel(type: string) {

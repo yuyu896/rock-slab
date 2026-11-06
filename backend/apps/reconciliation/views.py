@@ -114,7 +114,7 @@ def _scoped_task_summary(task, scope):
     ).filter(
         issue_id__in=visible_issue_ids,
         issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-        issue__conclusion='',
+        issue__conclusion_type='',
     ).count()
     order_rows = version.order_rows.filter(comparisons__in=comparisons).distinct()
     branch_totals = []
@@ -187,6 +187,7 @@ def _comparison_payload(comp, task_period=None, include_issue=True):
         'billing_status': 'not_started' if future_billing else 'billable' if order else None,
         'issue': {
             'id': str(issue.pk), 'status': issue.status, 'conclusion': issue.conclusion,
+            'conclusion_type': issue.conclusion_type,
             'note': issue.note, 'first_period': issue.first_period.strftime('%Y-%m'),
             'last_period': issue.last_period.strftime('%Y-%m'),
             'handled_by': issue.handled_by.name if issue.handled_by else issue.handled_by_name or None,
@@ -229,7 +230,7 @@ class ReconciliationTaskListView(ReconciliationPermissionView):
                 .exclude(result_type=ReconciliationComparison.RESULT_MATCHED)
                 .filter(
                     issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-                    issue__conclusion='',
+                    issue__conclusion_type='',
                 ).values('version_id').annotate(total=Count('id')).values_list('version_id', 'total')
             )
         else:
@@ -330,7 +331,7 @@ class ReconciliationTaskDetailView(ReconciliationPermissionView):
                     comps = comps.exclude(result_type=ReconciliationComparison.RESULT_MATCHED).filter(
                         issue_id__in=visible_issue_ids_for_scope,
                         issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-                        issue__conclusion='',
+                        issue__conclusion_type='',
                     )
                 elif result_filter == 'differences':
                     comps = comps.exclude(result_type=ReconciliationComparison.RESULT_MATCHED)

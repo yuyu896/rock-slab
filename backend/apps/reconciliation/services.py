@@ -679,7 +679,7 @@ def build_version_summary(task, version, scope_diagnostics=None):
         version=version,
     ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).filter(
         issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-        issue__conclusion='',
+        issue__conclusion_type='',
     ).count()
     branch_totals = {}
     for bucket in version.order_rows.values('branch_id', 'branch__name').annotate(
@@ -721,7 +721,7 @@ def task_summary(task, pending_count=None):
                 version=version,
             ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).filter(
                 issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-                issue__conclusion='',
+                issue__conclusion_type='',
             ).count()
         summary['pending_count'] = pending_count
         return summary
