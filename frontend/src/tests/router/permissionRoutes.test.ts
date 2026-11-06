@@ -63,7 +63,7 @@ describe('权限路由', () => {
     await router.replace('/login')
     auth.permissions = ['view_reconciliation']
     await router.push('/reconciliation')
-    expect(router.currentRoute.value.path).toBe('/reconciliation')
+    expect(router.currentRoute.value.path).toBe('/reconciliation/orders')
   })
 
   it('业务页面使用对应查看权限，权限分配仍只允许系统管理员', () => {
@@ -210,7 +210,7 @@ describe('权限路由', () => {
     auth.isAdmin = true
     await router.push('/reconciliation')
 
-    expect(router.currentRoute.value.path).toBe('/reconciliation')
+    expect(router.currentRoute.value.path).toBe('/reconciliation/orders')
   })
 
   it('采购新建和编辑入口均要求采购查看、编辑和品目查看权限', async () => {
