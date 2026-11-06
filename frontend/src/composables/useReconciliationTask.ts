@@ -7,6 +7,8 @@ import type { ReconciliationTask } from '@/api/reconciliation'
 const currentTaskId = ref('')
 const currentTask = ref<ReconciliationTask | null>(null)
 const taskOptions = ref<Array<{ value: string; label: string }>>([])
+// Guard: track whether we've already restored from URL so it only runs once per session
+let restoredFromUrl = false
 
 export function useReconciliationTask() {
   const route = useRoute()
@@ -34,7 +36,7 @@ export function useReconciliationTask() {
     }
     try {
       const { data } = await getReconciliationTask(id)
-      currentTask.value = data as ReconciliationTask
+      currentTask.value = data
     } catch {
       // silently ignore — caller decides error handling
     }
@@ -43,6 +45,15 @@ export function useReconciliationTask() {
   function clearTask() {
     currentTaskId.value = ''
     currentTask.value = null
+  }
+
+  // Fix 1: initialise from route.query.task on first call (once per session)
+  if (!restoredFromUrl && currentTaskId.value === '') {
+    restoredFromUrl = true
+    const queryTask = route.query.task
+    if (typeof queryTask === 'string' && queryTask) {
+      setTask(queryTask)
+    }
   }
 
   return {
