@@ -167,6 +167,8 @@ class ReconciliationIssueHistory(UUIDModel):
     new_status = models.CharField(max_length=20)
     old_conclusion = models.CharField(max_length=100, blank=True, default='')
     new_conclusion = models.CharField(max_length=100, blank=True, default='')
+    old_conclusion_type = models.CharField(max_length=32, blank=True, default='')
+    new_conclusion_type = models.CharField(max_length=32, blank=True, default='')
     old_note = models.TextField(blank=True, default='')
     new_note = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)

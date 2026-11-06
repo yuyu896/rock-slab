@@ -636,7 +636,7 @@ def rematch_task(task, user):
 
 
 def update_issue(issue, user, status=None, conclusion=None, note=None, conclusion_type=None):
-    old = {'status': issue.status, 'conclusion': issue.conclusion, 'note': issue.note}
+    old = {'status': issue.status, 'conclusion': issue.conclusion, 'note': issue.note, 'conclusion_type': issue.conclusion_type}
     if status is not None:
         if status not in (ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_CLOSED):
             raise ValidationError({'status': '状态只允许待处理或结案'})
@@ -664,6 +664,7 @@ def update_issue(issue, user, status=None, conclusion=None, note=None, conclusio
         issue=issue, user=user, user_name=user.name,
         old_status=old['status'], new_status=issue.status,
         old_conclusion=old['conclusion'], new_conclusion=issue.conclusion,
+        old_conclusion_type=old['conclusion_type'], new_conclusion_type=issue.conclusion_type,
         old_note=old['note'], new_note=issue.note,
     )
     return issue
