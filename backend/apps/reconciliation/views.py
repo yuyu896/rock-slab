@@ -29,6 +29,7 @@ from apps.reconciliation.services import (
     _comparison_queryset_for_scope,
     import_reconciliation_order,
     preview_reconciliation_order,
+    rematch_task,
     task_summary,
     update_issue,
 )
@@ -534,3 +535,18 @@ class BranchSummaryView(ReconciliationPermissionView):
             pk=pk,
         )
         return Response(build_branch_summary(task, scope))
+
+
+class RematchView(ReconciliationImportPermissionView):
+    @audit_log(action='rematch', resource_type='ReconciliationTask', description_template='重新对账（复用订单数据重跑比对）')
+    def post(self, request, pk):
+        scope = resolve_user_scope(request.user)
+        task = get_object_or_404(
+            _task_queryset_for_scope(
+                ReconciliationTask.objects.select_related('supplier', 'current_version'),
+                scope,
+            ),
+            pk=pk,
+        )
+        version_number = rematch_task(task, request.user)
+        return Response({'version': version_number})

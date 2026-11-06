@@ -579,6 +579,62 @@ def import_reconciliation_order(supplier_id, period, upload, user):
     return task, version
 
 
+@transaction.atomic
+def rematch_task(task, user):
+    """Re-run comparison for a task using the current version's order rows,
+    without re-uploading the Excel file. Returns the new version number."""
+    task = ReconciliationTask.objects.select_for_update().get(pk=task.pk)
+    if task.status == ReconciliationTask.STATUS_ARCHIVED:
+        raise ValidationError({'detail': '该供应商月份任务已归档，不能重新对账'})
+    old_version = task.current_version
+    if old_version is None:
+        raise ValidationError({'detail': '当前任务无可用版本，无法重新对账'})
+
+    version_number = (
+        task.versions.order_by('-version_number').values_list('version_number', flat=True).first() or 0
+    ) + 1
+    new_version = ReconciliationUploadVersion.objects.create(
+        task=task,
+        version_number=version_number,
+        file=old_version.file.name,
+        uploaded_by=user,
+        uploaded_by_name=user.name,
+        row_count=old_version.row_count,
+        calculation_warnings=old_version.calculation_warnings,
+    )
+
+    old_rows = list(old_version.order_rows.select_related('branch').all())
+    new_rows = [
+        ReconciliationOrderRow(
+            version=new_version,
+            row_number=row.row_number,
+            order_number=row.order_number,
+            serial_original=row.serial_original,
+            serial_normalized=row.serial_normalized,
+            supplier_branch_text=row.supplier_branch_text,
+            branch_id=row.branch_id,
+            lease_start_date=row.lease_start_date,
+            accounting_date=row.accounting_date,
+            billing_days=row.billing_days,
+            monthly_rent=row.monthly_rent,
+            month_amount=row.month_amount,
+            uploaded_billing_days=row.uploaded_billing_days,
+            uploaded_month_amount=row.uploaded_month_amount,
+        )
+        for row in old_rows
+    ]
+    ReconciliationOrderRow.objects.bulk_create(new_rows)
+
+    scope_diagnostics = build_comparison(task, new_version)
+    new_version.summary = build_version_summary(task, new_version, scope_diagnostics)
+    new_version.save(update_fields=['summary'])
+
+    task.current_version = new_version
+    task.save(update_fields=['current_version', 'updated_at'])
+
+    return version_number
+
+
 def update_issue(issue, user, status=None, conclusion=None, note=None):
     old = {'status': issue.status, 'conclusion': issue.conclusion, 'note': issue.note}
     if status is not None:
