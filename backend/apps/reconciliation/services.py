@@ -742,18 +742,15 @@ def build_payment_summary(task, scope):
     pending = Decimal('0.00')
     rows = []
 
+    month_end_day = calendar.monthrange(task.period.year, task.period.month)[1]
+    month_end = task.period.replace(day=month_end_day)
+
     for comp in comparisons:
         order = comp.order_row
         if order is None:
             # system_only rows have no order_row — skip for payment amounts
             # but still include in rows (no billing amount)
-            if comp.order_row_id is not None:
-                pass
-            # determine branch from system side
-            if comp.system_branch_id is not None:
-                branch_name = comp.system_branch_name
-            else:
-                branch_name = ''
+            branch_name = comp.system_branch_name if comp.system_branch_id is not None else ''
             rows.append({
                 'serial': comp.system_serial_original,
                 'branch': branch_name,
@@ -787,11 +784,6 @@ def build_payment_summary(task, scope):
         # determine branch: order_row branch takes priority
         branch_name = order.branch.name if order.branch_id else comp.system_branch_name
 
-        import calendar
-        from datetime import date as _date
-        period = order.version.task.period
-        month_end_day = calendar.monthrange(period.year, period.month)[1]
-        month_end = period.replace(day=month_end_day)
         future_billing = order.accounting_date > month_end
         billing_status = 'not_started' if future_billing else 'billable'
 
