@@ -747,6 +747,8 @@ def build_payment_summary(task, scope):
     confirmed = Decimal('0.00')
     pending = Decimal('0.00')
     rows = []
+    # system_duplicate creates N comparisons sharing one order_row; bill the amount once.
+    billed_order_rows = set()
 
     month_end_day = calendar.monthrange(task.period.year, task.period.month)[1]
     month_end = task.period.replace(day=month_end_day)
@@ -772,20 +774,25 @@ def build_payment_summary(task, scope):
             continue
 
         amount = order.month_amount or Decimal('0.00')
+        bill_once = comp.order_row_id not in billed_order_rows
+        billed_order_rows.add(comp.order_row_id)
 
         if comp.result_type == ReconciliationComparison.RESULT_MATCHED:
-            confirmed += amount
+            if bill_once:
+                confirmed += amount
         else:
             # diff row
             issue = comp.issue
             if issue is not None and issue.conclusion_type != '':
-                confirmed += amount
+                if bill_once:
+                    confirmed += amount
             elif (
                 issue is not None
                 and issue.conclusion_type == ''
                 and issue.status in (ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED)
             ):
-                pending += amount
+                if bill_once:
+                    pending += amount
 
         # determine branch: order_row branch takes priority
         branch_name = order.branch.name if order.branch_id else comp.system_branch_name
@@ -852,14 +859,24 @@ def build_branch_summary(task, scope):
             }
 
         bucket = buckets[branch_id]
-        bucket['order_count'] += 1
+
+        # system_duplicate creates N comparisons sharing one order_row; count/bill once.
+        seen_key = f'order_count_{comp.order_row_id}' if comp.order_row_id else None
+        already_counted = seen_key in bucket
+        if seen_key:
+            bucket[seen_key] = True
+
+        if not already_counted:
+            bucket['order_count'] += 1
 
         if comp.result_type == ReconciliationComparison.RESULT_MATCHED:
-            bucket['matched_count'] += 1
-            if comp.order_row.month_amount is not None:
-                bucket['month_amount'] += comp.order_row.month_amount
+            if not already_counted:
+                bucket['matched_count'] += 1
+                if comp.order_row.month_amount is not None:
+                    bucket['month_amount'] += comp.order_row.month_amount
         else:
-            bucket['diff_count'] += 1
+            if not already_counted:
+                bucket['diff_count'] += 1
             if (
                 comp.issue_id is not None
                 and comp.issue.conclusion_type == ''
@@ -868,7 +885,8 @@ def build_branch_summary(task, scope):
                     ReconciliationIssue.STATUS_NOT_RECURRED,
                 )
             ):
-                bucket['pending_count'] += 1
+                if not already_counted:
+                    bucket['pending_count'] += 1
 
     result = sorted(buckets.values(), key=lambda b: b['branch_name'])
     return [

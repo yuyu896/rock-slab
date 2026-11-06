@@ -289,3 +289,41 @@ class TestPaymentSummary:
         assert '结论' in headers
         # Should have data row
         assert ws.max_row >= 2
+
+    def test_system_duplicate_amount_counted_once(self, admin_user, branch, supplier):
+        """system_duplicate: N 个系统实例共享一个 order_row，金额只计一次。"""
+        task, version = _make_task_with_version(supplier)
+        order_row = _make_order_row(version, branch, row_number=1, amount='100.00')
+        issue = ReconciliationIssue.objects.create(
+            supplier=supplier, issue_key='pay-dup-test',
+            issue_type=ReconciliationComparison.RESULT_SYSTEM_DUPLICATE,
+            first_period=task.period, last_period=task.period,
+            conclusion_type='', status=ReconciliationIssue.STATUS_OPEN,
+        )
+        # Two system instances share the same order_row → amount must not double-count
+        ReconciliationComparison.objects.create(
+            version=version, result_type=ReconciliationComparison.RESULT_SYSTEM_DUPLICATE,
+            order_row=order_row, issue=issue, internal_code='DUP-1',
+        )
+        ReconciliationComparison.objects.create(
+            version=version, result_type=ReconciliationComparison.RESULT_SYSTEM_DUPLICATE,
+            order_row=order_row, issue=issue, internal_code='DUP-2',
+        )
+
+        client = _client_for(admin_user)
+        response = client.get(f'/api/reconciliation/tasks/{task.pk}/payment')
+        assert response.status_code == 200
+        data = response.data
+        assert Decimal(data['pending_amount']) == Decimal('100.00')
+        assert Decimal(data['confirmed_amount']) == Decimal('0.00')
+        assert Decimal(data['total_amount']) == Decimal('100.00')
+
+        # Branch summary: order_count counts the order_row once, not twice
+        response2 = client.get(f'/api/reconciliation/tasks/{task.pk}/branch-summary')
+        assert response2.status_code == 200
+        summary = response2.data
+        assert len(summary) == 1
+        assert summary[0]['order_count'] == 1
+        assert summary[0]['diff_count'] == 1
+        assert Decimal(summary[0]['month_amount']) == Decimal('0.00')
+

@@ -32,7 +32,7 @@ const loadingBranchId = ref<string | null>(null)
 const noteEditing = ref<Record<string, string>>({})
 
 const CONCLUSION_OPTIONS = [
-  { value: '', label: '未填写' },
+  { value: '', label: '待处理' },
   { value: 'system_not_registered', label: '系统未登记已补录' },
   { value: 'serial_corrected', label: '序列号已纠正' },
   { value: 'supplier_overbilled', label: '供应商多报' },
