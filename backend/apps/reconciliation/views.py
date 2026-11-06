@@ -560,7 +560,7 @@ class ReconciliationExportView(ReconciliationPermissionView):
                 row['monthly_rent'],
                 row['month_amount'],
                 row['billing_status'],
-                row['conclusion_type'],
+                dict(ReconciliationIssue.CONCLUSION_CHOICES).get(row['conclusion_type'], row['conclusion_type']),
             ])
         output = BytesIO()
         workbook.save(output)

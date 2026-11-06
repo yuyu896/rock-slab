@@ -61,7 +61,7 @@ function billingStatusType(status: ReconciliationPaymentRow['billingStatus']): '
 
 const pendingRowCount = computed(() => {
   if (!summary.value) return 0
-  return summary.value.rows.filter((r) => r.conclusionType === '').length
+  return summary.value.rows.filter((r) => r.conclusionType === '' && r.monthAmount !== null).length
 })
 
 async function loadSummary() {
