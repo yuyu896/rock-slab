@@ -87,13 +87,8 @@ export interface ReconciliationImportPreview {
 
 export interface ReconciliationIssue {
   id: string
-  status: 'open' | 'not_recurred' | 'closed'
-  conclusion: string
-  note: string
   firstPeriod: string
   lastPeriod: string
-  handledBy?: string | null
-  handledAt?: string | null
 }
 
 export interface ReconciliationComparison {
@@ -142,7 +137,7 @@ export interface ReconciliationTaskDetail extends ReconciliationTask {
       calculatedMonthAmount: string
     }>
   }>
-  unresolvedIssues: Array<ReconciliationIssue & { issueType: string; serial: string }>
+  unresolvedIssues: Array<{ issueType: string; serial: string; id: string; firstPeriod: string; lastPeriod: string }>
 }
 
 export interface ReconciliationTaskListParams {
@@ -205,18 +200,23 @@ export function archiveReconciliationTask(id: string) {
     .then((response) => camelizeResponse<ReconciliationTask>(response))
 }
 
-export function updateReconciliationIssue(id: string, data: {
-  status?: ReconciliationIssue['status']
-  conclusion?: string
-  note?: string
-}) {
-  return request.patch<unknown>(`/api/reconciliation/issues/${id}`, data)
-    .then((response) => camelizeResponse<ReconciliationIssue>(response))
+export interface BranchSummaryItem {
+  branchId: string
+  branchName: string
+  orderCount: number
+  matchedCount: number
+  diffCount: number
+  monthAmount: string
 }
 
-export function getReconciliationIssueHistory(id: string) {
-  return request.get<unknown>(`/api/reconciliation/issues/${id}`)
-    .then((response) => camelizeResponse<{ history: Array<Record<string, string>> }>(response))
+export function getBranchSummary(taskId: string) {
+  return request.get<unknown>(`/api/reconciliation/tasks/${taskId}/branch-summary`)
+    .then((response) => camelizeResponse<BranchSummaryItem[]>(response))
+}
+
+export function rematchTask(taskId: string) {
+  return request.post<unknown>(`/api/reconciliation/tasks/${taskId}/rematch`)
+    .then((response) => camelizeResponse<{ version: number }>(response))
 }
 
 export function exportReconciliationTask(id: string) {
@@ -228,5 +228,45 @@ export function exportReconciliationTask(id: string) {
 export function exportReconciliationDifferences(id: string) {
   return request.get<Blob>('/api/reconciliation/export', {
     params: { task: id, type: 'differences' }, responseType: 'blob',
+  })
+}
+
+export interface ReconciliationPaymentRow {
+  serial: string | null
+  internalCode: string
+  resultType: string
+  leaseStartDate: string | null
+  accountingDate: string | null
+  billingDays: number | null
+  monthlyRent: string | null
+  monthAmount: string | null
+}
+
+export interface ReconciliationPaymentBranch {
+  branchId: string
+  branchName: string
+  confirmedAmount: string
+  pendingAmount: string
+  totalAmount: string
+  diffCount: number
+  rows: ReconciliationPaymentRow[]
+}
+
+export interface ReconciliationPaymentSummary {
+  confirmedAmount: string
+  pendingAmount: string
+  totalAmount: string
+  canArchive: boolean
+  branches: ReconciliationPaymentBranch[]
+}
+
+export function getPaymentSummary(taskId: string) {
+  return request.get<unknown>(`/api/reconciliation/tasks/${taskId}/payment`)
+    .then((response) => camelizeResponse<ReconciliationPaymentSummary>(response))
+}
+
+export function exportPayment(taskId: string) {
+  return request.get<Blob>('/api/reconciliation/export', {
+    params: { task: taskId, type: 'payment' }, responseType: 'blob',
   })
 }

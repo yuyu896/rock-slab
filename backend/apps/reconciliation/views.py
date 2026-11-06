@@ -21,14 +21,16 @@ from apps.audit.utils import create_audit_log
 from apps.reconciliation.models import (
     ReconciliationComparison,
     ReconciliationIssue,
-    ReconciliationIssueHistory,
     ReconciliationTask,
 )
 from apps.reconciliation.services import (
+    build_branch_summary,
+    build_payment_summary,
+    _comparison_queryset_for_scope,
     import_reconciliation_order,
     preview_reconciliation_order,
+    rematch_task,
     task_summary,
-    update_issue,
 )
 from apps.suppliers.models import Supplier
 from apps.permissions.permissions import OperationPermission
@@ -52,22 +54,6 @@ class ReconciliationPermissionView(APIView):
 class ReconciliationImportPermissionView(ReconciliationPermissionView):
     def get_required_operations(self, request):
         return ('manage_reconciliation', 'view_suppliers')
-
-
-def _comparison_queryset_for_scope(queryset, scope):
-    if scope.all:
-        return queryset
-    if not scope.branches:
-        return queryset.none()
-
-    branches = scope.branches
-    has_visible_branch = Q(order_row__branch_id__in=branches) | Q(system_branch_id__in=branches)
-    has_hidden_branch = (
-        Q(order_row__branch_id__isnull=False) & ~Q(order_row__branch_id__in=branches)
-    ) | (
-        Q(system_branch_id__isnull=False) & ~Q(system_branch_id__in=branches)
-    )
-    return queryset.filter(has_visible_branch).exclude(has_hidden_branch)
 
 
 def _task_queryset_for_scope(queryset, scope, require_all_comparisons=False):
@@ -123,10 +109,6 @@ def _scoped_task_summary(task, scope):
     ).values('pk')
     pending_count = comparisons.exclude(
         result_type=ReconciliationComparison.RESULT_MATCHED,
-    ).filter(
-        issue_id__in=visible_issue_ids,
-        issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-        issue__conclusion='',
     ).count()
     order_rows = version.order_rows.filter(comparisons__in=comparisons).distinct()
     branch_totals = []
@@ -198,11 +180,9 @@ def _comparison_payload(comp, task_period=None, include_issue=True):
         'uploaded_month_amount': str(order.uploaded_month_amount) if order and order.uploaded_month_amount is not None else None,
         'billing_status': 'not_started' if future_billing else 'billable' if order else None,
         'issue': {
-            'id': str(issue.pk), 'status': issue.status, 'conclusion': issue.conclusion,
-            'note': issue.note, 'first_period': issue.first_period.strftime('%Y-%m'),
+            'id': str(issue.pk),
+            'first_period': issue.first_period.strftime('%Y-%m'),
             'last_period': issue.last_period.strftime('%Y-%m'),
-            'handled_by': issue.handled_by.name if issue.handled_by else issue.handled_by_name or None,
-            'handled_at': issue.handled_at,
         } if issue else None,
     }
 
@@ -239,20 +219,11 @@ class ReconciliationTaskListView(ReconciliationPermissionView):
             pending_by_version = dict(
                 ReconciliationComparison.objects.filter(version_id__in=version_ids)
                 .exclude(result_type=ReconciliationComparison.RESULT_MATCHED)
-                .filter(
-                    issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-                    issue__conclusion='',
-                ).values('version_id').annotate(total=Count('id')).values_list('version_id', 'total')
+                .values('version_id').annotate(total=Count('id')).values_list('version_id', 'total')
             )
         else:
             pending_by_version = {}
-        unresolved_groups = list(_issue_queryset_for_scope(ReconciliationIssue.objects.filter(
-            status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-        ), scope).values(
-            'supplier_id', 'supplier__name', 'first_period',
-        ).annotate(issue_count=Count('pk', distinct=True)).order_by(
-            'supplier__name', '-first_period',
-        ))
+        unresolved_summary = {'total_count': 0, 'groups': []}
         if request.user.can('view_suppliers'):
             supplier_options = Supplier.objects.order_by('name').values('id', 'name')
             suppliers = [{'id': str(row['id']), 'name': row['name']} for row in supplier_options]
@@ -270,15 +241,7 @@ class ReconciliationTaskListView(ReconciliationPermissionView):
             'page': page.number,
             'page_size': page_size,
             'periods': periods,
-            'unresolved_summary': {
-                'total_count': sum(group['issue_count'] for group in unresolved_groups),
-                'groups': [{
-                    'supplier_id': str(group['supplier_id']),
-                    'supplier_name': group['supplier__name'],
-                    'first_period': group['first_period'].strftime('%Y-%m'),
-                    'count': group['issue_count'],
-                } for group in unresolved_groups],
-            },
+            'unresolved_summary': unresolved_summary,
         })
 
 
@@ -329,7 +292,7 @@ class ReconciliationTaskDetailView(ReconciliationPermissionView):
         if task.current_version:
             scoped_comps = _comparison_queryset_for_scope(task.current_version.comparisons.all(), scope)
             comps = scoped_comps.select_related(
-                'order_row__branch', 'order_row__version__task', 'issue__handled_by',
+                'order_row__branch', 'order_row__version__task', 'issue',
             ).all()
             visible_issue_ids_for_scope = _issue_queryset_for_scope(
                 ReconciliationIssue.objects.all(), scope,
@@ -339,11 +302,7 @@ class ReconciliationTaskDetailView(ReconciliationPermissionView):
             serial_filter = (request.query_params.get('serial') or '').strip()
             if result_filter:
                 if result_filter == 'pending':
-                    comps = comps.exclude(result_type=ReconciliationComparison.RESULT_MATCHED).filter(
-                        issue_id__in=visible_issue_ids_for_scope,
-                        issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-                        issue__conclusion='',
-                    )
+                    comps = comps.exclude(result_type=ReconciliationComparison.RESULT_MATCHED)
                 elif result_filter == 'differences':
                     comps = comps.exclude(result_type=ReconciliationComparison.RESULT_MATCHED)
                 elif result_filter != 'all':
@@ -408,16 +367,6 @@ class ReconciliationTaskDetailView(ReconciliationPermissionView):
                     'calculation_warnings': version.calculation_warnings if scope.all else [],
                 })
             payload['versions'] = versions
-        payload['unresolved_issues'] = [{
-            'id': str(issue.pk), 'issue_type': issue.issue_type,
-            'serial': issue.serial_normalized, 'status': issue.status,
-            'first_period': issue.first_period.strftime('%Y-%m'),
-            'last_period': issue.last_period.strftime('%Y-%m'),
-            'conclusion': issue.conclusion, 'note': issue.note,
-        } for issue in _issue_queryset_for_scope(ReconciliationIssue.objects.filter(
-            supplier=task.supplier,
-            status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-        ), scope).order_by('first_period')]
         return Response(payload)
 
     @transaction.atomic
@@ -433,6 +382,14 @@ class ReconciliationTaskDetailView(ReconciliationPermissionView):
             return Response({'detail': '不支持的操作'}, status=405)
         if task.status == ReconciliationTask.STATUS_ARCHIVED:
             return Response({'detail': '任务已经归档'}, status=400)
+        # Archive gate: reject if any non-matched comparisons remain.
+        if task.current_version_id:
+            diff_count = ReconciliationComparison.objects.filter(
+                version_id=task.current_version_id,
+            ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).count()
+            if diff_count > 0:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'detail': f'仍有 {diff_count} 条差异未处理'})
         task.status = ReconciliationTask.STATUS_ARCHIVED
         task.archived_by = request.user
         task.archived_by_name = request.user.name
@@ -442,41 +399,6 @@ class ReconciliationTaskDetailView(ReconciliationPermissionView):
                          resource_name=f'{task.supplier.name} {task.period:%Y-%m}',
                          description='归档月度租赁对账任务')
         return Response(_task_payload(task))
-
-
-class ReconciliationIssueView(ReconciliationPermissionView):
-    @audit_log(action='update', resource_type='ReconciliationIssue', description_template='更新对账差异处理记录')
-    def patch(self, request, pk):
-        scope = resolve_user_scope(request.user)
-        issue = get_object_or_404(_issue_queryset_for_scope(ReconciliationIssue.objects.all(), scope), pk=pk)
-        issue = update_issue(
-            issue, request.user,
-            status=request.data.get('status'),
-            conclusion=request.data.get('conclusion'),
-            note=request.data.get('note'),
-        )
-        return Response({
-            'id': str(issue.pk), 'status': issue.status,
-            'conclusion': issue.conclusion, 'note': issue.note,
-            'handled_by': issue.handled_by.name if issue.handled_by else issue.handled_by_name or None,
-            'handled_at': issue.handled_at,
-        })
-
-    def get(self, request, pk):
-        scope = resolve_user_scope(request.user)
-        issue = get_object_or_404(_issue_queryset_for_scope(ReconciliationIssue.objects.all(), scope), pk=pk)
-        history = ReconciliationIssueHistory.objects.filter(issue=issue).select_related('user')
-        return Response({
-            'id': str(issue.pk), 'status': issue.status, 'conclusion': issue.conclusion,
-            'note': issue.note,
-            'history': [{
-                'user': row.user.name if row.user else row.user_name,
-                'created_at': row.created_at,
-                'old_status': row.old_status, 'new_status': row.new_status,
-                'old_conclusion': row.old_conclusion, 'new_conclusion': row.new_conclusion,
-                'old_note': row.old_note, 'new_note': row.new_note,
-            } for row in history],
-        })
 
 
 class ReconciliationExportView(ReconciliationPermissionView):
@@ -494,21 +416,18 @@ class ReconciliationExportView(ReconciliationPermissionView):
             ),
             pk=request.query_params.get('task'),
         )
+        if request.query_params.get('type') == 'payment':
+            return self._export_payment(task, scope)
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '对账结果'
-        sheet.append(['结果', '序列号', '订单号', '订单分公司', '系统分公司', '内部编号', '状态', '资产编号', '起租日期', '记账日期', '系统记账天数', '订单记账天数', '月租金', '系统本月金额', '订单本月金额', '处理结论', '备注'])
+        sheet.append(['结果', '序列号', '订单号', '订单分公司', '系统分公司', '内部编号', '状态', '资产编号', '起租日期', '记账日期', '系统记账天数', '订单记账天数', '月租金', '系统本月金额', '订单本月金额'])
         if task.current_version:
             rows = _comparison_queryset_for_scope(
-                task.current_version.comparisons.select_related('order_row__branch', 'issue').all(), scope,
+                task.current_version.comparisons.select_related('order_row__branch').all(), scope,
             )
-            visible_issue_ids = set(_issue_queryset_for_scope(
-                ReconciliationIssue.objects.filter(pk__in=rows.values('issue_id')),
-                scope,
-            ).values_list('pk', flat=True))
             for row in rows:
                 order = row.order_row
-                issue = row.issue if scope.all or row.issue_id in visible_issue_ids else None
                 sheet.append([
                     row.get_result_type_display(),
                     order.serial_original if order else row.system_serial_original,
@@ -519,7 +438,6 @@ class ReconciliationExportView(ReconciliationPermissionView):
                     order.billing_days if order else '', order.uploaded_billing_days if order else '',
                     str(order.monthly_rent) if order else '', str(order.month_amount) if order else '',
                     str(order.uploaded_month_amount) if order and order.uploaded_month_amount is not None else '',
-                    issue.conclusion if issue else '', issue.note if issue else '',
                 ])
         if request.query_params.get('type') == 'differences' and sheet.max_row > 1:
             header = [cell.value for cell in sheet[1]]
@@ -535,3 +453,72 @@ class ReconciliationExportView(ReconciliationPermissionView):
         )
         response['Content-Disposition'] = f'attachment; filename="reconciliation-{task.period:%Y-%m}.xlsx"'
         return response
+
+    def _export_payment(self, task, scope):
+        summary = build_payment_summary(task, scope)
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = '付款明细'
+        sheet.append(['分公司', '序列号', '内部编号', '差异类型', '起租日期', '记账日期', '计费天数', '月租金', '本月金额'])
+        for branch in summary['branches']:
+            for row in branch['rows']:
+                sheet.append([
+                    branch['branch_name'],
+                    row['serial'],
+                    row['internal_code'],
+                    row['result_type'],
+                    row['lease_start_date'],
+                    row['accounting_date'],
+                    row['billing_days'],
+                    row['monthly_rent'],
+                    row['month_amount'],
+                ])
+        output = BytesIO()
+        workbook.save(output)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="payment-{task.period:%Y-%m}.xlsx"'
+        return response
+
+
+class BranchSummaryView(ReconciliationPermissionView):
+    def get(self, request, pk):
+        scope = resolve_user_scope(request.user)
+        task = get_object_or_404(
+            _task_queryset_for_scope(
+                ReconciliationTask.objects.select_related('supplier', 'current_version'),
+                scope,
+            ),
+            pk=pk,
+        )
+        return Response(build_branch_summary(task, scope))
+
+
+class RematchView(ReconciliationImportPermissionView):
+    @audit_log(action='rematch', resource_type='ReconciliationTask', description_template='重新对账（复用订单数据重跑比对）')
+    def post(self, request, pk):
+        scope = resolve_user_scope(request.user)
+        task = get_object_or_404(
+            _task_queryset_for_scope(
+                ReconciliationTask.objects.select_related('supplier', 'current_version'),
+                scope,
+            ),
+            pk=pk,
+        )
+        version_number = rematch_task(task, request.user)
+        return Response({'version': version_number})
+
+
+class PaymentSummaryView(ReconciliationPermissionView):
+    def get(self, request, pk):
+        scope = resolve_user_scope(request.user)
+        task = get_object_or_404(
+            _task_queryset_for_scope(
+                ReconciliationTask.objects.select_related('supplier', 'current_version'),
+                scope,
+            ),
+            pk=pk,
+        )
+        return Response(build_payment_summary(task, scope))

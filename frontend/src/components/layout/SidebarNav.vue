@@ -95,7 +95,13 @@ const navItems = computed<NavItem[]>(() => {
       ],
     },
     { icon: 'scan', label: '资产盘点', path: '/inventory', permissionPage: 'inventory', ...(inventoryCount.value > 0 ? { badge: inventoryCount.value } : {}) },
-    { icon: 'reconcile', label: '对账', path: '/reconciliation', permissionPage: 'reconciliation' },
+    {
+      icon: 'reconcile', label: '对账', path: '/reconciliation', children: [
+        { icon: '', label: '供应商订单', path: '/reconciliation/orders', permissionPage: 'reconciliation' },
+        { icon: '', label: '序列号差异', path: '/reconciliation/differences', permissionPage: 'reconciliation' },
+        { icon: '', label: '待付金额', path: '/reconciliation/payment', permissionPage: 'reconciliation' },
+      ],
+    },
     {
       icon: 'organization', label: '组织架构', path: '/organization', children: [
         { icon: '', label: '员工与组织', path: '/organization', permissionPage: 'personnel' },

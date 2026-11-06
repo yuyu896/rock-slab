@@ -18,7 +18,6 @@ from apps.organizations.models import Branch
 from apps.reconciliation.models import (
     ReconciliationComparison,
     ReconciliationIssue,
-    ReconciliationIssueHistory,
     ReconciliationOrderRow,
     ReconciliationTask,
     ReconciliationUploadVersion,
@@ -29,6 +28,22 @@ from apps.suppliers.models import Supplier
 ITEM_CODES = ('A-a00001', 'A-a00008', 'A-a00011', 'A-a00012')
 HEADERS = ('订单号', '序列号', '分公司', '起租日期', '记账日期', '月租金')
 CENT = Decimal('0.01')
+
+
+def _comparison_queryset_for_scope(queryset, scope):
+    if scope.all:
+        return queryset
+    if not scope.branches:
+        return queryset.none()
+
+    branches = scope.branches
+    has_visible_branch = Q(order_row__branch_id__in=branches) | Q(system_branch_id__in=branches)
+    has_hidden_branch = (
+        Q(order_row__branch_id__isnull=False) & ~Q(order_row__branch_id__in=branches)
+    ) | (
+        Q(system_branch_id__isnull=False) & ~Q(system_branch_id__in=branches)
+    )
+    return queryset.filter(has_visible_branch).exclude(has_hidden_branch)
 
 
 def normalize_serial(value):
@@ -223,17 +238,8 @@ def _issue_for(task, issue_type, serial, discriminator='', cache=None):
         },
     )
     if not created:
-        old_status = issue.status
         issue.last_period = max(issue.last_period, task.period)
-        issue.status = ReconciliationIssue.STATUS_OPEN
-        issue.save(update_fields=['last_period', 'status', 'updated_at'])
-        if old_status != issue.status:
-            ReconciliationIssueHistory.objects.create(
-                issue=issue, user=task.created_by, user_name=task.created_by_name,
-                old_status=old_status,
-                new_status=issue.status, old_conclusion=issue.conclusion,
-                new_conclusion=issue.conclusion, old_note=issue.note, new_note=issue.note,
-            )
+        issue.save(update_fields=['last_period', 'updated_at'])
     if cache is not None:
         cache[issue_key] = issue
     return issue
@@ -319,27 +325,15 @@ def _prefetch_issues(task, specs):
             })
         existing.update(current)
     changed = []
-    histories = []
     changed_at = timezone.now()
     for issue in existing.values():
-        old_status = issue.status
         old_last_period = issue.last_period
         issue.last_period = max(issue.last_period, task.period)
-        issue.status = ReconciliationIssue.STATUS_OPEN
-        if issue.last_period != old_last_period or old_status != issue.status:
+        if issue.last_period != old_last_period:
             issue.updated_at = changed_at
             changed.append(issue)
-        if old_status != issue.status:
-            histories.append(ReconciliationIssueHistory(
-                issue=issue, user=task.created_by, user_name=task.created_by_name,
-                old_status=old_status,
-                new_status=issue.status, old_conclusion=issue.conclusion,
-                new_conclusion=issue.conclusion, old_note=issue.note, new_note=issue.note,
-            ))
     if changed:
-        ReconciliationIssue.objects.bulk_update(changed, ['last_period', 'status', 'updated_at'], batch_size=500)
-    if histories:
-        ReconciliationIssueHistory.objects.bulk_create(histories, batch_size=500)
+        ReconciliationIssue.objects.bulk_update(changed, ['last_period', 'updated_at'], batch_size=500)
     return existing
 
 
@@ -485,32 +479,6 @@ def build_comparison(task, version):
 
     ReconciliationComparison.objects.bulk_create(comparison_rows, batch_size=500)
 
-    previous_issues = list(ReconciliationIssue.objects.filter(
-        supplier=task.supplier,
-        status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-    ).filter(
-        Q(last_period__lt=task.period) | Q(occurrences__version__task=task),
-    ).exclude(pk__in=seen_issue_ids).distinct())
-    recurring_issues = [
-        issue for issue in previous_issues
-        if issue.status != ReconciliationIssue.STATUS_NOT_RECURRED
-    ]
-    changed_at = timezone.now()
-    for issue in recurring_issues:
-        issue.status = ReconciliationIssue.STATUS_NOT_RECURRED
-        issue.updated_at = changed_at
-    if recurring_issues:
-        ReconciliationIssue.objects.bulk_update(recurring_issues, ['status', 'updated_at'], batch_size=500)
-        ReconciliationIssueHistory.objects.bulk_create([
-            ReconciliationIssueHistory(
-                issue=issue, user=task.created_by, user_name=task.created_by_name,
-                old_status=ReconciliationIssue.STATUS_OPEN,
-                new_status=ReconciliationIssue.STATUS_NOT_RECURRED,
-                old_conclusion=issue.conclusion, new_conclusion=issue.conclusion,
-                old_note=issue.note, new_note=issue.note,
-            )
-            for issue in recurring_issues
-        ], batch_size=500)
     return scope_diagnostics
 
 
@@ -563,32 +531,60 @@ def import_reconciliation_order(supplier_id, period, upload, user):
     return task, version
 
 
-def update_issue(issue, user, status=None, conclusion=None, note=None):
-    old = {'status': issue.status, 'conclusion': issue.conclusion, 'note': issue.note}
-    if status is not None:
-        if status not in (ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_CLOSED):
-            raise ValidationError({'status': '状态只允许待处理或结案'})
-        if status == ReconciliationIssue.STATUS_CLOSED and issue.status == ReconciliationIssue.STATUS_NOT_RECURRED:
-            pass
-        issue.status = status
-        issue.closed_by = user if status == ReconciliationIssue.STATUS_CLOSED else None
-        issue.closed_by_name = user.name if status == ReconciliationIssue.STATUS_CLOSED else ''
-        issue.closed_at = timezone.now() if status == ReconciliationIssue.STATUS_CLOSED else None
-    if conclusion is not None:
-        issue.conclusion = conclusion.strip()
-    if note is not None:
-        issue.note = note.strip()
-    issue.handled_by = user
-    issue.handled_by_name = user.name
-    issue.handled_at = timezone.now()
-    issue.save()
-    ReconciliationIssueHistory.objects.create(
-        issue=issue, user=user, user_name=user.name,
-        old_status=old['status'], new_status=issue.status,
-        old_conclusion=old['conclusion'], new_conclusion=issue.conclusion,
-        old_note=old['note'], new_note=issue.note,
+@transaction.atomic
+def rematch_task(task, user):
+    """Re-run comparison for a task using the current version's order rows,
+    without re-uploading the Excel file. Returns the new version number."""
+    task = ReconciliationTask.objects.select_for_update().get(pk=task.pk)
+    if task.status == ReconciliationTask.STATUS_ARCHIVED:
+        raise ValidationError({'detail': '该供应商月份任务已归档，不能重新对账'})
+    old_version = task.current_version
+    if old_version is None:
+        raise ValidationError({'detail': '当前任务无可用版本，无法重新对账'})
+
+    version_number = (
+        task.versions.order_by('-version_number').values_list('version_number', flat=True).first() or 0
+    ) + 1
+    new_version = ReconciliationUploadVersion.objects.create(
+        task=task,
+        version_number=version_number,
+        file=old_version.file.name,
+        uploaded_by=user,
+        uploaded_by_name=user.name,
+        row_count=old_version.row_count,
+        calculation_warnings=old_version.calculation_warnings,
     )
-    return issue
+
+    old_rows = list(old_version.order_rows.select_related('branch').all())
+    new_rows = [
+        ReconciliationOrderRow(
+            version=new_version,
+            row_number=row.row_number,
+            order_number=row.order_number,
+            serial_original=row.serial_original,
+            serial_normalized=row.serial_normalized,
+            supplier_branch_text=row.supplier_branch_text,
+            branch_id=row.branch_id,
+            lease_start_date=row.lease_start_date,
+            accounting_date=row.accounting_date,
+            billing_days=row.billing_days,
+            monthly_rent=row.monthly_rent,
+            month_amount=row.month_amount,
+            uploaded_billing_days=row.uploaded_billing_days,
+            uploaded_month_amount=row.uploaded_month_amount,
+        )
+        for row in old_rows
+    ]
+    ReconciliationOrderRow.objects.bulk_create(new_rows)
+
+    scope_diagnostics = build_comparison(task, new_version)
+    new_version.summary = build_version_summary(task, new_version, scope_diagnostics)
+    new_version.save(update_fields=['summary'])
+
+    task.current_version = new_version
+    task.save(update_fields=['current_version', 'updated_at'])
+
+    return version_number
 
 
 def build_version_summary(task, version, scope_diagnostics=None):
@@ -599,10 +595,7 @@ def build_version_summary(task, version, scope_diagnostics=None):
     )
     pending_count = ReconciliationComparison.objects.filter(
         version=version,
-    ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).filter(
-        issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-        issue__conclusion='',
-    ).count()
+    ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).count()
     branch_totals = {}
     for bucket in version.order_rows.values('branch_id', 'branch__name').annotate(
         row_count=Count('pk'), monthly_rent=Sum('monthly_rent'), month_amount=Sum('month_amount'),
@@ -641,10 +634,169 @@ def task_summary(task, pending_count=None):
         if pending_count is None:
             pending_count = ReconciliationComparison.objects.filter(
                 version=version,
-            ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).filter(
-                issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
-                issue__conclusion='',
-            ).count()
+            ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).count()
         summary['pending_count'] = pending_count
         return summary
     return build_version_summary(task, version)
+
+
+def build_payment_summary(task, scope):
+    """聚合付款明细：按分公司分组，返回 branches[] 嵌套结构。"""
+    version = task.current_version
+    if version is None:
+        return {
+            'confirmed_amount': '0.00',
+            'pending_amount': '0.00',
+            'total_amount': '0.00',
+            'can_archive': True,
+            'branches': [],
+        }
+
+    comparisons = _comparison_queryset_for_scope(
+        version.comparisons.all(), scope,
+    ).select_related('order_row__branch')
+
+    # system_duplicate creates N comparisons sharing one order_row; bill the amount once.
+    billed_order_rows = set()
+    branch_buckets = {}
+
+    for comp in comparisons:
+        order = comp.order_row
+        if order is not None:
+            branch_id = str(order.branch_id) if order.branch_id else None
+            branch_name = order.branch.name if order.branch_id else ''
+        elif comp.system_branch_id is not None:
+            branch_id = str(comp.system_branch_id)
+            branch_name = comp.system_branch_name
+        else:
+            branch_id = None
+            branch_name = ''
+
+        if branch_id is None:
+            continue
+
+        if branch_id not in branch_buckets:
+            branch_buckets[branch_id] = {
+                'branch_id': branch_id,
+                'branch_name': branch_name,
+                'confirmed': Decimal('0.00'),
+                'pending': Decimal('0.00'),
+                'diff_count': 0,
+                'rows': [],
+            }
+        bucket = branch_buckets[branch_id]
+
+        is_diff = comp.result_type != ReconciliationComparison.RESULT_MATCHED
+        if is_diff:
+            bucket['diff_count'] += 1
+
+        if order is not None:
+            amount = order.month_amount or Decimal('0.00')
+            bill_once = comp.order_row_id not in billed_order_rows
+            billed_order_rows.add(comp.order_row_id)
+            if bill_once:
+                if is_diff:
+                    bucket['pending'] += amount
+                else:
+                    bucket['confirmed'] += amount
+
+        bucket['rows'].append({
+            'serial': order.serial_original if order is not None else comp.system_serial_original,
+            'internal_code': comp.internal_code,
+            'result_type': comp.result_type,
+            'lease_start_date': order.lease_start_date.isoformat() if order is not None else None,
+            'accounting_date': order.accounting_date.isoformat() if order is not None else None,
+            'billing_days': order.billing_days if order is not None else None,
+            'monthly_rent': str(order.monthly_rent) if order is not None else None,
+            'month_amount': str(order.month_amount) if order is not None else None,
+        })
+
+    total_confirmed = Decimal('0.00')
+    total_pending = Decimal('0.00')
+    branches = []
+    for bucket in sorted(branch_buckets.values(), key=lambda b: b['branch_name']):
+        conf = bucket['confirmed'].quantize(CENT, rounding=ROUND_HALF_UP)
+        pend = bucket['pending'].quantize(CENT, rounding=ROUND_HALF_UP)
+        total_confirmed += conf
+        total_pending += pend
+        branches.append({
+            'branch_id': bucket['branch_id'],
+            'branch_name': bucket['branch_name'],
+            'confirmed_amount': str(conf),
+            'pending_amount': str(pend),
+            'total_amount': str((conf + pend).quantize(CENT, rounding=ROUND_HALF_UP)),
+            'diff_count': bucket['diff_count'],
+            'rows': bucket['rows'],
+        })
+
+    total_confirmed = total_confirmed.quantize(CENT, rounding=ROUND_HALF_UP)
+    total_pending = total_pending.quantize(CENT, rounding=ROUND_HALF_UP)
+    can_archive = ReconciliationComparison.objects.filter(
+        version=version,
+    ).exclude(result_type=ReconciliationComparison.RESULT_MATCHED).count() == 0
+
+    return {
+        'confirmed_amount': str(total_confirmed),
+        'pending_amount': str(total_pending),
+        'total_amount': str((total_confirmed + total_pending).quantize(CENT, rounding=ROUND_HALF_UP)),
+        'can_archive': can_archive,
+        'branches': branches,
+    }
+
+
+def build_branch_summary(task, scope):
+    """按分公司聚合对账差异状态，返回列表供 branch-summary 接口使用。"""
+    version = task.current_version
+    if version is None:
+        return []
+
+    comparisons = _comparison_queryset_for_scope(
+        version.comparisons.all(), scope,
+    ).select_related('order_row__branch')
+
+    buckets = {}
+    for comp in comparisons:
+        if comp.order_row_id is not None:
+            branch_id = str(comp.order_row.branch_id)
+            branch_name = comp.order_row.branch.name
+        elif comp.system_branch_id is not None:
+            branch_id = str(comp.system_branch_id)
+            branch_name = comp.system_branch_name
+        else:
+            continue
+
+        if branch_id not in buckets:
+            buckets[branch_id] = {
+                'branch_id': branch_id,
+                'branch_name': branch_name,
+                'order_count': 0,
+                'matched_count': 0,
+                'diff_count': 0,
+                'month_amount': Decimal('0.00'),
+            }
+
+        bucket = buckets[branch_id]
+
+        # system_duplicate creates N comparisons sharing one order_row; count/bill once.
+        seen_key = f'order_count_{comp.order_row_id}' if comp.order_row_id else None
+        already_counted = seen_key in bucket
+        if seen_key:
+            bucket[seen_key] = True
+
+        if not already_counted:
+            bucket['order_count'] += 1
+
+        if comp.result_type == ReconciliationComparison.RESULT_MATCHED:
+            if not already_counted:
+                bucket['matched_count'] += 1
+                if comp.order_row.month_amount is not None:
+                    bucket['month_amount'] += comp.order_row.month_amount
+        else:
+            if not already_counted:
+                bucket['diff_count'] += 1
+
+    result = sorted(buckets.values(), key=lambda b: b['branch_name'])
+    return [
+        {**b, 'month_amount': str(b['month_amount'].quantize(CENT))}
+        for b in result
+    ]
