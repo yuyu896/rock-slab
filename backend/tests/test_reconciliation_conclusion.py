@@ -94,3 +94,27 @@ class TestConclusionType:
             format='json',
         )
         assert resp_bad.status_code == 400
+
+    def test_history_records_conclusion_type(self, admin_user, branch):
+        from apps.reconciliation.models import ReconciliationIssueHistory
+        supplier = Supplier.objects.create(name='历史追踪测试供应商')
+        task = ReconciliationTask.objects.create(supplier=supplier, period=date(2026, 11, 1))
+        issue = ReconciliationIssue.objects.create(
+            supplier=supplier, issue_key='hist-001', issue_type='order_only',
+            first_period=task.period, last_period=task.period,
+        )
+
+        update_issue(issue, admin_user, conclusion_type='supplier_overbilled')
+        update_issue(issue, admin_user, conclusion_type='period_adjustment')
+
+        history = list(ReconciliationIssueHistory.objects.filter(issue=issue).order_by('created_at'))
+        assert len(history) == 2
+        assert history[0].old_conclusion_type == ''
+        assert history[0].new_conclusion_type == 'supplier_overbilled'
+        assert history[1].old_conclusion_type == 'supplier_overbilled'
+        assert history[1].new_conclusion_type == 'period_adjustment'
+
+        update_issue(issue, admin_user, conclusion_type='')
+        latest = ReconciliationIssueHistory.objects.filter(issue=issue).order_by('-created_at').first()
+        assert latest.old_conclusion_type == 'period_adjustment'
+        assert latest.new_conclusion_type == ''
