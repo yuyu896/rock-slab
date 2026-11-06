@@ -89,6 +89,7 @@ export interface ReconciliationIssue {
   id: string
   status: 'open' | 'not_recurred' | 'closed'
   conclusion: string
+  conclusionType: string
   note: string
   firstPeriod: string
   lastPeriod: string
@@ -205,13 +206,34 @@ export function archiveReconciliationTask(id: string) {
     .then((response) => camelizeResponse<ReconciliationTask>(response))
 }
 
+export interface BranchSummaryItem {
+  branchId: string
+  branchName: string
+  orderCount: number
+  matchedCount: number
+  diffCount: number
+  pendingCount: number
+  monthAmount: string
+}
+
 export function updateReconciliationIssue(id: string, data: {
   status?: ReconciliationIssue['status']
   conclusion?: string
+  conclusionType?: string
   note?: string
 }) {
   return request.patch<unknown>(`/api/reconciliation/issues/${id}`, data)
     .then((response) => camelizeResponse<ReconciliationIssue>(response))
+}
+
+export function getBranchSummary(taskId: string) {
+  return request.get<unknown>(`/api/reconciliation/tasks/${taskId}/branch-summary`)
+    .then((response) => camelizeResponse<BranchSummaryItem[]>(response))
+}
+
+export function rematchTask(taskId: string) {
+  return request.post<unknown>(`/api/reconciliation/tasks/${taskId}/rematch`)
+    .then((response) => camelizeResponse<{ version: number }>(response))
 }
 
 export function getReconciliationIssueHistory(id: string) {
