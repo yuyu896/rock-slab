@@ -108,6 +108,10 @@ function onConclusionChange(comparison: ReconciliationComparison, val: unknown) 
   void handleConclusionChange(comparison, String(val))
 }
 
+function conclusionHandler(comparison: ReconciliationComparison) {
+  return (val: unknown) => onConclusionChange(comparison, val)
+}
+
 async function handleNoteBlur(comparison: ReconciliationComparison) {
   if (!comparison.issue) return
   const note = noteEditing.value[comparison.issue.id] ?? ''
@@ -255,7 +259,7 @@ watch(() => currentTaskId.value, (newId) => {
                         :model-value="detail.row.issue.conclusionType ?? ''"
                         size="small"
                         class="conclusion-select"
-                        @change="(val) => onConclusionChange(detail.row, val)"
+                        @change="conclusionHandler(detail.row)"
                       >
                         <el-option
                           v-for="opt in CONCLUSION_OPTIONS"

