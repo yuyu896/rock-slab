@@ -137,7 +137,7 @@ export interface ReconciliationTaskDetail extends ReconciliationTask {
       calculatedMonthAmount: string
     }>
   }>
-  unresolvedIssues: Array<ReconciliationIssue & { issueType: string; serial: string }>
+  unresolvedIssues: Array<{ issueType: string; serial: string; id: string; firstPeriod: string; lastPeriod: string }>
 }
 
 export interface ReconciliationTaskListParams {

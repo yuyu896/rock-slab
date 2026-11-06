@@ -24,8 +24,6 @@ const loading = ref(false)
 const archiving = ref(false)
 const exporting = ref(false)
 
-const expandedBranches = ref(new Set<string>())
-
 function formatMoney(value: string | null | undefined) {
   if (!value) return '—'
   return '¥' + Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
