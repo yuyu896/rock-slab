@@ -722,6 +722,105 @@ def task_summary(task, pending_count=None):
     return build_version_summary(task, version)
 
 
+def build_payment_summary(task, scope):
+    """聚合付款明细：confirmed/pending 金额及明细行列表。"""
+    version = task.current_version
+    if version is None:
+        return {
+            'confirmed_amount': '0.00',
+            'pending_amount': '0.00',
+            'total_amount': '0.00',
+            'can_archive': True,
+            'rows': [],
+        }
+
+    comparisons = _comparison_queryset_for_scope(
+        version.comparisons.all(), scope,
+    ).select_related('order_row__branch', 'issue')
+
+    confirmed = Decimal('0.00')
+    pending = Decimal('0.00')
+    rows = []
+
+    for comp in comparisons:
+        order = comp.order_row
+        if order is None:
+            # system_only rows have no order_row — skip for payment amounts
+            # but still include in rows (no billing amount)
+            if comp.order_row_id is not None:
+                pass
+            # determine branch from system side
+            if comp.system_branch_id is not None:
+                branch_name = comp.system_branch_name
+            else:
+                branch_name = ''
+            rows.append({
+                'serial': comp.system_serial_original,
+                'branch': branch_name,
+                'internal_code': comp.internal_code,
+                'lease_start_date': None,
+                'accounting_date': None,
+                'billing_days': None,
+                'monthly_rent': None,
+                'month_amount': None,
+                'billing_status': None,
+                'conclusion_type': comp.issue.conclusion_type if comp.issue_id else '',
+            })
+            continue
+
+        amount = order.month_amount or Decimal('0.00')
+
+        if comp.result_type == ReconciliationComparison.RESULT_MATCHED:
+            confirmed += amount
+        else:
+            # diff row
+            issue = comp.issue
+            if issue is not None and issue.conclusion_type != '':
+                confirmed += amount
+            elif (
+                issue is not None
+                and issue.conclusion_type == ''
+                and issue.status in (ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED)
+            ):
+                pending += amount
+
+        # determine branch: order_row branch takes priority
+        branch_name = order.branch.name if order.branch_id else comp.system_branch_name
+
+        import calendar
+        from datetime import date as _date
+        period = order.version.task.period
+        month_end_day = calendar.monthrange(period.year, period.month)[1]
+        month_end = period.replace(day=month_end_day)
+        future_billing = order.accounting_date > month_end
+        billing_status = 'not_started' if future_billing else 'billable'
+
+        rows.append({
+            'serial': order.serial_original,
+            'branch': branch_name,
+            'internal_code': comp.internal_code,
+            'lease_start_date': order.lease_start_date.isoformat(),
+            'accounting_date': order.accounting_date.isoformat(),
+            'billing_days': order.billing_days,
+            'monthly_rent': str(order.monthly_rent),
+            'month_amount': str(order.month_amount),
+            'billing_status': billing_status,
+            'conclusion_type': comp.issue.conclusion_type if comp.issue_id else '',
+        })
+
+    confirmed = confirmed.quantize(CENT, rounding=ROUND_HALF_UP)
+    pending = pending.quantize(CENT, rounding=ROUND_HALF_UP)
+    total = (confirmed + pending).quantize(CENT, rounding=ROUND_HALF_UP)
+
+    return {
+        'confirmed_amount': str(confirmed),
+        'pending_amount': str(pending),
+        'total_amount': str(total),
+        'can_archive': pending == Decimal('0.00'),
+        'rows': rows,
+    }
+
+
 def build_branch_summary(task, scope):
     """按分公司聚合对账差异状态，返回列表供 branch-summary 接口使用。"""
     version = task.current_version

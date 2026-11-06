@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     BranchSummaryView,
+    PaymentSummaryView,
     ReconciliationExportView,
     ReconciliationIssueView,
     ReconciliationTaskDetailView,
@@ -19,6 +20,7 @@ urlpatterns = [
     path('tasks/<uuid:pk>/archive', ReconciliationTaskDetailView.as_view()),
     path('tasks/<uuid:pk>/branch-summary', BranchSummaryView.as_view()),
     path('tasks/<uuid:pk>/rematch', RematchView.as_view()),
+    path('tasks/<uuid:pk>/payment', PaymentSummaryView.as_view()),
     path('issues/<uuid:pk>', ReconciliationIssueView.as_view()),
     path('export', ReconciliationExportView.as_view()),
 ]

@@ -26,6 +26,7 @@ from apps.reconciliation.models import (
 )
 from apps.reconciliation.services import (
     build_branch_summary,
+    build_payment_summary,
     _comparison_queryset_for_scope,
     import_reconciliation_order,
     preview_reconciliation_order,
@@ -420,6 +421,21 @@ class ReconciliationTaskDetailView(ReconciliationPermissionView):
             return Response({'detail': '不支持的操作'}, status=405)
         if task.status == ReconciliationTask.STATUS_ARCHIVED:
             return Response({'detail': '任务已经归档'}, status=400)
+        # Archive gate: reject if any diff rows with billing amounts are still pending (no conclusion_type).
+        # system_only comparisons have no order_row (no billing amount) and do not block archiving.
+        if task.current_version_id:
+            pending_count = ReconciliationComparison.objects.filter(
+                version_id=task.current_version_id,
+                order_row__isnull=False,
+            ).exclude(
+                result_type=ReconciliationComparison.RESULT_MATCHED,
+            ).filter(
+                issue__conclusion_type='',
+                issue__status__in=[ReconciliationIssue.STATUS_OPEN, ReconciliationIssue.STATUS_NOT_RECURRED],
+            ).count()
+            if pending_count > 0:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'detail': f'仍有 {pending_count} 条差异未处理'})
         task.status = ReconciliationTask.STATUS_ARCHIVED
         task.archived_by = request.user
         task.archived_by_name = request.user.name
@@ -481,6 +497,8 @@ class ReconciliationExportView(ReconciliationPermissionView):
             ),
             pk=request.query_params.get('task'),
         )
+        if request.query_params.get('type') == 'payment':
+            return self._export_payment(task, scope)
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '对账结果'
@@ -523,6 +541,34 @@ class ReconciliationExportView(ReconciliationPermissionView):
         response['Content-Disposition'] = f'attachment; filename="reconciliation-{task.period:%Y-%m}.xlsx"'
         return response
 
+    def _export_payment(self, task, scope):
+        summary = build_payment_summary(task, scope)
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = '付款明细'
+        sheet.append(['序列号', '分公司', '内部编号', '起租日期', '记账日期', '计费天数', '月租金', '本月金额', '计费状态', '结论'])
+        for row in summary['rows']:
+            sheet.append([
+                row['serial'],
+                row['branch'],
+                row['internal_code'],
+                row['lease_start_date'],
+                row['accounting_date'],
+                row['billing_days'],
+                row['monthly_rent'],
+                row['month_amount'],
+                row['billing_status'],
+                row['conclusion_type'],
+            ])
+        output = BytesIO()
+        workbook.save(output)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="payment-{task.period:%Y-%m}.xlsx"'
+        return response
+
 
 class BranchSummaryView(ReconciliationPermissionView):
     def get(self, request, pk):
@@ -550,3 +596,16 @@ class RematchView(ReconciliationImportPermissionView):
         )
         version_number = rematch_task(task, request.user)
         return Response({'version': version_number})
+
+
+class PaymentSummaryView(ReconciliationPermissionView):
+    def get(self, request, pk):
+        scope = resolve_user_scope(request.user)
+        task = get_object_or_404(
+            _task_queryset_for_scope(
+                ReconciliationTask.objects.select_related('supplier', 'current_version'),
+                scope,
+            ),
+            pk=pk,
+        )
+        return Response(build_payment_summary(task, scope))
