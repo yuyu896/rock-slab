@@ -280,8 +280,8 @@ describe('ReconciliationDifferences 页2', () => {
     vm.handleExpandChange(firstBranch, [firstBranch])
     await flushPromises()
 
-    // Expand triggers getReconciliationTask with branch param
-    expect(getReconciliationTask).toHaveBeenCalledWith('task-1', { branch: 'b1' })
+    // Expand triggers getReconciliationTask with branch param, filtered to differences only
+    expect(getReconciliationTask).toHaveBeenCalledWith('task-1', { branch: 'b1', result: 'differences' })
 
     // Directly call the conclusion handler (simulates user selecting a conclusion)
     const comparison = comparisonDetail.comparisons[0]

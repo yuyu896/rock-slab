@@ -73,7 +73,7 @@ async function loadComparisons(branchId: string) {
   if (!currentTaskId.value) return
   loadingBranchId.value = branchId
   try {
-    const { data } = await getReconciliationTask(currentTaskId.value, { branch: branchId })
+    const { data } = await getReconciliationTask(currentTaskId.value, { branch: branchId, result: 'differences' })
     const comps = data.comparisons ?? []
     branchDetailCache.value[branchId] = comps
     // Initialise note drafts
@@ -98,6 +98,11 @@ async function handleConclusionChange(comparison: ReconciliationComparison, valu
   if (!comparison.issue) return
   try {
     await updateReconciliationIssue(comparison.issue.id, { conclusionType: value })
+    // Update cache in-place so the dropdown reflects the saved value immediately
+    for (const comps of Object.values(branchDetailCache.value)) {
+      const cached = comps.find((c) => c.id === comparison.id)
+      if (cached?.issue) { cached.issue.conclusionType = value; break }
+    }
     await loadBranchSummary()
   } catch {
     ElMessage.error('保存结论失败')
@@ -108,11 +113,20 @@ function onConclusionChange(comparison: ReconciliationComparison, val: unknown) 
   void handleConclusionChange(comparison, String(val))
 }
 
+function conclusionHandler(comparison: ReconciliationComparison) {
+  return (val: unknown) => onConclusionChange(comparison, val)
+}
+
 async function handleNoteBlur(comparison: ReconciliationComparison) {
   if (!comparison.issue) return
   const note = noteEditing.value[comparison.issue.id] ?? ''
   try {
     await updateReconciliationIssue(comparison.issue.id, { note })
+    // Update cache in-place so the note stays consistent
+    for (const comps of Object.values(branchDetailCache.value)) {
+      const cached = comps.find((c) => c.id === comparison.id)
+      if (cached?.issue) { cached.issue.note = note; break }
+    }
   } catch {
     ElMessage.error('保存备注失败')
   }
@@ -255,7 +269,7 @@ watch(() => currentTaskId.value, (newId) => {
                         :model-value="detail.row.issue.conclusionType ?? ''"
                         size="small"
                         class="conclusion-select"
-                        @change="(val) => onConclusionChange(detail.row, val)"
+                        @change="conclusionHandler(detail.row)"
                       >
                         <el-option
                           v-for="opt in CONCLUSION_OPTIONS"
