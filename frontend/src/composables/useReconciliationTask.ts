@@ -1,11 +1,11 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getReconciliationTasks, getReconciliationTask } from '@/api/reconciliation'
-import type { ReconciliationTask } from '@/api/reconciliation'
+import type { ReconciliationTask, ReconciliationTaskDetail } from '@/api/reconciliation'
 
 // Module-level refs — shared state across all component instances (singleton pattern)
 const currentTaskId = ref('')
-const currentTask = ref<ReconciliationTask | null>(null)
+const currentTask = ref<ReconciliationTaskDetail | null>(null)
 const taskOptions = ref<Array<{ value: string; label: string }>>([])
 // Guard: track whether we've already restored from URL so it only runs once per session
 let restoredFromUrl = false
