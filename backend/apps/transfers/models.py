@@ -220,6 +220,12 @@ class TransferLine(UUIDModel, TimestampedModel):
     # 处置扣列快照（recovery-stock-source）：处置行生效时实际扣减的台账列与数量，
     # 形如 '在用数量:1' / '在用数量:1,在库数量:2'；对账重放与离线回退的唯一事实源
     处置扣列 = models.CharField('处置扣列快照', max_length=100, blank=True, default='')
+    # 数量管理品目处置来源（quantity-dispose-source）：stock=扣在库，in_use=扣在用；
+    # 仅 recovery+dispose 的数量品行有意义，实例行按实例状态逐台派生不受此值影响
+    dispose_source = models.CharField(
+        '数量品处置来源', max_length=10, blank=True, default='stock',
+        choices=[('stock', '在库'), ('in_use', '在用')],
+    )
     instances = models.ManyToManyField(
         'assets.FixedAsset',
         through='TransferLineInstance',

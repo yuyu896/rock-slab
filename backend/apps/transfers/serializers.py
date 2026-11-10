@@ -173,6 +173,10 @@ class TransferLineInputSerializer(serializers.Serializer):
     instances = serializers.PrimaryKeyRelatedField(
         queryset=FixedAsset.objects.all(), many=True, required=False, default=[],
     )
+    # 数量管理品目处置来源（仅 recovery+dispose 有效）：stock=在库，in_use=在用
+    dispose_source = serializers.ChoiceField(
+        choices=['stock', 'in_use'], required=False, default='stock',
+    )
 
 
 class TransferActionSerializer(serializers.Serializer):

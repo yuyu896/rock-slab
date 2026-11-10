@@ -284,6 +284,8 @@ export interface TransferLine {
   存放位置?: string
   /** 行关联实例（实例管理品目）：内部编号列表，可跳转实例生平 */
   instances?: { id: string; code: string; 前编号?: string }[]
+  /** 数量管理品目处置来源（仅 recovery+dispose 有效）：stock=在库，in_use=在用 */
+  disposeSource?: 'stock' | 'in_use'
 }
 
 /** 明细行创建入参（品目为字典 uuid；实例引用为实例 uuid 数组） */
@@ -298,6 +300,7 @@ export interface TransferLineInput {
   备注?: string
   存放位置?: string
   instances?: string[]
+  dispose_source?: 'stock' | 'in_use'
 }
 
 export interface TransferDocument {

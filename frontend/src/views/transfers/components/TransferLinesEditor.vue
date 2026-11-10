@@ -234,23 +234,33 @@ function stockOf(code: string): number | null {
 }
 
 /** 回收数量品行充足软预检（缓存未知的品目放行，终检在后端台账行锁内）：
- *  处置向合并计量超在库即拒；重新入库向出现数量品行直接拒（无重新入库概念）。 */
+ *  处置向按 disposeSource 分别对比在库/在用；重新入库向出现数量品行直接拒。 */
 function recoveryQuantityIssue(): string | null {
   if (props.recoveryDest !== 'dispose') {
     const bad = drafts.value.find((d) => d.item && d.item.managementType !== 'instance')
-    if (bad?.item) return `品目 ${bad.item.asset_code} 为数量管理，不能走重新入库；请选择“直接处置”`
+    if (bad?.item) return `品目 ${bad.item.asset_code} 为数量管理，不能走重新入库；请选择”直接处置”`
     return null
   }
-  const merged = new Map<string, number>()
+  const mergedStock = new Map<string, number>()
+  const mergedInUse = new Map<string, number>()
   drafts.value.forEach((d) => {
-    if (d.item && d.item.managementType !== 'instance' && stockOf(d.item.asset_code) !== null) {
-      merged.set(d.item.asset_code, (merged.get(d.item.asset_code) ?? 0) + Number(d.数量))
+    if (!d.item || d.item.managementType === 'instance') return
+    const src = d.disposeSource || 'stock'
+    if (src === 'in_use') {
+      if (inUseOf(d.item.asset_code) !== null)
+        mergedInUse.set(d.item.asset_code, (mergedInUse.get(d.item.asset_code) ?? 0) + Number(d.数量))
+    } else {
+      if (stockOf(d.item.asset_code) !== null)
+        mergedStock.set(d.item.asset_code, (mergedStock.get(d.item.asset_code) ?? 0) + Number(d.数量))
     }
   })
-  for (const [code, total] of merged) {
-    if (total > (stockOf(code) ?? 0)) {
-      return `品目 ${code} 合计处置 ${total} 超出当前在库 ${stockOf(code)}；请调整数量后再提交`
-    }
+  for (const [code, total] of mergedStock) {
+    if (total > (stockOf(code) ?? 0))
+      return `品目 ${code} 合计处置在库 ${total} 超出当前在库 ${stockOf(code)}；请调整数量后再提交`
+  }
+  for (const [code, total] of mergedInUse) {
+    if (total > (inUseOf(code) ?? 0))
+      return `品目 ${code} 合计处置在用 ${total} 超出当前在用 ${inUseOf(code)}；请调整数量后再提交`
   }
   return null
 }
@@ -328,13 +338,17 @@ defineExpose({ validate, validateMessage })
             title="实例行数量随勾选台数联动"
             @change="onQtyChange(index)"
           />
-          <div
-            v-if="type === 'recovery' && recoveryDest === 'dispose' && draft.item
-              && draft.item.managementType !== 'instance'
-              && stockOf(draft.item.asset_code) !== null"
-            class="in-use"
-            :class="{ 'in-use-short': Number(draft.数量) > (stockOf(draft.item.asset_code) ?? 0) }"
-          >在库 {{ stockOf(draft.item.asset_code) }}</div>
+          <template v-if="type === 'recovery' && recoveryDest === 'dispose' && draft.item && draft.item.managementType !== 'instance'">
+            <select v-model="draft.disposeSource" class="row-input dispose-src" @change="touch">
+              <option value="stock">扣在库</option>
+              <option value="in_use">扣在用</option>
+            </select>
+            <div
+              v-if="draft.disposeSource === 'in_use' ? inUseOf(draft.item.asset_code) !== null : stockOf(draft.item.asset_code) !== null"
+              class="in-use"
+              :class="{ 'in-use-short': draft.disposeSource === 'in_use' ? Number(draft.数量) > (inUseOf(draft.item.asset_code) ?? 0) : Number(draft.数量) > (stockOf(draft.item.asset_code) ?? 0) }"
+            >{{ draft.disposeSource === 'in_use' ? `在用 ${inUseOf(draft.item.asset_code)}` : `在库 ${stockOf(draft.item.asset_code)}` }}</div>
+          </template>
         </div>
         <div class="cell unit-cell">{{ draft.item?.unit || '—' }}</div>
         <div v-if="type === 'purchase' || type === 'transfer' || type === 'recovery'" class="cell"><input v-model="draft.本批规格" type="text" class="row-input" placeholder="记录性" @change="touch" /></div>
@@ -408,6 +422,7 @@ defineExpose({ validate, validateMessage })
 .row-input.qty, .row-input.num { text-align: center; }
 .in-use { font-size: 12px; color: var(--color-text-tertiary); text-align: center; }
 .in-use-short { color: var(--color-danger); }
+.dispose-src { height: 28px; font-size: 12px; margin-top: 4px; }
 .remove-btn { height: 36px; width: 100%; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-danger); font-size: 13px; cursor: pointer; }
 .remove-btn:hover { border-color: var(--color-danger); }
 @media (max-width: 768px) {

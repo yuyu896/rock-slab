@@ -264,7 +264,7 @@ def line_effective_plan(transfer, line):
 
 def _recovery_dispose_deltas(transfer, line, insts):
     """处置向扣列派生（行锁后、终检通过后调用）：实例行按锁定态实例状态逐台扣对应列
-    （在用/在库），数量行扣在库（数量品物不出库不领用、常态在库）。"""
+    （在用/在库），数量行按 dispose_source 扣在库或在用。"""
     from_branch = transfer.from_branch
     if line.item.management_type == 'instance':
         return [
@@ -272,7 +272,8 @@ def _recovery_dispose_deltas(transfer, line, insts):
              COLUMN_IN_USE if inst.当前状态 == '在用' else COLUMN_STOCK, -1)
             for inst in insts
         ]
-    return [(from_branch, line.item, COLUMN_STOCK, -line.数量)]
+    col = COLUMN_IN_USE if line.dispose_source == 'in_use' else COLUMN_STOCK
+    return [(from_branch, line.item, col, -line.数量)]
 
 
 def _with_line_context(line, error):

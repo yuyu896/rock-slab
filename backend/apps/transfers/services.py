@@ -207,35 +207,53 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
 
 
 def _validate_recovery_stock(action_type, from_branch, items, recovery_dest):
-    """回收数量品行充足软预检（处置向）：数量品物按（调出分公司×品目）合并计量
-    扣在库（数量品不出库不领用、常态在库），超当前在库即拒。
+    """回收数量品行充足软预检（处置向）：按各行 dispose_source 分别对比在库/在用。
 
     软预检不持锁（创建后账面仍可能变动，生效时行锁终检兜底）；重新入库向数量品
-    已在上方矩阵拒绝，不进本函数。台账行缺失视为在库 0。
+    已在上方矩阵拒绝，不进本函数。台账行缺失视为在库/在用 0。
     """
     if action_type != 'recovery' or from_branch is None or recovery_dest != 'dispose':
         return
     from apps.assets.models import AssetStock
 
-    totals = {}
+    # 按品目 × dispose_source 分组合并数量
+    totals_stock = {}   # item.pk → [item, qty]
+    totals_in_use = {}
     for entry in items:
         item = entry['item']
-        if item.management_type != 'instance':
-            totals.setdefault(item.pk, [item, 0])[1] += entry['数量']
-    if not totals:
+        if item.management_type == 'instance':
+            continue
+        src = entry.get('dispose_source', 'stock')
+        if src == 'in_use':
+            totals_in_use.setdefault(item.pk, [item, 0])[1] += entry['数量']
+        else:
+            totals_stock.setdefault(item.pk, [item, 0])[1] += entry['数量']
+
+    all_item_pks = set(totals_stock) | set(totals_in_use)
+    if not all_item_pks:
         return
-    stocks = {
-        s.item_id: s.在库数量
-        for s in AssetStock.objects.filter(branch=from_branch, item_id__in=totals)
+
+    rows = {
+        s.item_id: s
+        for s in AssetStock.objects.filter(branch=from_branch, item_id__in=all_item_pks)
     }
-    for _pk, (item, total) in sorted(totals.items()):
-        stock = stocks.get(item.pk, 0)
-        if total > stock:
+    for pk, (item, total) in sorted(totals_stock.items()):
+        avail = rows.get(pk).在库数量 if pk in rows else 0
+        if total > avail:
             raise ValidationError({
                 'detail': (
-                    f'数量品物处置扣在库：当前在库 {stock}，需处置 {total}'
-                    f'（{item.asset_code} {item.asset_name}）；'
-                    f'若有在用余量请先走归还单收口'
+                    f'数量品物处置扣在库：当前在库 {avail}，需处置 {total}'
+                    f'（{item.asset_code} {item.asset_name}）'
+                ),
+                'code': 'LEDGER_INSUFFICIENT',
+            })
+    for pk, (item, total) in sorted(totals_in_use.items()):
+        avail = rows.get(pk).在用数量 if pk in rows else 0
+        if total > avail:
+            raise ValidationError({
+                'detail': (
+                    f'数量品物处置扣在用：当前在用 {avail}，需处置 {total}'
+                    f'（{item.asset_code} {item.asset_name}）'
                 ),
                 'code': 'LEDGER_INSUFFICIENT',
             })

@@ -18,6 +18,8 @@ export interface LineDraft {
   存放位置: string
   /** 选中的实例（id 提交、code 回显）；实例管理品目的绑定类单据必填 */
   instances: { id: string; code: string }[]
+  /** 数量管理品目处置来源（仅 recovery+dispose 有效）：stock=扣在库，in_use=扣在用 */
+  disposeSource?: 'stock' | 'in_use'
 }
 
 let seq = 0
@@ -37,6 +39,7 @@ export function emptyDraft(): LineDraft {
     备注: '',
     存放位置: '',
     instances: [],
+    disposeSource: 'stock',
   }
 }
 
@@ -56,6 +59,7 @@ export function draftsToItems(drafts: LineDraft[]): TransferLineInput[] {
       备注: d.备注 || undefined,
       存放位置: d.存放位置 || undefined,
       instances: d.instances.length ? d.instances.map((i) => i.id) : undefined,
+      dispose_source: d.disposeSource || 'stock',
     }))
 }
 
@@ -84,6 +88,7 @@ export function draftsFromLines(lines: TransferLine[]): LineDraft[] {
     draft.备注 = line.备注 || ''
     draft.存放位置 = line.存放位置 || ''
     draft.instances = (line.instances || []).map((i) => ({ id: i.id, code: i.code }))
+    draft.disposeSource = ((line as any).disposeSource as 'stock' | 'in_use') || 'stock'
     return draft
   })
 }
