@@ -32,7 +32,7 @@
           当前已是最新岗位基线，无需更新。
         </el-alert>
 
-        <section v-if="baselinePreview.roleChanges.length" class="baseline-role-changes">
+        <section v-if="baselinePreview.roleChanges?.length" class="baseline-role-changes">
           <h3>岗位基线变化</h3>
           <div v-for="change in baselinePreview.roleChanges" :key="change.role" class="baseline-role-row">
             <strong>{{ change.roleLabel }}</strong>

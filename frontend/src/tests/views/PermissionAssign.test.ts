@@ -170,22 +170,22 @@ beforeEach(() => {
   api.getUserAuthorization.mockImplementation((id: string) => Promise.resolve({ data: authorization(id) }))
   api.saveUserAuthorization.mockResolvedValue({ data: {} })
   api.getPositionBaselinePreview.mockResolvedValue({ data: {
-    from_version: null,
-    to_version: 'v1',
-    has_changes: true,
-    active_employee_count: 2,
-    changed_employee_count: 1,
-    added_permission_count: 1,
-    removed_permission_count: 0,
-    legacy_permission_count: 1,
-    inactive_employee_count: 1,
-    role_changes: [{ role: 'leader', role_label: '行政组长', added: [{ code: 'view_dashboard', label: '查看工作台' }], removed: [] }],
+    fromVersion: null,
+    toVersion: 'v1',
+    hasChanges: true,
+    activeEmployeeCount: 2,
+    changedEmployeeCount: 1,
+    addedPermissionCount: 1,
+    removedPermissionCount: 0,
+    legacyPermissionCount: 1,
+    inactiveEmployeeCount: 1,
+    roleChanges: [{ role: 'leader', roleLabel: '行政组长', added: [{ code: 'view_dashboard', label: '查看工作台' }], removed: [] }],
     employees: [{
-      user: 'manager-a', name: '员工甲', phone: '100', role: 'manager', role_label: '分公司行政',
-      branch_name: '上海分公司', added: [{ code: 'view_dashboard', label: '查看工作台' }],
-      removed: [], legacy_codes: ['old_permission'], scope_preserved: true,
+      user: 'manager-a', name: '员工甲', phone: '100', role: 'manager', roleLabel: '分公司行政',
+      branchName: '上海分公司', added: [{ code: 'view_dashboard', label: '查看工作台' }],
+      removed: [], legacyCodes: ['old_permission'], scopePreserved: true,
     }],
-    preview_token: 'preview-token',
+    previewToken: 'preview-token',
   } })
   api.applyPositionBaseline.mockResolvedValue({ data: {
     detail: '岗位权限基线已确认并应用', version: 'v1', synchronized_users: 2,
@@ -245,8 +245,8 @@ describe('PermissionAssign', () => {
     ] })
     api.getUserAuthorization.mockResolvedValue({ data: {
       ...authorization('manager-a'),
-      legacy_operations: ['dispose_assets'],
-      legacy_operation_details: [{ code: 'dispose_assets', label: '处置回收物资（旧权限，需人工核对）' }],
+      legacyOperations: ['dispose_assets'],
+      legacyOperationDetails: [{ code: 'dispose_assets', label: '处置回收物资（旧权限，需人工核对）' }],
     } })
 
     const { wrapper } = await mountPage()
@@ -271,8 +271,8 @@ describe('PermissionAssign', () => {
     ] })
     api.getUserAuthorization.mockResolvedValue({ data: {
       ...authorization('manager-a'),
-      legacy_operations: ['manage_instances'],
-      legacy_operation_details: [{ code: 'manage_instances', label: '管理固定资产实例（旧权限）' }],
+      legacyOperations: ['manage_instances'],
+      legacyOperationDetails: [{ code: 'manage_instances', label: '管理固定资产实例（旧权限）' }],
     } })
 
     const { wrapper } = await mountPage()
@@ -294,8 +294,8 @@ describe('PermissionAssign', () => {
     ] })
     api.getUserAuthorization.mockResolvedValue({ data: {
       ...authorization('manager-a'),
-      legacy_operations: ['adjust_ledger'],
-      legacy_operation_details: [{ code: 'adjust_ledger', label: '台账调整单（旧权限）' }],
+      legacyOperations: ['adjust_ledger'],
+      legacyOperationDetails: [{ code: 'adjust_ledger', label: '台账调整单（旧权限）' }],
     } })
 
     const { wrapper } = await mountPage()
@@ -513,7 +513,7 @@ describe('PermissionAssign', () => {
 
   it('普通保存保留未选中的旧权限', async () => {
     api.getUserAuthorization.mockResolvedValue({
-      data: { ...authorization('manager-a'), legacy_operations: ['old_manage_assets'] },
+      data: { ...authorization('manager-a'), legacyOperations: ['old_manage_assets'] },
     })
 
     const { wrapper } = await mountPage()
@@ -536,7 +536,7 @@ describe('PermissionAssign', () => {
 
   it('逐项勾选撤销旧权限并在预览与保存请求中列出', async () => {
     api.getUserAuthorization.mockResolvedValue({
-      data: { ...authorization('manager-a'), legacy_operations: ['old_manage_assets'] },
+      data: { ...authorization('manager-a'), legacyOperations: ['old_manage_assets'] },
     })
     api.saveUserAuthorization.mockRejectedValue({
       isAxiosError: true,
