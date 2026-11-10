@@ -40,7 +40,7 @@ def _get_user_queryset(user):
     范围由管理授权决定：admin 或「全部数据」授权为全部（管理权线由
     _validate_in_scope 把关）；其余为授权组织节点（沿树展开为分公司）内 + 自己。
     """
-    qs = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'created_by')
+    qs = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'team', 'team__region', 'created_by')
 
     if user.role == 'admin':
         return qs  # Admin sees everyone
@@ -55,11 +55,13 @@ def _get_user_queryset(user):
     q = Q(id=user.id)  # 总是包含自己
     if scope.branches:
         q |= Q(branch__in=scope.branches)
+    if scope.teams:
+        q |= Q(team__in=scope.teams)
     return qs.filter(q).distinct()
 
 
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'created_by').all()
+    queryset = User.objects.select_related('branch', 'branch__team', 'branch__team__region', 'team', 'team__region', 'created_by').all()
     serializer_class = UserSerializer
     filterset_class = UserFilterSet
     permission_classes = [IsAuthenticated, OperationPermission]
@@ -404,7 +406,9 @@ class UserViewSet(viewsets.ModelViewSet):
         scope = resolve_user_scope(operator)
         if scope.all:
             return
-        if not target.branch_id or target.branch_id not in scope.branches:
+        in_branch = bool(target.branch_id and target.branch_id in scope.branches)
+        in_team = bool(target.team_id and target.team_id in scope.teams)
+        if not (in_branch or in_team):
             raise serializers.ValidationError({'detail': '删除目标员工必须位于当前数据范围内'})
 
     @staticmethod
@@ -492,7 +496,8 @@ class UserViewSet(viewsets.ModelViewSet):
         if scope.all:
             return  # 「全部数据」授权可管理权线内的任何用户
         in_branch = bool(target_user.branch_id and target_user.branch_id in scope.branches)
-        if not in_branch:
+        in_team = bool(target_user.team_id and target_user.team_id in scope.teams)
+        if not (in_branch or in_team):
             raise serializers.ValidationError(
                 {'detail': '您只能管理授权范围内的用户'}
             )

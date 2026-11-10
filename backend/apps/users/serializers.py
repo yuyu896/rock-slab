@@ -26,20 +26,28 @@ class UserSerializer(serializers.ModelSerializer):
         help_text='用户初始密码（创建时可选，缺省回退默认；需过强度校验；更新时不接受，改密请走 /api/auth/password/）',
     )
     branch_name = serializers.SerializerMethodField()
+    team_name = serializers.SerializerMethodField()
     region_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'phone', 'name', 'role', 'status',
-            'branch', 'created_by',
+            'branch', 'team', 'created_by',
             'avatar', 'system_avatar', 'password',
-            'created_at', 'updated_at', 'branch_name', 'region_name',
+            'created_at', 'updated_at', 'branch_name', 'team_name', 'region_name',
         ]
         read_only_fields = ['created_at', 'updated_at']
         extra_kwargs = {
             'password': {'write_only': True},
         }
+
+    def validate(self, attrs):
+        # branch/team 互斥：branch 有值时 team 强制 null（区域/行政组由 branch 派生）
+        branch = attrs.get('branch', getattr(self.instance, 'branch', None))
+        if branch:
+            attrs['team'] = None
+        return attrs
 
     def create(self, validated_data):
         # 未提供密码时回退默认初始密码 123456（产品定调兜底，不走强度校验）；
@@ -82,21 +90,39 @@ class UserSerializer(serializers.ModelSerializer):
     def get_branch_name(self, obj):
         return obj.branch.name if obj.branch else None
 
+    def get_team_name(self, obj):
+        # branch 有值时从 branch.team 派生；branch 空时用直属 team
+        if obj.branch and obj.branch.team:
+            return obj.branch.team.name
+        if obj.team:
+            return obj.team.name
+        return None
+
     def get_region_name(self, obj):
-        # 区域归属沿树派生：branch → team → region
+        # 区域归属沿树派生：branch → team → region，或 team → region
         if obj.branch and obj.branch.team:
             return obj.branch.team.region.name if obj.branch.team.region else None
+        if obj.team and obj.team.region:
+            return obj.team.region.name
         return None
 
 
 class UserDeleteOptionSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source='branch.name', read_only=True, allow_null=True)
+    team_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'name', 'branch', 'branch_name']
+        fields = ['id', 'name', 'branch', 'team', 'branch_name', 'team_name']
+
+    def get_team_name(self, obj):
+        if obj.branch and obj.branch.team:
+            return obj.branch.team.name
+        if obj.team:
+            return obj.team.name
+        return None
 
 
 class UserWriteOptionSerializer(UserDeleteOptionSerializer):
     class Meta(UserDeleteOptionSerializer.Meta):
-        fields = ['id', 'name', 'phone', 'role', 'status', 'branch', 'branch_name']
+        fields = ['id', 'name', 'phone', 'role', 'status', 'branch', 'team', 'branch_name', 'team_name']

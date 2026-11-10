@@ -143,10 +143,12 @@ const currentTeamId = computed(() => {
 
 function addItem(type: EditType) {
   if (type === 'user') {
-    // 员工走右侧编辑页（不弹窗，防误触）；组织归属只写分公司
+    // 员工走右侧编辑页（不弹窗，防误触）；组织归属按选中节点预填
+    const sel = selectedNode.value
     editingEmployee.value = {
       isNew: true, name: '', phone: '', role: 'manager',
-      branch: selectedNode.value?.type === 'branch' ? selectedNode.value.rawId : '',
+      branch: sel?.type === 'branch' ? sel.rawId : '',
+      team: sel?.type === 'team' ? sel.rawId : '',
       status: 'active',
     }
     return
@@ -161,34 +163,62 @@ function editRegion(r: Region | undefined) { if (!r) return; editingItem.value =
 function editTeam(t: Team | undefined) { if (!t) return; editingItem.value = { type: 'team', isNew: false, id: t.id, name: t.name, region: t.region, leader: t.leader, status: t.status } }
 function editBranch(b: Branch | undefined) { if (!b) return; editingItem.value = { type: 'branch', isNew: false, id: b.id, name: b.name, code: b.code, team: b.team, address: b.address, phone: b.phone, manager: b.manager, status: b.status } }
 function editUser(u: User) {
-  editingEmployee.value = { isNew: false, id: u.id, name: u.name, phone: u.phone, role: u.role, branch: u.branch || '', status: u.status }
+  editingEmployee.value = { isNew: false, id: u.id, name: u.name, phone: u.phone, role: u.role, branch: u.branch || '', team: u.team || '', status: u.status }
 }
 
 // Branch choices are already limited to the operator's writable scope.
-const moveState = ref<{ employee: User; branch: string } | null>(null)
+const moveState = ref<{ employee: User; region: string; team: string; branch: string } | null>(null)
 const moveBranchSearch = ref('')
+const filteredMoveTeams = computed(() => {
+  if (!moveState.value?.region) return teams.value
+  return teams.value.filter(t => t.region === moveState.value!.region)
+})
 const filteredMoveBranches = computed(() => {
+  let list = branches.value
+  if (moveState.value?.team) {
+    list = list.filter(b => b.team === moveState.value!.team)
+  }
   const kw = moveBranchSearch.value.trim().toLowerCase()
-  if (!kw) return branches.value
-  return branches.value.filter(b =>
+  if (!kw) return list
+  return list.filter(b =>
     b.name.toLowerCase().includes(kw) ||
     (b.teamName || '').toLowerCase().includes(kw) ||
     b.code.toLowerCase().includes(kw)
   )
 })
 function startMove(emp: User) {
-  moveState.value = { employee: emp, branch: emp.branch || '' }
+  // 回填三级：从员工现有 branch/team 推导 region/team 初始值
+  let region = ''
+  let team = ''
+  let branch = ''
+  if (emp.branch) {
+    const b = branches.value.find(x => x.id === emp.branch)
+    branch = emp.branch
+    team = b?.team || ''
+    region = b ? (teams.value.find(t => t.id === b.team)?.region || '') : ''
+  } else if (emp.team) {
+    team = emp.team
+    region = teams.value.find(t => t.id === emp.team)?.region || ''
+  }
+  moveState.value = { employee: emp, region, team, branch }
   moveBranchSearch.value = ''
 }
 async function confirmMove() {
   const s = moveState.value
   if (!s) return
   const branchId = s.branch || null
-  const target = branchId ? branches.value.find(b => b.id === branchId) : null
+  const teamId = !branchId ? (s.team || null) : null
   saving.value = true
   try {
-    await updateUser(s.employee.id, { branch: branchId })
-    const dest = target ? `「${target.name}」` : '无分公司归属'
+    await updateUser(s.employee.id, { branch: branchId, team: teamId })
+    let dest: string
+    if (branchId) {
+      dest = `分公司「${branches.value.find(b => b.id === branchId)?.name || branchId}」`
+    } else if (teamId) {
+      dest = `行政组「${teams.value.find(t => t.id === teamId)?.name || teamId}」`
+    } else {
+      dest = '无组织归属'
+    }
     ElMessage.success(`已将「${s.employee.name}」移动到${dest}`)
     moveState.value = null
     await loadAll()
@@ -232,7 +262,9 @@ async function saveEmployee() {
   try {
     const payload: Record<string, unknown> = {
       name: e.name, phone: e.phone, role: e.role,
-      branch: e.branch || null, status: e.status || 'active',
+      branch: e.branch || null,
+      team: e.branch ? null : (e.team || null),
+      status: e.status || 'active',
     }
     if (e.isNew) {
       await createUser(payload as any)
@@ -494,7 +526,24 @@ function getRegionName(id?: string) {
             </select>
           </div>
           <div class="form-row"><label>所属分公司</label>
-            <select v-model="editingEmployee.branch" class="form-input"><option value="">请选择</option><option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option></select>
+            <select v-model="editingEmployee.branch" class="form-input" @change="editingEmployee.branch && (editingEmployee.team = '')">
+              <option value="">请选择</option>
+              <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}{{ b.teamName ? `（${b.teamName}）` : '' }}</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>所属行政组</label>
+            <template v-if="editingEmployee.branch">
+              <div class="form-input" style="background:var(--color-bg-alt);cursor:default;color:var(--color-text-secondary)">
+                {{ branches.find(b => b.id === (editingEmployee && editingEmployee.branch))?.teamName || '—' }}（由分公司派生）
+              </div>
+            </template>
+            <select v-else v-model="editingEmployee.team" class="form-input">
+              <option value="">请选择（可选）</option>
+              <optgroup v-for="r in regions" :key="r.id" :label="r.name">
+                <option v-for="t in teams.filter(t => t.region === r.id)" :key="t.id" :value="t.id">{{ t.name }}</option>
+              </optgroup>
+            </select>
           </div>
           <div class="form-row"><label>状态</label>
             <select v-model="editingEmployee.status" class="form-input"><option value="active">启用</option><option value="inactive">停用</option></select>
@@ -691,15 +740,29 @@ function getRegionName(id?: string) {
             <div class="move-employee-name">{{ moveState.employee.name }}（{{ moveState.employee.phone }}）</div>
           </div>
           <div class="form-row">
-            <label>目标分公司</label>
+            <label>大区</label>
+            <select v-model="moveState.region" class="form-input" @change="moveState.team = ''; moveState.branch = ''">
+              <option value="">（可选）</option>
+              <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>行政组</label>
+            <select v-model="moveState.team" class="form-input" @change="moveState.branch = ''" :disabled="!moveState.region && filteredMoveTeams.length === 0">
+              <option value="">（可选）</option>
+              <option v-for="t in filteredMoveTeams" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>分公司</label>
             <input
               v-model="moveBranchSearch"
               class="form-input"
-              placeholder="输入分公司名称或行政组筛选…"
+              placeholder="输入分公司名称筛选…"
               style="margin-bottom: 6px"
             />
             <select v-model="moveState.branch" class="form-input" size="7" style="height: auto">
-              <option value="">（清空，移出所有分公司）</option>
+              <option value="">（可选，未选时仅归属行政组）</option>
               <option v-for="b in filteredMoveBranches" :key="b.id" :value="b.id">
                 {{ b.name }}{{ b.teamName ? `（${b.teamName}）` : '' }}
               </option>

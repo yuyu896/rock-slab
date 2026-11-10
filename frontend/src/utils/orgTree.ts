@@ -9,12 +9,11 @@ export interface NodeRef {
 }
 
 /**
- * 节点员工范围：沿组织树派生（员工仅挂分公司，区域/行政组归属由 branch.team 推导）。
- * 统一规则：节点员工 = 子树分公司挂靠员工 ∪ 子树内全部负责人任命
- * （branch.manager / team.leader / region.manager，即使无分公司挂靠也在其管辖节点可见）。
+ * 节点员工范围：沿组织树派生（员工挂分公司或直属行政组，区域/行政组归属由 branch.team 推导）。
+ * 统一规则：节点员工 = 子树分公司挂靠员工 ∪ 直属行政组员工 ∪ 子树内全部负责人任命
  * - 分公司：u.branch = 该分公司 ∪ u = branch.manager
- * - 行政组：u.branch ∈ 组内分公司 ∪ u ∈ 组内分公司负责人 ∪ u = team.leader
- * - 区域：u.branch ∈ 区域旗下分公司 ∪ u ∈ 旗下负责人 ∪ u ∈ 各组 leader ∪ u = region.manager
+ * - 行政组：u.branch ∈ 组内分公司 ∪ u.team = 该行政组（直属）∪ 组内分公司负责人 ∪ u = team.leader
+ * - 区域：u.branch ∈ 区域旗下分公司 ∪ u.team ∈ 区域旗下行政组 ∪ 旗下负责人 ∪ u = region.manager
  * - 集团根：全部员工
  */
 export function filterEmployeesByNode(
@@ -36,6 +35,7 @@ export function filterEmployeesByNode(
     const team = teams.find(t => t.id === node.rawId)
     return users.filter(u =>
       (u.branch && branchIds.has(u.branch))
+      || (u.team && u.team === node.rawId)
       || managerIds.has(u.id)
       || (team?.leader && u.id === team.leader),
     )
@@ -49,6 +49,7 @@ export function filterEmployeesByNode(
   const region = regions.find(r => r.id === node.rawId)
   return users.filter(u =>
     (u.branch && branchIds.has(u.branch))
+    || (u.team && teamIds.has(u.team))
     || managerIds.has(u.id)
     || leaderIds.has(u.id)
     || (region?.manager && u.id === region.manager),

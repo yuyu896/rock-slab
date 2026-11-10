@@ -45,6 +45,11 @@ class User(UUIDModel, TimestampedModel, AbstractBaseUser, PermissionsMixin):
         'organizations.Branch', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='users',
     )
+    team = models.ForeignKey(
+        'organizations.Team', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='users',
+        verbose_name='所属行政组',
+    )
     created_by = models.ForeignKey(
         'self', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='created_users',

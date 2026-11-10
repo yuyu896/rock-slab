@@ -216,6 +216,8 @@ export interface User {
   name: string
   branch?: string | null
   branchName?: string
+  team?: string | null
+  teamName?: string
   regionName?: string
   role: UserRoleType
   status: EntityStatusType

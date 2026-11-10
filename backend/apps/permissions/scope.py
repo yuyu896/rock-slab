@@ -50,9 +50,20 @@ def resolve_user_scope(user) -> Scope:
                     )
             scope = Scope(regions=regions, branches=branches, teams=teams)
     else:
-        # An account without an override receives only its assigned branch scope.
+        # An account without an override receives its assigned branch scope,
+        # or falls back to the team's branches if only a team is assigned.
         branch_id = getattr(user, 'branch_id', None)
-        scope = Scope(branches={branch_id} if branch_id else set())
+        team_id = getattr(user, 'team_id', None)
+        if branch_id:
+            scope = Scope(branches={branch_id})
+        elif team_id:
+            from apps.organizations.models import Branch
+            team_branches = set(
+                Branch.objects.filter(team_id=team_id).values_list('id', flat=True)
+            )
+            scope = Scope(branches=team_branches, teams={team_id})
+        else:
+            scope = Scope()
 
     user._mgmt_scope_cache = scope
     return scope
