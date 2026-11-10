@@ -21,6 +21,7 @@ const ui = vi.hoisted(() => ({
   confirm: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
+  warning: vi.fn(),
 }))
 
 vi.mock('@/api/users', () => ({ getUsers: api.getUsers }))
@@ -36,7 +37,7 @@ vi.mock('@/api/permissions', () => ({
   applyPositionBaseline: api.applyPositionBaseline,
 }))
 vi.mock('element-plus', () => ({
-  ElMessage: { success: ui.success, error: ui.error },
+  ElMessage: { success: ui.success, error: ui.error, warning: ui.warning },
   ElMessageBox: { confirm: ui.confirm },
 }))
 
@@ -561,6 +562,39 @@ describe('PermissionAssign', () => {
     expect(ui.error).toHaveBeenCalledWith('旧权限码已变化')
     expect((wrapper.find('.operation-option input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true)
     expect(wrapper.text()).toContain('未保存')
+    wrapper.unmount()
+  })
+
+  it('取消前置权限时级联移除依赖权限且不死循环', async () => {
+    api.getOperationCatalog.mockResolvedValue({ data: [
+      { code: 'view_suppliers', label: '查看供应商字典', module: 'dictionaries', module_label: '基础资料', prerequisites: [] },
+      { code: 'view_reconciliation', label: '查看对账', module: 'reports', module_label: '报表与对账', prerequisites: ['view_suppliers'] },
+      { code: 'manage_reconciliation', label: '维护对账', module: 'reports', module_label: '报表与对账', prerequisites: ['view_reconciliation', 'view_suppliers'] },
+    ] })
+    api.getUserAuthorization.mockResolvedValue({ data: authorization('manager-a', ['view_suppliers', 'view_reconciliation', 'manage_reconciliation']) })
+
+    const { wrapper } = await mountPage()
+    await flushPromises()
+    await wrapper.findAll('.person-row')[0].trigger('click')
+    await flushPromises()
+
+    const checkboxes = wrapper.findAll('.operation-option input[type="checkbox"]')
+    expect(checkboxes).toHaveLength(3)
+    expect((checkboxes[0].element as HTMLInputElement).checked).toBe(true)
+    expect((checkboxes[1].element as HTMLInputElement).checked).toBe(true)
+    expect((checkboxes[2].element as HTMLInputElement).checked).toBe(true)
+
+    // Unchecking view_reconciliation should cascade-remove manage_reconciliation
+    const checkbox1 = checkboxes[1].element as HTMLInputElement
+    checkbox1.checked = false
+    await checkboxes[1].trigger('change')
+    await flushPromises()
+
+    expect(ui.warning).toHaveBeenCalledWith(expect.stringContaining('维护对账'))
+    const updated = wrapper.findAll('.operation-option input[type="checkbox"]')
+    expect((updated[0].element as HTMLInputElement).checked).toBe(true)
+    expect((updated[1].element as HTMLInputElement).checked).toBe(false)
+    expect((updated[2].element as HTMLInputElement).checked).toBe(false)
     wrapper.unmount()
   })
 

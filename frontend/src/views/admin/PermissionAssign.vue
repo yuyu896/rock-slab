@@ -690,7 +690,7 @@ function toggleOperation(code: string, event: Event) {
     while (changed) {
       changed = false
       for (const candidate of operations.value) {
-        if (next.has(candidate.code) && (candidate.prerequisites || []).some(prerequisite => removed.has(prerequisite))) {
+        if (!removed.has(candidate.code) && next.has(candidate.code) && (candidate.prerequisites || []).some(prerequisite => removed.has(prerequisite))) {
           removed.add(candidate.code)
           changed = true
         }
