@@ -456,9 +456,12 @@ class ReconciliationExportView(ReconciliationPermissionView):
 
     def _export_payment(self, task, scope):
         summary = build_payment_summary(task, scope)
+        supplier_name = task.supplier.name if task.supplier else ''
+        period_str = f'{task.period:%Y-%m}'
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '付款明细'
+        sheet.append([f'供应商：{supplier_name}', f'对账月份：{period_str}'])
         sheet.append(['分公司', '序列号', '内部编号', '差异类型', '起租日期', '记账日期', '计费天数', '月租金', '本月金额'])
         for branch in summary['branches']:
             for row in branch['rows']:
@@ -479,7 +482,7 @@ class ReconciliationExportView(ReconciliationPermissionView):
             output.getvalue(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        response['Content-Disposition'] = f'attachment; filename="payment-{task.period:%Y-%m}.xlsx"'
+        response['Content-Disposition'] = f'attachment; filename="payment-{supplier_name}-{period_str}.xlsx"'
         return response
 
 

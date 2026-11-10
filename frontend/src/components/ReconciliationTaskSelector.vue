@@ -1,7 +1,7 @@
 <template>
   <div class="recon-task-selector">
     <template v-if="taskOptions.length > 0">
-      <span class="selector-label">当前任务：</span>
+      <span class="selector-label">供应商 · 月份：</span>
       <el-select
         :model-value="currentTaskId"
         placeholder="请选择对账任务"
@@ -17,7 +17,7 @@
         />
       </el-select>
       <span v-if="currentTask" class="version-badge">
-        版本 v{{ currentTask.currentVersion ?? 1 }}
+        v{{ currentTask.currentVersion ?? 1 }}
       </span>
     </template>
     <template v-else-if="loaded">
@@ -49,15 +49,17 @@ onMounted(async () => {
 .recon-task-selector {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border-light);
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-primary-50);
+  border-bottom: 2px solid var(--color-primary-200);
   font-size: var(--text-sm);
 }
 
 .selector-label {
-  color: var(--color-text-secondary);
+  color: var(--color-primary-700);
+  font-weight: 700;
+  font-size: var(--text-md);
   white-space: nowrap;
 }
 

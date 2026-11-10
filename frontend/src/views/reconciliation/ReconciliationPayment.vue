@@ -120,11 +120,12 @@ watch(() => currentTaskId.value, (newId) => {
 
 <template>
   <div class="payment-page page-fill">
-    <!-- Current task readonly banner -->
-    <div v-if="currentTask" class="task-banner">
-      <span class="task-banner-label">当前任务：</span>
-      <span class="task-banner-value">{{ currentTask.supplierName }} {{ currentTask.period }}</span>
-      <span class="task-banner-version">v{{ currentTask.currentVersion ?? 1 }}</span>
+    <!-- Current task supplier banner -->
+    <div v-if="currentTask" class="supplier-banner">
+      <span class="supplier-banner-name">{{ currentTask.supplierName }}</span>
+      <span class="supplier-banner-sep">·</span>
+      <span class="supplier-banner-period">{{ currentTask.period }}</span>
+      <span class="supplier-banner-version">v{{ currentTask.currentVersion ?? 1 }}</span>
     </div>
 
     <!-- Empty state when no task selected -->
@@ -137,7 +138,7 @@ watch(() => currentTaskId.value, (newId) => {
       <!-- Page header -->
       <header class="page-header">
         <div class="header-info">
-          <h1 class="page-title">对账 · 待付金额</h1>
+          <h1 class="page-title">待付金额<template v-if="currentTask"> · {{ currentTask.supplierName }}</template></h1>
           <p class="page-subtitle">金额汇总与付款明细</p>
         </div>
         <div class="header-actions">
@@ -274,10 +275,11 @@ watch(() => currentTaskId.value, (newId) => {
 
 .muted { color: var(--color-text-tertiary); }
 
-.task-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); background: var(--color-bg-card); border-bottom: 1px solid var(--color-border-light); font-size: var(--text-sm); }
-.task-banner-label { color: var(--color-text-secondary); white-space: nowrap; }
-.task-banner-value { color: var(--color-text-primary); font-weight: 500; }
-.task-banner-version { padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--color-primary-100); color: var(--color-primary-700); font-size: var(--text-xs); font-weight: 500; white-space: nowrap; }
+.supplier-banner { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--color-primary-50); border-bottom: 2px solid var(--color-primary-200); font-size: var(--text-sm); }
+.supplier-banner-name { color: var(--color-primary-700); font-weight: 700; font-size: var(--text-md); }
+.supplier-banner-sep { color: var(--color-text-tertiary); }
+.supplier-banner-period { color: var(--color-text-secondary); font-weight: 500; }
+.supplier-banner-version { margin-left: var(--space-1); padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--color-primary-100); color: var(--color-primary-700); font-size: var(--text-xs); font-weight: 500; white-space: nowrap; }
 .link { color: var(--color-primary-600); cursor: pointer; }
 .link:hover { text-decoration: underline; }
 .empty-start { max-width: 560px; padding: 64px 0; }

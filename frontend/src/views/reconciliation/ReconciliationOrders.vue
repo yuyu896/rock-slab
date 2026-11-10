@@ -361,7 +361,7 @@ const versions = computed(() => currentTask.value?.versions ?? [])
     <!-- Page header -->
     <header class="page-header">
       <div class="header-info">
-        <h1 class="page-title">对账 · 供应商订单</h1>
+        <h1 class="page-title">供应商订单<template v-if="currentTask"> · {{ currentTask.supplierName }}</template></h1>
         <p class="page-subtitle">版本历史与订单导入</p>
       </div>
       <div class="header-actions">
