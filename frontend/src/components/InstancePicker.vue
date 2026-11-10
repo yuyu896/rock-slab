@@ -146,6 +146,7 @@ defineExpose({ reload: () => load(true) })
         <span class="row-dot" :class="{ on: modelValue.includes(opt.id) }"></span>
         <span class="row-code">{{ opt.内部编号 }}</span>
         <span class="row-serial">{{ opt.序列号 || '待补录' }}</span>
+        <span v-if="status.includes(',')" class="row-status" :class="opt.当前状态 === '在用' ? 'status-in-use' : 'status-in-stock'">{{ opt.当前状态 }}</span>
         <span class="row-branch">{{ opt.branchName }}</span>
         <span v-if="occOf(opt.id)" class="row-occ" title="不可选">{{ occLabel(opt.id) }}</span>
       </div>
@@ -178,4 +179,7 @@ defineExpose({ reload: () => load(true) })
 .row-code { font-family: var(--font-mono); color: var(--color-primary-600); min-width: 110px; }
 .row-serial { color: var(--color-text-secondary); flex: 1; }
 .row-branch { color: var(--color-text-tertiary); }
+.row-status { flex-shrink: 0; font-size: 11px; padding: 1px 5px; border-radius: 3px; }
+.status-in-use { background: oklch(0.95 0.03 60); color: oklch(0.45 0.12 60); }
+.status-in-stock { background: oklch(0.95 0.03 145); color: oklch(0.4 0.12 145); }
 </style>
