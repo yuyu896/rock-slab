@@ -755,13 +755,7 @@ function getRegionName(id?: string) {
           </div>
           <div class="form-row">
             <label>分公司</label>
-            <input
-              v-model="moveBranchSearch"
-              class="form-input"
-              placeholder="输入分公司名称筛选…"
-              style="margin-bottom: 6px"
-            />
-            <select v-model="moveState.branch" class="form-input" size="7" style="height: auto">
+            <select v-model="moveState.branch" class="form-input">
               <option value="">（可选，未选时仅归属行政组）</option>
               <option v-for="b in filteredMoveBranches" :key="b.id" :value="b.id">
                 {{ b.name }}{{ b.teamName ? `（${b.teamName}）` : '' }}
