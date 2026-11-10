@@ -11,10 +11,11 @@ import {
 } from '@/api/reconciliation'
 import { useUserStore } from '@/store/user'
 import { useReconciliationTask } from '@/composables/useReconciliationTask'
-import ReconciliationTaskSelector from '@/components/ReconciliationTaskSelector.vue'
+import { useRouter } from 'vue-router'
 
 const userStore = useUserStore()
-const { currentTaskId, setTask } = useReconciliationTask()
+const router = useRouter()
+const { currentTaskId, currentTask, setTask } = useReconciliationTask()
 
 const canManageReconciliation = computed(() => userStore.can('manage_reconciliation'))
 
@@ -126,13 +127,17 @@ watch(() => currentTaskId.value, (newId) => {
 
 <template>
   <div class="differences-page page-fill">
-    <!-- Task selector banner -->
-    <ReconciliationTaskSelector />
+    <!-- Current task readonly banner -->
+    <div v-if="currentTask" class="task-banner">
+      <span class="task-banner-label">当前任务：</span>
+      <span class="task-banner-value">{{ currentTask.supplierName }} {{ currentTask.period }}</span>
+      <span class="task-banner-version">v{{ currentTask.currentVersion ?? 1 }}</span>
+    </div>
 
     <!-- Empty state when no task selected -->
     <div v-if="!currentTaskId" class="empty-start">
-      <h2>请先在订单页选择任务</h2>
-      <p>在顶部选择供应商和月份，或前往订单页导入订单。</p>
+      <h2>尚未选择对账任务</h2>
+      <p>请前往<a class="link" @click="router.push('/reconciliation/orders')">供应商订单页</a>选择任务。</p>
     </div>
 
     <template v-else>
@@ -256,6 +261,12 @@ watch(() => currentTaskId.value, (newId) => {
 .empty-start { max-width: 560px; padding: 64px 0; }
 .empty-start h2 { margin: 0 0 8px; font-size: var(--text-md); }
 .empty-start p { margin: 0 0 18px; color: var(--color-text-secondary); line-height: 1.5; }
+.link { color: var(--color-primary-600); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.task-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); background: var(--color-bg-card); border-bottom: 1px solid var(--color-border-light); font-size: var(--text-sm); }
+.task-banner-label { color: var(--color-text-secondary); white-space: nowrap; }
+.task-banner-value { color: var(--color-text-primary); font-weight: 500; }
+.task-banner-version { padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--color-primary-100); color: var(--color-primary-700); font-size: var(--text-xs); font-weight: 500; white-space: nowrap; }
 .empty-filter { display: flex; min-height: 80px; align-items: center; justify-content: center; gap: 6px; padding: 20px; color: var(--color-text-secondary); text-align: center; }
 @media (max-width: 760px) {
   .page-header { align-items: flex-start; flex-direction: column; }

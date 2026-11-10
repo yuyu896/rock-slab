@@ -154,13 +154,6 @@ const TagStub = defineComponent({
   },
 })
 
-const TaskSelectorStub = defineComponent({
-  name: 'ReconciliationTaskSelector',
-  setup() {
-    return () => h('div', { class: 'recon-task-selector' }, 'task-selector-stub')
-  },
-})
-
 const mountPage = () => mount(ReconciliationDifferences, {
   global: {
     stubs: {
@@ -170,7 +163,6 @@ const mountPage = () => mount(ReconciliationDifferences, {
       'el-table': TableStub,
       'el-table-column': TableColumnStub,
       'el-tag': TagStub,
-      ReconciliationTaskSelector: TaskSelectorStub,
     },
     directives: { loading: {} },
   },
