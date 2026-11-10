@@ -20,6 +20,8 @@ const props = defineProps<{
   excludeConsumable?: boolean
   /** Hide instance-managed items when the current user cannot read instance records. */
   excludeInstance?: boolean
+  /** 仅显示指定管理方式的品目（quantity/instance/consumable）；未传则不过滤 */
+  managementType?: string
   /** 当前明细已选品目，用于首次渲染时将 UUID 解析为可读标签 */
   selectedItem?: ItemSummary | null
 }>()
@@ -48,7 +50,7 @@ const selectedItemLabel = computed(() => {
 })
 const placeholder = computed(() => {
   if (disabled.value) return '请先选择分公司'
-  return props.placeholder || '输入编号或名称检索品目'
+  return props.placeholder || '支持按编号或名称搜索'
 })
 
 let searchSeq = 0
@@ -69,6 +71,7 @@ async function remoteSearch(query: string) {
       options.value = ((data as any).results ?? [])
         .filter((c: any) => !(props.excludeConsumable && c.管理方式 === 'consumable'))
         .filter((c: any) => !(props.excludeInstance && c.管理方式 === 'instance'))
+        .filter((c: any) => !(props.managementType && c.管理方式 !== props.managementType))
         .map((c: any) => ({
           id: c.item,
           asset_code: c.资产编号,
@@ -82,7 +85,7 @@ async function remoteSearch(query: string) {
             .reduce((a: number, col: string) => a + (Number(c[col]) || 0), 0) as number | undefined,
         }))
     } else {
-      const { data } = await getCategories({ keyword: query || undefined, pageSize: 50 })
+      const { data } = await getCategories({ keyword: query || undefined, 管理方式: props.managementType || undefined, pageSize: 50 })
       if (seq !== searchSeq) return
       const results = (data as any).results ?? data
       options.value = (results as any[]).map((c) => ({

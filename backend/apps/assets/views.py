@@ -608,6 +608,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
     FA_EXPORT_HEADERS = [
         '序号', '分公司', '内部编号', '品目编号', '品目名称', '规格',
         '序列号', '当前状态', '使用人', '部门', '入库日期', '供应商', '采购日期',
+        '备注', '管理方式',
     ]
 
     @action(detail=False, methods=['get'], url_path='export')
@@ -625,6 +626,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
 
         serializer = FixedAssetSerializer(queryset, many=True)
         for idx, data in enumerate(serializer.data, start=1):
+            from apps.categories.models import Category
+            mgmt_label = Category.MANAGEMENT_LABELS.get(data.get('managementType', ''), data.get('managementType', ''))
             ws.append([
                 idx,
                 data['branch_name'] or '',
@@ -639,6 +642,8 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
                 str(data['入库日期']) if data['入库日期'] else '',
                 data['供应商'] or '',
                 str(data['采购日期']) if data['采购日期'] else '',
+                data.get('备注', '') or '',
+                mgmt_label,
             ])
 
         output = io.BytesIO()

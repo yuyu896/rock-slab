@@ -214,7 +214,7 @@ export interface User {
   id: string
   phone: string
   name: string
-  branch?: string
+  branch?: string | null
   branchName?: string
   regionName?: string
   role: UserRoleType

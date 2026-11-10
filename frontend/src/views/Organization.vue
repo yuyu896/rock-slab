@@ -171,13 +171,14 @@ function startMove(emp: User) {
 }
 async function confirmMove() {
   const s = moveState.value
-  if (!s?.branch) { ElMessage.warning('请选择目标分公司'); return }
-  const target = branches.value.find(b => b.id === s.branch)
-  if (!target) return
+  if (!s) return
+  const branchId = s.branch || null
+  const target = branchId ? branches.value.find(b => b.id === branchId) : null
   saving.value = true
   try {
-    await updateUser(s.employee.id, { branch: target.id })
-    ElMessage.success(`已将「${s.employee.name}」移动到「${target.name}」`)
+    await updateUser(s.employee.id, { branch: branchId })
+    const dest = target ? `「${target.name}」` : '无分公司归属'
+    ElMessage.success(`已将「${s.employee.name}」移动到${dest}`)
     moveState.value = null
     await loadAll()
   } catch (e) {
@@ -401,7 +402,7 @@ async function saveCompany() {
   }
 }
 
-function getBranchName(id?: string, fallback?: string) {
+function getBranchName(id?: string | null, fallback?: string | null) {
   return id ? (branches.value.find(b => b.id === id)?.name || fallback || '-') : '-'
 }
 function getTeamName(id?: string) {
@@ -679,9 +680,9 @@ function getRegionName(id?: string) {
             <div class="move-employee-name">{{ moveState.employee.name }}（{{ moveState.employee.phone }}）</div>
           </div>
           <div class="form-row">
-            <label>目标分公司 <span class="req">*</span></label>
+            <label>目标分公司</label>
             <select v-model="moveState.branch" class="form-input">
-              <option value="">请选择</option>
+              <option value="">（清空，移出所有分公司）</option>
               <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
             </select>
           </div>
