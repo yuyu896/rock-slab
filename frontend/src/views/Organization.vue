@@ -166,8 +166,19 @@ function editUser(u: User) {
 
 // Branch choices are already limited to the operator's writable scope.
 const moveState = ref<{ employee: User; branch: string } | null>(null)
+const moveBranchSearch = ref('')
+const filteredMoveBranches = computed(() => {
+  const kw = moveBranchSearch.value.trim().toLowerCase()
+  if (!kw) return branches.value
+  return branches.value.filter(b =>
+    b.name.toLowerCase().includes(kw) ||
+    (b.teamName || '').toLowerCase().includes(kw) ||
+    b.code.toLowerCase().includes(kw)
+  )
+})
 function startMove(emp: User) {
   moveState.value = { employee: emp, branch: emp.branch || '' }
+  moveBranchSearch.value = ''
 }
 async function confirmMove() {
   const s = moveState.value
@@ -681,9 +692,17 @@ function getRegionName(id?: string) {
           </div>
           <div class="form-row">
             <label>目标分公司</label>
-            <select v-model="moveState.branch" class="form-input">
+            <input
+              v-model="moveBranchSearch"
+              class="form-input"
+              placeholder="输入分公司名称或行政组筛选…"
+              style="margin-bottom: 6px"
+            />
+            <select v-model="moveState.branch" class="form-input" size="7" style="height: auto">
               <option value="">（清空，移出所有分公司）</option>
-              <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
+              <option v-for="b in filteredMoveBranches" :key="b.id" :value="b.id">
+                {{ b.name }}{{ b.teamName ? `（${b.teamName}）` : '' }}
+              </option>
             </select>
           </div>
         </div>
