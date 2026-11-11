@@ -119,16 +119,18 @@ async function openExport() {
   exportMode.value = true
   exportError.value = false
   exportItems.value = []
-  // nextTick 只刷 DOM 队列（微任务），浏览器还没真正绘制；用双 rAF 等过一次绘制帧，
-  // 遮罩先上屏再开始 CPU 密集的 Canvas 渲染，否则主线程被占满遮罩永远画不出来
   await nextFrame()
+  const minDisplayEnd = Date.now() + 1000
   try {
     const items: Array<{ id: string; url: string; name: string }> = []
-    // 逐张串行渲染，每张之间用 setTimeout 让出主线程，让遮罩动画有机会重绘
     for (const asset of props.assets) {
       if (session !== exportSession) return
       items.push(await renderOneLabel(asset))
     }
+    if (session !== exportSession) return
+    // 确保 loading 至少显示 1s，渲染快时补足剩余等待时间
+    const remaining = minDisplayEnd - Date.now()
+    if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
     if (session !== exportSession) return
     exportItems.value = items
   } catch (error) {
