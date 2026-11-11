@@ -99,6 +99,20 @@ function nextFrame(): Promise<void> {
   return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 }
 
+/** 渲染单张标签并让出主线程（setTimeout 0 = macrotask，让浏览器有机会重绘） */
+function renderOneLabel(asset: ReturnType<typeof Object.assign>): Promise<{ id: string; url: string; name: string }> {
+  return new Promise((resolve, reject) => {
+    setTimeout(async () => {
+      try {
+        const shape = asset as unknown as LabelAssetShape
+        resolve({ id: String(asset.id), url: await renderLabelDataUrl(shape), name: labelFileName(shape) })
+      } catch (e) {
+        reject(e)
+      }
+    }, 0)
+  })
+}
+
 async function openExport() {
   const session = ++exportSession
   exporting.value = true
@@ -109,10 +123,12 @@ async function openExport() {
   // 遮罩先上屏再开始 CPU 密集的 Canvas 渲染，否则主线程被占满遮罩永远画不出来
   await nextFrame()
   try {
-    const items = await Promise.all(props.assets.map(async asset => {
-      const shape = asset as unknown as LabelAssetShape
-      return { id: String(asset.id), url: await renderLabelDataUrl(shape), name: labelFileName(shape) }
-    }))
+    const items: Array<{ id: string; url: string; name: string }> = []
+    // 逐张串行渲染，每张之间用 setTimeout 让出主线程，让遮罩动画有机会重绘
+    for (const asset of props.assets) {
+      if (session !== exportSession) return
+      items.push(await renderOneLabel(asset))
+    }
     if (session !== exportSession) return
     exportItems.value = items
   } catch (error) {
