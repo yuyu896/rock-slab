@@ -58,8 +58,9 @@ class AssetStockFilterSet(django_filters.FilterSet):
             Q(item__asset_name__icontains=value) |
             Q(item__asset_code__icontains=value) |
             Q(item__specification__icontains=value) |
-            Q(branch__name__icontains=value)
-        )
+            Q(branch__name__icontains=value) |
+            Q(item__fixed_assets__供应商__icontains=value)
+        ).distinct()
 
 
 class FixedAssetFilterSet(django_filters.FilterSet):
@@ -70,6 +71,7 @@ class FixedAssetFilterSet(django_filters.FilterSet):
     item_keyword = django_filters.CharFilter(method='filter_item_keyword')
     pending_serial = django_filters.CharFilter(method='filter_pending_serial')
     keyword = django_filters.CharFilter(method='filter_keyword')
+    supplier = django_filters.CharFilter(field_name='供应商', lookup_expr='icontains')
     # 点选器直达搜索（instance-picker-completeness）：内部编号/序列号 icontains
     inner_keyword = django_filters.CharFilter(method='filter_inner_keyword')
 

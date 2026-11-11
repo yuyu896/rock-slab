@@ -50,6 +50,7 @@ export function useTransferList(type: TransferType) {
   const transfers = ref<Transfer[]>([])
   const branchOptions = ref<{ value: string; label: string }[]>([])
   const statusOptions = APPROVAL_STATUS_OPTIONS
+  const pendingCount = ref(0)
 
   const getStatusStyle = (status: string) => {
     return APPROVAL_STATUS_COLORS[status as keyof typeof APPROVAL_STATUS_COLORS] || { bg: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)' }
@@ -59,7 +60,7 @@ export function useTransferList(type: TransferType) {
     const items = transfers.value
     return {
       total: pagination.value.total,
-      pending: items.filter(t => t.审批状态 === '待审批').length,
+      pending: pendingCount.value,
       draft: items.filter(t => t.审批状态 === '草稿').length,
       approved: items.filter(t => t.审批状态 === '已通过').length,
       rejected: items.filter(t => t.审批状态 === '已驳回').length,
@@ -71,21 +72,26 @@ export function useTransferList(type: TransferType) {
     if (!canList.value) {
       transfers.value = []
       pagination.value.total = 0
+      pendingCount.value = 0
       return
     }
     loading.value = true
     try {
-      const { data } = await getTransfers({
-        page: pagination.value.page,
-        pageSize: pagination.value.pageSize,
-        status: filters.value.status || undefined,
-        fromBranch: filters.value.fromBranch.length ? filters.value.fromBranch.join(',') : undefined,
-        toBranch: filters.value.toBranch.length ? filters.value.toBranch.join(',') : undefined,
-        type,
-        keyword: filters.value.keyword || undefined,
-      })
-      transfers.value = data.results
-      pagination.value.total = data.count
+      const [listRes, pendingRes] = await Promise.all([
+        getTransfers({
+          page: pagination.value.page,
+          pageSize: pagination.value.pageSize,
+          status: filters.value.status || undefined,
+          fromBranch: filters.value.fromBranch.length ? filters.value.fromBranch.join(',') : undefined,
+          toBranch: filters.value.toBranch.length ? filters.value.toBranch.join(',') : undefined,
+          type,
+          keyword: filters.value.keyword || undefined,
+        }),
+        getTransfers({ type, status: '待审批', pageSize: 1 }),
+      ])
+      transfers.value = listRes.data.results
+      pagination.value.total = listRes.data.count
+      pendingCount.value = pendingRes.data.count
     } catch (error) {
       ElMessage.error(handleApiError(error))
     } finally {

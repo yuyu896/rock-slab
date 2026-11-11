@@ -497,7 +497,11 @@ onMounted(() => {
 
 /* 筛选区 */
 .filter-section {
+  background: var(--color-bg-card);
+  border-radius: 12px;
+  padding: var(--space-4);
   margin-bottom: var(--space-4);
+  border: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 

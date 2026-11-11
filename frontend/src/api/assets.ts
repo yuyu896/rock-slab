@@ -103,6 +103,7 @@ export function getFixedAssets(params?: PaginationParams & {
   /** '1' = 仅待补录序列号 */
   pending_serial?: string
   keyword?: string
+  supplier?: string
 }) {
   return request.get<PaginatedResponse<FixedAsset>>('/api/assets/fixed-assets', { params })
 }
