@@ -100,6 +100,7 @@ async function openExport() {
   exportMode.value = true
   exportError.value = false
   exportItems.value = []
+  await nextTick() // 先让浏览器渲染遮罩，再开始 CPU 密集的 Canvas 渲染
   try {
     const items = await Promise.all(props.assets.map(async asset => {
       const shape = asset as unknown as LabelAssetShape
