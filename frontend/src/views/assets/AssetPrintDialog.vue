@@ -45,21 +45,27 @@ async function switchPaper(size: PaperSize) {
 
 async function renderQrCodes() {
   await nextTick()
-  await Promise.all(props.assets.map(async asset => {
+  // 逐张串行生成 QR，每张之间 setTimeout 让出主线程，避免批量时卡顿
+  for (const asset of props.assets) {
     const el = document.getElementById(`qr-${asset.id}`)
-    if (!el || !asset.内部编号) return
-    try {
-      const svg = await QRCode.toString(String(asset.内部编号), {
-        type: 'svg',
-        errorCorrectionLevel: 'M',
-        margin: 0,
-      })
-      el.innerHTML = svg
-    } catch (error) {
-      console.error('标签 QR 生成失败', asset.内部编号, error)
-      el.innerHTML = '<span class="qr-fallback">QR 生成失败</span>'
-    }
-  }))
+    if (!el || !asset.内部编号) continue
+    await new Promise<void>(resolve => setTimeout(() => {
+      try {
+        QRCode.toString(String(asset.内部编号), {
+          type: 'svg',
+          errorCorrectionLevel: 'M',
+          margin: 0,
+        }).then(svg => { el.innerHTML = svg }).catch(error => {
+          console.error('标签 QR 生成失败', asset.内部编号, error)
+          el.innerHTML = '<span class="qr-fallback">QR 生成失败</span>'
+        }).finally(() => resolve())
+      } catch (error) {
+        console.error('标签 QR 生成失败', asset.内部编号, error)
+        el.innerHTML = '<span class="qr-fallback">QR 生成失败</span>'
+        resolve()
+      }
+    }, 0))
+  }
   fitLabelLines()
 }
 
