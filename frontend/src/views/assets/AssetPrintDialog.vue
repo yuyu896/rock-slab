@@ -94,13 +94,20 @@ const exportError = ref(false)
 /* 导出会话序号：关闭弹窗与开启新导出都会递增作废旧会话（组件常驻挂载，防旧资产结果串场） */
 let exportSession = 0
 
+/** 等待浏览器完成一次真实绘制帧（双 rAF）——nextTick 只刷微任务队列，遮罩未上屏就占满主线程 */
+function nextFrame(): Promise<void> {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+}
+
 async function openExport() {
   const session = ++exportSession
   exporting.value = true
   exportMode.value = true
   exportError.value = false
   exportItems.value = []
-  await nextTick() // 先让浏览器渲染遮罩，再开始 CPU 密集的 Canvas 渲染
+  // nextTick 只刷 DOM 队列（微任务），浏览器还没真正绘制；用双 rAF 等过一次绘制帧，
+  // 遮罩先上屏再开始 CPU 密集的 Canvas 渲染，否则主线程被占满遮罩永远画不出来
+  await nextFrame()
   try {
     const items = await Promise.all(props.assets.map(async asset => {
       const shape = asset as unknown as LabelAssetShape
