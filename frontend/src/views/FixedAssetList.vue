@@ -649,6 +649,12 @@ onMounted(() => {
             <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
           </div>
           <div class="filter-item">
+            <select v-model="filters.supplier" class="filter-select">
+              <option value="">全部供应商</option>
+              <option v-for="sp in supplierOptions" :key="sp.id" :value="sp.name">{{ sp.name }}</option>
+            </select>
+          </div>
+          <div class="filter-item">
             <select v-model="filters.status" class="filter-select">
               <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
@@ -657,12 +663,6 @@ onMounted(() => {
             <input v-model="filters.pendingSerial" type="checkbox" />
             仅看待补录
           </label>
-          <div class="filter-item">
-            <select v-model="filters.supplier" class="filter-select">
-              <option value="">全部供应商</option>
-              <option v-for="sp in supplierOptions" :key="sp.id" :value="sp.name">{{ sp.name }}</option>
-            </select>
-          </div>
         </template>
         <button class="filter-reset" @click="resetFilters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>重置</button>
       </div>
