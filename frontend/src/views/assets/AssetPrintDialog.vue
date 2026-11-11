@@ -188,7 +188,10 @@ onBeforeUnmount(() => {
         </div>
         <div v-else class="modal-body export-view">
           <p class="print-hint">标签机 App 打印时请选「原尺寸 / 60×40」；手机浏览器可长按图片保存到相册</p>
-          <p v-if="exporting" class="export-loading">渲染中…</p>
+          <div v-if="exporting" class="export-loading-overlay">
+            <div class="export-loading-spinner"></div>
+            <p>正在生成标签图片，请稍候…</p>
+          </div>
           <div v-else-if="exportError" class="export-error">
             <span>标签图片渲染失败，请重试</span>
             <button class="btn-cancel" @click="openExport">重试</button>
@@ -236,7 +239,17 @@ onBeforeUnmount(() => {
 .btn-export:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── 导出图片视图：标签 PNG 预览 + 逐张/全部下载 ── */
-.export-view .export-loading { color: var(--color-text-secondary); font-size: 14px; }
+.export-view { position: relative; }
+.export-loading-overlay {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; padding: 48px 0; color: var(--color-text-secondary); font-size: 15px;
+}
+.export-loading-spinner {
+  width: 36px; height: 36px; border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary); border-radius: 50%;
+  animation: label-spin 0.8s linear infinite;
+}
+@keyframes label-spin { to { transform: rotate(360deg); } }
 .export-error { display: flex; align-items: center; gap: 12px; color: var(--color-text-secondary); font-size: 14px; }
 .export-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .export-item { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
