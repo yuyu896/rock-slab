@@ -171,11 +171,22 @@ export const ENTITY_STATUS_COLORS: Record<EntityStatusType, { bg: string; color:
 
 export const ASSET_CATEGORY_CODES: Record<string, string> = {
   '固定资产类': 'A',
-  '低值易耗品': 'B',
+  '低值易耗品类': 'B',
   '无形资产类': 'C',
   '文档资料类': 'D',
   '特殊设备类': 'E',
   '其他资产': 'F',
+}
+
+// ============ 物品分类级联映射 ============
+
+export const ITEM_CATEGORIES_BY_ASSET_CATEGORY: Record<string, string[]> = {
+  '固定资产类': ['办公设备', '电子设备', '特殊设备'],
+  '低值易耗品类': ['办公耗材', '清洁用品', '其他消耗品'],
+  '无形资产类': ['软件与数据'],
+  '文档资料类': ['行政文件'],
+  '特殊设备类': ['安防设备'],
+  '其他资产': ['其他'],
 }
 
 export const ITEM_CATEGORY_CODES: Record<string, string> = {

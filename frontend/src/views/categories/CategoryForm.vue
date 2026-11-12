@@ -1,5 +1,9 @@
 <script setup lang="ts">
-defineProps<{
+import { ref, watch } from 'vue'
+import { getItemCategories } from '@/api/categories'
+import { ITEM_CATEGORIES_BY_ASSET_CATEGORY } from '@/constants'
+
+const props = defineProps<{
   category: any
   saving: boolean
 }>()
@@ -10,6 +14,41 @@ const emit = defineEmits<{
   (e: 'addAttribute'): void
   (e: 'removeAttribute', idx: number): void
 }>()
+
+const availableItemCategories = ref<string[]>([])
+const loadingItemCategories = ref(false)
+
+// 资产类目变化时获取对应的物品分类选项
+watch(
+  () => props.category.资产类目,
+  async (newAssetCategory) => {
+    if (!newAssetCategory) {
+      availableItemCategories.value = []
+      return
+    }
+
+    // 先从本地常量获取（快速回显）
+    availableItemCategories.value = ITEM_CATEGORIES_BY_ASSET_CATEGORY[newAssetCategory] || []
+
+    // 然后从后端验证（确保与后端保持一致）
+    loadingItemCategories.value = true
+    try {
+      const { data } = await getItemCategories(newAssetCategory)
+      availableItemCategories.value = data.itemCategories
+    } catch (error) {
+      console.error('获取物品分类失败:', error)
+      // 失败时保持本地常量的值
+    } finally {
+      loadingItemCategories.value = false
+    }
+
+    // 清空物品分类（当切换资产类目时，原物品分类可能不再有效）
+    if (props.category.物品分类 && !availableItemCategories.value.includes(props.category.物品分类)) {
+      props.category.物品分类 = ''
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -40,7 +79,20 @@ const emit = defineEmits<{
           </div>
           <div class="form-item">
             <label class="form-label">物品分类 <span class="required">*</span></label>
-            <input v-model="category.物品分类" type="text" class="form-input" placeholder="请输入物品分类" />
+            <select
+              v-model="category.物品分类"
+              class="form-select"
+              :disabled="!category.资产类目 || loadingItemCategories"
+            >
+              <option value="">{{ loadingItemCategories ? '加载中...' : category.资产类目 ? '请选择' : '请先选择资产类目' }}</option>
+              <option
+                v-for="item in availableItemCategories"
+                :key="item"
+                :value="item"
+              >
+                {{ item }}
+              </option>
+            </select>
           </div>
           <div class="form-item">
             <label class="form-label">资产名称 <span class="required">*</span></label>

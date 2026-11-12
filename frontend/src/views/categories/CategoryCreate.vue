@@ -24,7 +24,20 @@
         </div>
         <div class="form-item">
           <label class="form-label">物品分类 <span class="required">*</span></label>
-          <input v-model="form.物品分类" type="text" class="form-input" placeholder="请输入物品分类" />
+          <select
+            v-model="form.物品分类"
+            class="form-input"
+            :disabled="!form.资产类目 || loadingItemCategories"
+          >
+            <option value="">{{ loadingItemCategories ? '加载中...' : form.资产类目 ? '请选择' : '请先选择资产类目' }}</option>
+            <option
+              v-for="item in availableItemCategories"
+              :key="item"
+              :value="item"
+            >
+              {{ item }}
+            </option>
+          </select>
         </div>
         <div class="form-item">
           <label class="form-label">资产名称 <span class="required">*</span></label>
@@ -97,12 +110,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { getCategory, createCategory, updateCategory } from '@/api/categories'
+import { getCategory, createCategory, updateCategory, getItemCategories } from '@/api/categories'
 import { handleApiError } from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import type { CategoryRequest } from '@/types'
+import { ITEM_CATEGORIES_BY_ASSET_CATEGORY } from '@/constants'
 
 const router = useRouter()
 const route = useRoute()
@@ -110,6 +124,8 @@ const id = computed(() => (route.params.id as string) || '')
 const isEdit = computed(() => !!id.value)
 const saving = ref(false)
 const managementLocked = ref(false)
+const availableItemCategories = ref<string[]>([])
+const loadingItemCategories = ref(false)
 
 const form = reactive({
   资产类目: '',
@@ -124,6 +140,37 @@ const form = reactive({
   警戒线: 10 as number | null,
   备注: '',
 })
+
+// 资产类目变化时获取对应的物品分类选项
+watch(
+  () => form.资产类目,
+  async (newAssetCategory) => {
+    if (!newAssetCategory) {
+      availableItemCategories.value = []
+      return
+    }
+
+    // 先从本地常量获取（快速回显）
+    availableItemCategories.value = ITEM_CATEGORIES_BY_ASSET_CATEGORY[newAssetCategory] || []
+
+    // 然后从后端验证（确保与后端保持一致）
+    loadingItemCategories.value = true
+    try {
+      const { data } = await getItemCategories(newAssetCategory)
+      availableItemCategories.value = data.itemCategories
+    } catch (error) {
+      console.error('获取物品分类失败:', error)
+      // 失败时保持本地常量的值
+    } finally {
+      loadingItemCategories.value = false
+    }
+
+    // 清空物品分类（当切换资产类目时，原物品分类可能不再有效）
+    if (form.物品分类 && !availableItemCategories.value.includes(form.物品分类)) {
+      form.物品分类 = ''
+    }
+  }
+)
 
 async function loadCategory() {
   if (!id.value) return

@@ -18,6 +18,14 @@ export function lookupCategoryByCode(assetCode: string) {
   )
 }
 
+/** 根据资产类目获取对应的物品分类列表 */
+export function getItemCategories(assetCategory: string) {
+  return request.get<{ assetCategory: string; itemCategories: string[] }>(
+    '/api/categories/item-categories',
+    { params: { asset_category: assetCategory } },
+  )
+}
+
 export function createCategory(data: CategoryRequest) {
   return request.post<Category>('/api/categories/', data)
 }

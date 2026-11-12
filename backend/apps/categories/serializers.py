@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
 from .models import Category
+from . import ITEM_CATEGORIES_BY_ASSET_CATEGORY
 
 
 def management_stock_status(category):
@@ -81,6 +82,32 @@ class CategorySerializer(serializers.ModelSerializer):
             queryset = queryset.exclude(pk=instance.pk)
         if queryset.exists():
             raise serializers.ValidationError('资产编号已存在，请使用其他编号')
+        return value
+
+    def validate_asset_category(self, value):
+        """验证资产类目在预定义映射中"""
+        if value not in ITEM_CATEGORIES_BY_ASSET_CATEGORY:
+            valid_categories = ', '.join(ITEM_CATEGORIES_BY_ASSET_CATEGORY.keys())
+            raise serializers.ValidationError(
+                f'资产类目必须是以下之一：{valid_categories}'
+            )
+        return value
+
+    def validate_item_category(self, value):
+        """验证物品分类与资产类目的级联约束"""
+        asset_category = self.initial_data.get('asset_category')
+        if not asset_category:
+            raise serializers.ValidationError('必须先选择资产类目')
+
+        if asset_category not in ITEM_CATEGORIES_BY_ASSET_CATEGORY:
+            raise serializers.ValidationError('所选资产类目无效')
+
+        valid_items = ITEM_CATEGORIES_BY_ASSET_CATEGORY[asset_category]
+        if value not in valid_items:
+            valid_items_str = ', '.join(valid_items)
+            raise serializers.ValidationError(
+                f'物品分类必须是 {asset_category} 下的以下之一：{valid_items_str}'
+            )
         return value
 
     def validate_management_type(self, value):

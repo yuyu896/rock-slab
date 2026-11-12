@@ -12,6 +12,7 @@ from core.pagination import StandardPagination
 from .models import Category
 from .serializers import CategorySerializer
 from .filters import CategoryFilterSet
+from . import ITEM_CATEGORIES_BY_ASSET_CATEGORY
 
 
 def suggest_similar_codes(code, limit=3):
@@ -31,6 +32,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         'list': 'view_categories',
         'retrieve': 'view_categories',
         'lookup': 'view_categories',
+        'item_categories': 'view_categories',
         'export_excel': 'view_categories',
         'download_template': ('edit_categories', 'view_categories'),
         'create': ('edit_categories', 'view_categories'),
@@ -39,6 +41,29 @@ class CategoryViewSet(viewsets.ModelViewSet):
         'destroy': ('edit_categories', 'view_categories'),
         'import_excel': ('edit_categories', 'view_categories'),
     }
+
+    @action(detail=False, methods=['get'], url_path='item-categories')
+    def item_categories(self, request):
+        """根据资产类目返回对应的物品分类列表。"""
+        asset_category = (request.query_params.get('asset_category') or '').strip()
+        if not asset_category:
+            return Response(
+                {'asset_category': ['请提供 asset_category 参数']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if asset_category not in ITEM_CATEGORIES_BY_ASSET_CATEGORY:
+            valid_categories = ', '.join(ITEM_CATEGORIES_BY_ASSET_CATEGORY.keys())
+            return Response(
+                {'asset_category': [f'无效的资产类目，必须是以下之一：{valid_categories}']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        item_categories = ITEM_CATEGORIES_BY_ASSET_CATEGORY[asset_category]
+        return Response({
+            'asset_category': asset_category,
+            'item_categories': item_categories,
+        })
 
     @action(detail=False, methods=['get'], url_path='lookup')
     def lookup(self, request):
