@@ -9,6 +9,7 @@ import type { User, UserRoleType } from '@/types'
 
 export const useUserStore = defineStore('user', () => {
   const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
+  const expiresAt = ref<string | null>(localStorage.getItem('rock_slab_token_expires_at'))
   const profile = ref<User | null>(null)
   /** 当前用户持有的业务操作授权码集合（admin 恒真，不依赖此集合） */
   const operations = ref<string[]>([])
@@ -22,8 +23,14 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = computed(() => !!token.value)
   /** 是否为超级管理员（走职位，拥有全部权限） */
   const isAdmin = computed(() => profile.value?.role === 'admin')
+  /** token 是否已过期 */
+  const isTokenExpired = computed(() => {
+    if (!expiresAt.value) return false
+    return new Date() >= new Date(expiresAt.value)
+  })
 
   let operationsFetchedAt = 0
+  let tokenExpiryCheckInterval: number | null = null
 
   /** camelCase 键转 snake_case（仅处理 pageOperations 内层键） */
   function toSnakeKeys(obj: Record<string, string[]>): Record<string, string[]> {
@@ -59,23 +66,29 @@ export const useUserStore = defineStore('user', () => {
   async function login(phone: string, password: string) {
     const { data } = await authApi.login({ phone, password })
     token.value = data.token
+    expiresAt.value = data.expiresAt
     profile.value = data.user
     localStorage.setItem(TOKEN_KEY, data.token)
+    localStorage.setItem('rock_slab_token_expires_at', data.expiresAt)
+    startTokenExpiryCheck()
     await fetchMyPermissions()
   }
 
   /** 登出 */
   async function logout() {
+    stopTokenExpiryCheck()
     try {
       await authApi.logout()
     } finally {
       token.value = null
+      expiresAt.value = null
       profile.value = null
       operations.value = []
       pageOperations.value = {}
       operationPrerequisites.value = {}
       profileLoaded.value = false
       localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem('rock_slab_token_expires_at')
     }
   }
 
@@ -99,6 +112,29 @@ export const useUserStore = defineStore('user', () => {
     return (pageOperations.value[page] || []).some(can)
   }
 
+  /** 启动 token 过期检查定时器（每 30 秒检查一次） */
+  function startTokenExpiryCheck() {
+    stopTokenExpiryCheck()
+    tokenExpiryCheckInterval = window.setInterval(() => {
+      if (isTokenExpired.value) {
+        logout()
+      }
+    }, 30 * 1000)
+  }
+
+  /** 停止 token 过期检查定时器 */
+  function stopTokenExpiryCheck() {
+    if (tokenExpiryCheckInterval !== null) {
+      clearInterval(tokenExpiryCheckInterval)
+      tokenExpiryCheckInterval = null
+    }
+  }
+
+  /** 应用卸载时清理定时器 */
+  function cleanup() {
+    stopTokenExpiryCheck()
+  }
+
   /** 是否拥有指定角色 */
   function hasRole(role: UserRoleType): boolean {
     return profile.value?.role === role
@@ -114,6 +150,7 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     token,
+    expiresAt,
     profile,
     profileLoaded,
     operations,
@@ -121,10 +158,14 @@ export const useUserStore = defineStore('user', () => {
     refreshOperationsIfStale,
     isLoggedIn,
     isAdmin,
+    isTokenExpired,
     login,
     logout,
     fetchProfile,
     fetchMyPermissions,
+    startTokenExpiryCheck,
+    stopTokenExpiryCheck,
+    cleanup,
     can,
     canAccessPage,
     hasRole,

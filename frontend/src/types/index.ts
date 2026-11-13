@@ -554,6 +554,7 @@ export interface LoginRequest {
 /** 登录响应 */
 export interface LoginResponse {
   token: string
+  expiresAt: string
   user: User
 }
 

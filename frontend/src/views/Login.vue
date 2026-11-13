@@ -17,6 +17,7 @@ const errorMessage = ref('')
 
 // 进入登录页时清除残留的失效 token，打断"旧token→401→跳登录"死循环
 localStorage.removeItem(TOKEN_KEY)
+localStorage.removeItem('rock_slab_token_expires_at')
 
 // Check if redirected due to token expiry
 if (sessionStorage.getItem('token_expired')) {

@@ -60,6 +60,7 @@ def login_view(request):
     user_serializer = UserSerializer(user)
     return Response({
         'token': token.key,
+        'expiresAt': token.expires_at.isoformat(),
         'user': user_serializer.data,
     })
 
