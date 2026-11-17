@@ -13,9 +13,9 @@
 from django.core.management.base import BaseCommand
 from django.db.models import Count
 
-from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment
+from apps.assets.models import AssetStock, FixedAsset, LedgerAdjustment, ConsumableMigrationRun
 from apps.assets.services.ledger import _line_plan, dispose_spec_deltas
-from apps.categories.models import Category, ConsumableMigrationRun
+from apps.categories.models import Category
 from apps.transfers.models import Transfer
 
 EFFECTIVE_TRANSFER_STATUSES = ('已通过', '已入库')
