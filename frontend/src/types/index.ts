@@ -459,6 +459,8 @@ export interface FixedAsset {
   图片?: string | null
   /** 列表缩略图 URL；存量图片回填前可能为空 */
   缩略图?: string | null
+  isRental?: 'pending' | 'owned' | 'rental'
+  isRentalDisplay?: string
   createdAt: string
   updatedAt: string
   /** Backend serializer names retained for endpoints without response key conversion. */

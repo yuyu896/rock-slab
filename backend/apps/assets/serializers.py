@@ -95,6 +95,7 @@ class FixedAssetSerializer(serializers.ModelSerializer):
     缩略图 = serializers.SerializerMethodField()
     供应商 = serializers.SerializerMethodField()
     采购日期 = serializers.SerializerMethodField()
+    is_rental_display = serializers.CharField(source='get_is_rental_display', read_only=True)
 
     class Meta:
         model = FixedAsset
@@ -104,7 +105,9 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             'item', 'item_code', 'item_name', 'item_spec',
             'asset_category', 'item_category', 'management_type',
             '入库日期', '供应商', '采购日期',
-            '备注', '图片', '缩略图', '采购日期', 'created_at', 'updated_at',
+            '备注', '图片', '缩略图', '采购日期',
+            'is_rental', 'is_rental_display',
+            'created_at', 'updated_at',
         ]
         read_only_fields = fields
 
@@ -183,6 +186,7 @@ class FixedAssetEditTargetSerializer(FixedAssetSerializer):
             'branch', 'branch_name', 'item_code', 'item_name', 'item_spec',
             '供应商', '采购日期', '备注', '图片', '缩略图',
             '使用人', 'department', 'department_name',
+            'is_rental', 'is_rental_display',
         ]
         read_only_fields = fields
 
@@ -215,17 +219,21 @@ class FixedAssetImageResponseSerializer(serializers.ModelSerializer):
 
 
 class FixedAssetSupplementSerializer(serializers.Serializer):
-    """序列号补录入参：仅 序列号/备注 两字段（状态等经流转单变动）。
+    """序列号补录入参：仅 序列号/备注/是否租用 三字段（状态等经流转单变动）。
     不设 default——未提交的字段不进 validated_data（部分更新语义，serial-uniqueness）。"""
 
     序列号 = serializers.CharField(required=False, allow_blank=True)
     备注 = serializers.CharField(required=False, allow_blank=True)
+    is_rental = serializers.ChoiceField(
+        choices=FixedAsset.RENTAL_STATUS_CHOICES,
+        required=False,
+    )
 
     def validate(self, attrs):
-        unknown = set(self.initial_data) - {'序列号', '备注'}
+        unknown = set(self.initial_data) - {'序列号', '备注', 'is_rental'}
         if unknown:
             raise serializers.ValidationError(
-                {'detail': f'补录仅支持 序列号/备注，多余字段：{"、".join(sorted(unknown))}'}
+                {'detail': f'补录仅支持 序列号/备注/是否租用，多余字段：{"、".join(sorted(unknown))}'}
             )
         return attrs
 

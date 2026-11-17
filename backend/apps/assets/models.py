@@ -67,6 +67,37 @@ class AssetStock(UUIDModel, TimestampedModel):
         return (self.在库数量 or 0) + (self.在用数量 or 0) + (self.回收库数量 or 0)
 
 
+class ConsumableMigrationRun(UUIDModel, TimestampedModel):
+    """消耗品迁移记录 —— 记录资产从数量管理切换到消耗品管理的时间点。
+
+    用于对账逻辑：回放历史流转单时，迁移时间之前的单据按照数量管理语义处理，
+    之后的单据按照消耗品语义处理。
+    """
+
+    STATUS_APPLIED = 'applied'
+    STATUS_REPORTED = 'reported'
+    STATUS_FAILED = 'failed'
+
+    STATUS_CHOICES = [
+        (STATUS_APPLIED, '已应用'),
+        (STATUS_REPORTED, '已报告'),
+        (STATUS_FAILED, '失败'),
+    ]
+
+    asset_codes = models.JSONField('资产编号列表', default=list, help_text='切换为消耗品的资产编号')
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default=STATUS_APPLIED)
+    note = models.TextField('备注', blank=True)
+
+    class Meta:
+        db_table = 'assets_consumable_migration_run'
+        ordering = ['-created_at']
+        verbose_name = '消耗品迁移记录'
+        verbose_name_plural = '消耗品迁移记录'
+
+    def __str__(self):
+        return f'{self.created_at.date()} 迁移 {len(self.asset_codes or [])} 个资产'
+
+
 class LedgerAdjustment(UUIDModel, TimestampedModel):
     """台账调整单 —— 数量变动的非流转出口（含期初入账），铁律 2 的合规载体。
 
@@ -149,6 +180,15 @@ class FixedAsset(UUIDModel, TimestampedModel):
         (STATUS_RETIRED, '退役'),
     ]
 
+    RENTAL_PENDING = 'pending'
+    RENTAL_OWNED = 'owned'
+    RENTAL_RENTAL = 'rental'
+    RENTAL_STATUS_CHOICES = [
+        (RENTAL_PENDING, '待确认'),
+        (RENTAL_OWNED, '自购'),
+        (RENTAL_RENTAL, '租用'),
+    ]
+
     item = models.ForeignKey(
         'categories.Category',
         on_delete=models.PROTECT,
@@ -190,6 +230,13 @@ class FixedAsset(UUIDModel, TimestampedModel):
     image_version = models.PositiveBigIntegerField('图片版本', default=0)
     thumbnail = models.ImageField(
         '物品缩略图', upload_to=fixed_asset_thumbnail_upload_to, blank=True, null=True,
+    )
+    is_rental = models.CharField(
+        '是否租用',
+        max_length=10,
+        choices=RENTAL_STATUS_CHOICES,
+        default=RENTAL_PENDING,
+        db_index=True,
     )
 
     class Meta:

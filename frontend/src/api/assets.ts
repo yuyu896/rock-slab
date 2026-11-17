@@ -104,6 +104,7 @@ export function getFixedAssets(params?: PaginationParams & {
   pending_serial?: string
   keyword?: string
   supplier?: string
+  is_rental?: string
 }) {
   return request.get<PaginatedResponse<FixedAsset>>('/api/assets/fixed-assets', { params })
 }
@@ -154,7 +155,7 @@ export function getFixedAsset(id: string) {
 }
 
 /** 序列号补录（edit_instances 权限；仅 序列号/备注 两字段） */
-export function supplementFixedAsset(id: string, data: { 序列号?: string; 备注?: string }) {
+export function supplementFixedAsset(id: string, data: { 序列号?: string; 备注?: string; is_rental?: string }) {
   return request.patch<FixedAsset>(`/api/assets/fixed-assets/${id}/supplement`, data)
 }
 

@@ -32,6 +32,7 @@ const filters = ref({
   pendingSerial: false,
   keyword: (route.query.keyword as string) || '',
   supplier: '',
+  rental: '',
 })
 
 const pagination = ref({ page: 1, pageSize: 50, total: 0 })
@@ -81,7 +82,7 @@ async function handleExport() {
 
 // ── 行编辑（档案维护与使用人交接共用保存入口） ──
 const editing = ref<FixedAsset | null>(null)
-const editForm = ref<{ 序列号: string; 备注: string; 规格: string; 供应商: string; 采购日期: string | null }>({ 序列号: '', 备注: '', 规格: '', 供应商: '', 采购日期: null })
+const editForm = ref<{ 序列号: string; 备注: string; 规格: string; 供应商: string; 采购日期: string | null; isRental: string }>({ 序列号: '', 备注: '', 规格: '', 供应商: '', 采购日期: null, isRental: 'pending' })
 const editSaving = ref(false)
 const assigneeForm = ref({ 使用人: '', department: '', 原因: '' })
 const assigneeDepartments = ref<Department[]>([])
@@ -119,6 +120,7 @@ function openEdit(asset: FixedAsset) {
     规格: asset.itemSpec || '',
     供应商: asset.供应商 || '',
     采购日期: asset.采购日期 || null,
+    isRental: asset.isRental || 'pending',
   }
   assigneeForm.value = {
     使用人: asset.使用人 || '',
@@ -156,11 +158,12 @@ async function handleEditSave() {
   let metadataSaved = false
   try {
     if (shouldSaveMetadata) {
-      // 序列号/备注走补录接口（serial-uniqueness UI 收口）：支持清空（空=回到待补录）
+      // 序列号/备注/是否租用走补录接口（serial-uniqueness UI 收口）：支持清空（空=回到待补录）
       // 与同分公司查重；batch_update 的 空=不改 语义无法清空序列号
       await supplementFixedAsset(asset.id, {
         序列号: editForm.value.序列号,
         备注: editForm.value.备注,
+        is_rental: editForm.value.isRental,
       })
       metadataPartiallySaved = true
       const hadDate = !!asset.采购日期  // 原有个体日期：清空即清除覆盖
@@ -560,6 +563,7 @@ async function fetchAssets() {
       keyword: filters.value.keyword || undefined,
       pending_serial: filters.value.pendingSerial ? '1' : undefined,
       supplier: filters.value.supplier || undefined,
+      is_rental: filters.value.rental || undefined,
     })
     assets.value = data.results
     pagination.value.total = data.count
@@ -578,7 +582,7 @@ async function fetchBranches() {
 }
 
 const resetFilters = () => {
-  filters.value = { branch: [], status: '', pendingSerial: false, keyword: '', supplier: '' }
+  filters.value = { branch: [], status: '', pendingSerial: false, keyword: '', supplier: '', rental: '' }
   pagination.value.page = 1
   fetchAssets()
 }
@@ -659,6 +663,14 @@ onMounted(() => {
               <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
           </div>
+          <div class="filter-item">
+            <select v-model="filters.rental" class="filter-select">
+              <option value="">全部类型</option>
+              <option value="pending">待确认</option>
+              <option value="owned">自购</option>
+              <option value="rental">租用</option>
+            </select>
+          </div>
           <label class="pending-filter">
             <input v-model="filters.pendingSerial" type="checkbox" />
             仅看待补录
@@ -688,13 +700,14 @@ onMounted(() => {
             <th>入库日期</th>
             <th>供应商</th>
             <th>采购日期</th>
+            <th>是否租用</th>
             <th>备注</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="17" class="empty-cell">加载中...</td></tr>
-          <tr v-else-if="assets.length === 0"><td colspan="17" class="empty-cell">暂无实例数据</td></tr>
+          <tr v-if="loading"><td colspan="18" class="empty-cell">加载中...</td></tr>
+          <tr v-else-if="assets.length === 0"><td colspan="18" class="empty-cell">暂无实例数据</td></tr>
           <tr v-for="(item, index) in assets" :key="item.id" v-else>
             <td class="check-col"><input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item)" /></td>
             <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
@@ -725,6 +738,12 @@ onMounted(() => {
             <td><span class="date-text">{{ item.入库日期 || '-' }}</span></td>
             <td>{{ item.供应商 || '-' }}</td>
             <td><span class="date-text">{{ item.采购日期 || '-' }}</span></td>
+            <td>
+              <span v-if="item.isRental === 'pending'" class="rental-badge rental-pending">待确认</span>
+              <span v-else-if="item.isRental === 'owned'" class="rental-badge rental-owned">自购</span>
+              <span v-else-if="item.isRental === 'rental'" class="rental-badge rental-rental">租用</span>
+              <span v-else>-</span>
+            </td>
             <td>{{ item.备注 || '-' }}</td>
             <td class="action-col">
       <button v-if="canSupplement || canChangeAssignee" class="action-btn" title="编辑" @click="openEdit(item)">
@@ -835,6 +854,13 @@ onMounted(() => {
               <el-form-item label="采购日期">
                 <el-date-picker v-model="editForm.采购日期" type="date" value-format="YYYY-MM-DD" placeholder="空=沿用出生单日期" style="width: 100%" clearable />
               </el-form-item>
+              <el-form-item label="是否租用">
+                <el-radio-group v-model="editForm.isRental">
+                  <el-radio label="pending">待确认</el-radio>
+                  <el-radio label="owned">自购</el-radio>
+                  <el-radio label="rental">租用</el-radio>
+                </el-radio-group>
+              </el-form-item>
             </template>
             <template v-else-if="canViewInstances">
                 <el-form-item label="序列号">{{ editing.序列号 || '-' }}</el-form-item>
@@ -842,6 +868,7 @@ onMounted(() => {
                 <el-form-item label="规格">{{ editing.itemSpec || '-' }}</el-form-item>
                 <el-form-item label="供应商">{{ editing.供应商 || '-' }}</el-form-item>
                 <el-form-item label="采购日期">{{ editing.采购日期 || '-' }}</el-form-item>
+                <el-form-item label="是否租用">{{ editing.isRentalDisplay || '待确认' }}</el-form-item>
             </template>
             <el-form-item v-if="canSupplement || canViewInstances" label="物品图片">
               <div class="edit-image-block">
@@ -1027,6 +1054,15 @@ onMounted(() => {
 .action-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-right: var(--space-1); background: transparent; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; color: var(--color-text-secondary); }
 .action-btn:hover { border-color: var(--color-primary-300); color: var(--color-primary-600); }
 .action-btn svg { width: 15px; height: 15px; }
+.rental-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: var(--text-xs); font-weight: 500; }
+.rental-pending { background: oklch(0.95 0.03 80); color: oklch(0.50 0.12 80); }
+.rental-owned { background: oklch(0.95 0.03 150); color: oklch(0.40 0.12 150); }
+.rental-rental { background: oklch(0.95 0.03 240); color: oklch(0.45 0.12 240); }
+@media (prefers-color-scheme: dark) {
+  .rental-pending { background: oklch(0.25 0.05 80); color: oklch(0.75 0.10 80); }
+  .rental-owned { background: oklch(0.25 0.05 150); color: oklch(0.75 0.10 150); }
+  .rental-rental { background: oklch(0.25 0.05 240); color: oklch(0.75 0.10 240); }
+}
 @media (max-width: 980px) {
   .edit-dual { grid-template-columns: minmax(0, 1fr); max-height: calc(100dvh - 180px); overflow-y: auto; overflow-x: hidden; }
   .edit-form-scroll { max-height: none; overflow: visible; padding-right: 0; }
