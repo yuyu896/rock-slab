@@ -771,7 +771,7 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='supplement')
     def supplement(self, request, pk=None):
-        """序列号补录：仅 序列号/备注 两字段（edit_instances 权限，渐进录入）。
+        """序列号补录：仅 序列号/备注/是否租用 三字段（edit_instances 权限，渐进录入）。
         部分更新语义：未提交的字段保持原值（serial-uniqueness）；
         非空序列号同分公司查重（显式提交空串=有意退回待补录，合法）。"""
         instance = self.get_object()
@@ -794,6 +794,9 @@ class FixedAssetViewSet(DataScopeMixin, viewsets.ReadOnlyModelViewSet):
         if '备注' in serializer.validated_data:
             instance.备注 = serializer.validated_data['备注']
             update_fields.insert(0, '备注')
+        if 'is_rental' in serializer.validated_data:
+            instance.is_rental = serializer.validated_data['is_rental']
+            update_fields.insert(0, 'is_rental')
         instance.save(update_fields=update_fields)
         response_serializer = (
             FixedAssetSerializer
