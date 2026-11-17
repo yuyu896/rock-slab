@@ -690,14 +690,12 @@ onMounted(() => {
             <th>图片</th>
             <th>分公司</th>
             <th>内部编号</th>
-            <th>品目编号</th>
             <th>品目名称</th>
             <th>规格</th>
             <th>序列号</th>
             <th>当前状态</th>
             <th>使用人</th>
             <th>部门</th>
-            <th>入库日期</th>
             <th>供应商</th>
             <th>采购日期</th>
             <th>是否租用</th>
@@ -706,8 +704,8 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="18" class="empty-cell">加载中...</td></tr>
-          <tr v-else-if="assets.length === 0"><td colspan="18" class="empty-cell">暂无实例数据</td></tr>
+          <tr v-if="loading"><td colspan="16" class="empty-cell">加载中...</td></tr>
+          <tr v-else-if="assets.length === 0"><td colspan="16" class="empty-cell">暂无实例数据</td></tr>
           <tr v-for="(item, index) in assets" :key="item.id" v-else>
             <td class="check-col"><input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item)" /></td>
             <td>{{ (pagination.page - 1) * pagination.pageSize + index + 1 }}</td>
@@ -725,7 +723,6 @@ onMounted(() => {
             </td>
             <td>{{ item.branchName || '-' }}</td>
             <td><span class="asset-code">{{ item.内部编号 }}</span></td>
-            <td>{{ item.itemCode }}</td>
             <td>{{ item.itemName || '-' }}</td>
             <td>{{ item.itemSpec || '-' }}</td>
             <td>
@@ -735,7 +732,6 @@ onMounted(() => {
             <td><StatusBadge :status="item.当前状态 || ''" /></td>
             <td>{{ item.使用人 || '-' }}</td>
             <td>{{ item.departmentName || '-' }}</td>
-            <td><span class="date-text">{{ item.入库日期 || '-' }}</span></td>
             <td>{{ item.供应商 || '-' }}</td>
             <td><span class="date-text">{{ item.采购日期 || '-' }}</span></td>
             <td>
