@@ -13,6 +13,7 @@ class ReconciliationTask(UUIDModel, TimestampedModel):
 
     supplier = models.ForeignKey('suppliers.Supplier', on_delete=models.PROTECT, related_name='reconciliation_tasks')
     period = models.DateField('对账月份')
+    billing_period = models.DateField('结算账期')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     current_version = models.ForeignKey(
         'ReconciliationUploadVersion', on_delete=models.PROTECT, null=True, blank=True,
@@ -32,8 +33,8 @@ class ReconciliationTask(UUIDModel, TimestampedModel):
 
     class Meta:
         db_table = 'reconciliation_task'
-        ordering = ['-period', 'supplier__name']
-        constraints = [models.UniqueConstraint(fields=['supplier', 'period'], name='uniq_recon_supplier_period')]
+        ordering = ['-billing_period', 'supplier__name']
+        constraints = [models.UniqueConstraint(fields=['supplier', 'billing_period'], name='uniq_recon_supplier_billing_period')]
 
 
 def reconciliation_upload_path(instance, filename):

@@ -150,7 +150,8 @@ def parse_workbook(upload, period):
         if lease_start and accounting and lease_start > accounting:
             errors.append({'row': row_number, 'field': '记账日期', 'value': accounting.isoformat(), 'message': '记账日期不能早于起租日期'})
         if lease_start and accounting and rent is not None and len(matches) == 1 and serial_normalized:
-            days, amount = billing_for_period(period, accounting, rent)
+            billing_period_for_row = accounting.replace(day=1)
+            days, amount = billing_for_period(billing_period_for_row, accounting, rent)
             parsed.append({
                 'row_number': row_number,
                 'order_number': str(order_no or '').strip(),
@@ -172,7 +173,16 @@ def parse_workbook(upload, period):
         raise ValidationError({'detail': '订单校验失败，整份文件未导入', 'errors': errors})
     if not parsed:
         raise ValidationError({'detail': '订单中没有可导入的数据行'})
-    return parsed
+
+    accounting_months = {row['accounting_date'].replace(day=1) for row in parsed}
+    if len(accounting_months) > 1:
+        raise ValidationError({
+            'detail': '订单包含多个结算账期，请拆分为单一账期文件后重新导入',
+            'periods': sorted(m.strftime('%Y-%m') for m in accounting_months),
+        })
+    billing_period = accounting_months.pop()
+
+    return parsed, billing_period
 
 
 def _prepare_reconciliation_order(supplier_id, period, upload):
@@ -183,12 +193,13 @@ def _prepare_reconciliation_order(supplier_id, period, upload):
     supplier = Supplier.objects.filter(pk=supplier_id).first()
     if supplier is None:
         raise ValidationError({'supplier': '供应商不存在'})
-    return supplier, period_date, parse_workbook(upload, period_date)
+    parsed, billing_period = parse_workbook(upload, period_date)
+    return supplier, period_date, billing_period, parsed
 
 
 def preview_reconciliation_order(supplier_id, period, upload, user=None):
     """Validate and summarize an order workbook without persisting reconciliation data."""
-    supplier, period_date, parsed = _prepare_reconciliation_order(supplier_id, period, upload)
+    supplier, period_date, billing_period, parsed = _prepare_reconciliation_order(supplier_id, period, upload)
     if user is not None:
         from core.permissions import validate_branches_in_scope
         validate_branches_in_scope(user, *(row['branch'] for row in parsed))
@@ -209,6 +220,7 @@ def preview_reconciliation_order(supplier_id, period, upload, user=None):
     return {
         'supplier_id': str(supplier.pk), 'supplier_name': supplier.name,
         'period': period_date.strftime('%Y-%m'),
+        'billing_period': billing_period.strftime('%Y-%m'),
         'branch_count': len(branch_totals), 'order_count': len(order_keys),
         'row_count': len(parsed),
         'total_amount': str(total_amount.quantize(CENT)),
@@ -485,12 +497,12 @@ def build_comparison(task, version):
 @transaction.atomic
 def import_reconciliation_order(supplier_id, period, upload, user):
     # Parse before mutating task state so a bad replacement leaves the active version intact.
-    supplier, period_date, parsed = _prepare_reconciliation_order(supplier_id, period, upload)
+    supplier, period_date, billing_period, parsed = _prepare_reconciliation_order(supplier_id, period, upload)
     from core.permissions import validate_branches_in_scope
     validate_branches_in_scope(user, *(row['branch'] for row in parsed))
     upload.seek(0)
     task = ReconciliationTask.objects.select_for_update().filter(
-        supplier=supplier, period=period_date,
+        supplier=supplier, billing_period=billing_period,
     ).first()
     if task and task.current_version_id:
         existing_comparisons = ReconciliationComparison.objects.filter(version_id=task.current_version_id)
@@ -508,8 +520,8 @@ def import_reconciliation_order(supplier_id, period, upload, user):
         raise ValidationError({'detail': '该供应商月份任务已归档，不能覆盖'})
     if task is None:
         task = ReconciliationTask.objects.create(
-            supplier=supplier, period=period_date, created_by=user,
-            created_by_name=user.name,
+            supplier=supplier, period=period_date, billing_period=billing_period,
+            created_by=user, created_by_name=user.name,
         )
 
     version_number = (task.versions.order_by('-version_number').values_list('version_number', flat=True).first() or 0) + 1

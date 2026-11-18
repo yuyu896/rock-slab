@@ -138,7 +138,8 @@ def _task_payload(task, pending_count=None, scope=None):
     version = task.current_version
     return {
         'id': str(task.pk), 'supplier_id': str(task.supplier_id), 'supplier_name': task.supplier.name,
-        'period': task.period.strftime('%Y-%m'), 'status': task.status,
+        'period': task.period.strftime('%Y-%m'), 'billing_period': task.billing_period.strftime('%Y-%m'),
+        'status': task.status,
         'created_at': task.created_at, 'updated_at': task.updated_at,
         'archived_at': task.archived_at, 'current_version': version.version_number if version else None,
         'uploaded_by': (

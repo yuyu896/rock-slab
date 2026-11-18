@@ -24,6 +24,7 @@ export interface ReconciliationTask {
   supplierId: string
   supplierName: string
   period: string
+  billingPeriod: string
   status: 'draft' | 'archived'
   currentVersion: number | null
   rowCount: number
@@ -66,6 +67,7 @@ export interface ReconciliationImportPreview {
   supplierId: string
   supplierName: string
   period: string
+  billingPeriod: string
   branchCount: number
   orderCount: number
   rowCount: number

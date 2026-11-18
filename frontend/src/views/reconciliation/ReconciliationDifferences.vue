@@ -131,7 +131,9 @@ watch(() => currentTaskId.value, (newId) => {
     <div v-if="currentTask" class="supplier-banner">
       <span class="supplier-banner-name">{{ currentTask.supplierName }}</span>
       <span class="supplier-banner-sep">·</span>
-      <span class="supplier-banner-period">{{ currentTask.period }}</span>
+      <span class="supplier-banner-period">对账月份 {{ currentTask.period }}</span>
+      <span class="supplier-banner-sep">·</span>
+      <span class="supplier-banner-period">结算账期 {{ currentTask.billingPeriod }}</span>
       <span class="supplier-banner-version">v{{ currentTask.currentVersion ?? 1 }}</span>
     </div>
 
