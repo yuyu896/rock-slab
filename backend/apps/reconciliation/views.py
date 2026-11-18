@@ -423,6 +423,8 @@ class ReconciliationExportView(ReconciliationPermissionView):
         sheet = workbook.active
         sheet.title = '对账结果'
         sheet.append(['结果', '序列号', '订单号', '订单分公司', '系统分公司', '内部编号', '状态', '资产编号', '起租日期', '记账日期', '系统记账天数', '订单记账天数', '月租金', '系统本月金额', '订单本月金额'])
+        sheet.column_dimensions['B'].width = 30
+        sheet.column_dimensions['C'].width = 30
         if task.current_version:
             rows = _comparison_queryset_for_scope(
                 task.current_version.comparisons.select_related('order_row__branch').all(), scope,
@@ -464,6 +466,7 @@ class ReconciliationExportView(ReconciliationPermissionView):
         sheet.title = '付款明细'
         sheet.append([f'供应商：{supplier_name}', f'对账月份：{period_str}'])
         sheet.append(['分公司', '序列号', '内部编号', '差异类型', '起租日期', '记账日期', '计费天数', '月租金', '本月金额'])
+        sheet.column_dimensions['B'].width = 30
         for branch in summary['branches']:
             for row in branch['rows']:
                 sheet.append([
