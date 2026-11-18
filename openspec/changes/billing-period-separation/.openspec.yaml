@@ -1,0 +1,4 @@
+name: billing-period-separation
+description: 租赁对账支持账期偏移（结算账期与对账月份分离）
+status: proposed
+created_at: 2026-11-18
