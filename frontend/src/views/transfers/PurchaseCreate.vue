@@ -148,7 +148,7 @@ async function submit(asDraft = false) {
       <button v-if="showDraftAction" class="btn-draft" :disabled="creating || loadingExisting || editingStatus === '已驳回'" @click="submit(true)">存为草稿</button>
     </template>
     <div class="form-grid">
-      <div class="form-item"><label class="form-label">日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
+      <div class="form-item"><label class="form-label">日期 <span class="required">*</span></label><el-date-picker v-model="form.调拨日期" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" /></div>
       <div class="form-item">
         <label class="form-label">入库分公司 <span class="required">*</span></label>
         <BranchSelect v-model="form.toBranch" :options="branchOptions" placeholder="请选择分公司" />

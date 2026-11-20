@@ -226,7 +226,7 @@ async function submit(asDraft = false) {
       <button v-if="showDraftAction" class="btn-draft" :disabled="creating || loadingExisting || editingStatus === '已驳回'" @click="submit(true)">保存为草稿</button>
     </template>
     <div class="form-grid">
-      <div class="form-item"><label class="form-label">回收日期 <span class="required">*</span></label><input v-model="form.调拨日期" type="date" class="form-input" /></div>
+      <div class="form-item"><label class="form-label">回收日期 <span class="required">*</span></label><el-date-picker v-model="form.调拨日期" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" /></div>
 
       <!-- 回收去向二选一：重新入库（仅实例且在用） / 直接处置（在库/在用双源） -->
       <div class="form-item full">

@@ -31,12 +31,6 @@ from .filters import TransferFilterSet
 from apps.inventories.models import INVENTORY_LOCKED_STATUSES as _INVENTORY_LOCKED_STATUSES
 
 
-class RetiredReturnAction(APIException):
-    status_code = status.HTTP_410_GONE
-    default_detail = '归还功能已停用，仅保留历史单据查询'
-    default_code = 'return_module_retired'
-
-
 def _build_lines(transfer, items):
     """按提交顺序赋行号批量建明细行（行号唯一约束守护），并落行-实例关联。"""
     entries = [(idx, item, item.pop('instances', [])) for idx, item in enumerate(items, start=1)]
@@ -111,7 +105,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
     EXPORT_ACTION_TYPES = {
         'purchase': Transfer.ACTION_PURCHASE,
         'assign': Transfer.ACTION_ASSIGN,
-        'return': Transfer.ACTION_RETURN,
         'transfer': Transfer.ACTION_TRANSFER,
         'recovery': Transfer.ACTION_RECOVERY,
     }
@@ -324,9 +317,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         return from_branch, to_branch
 
     def _create_action(self, request, action_type):
-        """Shared helper for the 5 action routes：单头 + items 明细行。"""
-        if action_type == Transfer.ACTION_RETURN:
-            raise RetiredReturnAction()
+        """Shared helper for the 4 action routes：单头 + items 明细行。"""
 
         # 行内即时回收已下线（修订 5.1）：回收统一走单据审批流，明拒不静默降级
         if request.data.get('immediate'):
@@ -394,7 +385,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     })
             lock_line_item_categories(items)
             if action_type in (
-                Transfer.ACTION_ASSIGN, Transfer.ACTION_RETURN,
+                Transfer.ACTION_ASSIGN,
                 Transfer.ACTION_TRANSFER, Transfer.ACTION_RECOVERY,
             ) and any(entry['item'].management_type == 'instance' for entry in items):
                 if not request.user.can('view_instances'):
@@ -410,8 +401,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             # 分公司语义化建单：from/to 落位由类型决定（映射唯一收口在模型 build）
             if action_type == Transfer.ACTION_TRANSFER:
                 branch_kwargs = {'调出分公司': from_branch, '调入分公司': to_branch}
-            elif action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
-                branch_kwargs = {'所属分公司': to_branch}  # 采购=入库方；归还=还入方
+            elif action_type == Transfer.ACTION_PURCHASE:
+                branch_kwargs = {'所属分公司': to_branch}
             else:
                 branch_kwargs = {'所属分公司': from_branch}
             data['单据编号'] = generate_document_number(action_type, data['调拨日期'])
@@ -437,11 +428,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         """资产领用"""
         return self._create_action(request, Transfer.ACTION_ASSIGN)
 
-    @action(detail=False, methods=['post'], url_path='return')
-    @audit_log(action='return', resource_type='Transfer', description_template='资产归还')
-    def return_asset(self, request):
-        """Retired write endpoint; historical return documents remain readable."""
-        return self._create_action(request, Transfer.ACTION_RETURN)
 
     @action(detail=False, methods=['post'])
     @audit_log(action='transfer', resource_type='Transfer', description_template='资产调拨')
@@ -471,7 +457,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.db import transaction
 
         transfer = self.get_object()
-        self._assert_return_writes_enabled(transfer)
         self._assert_approval_access(request.user, transfer)
         self._assert_transfer_operable(request.user, transfer)
         serializer = ApproveSerializer(data=request.data)
@@ -495,7 +480,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             lock_branch_inventory_rows(branch_ids)
             # 加锁重取，防止并发重复审批导致台账被多次联动
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
-            self._assert_return_writes_enabled(locked)
             self._assert_approval_access(request.user, locked)
             if locked.审批状态 != '待审批':
                 return Response(
@@ -527,15 +511,9 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def _assert_approval_access(user, transfer):
-        TransferViewSet._assert_return_writes_enabled(transfer)
         code = transfer_permission_code(transfer.action_type, 'approve')
         if not code or not user.can(code) or not is_transfer_approver(user, transfer):
             raise PermissionDenied('您没有该类型单据的审批权限，或单据不在您的岗位与数据范围内')
-
-    @staticmethod
-    def _assert_return_writes_enabled(transfer):
-        if transfer.action_type == Transfer.ACTION_RETURN:
-            raise RetiredReturnAction()
 
     @action(detail=True, methods=['post'], url_path='inbound-reject',
             permission_classes=[IsAuthenticated, OperationPermission])
@@ -585,7 +563,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
-        self._assert_return_writes_enabled(transfer)
         self._assert_current_scope(request.user, transfer)
         self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '草稿':
@@ -595,7 +572,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             categories = lock_categories(category_ids)
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
             self._assert_transfer_operable(request.user, locked)
-            self._assert_return_writes_enabled(locked)
             self._assert_current_scope(request.user, locked)
             self._assert_owner_or_admin(request.user, locked)
             if locked.审批状态 != '草稿':
@@ -632,7 +608,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
-        self._assert_return_writes_enabled(transfer)
         self._assert_current_scope(request.user, transfer)
         self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '已驳回':
@@ -642,7 +617,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             categories = lock_categories(category_ids)
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
             self._assert_transfer_operable(request.user, locked)
-            self._assert_return_writes_enabled(locked)
             self._assert_current_scope(request.user, locked)
             self._assert_owner_or_admin(request.user, locked)
             if locked.审批状态 != '已驳回':
@@ -686,7 +660,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         transfer = self.get_object()
         self._assert_transfer_operable(request.user, transfer)
-        self._assert_return_writes_enabled(transfer)
         self._assert_current_scope(request.user, transfer)
         if transfer.审批状态 != '待审批':
             return Response({'detail': '仅待审批单据可撤回'}, status=status.HTTP_400_BAD_REQUEST)
@@ -696,7 +669,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             # 与审批动作使用相同的行锁，确保并发时只完成一个状态转换。
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
-            self._assert_return_writes_enabled(locked)
             self._assert_current_scope(request.user, locked)
             if locked.审批状态 != '待审批':
                 return Response({'detail': '该单据已处理，当前状态不可撤回'}, status=status.HTTP_400_BAD_REQUEST)
@@ -711,7 +683,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from django.db import transaction
 
         transfer = self.get_object()
-        self._assert_return_writes_enabled(transfer)
         self._assert_current_scope(request.user, transfer)
         self._assert_owner_or_admin(request.user, transfer)
         if transfer.审批状态 != '草稿':
@@ -723,7 +694,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             locked = Transfer.objects.select_for_update().get(pk=transfer.pk)
-            self._assert_return_writes_enabled(locked)
             self._assert_current_scope(request.user, locked)
             self._assert_owner_or_admin(request.user, locked)
             if locked.审批状态 != '草稿':
@@ -751,7 +721,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
 
         kwargs.pop('partial', False)
         instance = self.get_object()
-        self._assert_return_writes_enabled(instance)
         self._assert_owner_or_admin(request.user, instance)
         if instance.审批状态 not in ('已驳回', '草稿'):
             return Response({'detail': '仅已驳回或草稿的记录可编辑'}, status=status.HTTP_400_BAD_REQUEST)
@@ -804,7 +773,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 for entry in items:
                     entry['item'] = categories[entry['item'].pk]
             locked = Transfer.objects.select_for_update().get(pk=instance.pk)
-            self._assert_return_writes_enabled(locked)
             self._assert_owner_or_admin(request.user, locked)
             if locked.审批状态 not in ('已驳回', '草稿'):
                 return Response(
@@ -858,7 +826,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         调出分公司=from_branch or locked.from_branch,
                         调入分公司=to_branch or locked.to_branch,
                     )
-                elif locked.action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+                elif locked.action_type == Transfer.ACTION_PURCHASE:
                     locked.set_branches(所属分公司=to_branch or locked.to_branch)
                 else:
                     locked.set_branches(所属分公司=from_branch or locked.from_branch)
@@ -880,7 +848,6 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         '采购入库': Transfer.ACTION_PURCHASE,
         '领用': Transfer.ACTION_ASSIGN,
         '领用出库': Transfer.ACTION_ASSIGN,
-        '归还': Transfer.ACTION_RETURN,
         '调拨': Transfer.ACTION_TRANSFER,
         '回收': Transfer.ACTION_RECOVERY,
     }
@@ -1515,8 +1482,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     _to_b = branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None
                     if action == Transfer.ACTION_TRANSFER:
                         _branch_kwargs = {'调出分公司': _from_b, '调入分公司': _to_b}
-                    elif action in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
-                        _branch_kwargs = {'所属分公司': _to_b}  # 采购=入库方；归还=还入方
+                    elif action == Transfer.ACTION_PURCHASE:
+                        _branch_kwargs = {'所属分公司': _to_b}  # 采购=入库方
                     else:
                         _branch_kwargs = {'所属分公司': _from_b}
                     header['审批状态'] = '待审批'

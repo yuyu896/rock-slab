@@ -244,7 +244,7 @@ export interface Team {
 }
 
 /** 调拨/流转记录：单头 + 明细行（P2 明细行化） */
-export type TransferActionType = 'purchase' | 'assign' | 'return' | 'transfer' | 'recovery'
+export type TransferActionType = 'purchase' | 'assign' | 'transfer' | 'recovery'
 
 /** 品目字典摘要（ItemPicker 点选结果；qty 为台账检索时的对应列可用数量） */
 export interface ItemSummary {

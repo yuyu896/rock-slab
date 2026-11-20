@@ -128,7 +128,7 @@ onMounted(fetchTransfer)
     <template #extra-edit>
       <div v-if="editing" class="edit-block">
         <div class="edit-grid">
-          <div class="form-item"><label>日期</label><input v-model="editForm.调拨日期" type="date" class="form-input" /></div>
+          <div class="form-item"><label>日期</label><el-date-picker v-model="editForm.调拨日期" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" /></div>
           <div class="form-item"><label>需求部门</label><input v-model="editForm.需求部门" type="text" class="form-input" /></div>
           <div class="form-item"><label>经办人</label><input v-model="editForm.经办人" type="text" class="form-input" placeholder="默认创建人，选填" /></div>
           <div class="form-item full"><label>备注</label><textarea v-model="editForm.备注" class="form-input" rows="2"></textarea></div>

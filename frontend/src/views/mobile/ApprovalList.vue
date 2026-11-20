@@ -20,7 +20,6 @@ const canOpenMyApplications = computed(() => userStore.isAdmin || MY_DOCUMENT_OP
 const actionLabels: Record<string, string> = {
   purchase: '采购入库',
   assign: '领用',
-  return: '归还',
   transfer: '调拨',
 }
 
@@ -29,7 +28,6 @@ function getActionType(transfer: Transfer): string {
 }
 
 function canApprove(transfer: Transfer): boolean {
-  if (getActionType(transfer) === 'return') return false
   const type = getActionType(transfer) as ActiveTransferActionType
   return Boolean(TRANSFER_PERMISSION_OPERATIONS[type]
     && userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].approve))

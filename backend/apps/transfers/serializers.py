@@ -83,9 +83,7 @@ class TransferSerializer(serializers.ModelSerializer):
         return data
 
     def get_canOperate(self, obj):
-        """历史归还只读；调拨单调入方也只读，其余类型沿用原操作范围。"""
-        if obj.action_type == Transfer.ACTION_RETURN:
-            return False
+        """调拨单调入方只读，其余类型沿用原操作范围。"""
         if obj.action_type != Transfer.ACTION_TRANSFER:
             return True
         request = self.context.get('request')
@@ -136,7 +134,7 @@ class TransferSerializer(serializers.ModelSerializer):
 
     def get_canEditDraft(self, obj):
         """Drafts belong to their creator; admins may still edit others' rejected documents."""
-        if obj.action_type == Transfer.ACTION_RETURN or obj.审批状态 not in ('草稿', '已驳回'):
+        if obj.审批状态 not in ('草稿', '已驳回'):
             return False
         request = self.context.get('request')
         user = getattr(request, 'user', None) if request else None

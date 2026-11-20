@@ -13,7 +13,7 @@ export type TransferPermissionSet = {
   rejectInbound?: string
 }
 
-export type ActiveTransferActionType = Exclude<TransferActionType, 'return'>
+export type ActiveTransferActionType = TransferActionType
 
 export const TRANSFER_PERMISSION_OPERATIONS: Record<ActiveTransferActionType, TransferPermissionSet> = {
   purchase: {

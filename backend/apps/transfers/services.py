@@ -41,7 +41,6 @@ def lock_line_item_categories(items):
 DOC_NUMBER_PREFIXES = {
     'purchase': 'CG',
     'assign': 'LY',
-    'return': 'GH',
     'transfer': 'DB',
     'recovery': 'HS',
     'adjust': 'TZ',
@@ -79,7 +78,7 @@ def _pending_occupation_map(instance_ids, exclude_transfer_id=None):
         instance_id__in=instance_ids,
         line__transfer__审批状态__in=('待审批', '草稿'),
         line__transfer__action_type__in=(
-            Transfer.ACTION_ASSIGN, Transfer.ACTION_RETURN,
+            Transfer.ACTION_ASSIGN,
             Transfer.ACTION_TRANSFER, Transfer.ACTION_RECOVERY,
         ),
     ).select_related('line__transfer')
@@ -151,8 +150,6 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
         if item.management_type == 'consumable':
             if action_type == 'recovery':
                 err(row_no, item.asset_code, '消耗品无回收：领出时已按耗用发放出账，如需修正走台账调整单')
-            if action_type == 'return':
-                err(row_no, item.asset_code, '消耗品无可归还：领用时不进在用')
             if action_type == 'assign' and assign_source == 'recycle_bin':
                 err(row_no, item.asset_code, '消耗品无回收库存可领（领用来源仅支持新品库）')
         if action_type == 'assign':
@@ -163,7 +160,7 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
         if action_type != 'purchase' and (entry.get('供应商') or '').strip():
             err(row_no, item.asset_code, '行级供应商仅采购行支持')
         if action_type == 'recovery' and recovery_dest != 'dispose'                 and item.management_type != 'instance':
-            err(row_no, item.asset_code, '数量品物无重新入库概念（回库请走归还单；处置请改选「直接处置」）')
+            err(row_no, item.asset_code, '数量品物无重新入库概念（处置请改选「直接处置」）')
         if item.management_type != 'instance':
             if insts:
                 err(row_no, item.asset_code, '非实例管理品目无需选择实例')
@@ -178,7 +175,7 @@ def validate_line_items_instances(action_type, from_branch, to_branch, assign_so
             err(row_no, item.asset_code, f'实例数 {len(insts)} 与数量 {entry["数量"]} 不一致')
 
         want = instance_service.expected_state(action_type, assign_source, recovery_dest)
-        branch = from_branch if action_type != 'return' else (to_branch or from_branch)
+        branch = from_branch if from_branch is not None else to_branch
         # 未生效单据占用预检（编辑单自身引用不拦）
         occupancy = _pending_occupation_map([i.pk for i in insts], exclude_transfer_id)
         for inst in insts:

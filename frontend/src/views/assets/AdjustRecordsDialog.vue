@@ -95,9 +95,9 @@ function fmtColumn(value: string) {
         <div class="filter-row">
           <BranchFilterSelect v-if="canViewOrganizations" v-model="filters.branch" :options="branchOptions" />
           <input v-model="filters.assetCode" type="text" class="filter-input" placeholder="资产编号" @keyup.enter="applyFilters" />
-          <input v-model="filters.dateFrom" type="date" class="filter-input date" aria-label="开始日期" />
+          <el-date-picker v-model="filters.dateFrom" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width: 150px" clearable />
           <span class="date-sep">至</span>
-          <input v-model="filters.dateTo" type="date" class="filter-input date" aria-label="结束日期" />
+          <el-date-picker v-model="filters.dateTo" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" style="width: 150px" clearable />
           <button class="filter-apply" @click="applyFilters">查询</button>
           <button class="filter-apply" @click="resetFilters">重置</button>
         </div>

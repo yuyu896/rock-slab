@@ -173,9 +173,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleDetailKeydown))
           <BranchFilterSelect v-model="filters.branch" :options="branchOptions" />
         </div>
         <div class="filter-item">
-          <input v-model="filters.dateFrom" type="date" class="filter-input date-input" aria-label="开始日期" />
+          <el-date-picker v-model="filters.dateFrom" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" style="width: 150px" clearable />
           <span class="date-sep">至</span>
-          <input v-model="filters.dateTo" type="date" class="filter-input date-input" aria-label="结束日期" />
+          <el-date-picker v-model="filters.dateTo" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" style="width: 150px" clearable />
         </div>
         <button class="filter-reset" @click="resetFilters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>重置</button>
       </div>

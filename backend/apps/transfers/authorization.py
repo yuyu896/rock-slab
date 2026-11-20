@@ -26,17 +26,6 @@ TRANSFER_PERMISSION_CODES = {
         'withdraw': 'edit_assignment',
         'import': 'edit_assignment',
     },
-    Transfer.ACTION_RETURN: {
-        # Return is retired. Keep the historical action type recognizable to
-        # reporting/audit code, but expose no user-facing permission route.
-        'create': None,
-        'view': None,
-        'edit': None,
-        'delete': None,
-        'submit': None,
-        'approve': None,
-        'withdraw': None,
-    },
     Transfer.ACTION_TRANSFER: {
         'create': 'edit_transfer',
         'view': 'view_transfer',
@@ -64,7 +53,7 @@ def transfer_permission_code(action_type, action):
 
 
 def transfer_branch_id(action_type, from_branch_id, to_branch_id):
-    if action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+    if action_type == Transfer.ACTION_PURCHASE:
         return to_branch_id
     return from_branch_id
 
