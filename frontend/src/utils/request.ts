@@ -69,28 +69,47 @@ export function handleApiError(error: unknown): string {
 }
 
 /** 递归提取 DRF 验证错误信息（处理嵌套字段如 items[0].单价） */
-function extractErrorMessages(obj: any, prefix = ''): string[] {
+function extractErrorMessages(obj: any, prefix = '', arrayIndex = -1): string[] {
   const messages: string[] = []
   for (const [key, value] of Object.entries(obj)) {
     if (key === 'detail') continue
-    const fieldPath = prefix ? `${prefix}.${key}` : key
+
     if (Array.isArray(value)) {
       // 数组可能是错误消息列表，或嵌套对象列表（如 items）
       for (let i = 0; i < value.length; i++) {
         const item = value[i]
         if (typeof item === 'string') {
-          messages.push(`${fieldPath}: ${item}`)
+          // 字符串数组：直接是该字段的错误消息列表
+          const fieldLabel = formatFieldLabel(key, prefix, arrayIndex)
+          messages.push(`${fieldLabel}: ${item}`)
         } else if (item && typeof item === 'object') {
-          messages.push(...extractErrorMessages(item, `${fieldPath}[${i}]`))
+          // 对象数组：嵌套结构，递归处理
+          messages.push(...extractErrorMessages(item, key, i))
         }
       }
     } else if (value && typeof value === 'object') {
-      messages.push(...extractErrorMessages(value, fieldPath))
+      messages.push(...extractErrorMessages(value, key, arrayIndex))
     } else {
-      messages.push(`${fieldPath}: ${String(value)}`)
+      const fieldLabel = formatFieldLabel(key, prefix, arrayIndex)
+      messages.push(`${fieldLabel}: ${String(value)}`)
     }
   }
   return messages
+}
+
+/** 格式化字段标签，将技术性路径转换为用户友好的中文表述 */
+function formatFieldLabel(key: string, prefix: string, arrayIndex: number): string {
+  // 处理明细行字段：items[0].单价 → 第1行单价
+  if (prefix === 'items' && arrayIndex >= 0) {
+    return `第${arrayIndex + 1}行${key}`
+  }
+
+  // 其他嵌套字段：保持简洁
+  if (prefix) {
+    return arrayIndex >= 0 ? `${prefix}[${arrayIndex}].${key}` : `${prefix}.${key}`
+  }
+
+  return key
 }
 
 export { TOKEN_KEY }
