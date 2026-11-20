@@ -60,14 +60,37 @@ export function handleApiError(error: unknown): string {
     if (data && typeof data === 'object') {
       const apiError = data as ApiError
       if (apiError.detail) return apiError.detail
-      const messages = Object.entries(apiError)
-        .filter(([key]) => key !== 'detail')
-        .flatMap(([, value]) => (Array.isArray(value) ? value : [String(value)]))
+      const messages = extractErrorMessages(apiError)
       if (messages.length > 0) return messages.join('；')
     }
   }
   if (error instanceof Error) return error.message
   return '请求失败，请稍后重试'
+}
+
+/** 递归提取 DRF 验证错误信息（处理嵌套字段如 items[0].单价） */
+function extractErrorMessages(obj: any, prefix = ''): string[] {
+  const messages: string[] = []
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === 'detail') continue
+    const fieldPath = prefix ? `${prefix}.${key}` : key
+    if (Array.isArray(value)) {
+      // 数组可能是错误消息列表，或嵌套对象列表（如 items）
+      for (let i = 0; i < value.length; i++) {
+        const item = value[i]
+        if (typeof item === 'string') {
+          messages.push(`${fieldPath}: ${item}`)
+        } else if (item && typeof item === 'object') {
+          messages.push(...extractErrorMessages(item, `${fieldPath}[${i}]`))
+        }
+      }
+    } else if (value && typeof value === 'object') {
+      messages.push(...extractErrorMessages(value, fieldPath))
+    } else {
+      messages.push(`${fieldPath}: ${String(value)}`)
+    }
+  }
+  return messages
 }
 
 export { TOKEN_KEY }
