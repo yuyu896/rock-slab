@@ -114,12 +114,11 @@ describe('Reports 报表页真实数据契约（P3 刀二）', () => {
     _mockAll({
       transfers: [
         { id: 't1', date: '2026-08-01', docNumber: 'CG1', assetCode: 'A', assetName: 'x', quantity: 5, status: '已通过', actionType: 'purchase', fromBranch: '甲', toBranch: '乙', operator: '张三' },
-        { id: 't1', date: '2026-08-02', docNumber: 'CG1', assetCode: 'A', assetName: 'x', quantity: 3, status: '已通过', actionType: 'return', fromBranch: '甲', toBranch: '乙', operator: '张三' },
         { id: 't2', date: '2026-08-03', docNumber: 'LY1', assetCode: 'A', assetName: 'x', quantity: 2, status: '已通过', actionType: 'assign', fromBranch: '甲', toBranch: '乙', operator: '李四' },
       ],
     })
     const wrapper = await mountReports()
-    // 一个月份组：入库 5+3、出库 2、调拨 0（柱高按比例，无法直接读数值——断言组数与无空态）
+    // 一个月份组：入库 5、出库 2、调拨 0（柱高按比例，无法直接读数值——断言组数与无空态）
     expect(wrapper.findAll('.trend-group')).toHaveLength(1)
     expect(wrapper.text()).not.toContain('2026-01') // 旧示例数据月份不再出现
   })

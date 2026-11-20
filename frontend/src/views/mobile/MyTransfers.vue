@@ -52,7 +52,6 @@ async function fetchDocuments() {
 }
 
 function editDocument(doc: Transfer) {
-  if (doc.actionType === 'return') return
   const type = (doc.actionType || 'transfer') as ActiveTransferActionType
   const path = mobileCreatePaths[type]
   if (!path || !canManageTransfer(type, code => userStore.can(code)) || doc.canEditDraft !== true) return
@@ -60,7 +59,6 @@ function editDocument(doc: Transfer) {
 }
 
 function canEditDocument(doc: Transfer) {
-  if (doc.actionType === 'return') return false
   const type = (doc.actionType || 'transfer') as ActiveTransferActionType
   return Boolean(mobileCreatePaths[type])
     && canManageTransfer(type, code => userStore.can(code))
@@ -68,7 +66,6 @@ function canEditDocument(doc: Transfer) {
 }
 
 function canSubmitDocument(doc: Transfer) {
-  if (doc.actionType === 'return') return false
   const type = (doc.actionType || 'transfer') as ActiveTransferActionType
   return doc.审批状态 === '草稿'
     && canManageTransfer(type, code => userStore.can(code))
@@ -76,7 +73,6 @@ function canSubmitDocument(doc: Transfer) {
 }
 
 function canDeleteDocument(doc: Transfer) {
-  if (doc.actionType === 'return') return false
   const type = (doc.actionType || 'transfer') as ActiveTransferActionType
   return doc.审批状态 === '草稿'
     && userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].view)
@@ -85,7 +81,6 @@ function canDeleteDocument(doc: Transfer) {
 }
 
 function canWithdrawDocument(doc: Transfer) {
-  if (doc.actionType === 'return') return false
   const type = (doc.actionType || 'transfer') as ActiveTransferActionType
   return doc.审批状态 === '待审批'
     && canManageTransfer(type, code => userStore.can(code))
@@ -93,7 +88,6 @@ function canWithdrawDocument(doc: Transfer) {
 }
 
 async function submitDraft(doc: Transfer) {
-  if (doc.actionType === 'return') return
   const type = (doc.actionType || 'transfer') as ActiveTransferActionType
   if (!canManageTransfer(type, code => userStore.can(code)) || doc.canEditDraft !== true) return
   try {
@@ -106,7 +100,6 @@ async function submitDraft(doc: Transfer) {
 }
 
 async function withdrawDraft(doc: Transfer) {
-  if (doc.actionType === 'return') return
   const type = (doc.actionType || 'transfer') as ActiveTransferActionType
   if (!canManageTransfer(type, code => userStore.can(code)) || doc.canWithdraw !== true) return
   try {

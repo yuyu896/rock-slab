@@ -8,7 +8,6 @@
     采购入库     生成实例（在库，出生行=该行）
     领用(新品库) 所选在库实例 → 在用，写入使用人/部门
     领用(回收库) 所选回收库实例 → 在用，写入使用人/部门
-    归还         清空使用人/部门 → 在库
     调拨         branch → 调入分公司（状态不变）
     回收重新入库 清空使用人/部门 → 在库
     回收直接处置 → 退役（终态，档案永久保留，绝不物理删除）
@@ -21,7 +20,7 @@ from apps.assets.models import FixedAsset, FixedAssetAssigneeChange, InstanceSeq
 from apps.transfers.models import Transfer, TransferLineInstance
 
 # 需要绑定既有实例的单据类型（采购为生成制，不在此列）
-BINDING_ACTIONS = ('assign', 'return', 'transfer', 'recovery')
+BINDING_ACTIONS = ('assign', 'transfer', 'recovery')
 
 
 def _err(detail):
@@ -108,8 +107,6 @@ def expected_state(action_type, assign_source='stock', recovery_dest='restock'):
             if assign_source == Transfer.ASSIGN_SOURCE_RECYCLE
             else (FixedAsset.STATUS_IN_STOCK,)
         )
-    if action_type == 'return':
-        return (FixedAsset.STATUS_IN_USE,)
     if action_type == 'transfer':
         return (FixedAsset.STATUS_IN_STOCK,)
     if action_type == 'recovery':
@@ -281,10 +278,6 @@ def apply_line_instances(transfer, line, instances):
             inst.当前状态 = FixedAsset.STATUS_IN_USE
             inst.使用人 = line.使用人
             inst.department = line.department
-    elif action == 'return':
-        for inst in instances:
-            inst.当前状态 = FixedAsset.STATUS_IN_STOCK
-            _clear_assignee(inst)
     elif action == 'transfer':
         # 换号（transfer-instance-renumber）：过户+空号补位换号+前编号快照，同事务
         links = {lnk.instance_id: lnk for lnk in line.instance_links.all()}

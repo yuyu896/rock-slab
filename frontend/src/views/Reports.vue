@@ -132,7 +132,7 @@ function buildMonthlyTrend(details: TransferReportRow[]) {
       monthMap[month] = { month, inbound: 0, outbound: 0, transfer: 0 }
     }
     const qty = d.quantity || 0
-    if (d.actionType === 'purchase' || d.actionType === 'return') {
+    if (d.actionType === 'purchase') {
       monthMap[month].inbound += qty
     } else if (d.actionType === 'assign' || d.actionType === 'recovery') {
       monthMap[month].outbound += qty

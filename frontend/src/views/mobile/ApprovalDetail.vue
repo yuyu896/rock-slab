@@ -21,7 +21,6 @@ const showRejectInput = ref(false)
 const canApprove = computed(() => {
   if (!transfer.value) return false
   const type = ((transfer.value as any).actionType || 'transfer') as TransferActionType
-  if (type === 'return') return false
   return Boolean(TRANSFER_PERMISSION_OPERATIONS[type]
     && userStore.can(TRANSFER_PERMISSION_OPERATIONS[type].approve))
 })

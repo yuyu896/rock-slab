@@ -273,7 +273,7 @@ def changes_by_item(request):
             pass
 
     ACTION_COLS = {
-        'purchase': '入库', 'assign': '领用', 'return': '归还',
+        'purchase': '入库', 'assign': '领用',
         'transfer': '调拨', 'recovery': '回收',
     }
     stats = (

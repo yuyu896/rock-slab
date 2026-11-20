@@ -6,7 +6,6 @@
 单据 × 数量对照（设计书 5.2，粒度 = 明细行）：
     采购入库    在库+N（无行则建行）
     领用        按来源扣列：新品库 在库−N / 回收库 回收库−N，在用+N
-    归还        在用−N，在库+N
     调拨        调出在库−N（校验充足），调入在库+N（无行则建行）
     回收入回收库 在用−N，回收库+N
     回收直接处置 在用−N（三存储列均不增加，总量随之下跌）
@@ -61,9 +60,9 @@ def _recovery_friendly(error, transfer):
     current = int(detail.get('current', 0)) if isinstance(detail, dict) else 0
     delta = int(detail.get('delta', 0)) if isinstance(detail, dict) else 0
     tail = (
-        f'数量品物若有在用余量请先走归还单收口'
+        '数量品物若有在用余量请走回收单收口'
         if transfer.回收去向 == 'dispose'
-        else f'请核对物品是否未领用、或调出分公司是否选错'
+        else '请核对物品是否未领用、或调出分公司是否选错'
     )
     return ValidationError({
         'detail': (
@@ -205,12 +204,6 @@ def _line_plan(transfer, line):
             (from_branch, item, source_col, -qty),
             (from_branch, item, COLUMN_IN_USE, qty),
         ]
-    if action == 'return':
-        branch = to_branch or from_branch
-        return [
-            (branch, item, COLUMN_IN_USE, -qty),
-            (branch, item, COLUMN_STOCK, qty),
-        ]
     if action == 'transfer':
         return [
             (from_branch, item, COLUMN_STOCK, -qty),
@@ -310,7 +303,7 @@ def apply_document(transfer):
     action = transfer.action_type
     from_branch = transfer.from_branch
     to_branch = transfer.to_branch
-    if action in ('purchase', 'return') and to_branch is None and from_branch is None:
+    if action == 'purchase' and to_branch is None and from_branch is None:
         raise ValidationError({'detail': '单据缺少有效分公司维度'})
     if action == 'assign' and from_branch is None:
         raise ValidationError({'detail': '领用单缺少调出分公司'})
