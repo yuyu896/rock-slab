@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useQueryFilters } from '@/composables/useQueryFilters'
 import { useRouter } from 'vue-router'
 import { useInventoryStore } from '@/store/inventory'
@@ -495,35 +495,51 @@ const downloadTemplateAction = async (task: any) => {
 const importFileInput = ref<HTMLInputElement | null>(null)
 const importingTaskId = ref<string | null>(null)
 const importConfirming = ref(false)
-const importBusy = computed(() => importingTaskId.value !== null || importConfirming.value)
-let importPickerCancelTimer: ReturnType<typeof setTimeout> | null = null
+const importUploading = ref(false)
+const importBusy = computed(() => importConfirming.value || importUploading.value)
 
 const triggerImport = (task: any) => {
   if (!can('edit_inventory') || importBusy.value) return
+  const input = importFileInput.value
+  if (!input) return
   importingTaskId.value = task.id
-  if (importFileInput.value) {
-    const input = importFileInput.value
-    input.value = ''
-    input.click()
-    // The native picker does not emit `change` when the user cancels it.
-    importPickerCancelTimer = setTimeout(() => {
-      importPickerCancelTimer = null
-      if (importingTaskId.value === task.id && !input.files?.length && !importConfirming.value) {
-        importingTaskId.value = null
-      }
-    }, 0)
+  input.value = ''
+  input.click()
+}
+
+const handleImportCancel = () => {
+  if (importBusy.value) return
+  importingTaskId.value = null
+  if (importFileInput.value) importFileInput.value.value = ''
+}
+
+const summarizeImportErrors = (errors: string[]) => {
+  const counts = new Map<string, number>()
+  for (const error of errors) {
+    const detail = error.replace(/^第\s*\d+\s*行[:：]\s*/, '')
+    let reason = '条记录存在其他填写错误'
+    if (/^(?:资产编号|内部编号)\s+.+\s+不在盘点范围内$/.test(detail)) {
+      reason = '条记录不属于本次盘点清单'
+    } else if (detail.startsWith('实盘数量必须为整数')) {
+      reason = '条记录的实盘数量格式不正确'
+    } else if (detail.startsWith('核对结果须为')) {
+      reason = '条记录的核对结果格式不正确'
+    }
+    counts.set(reason, (counts.get(reason) ?? 0) + 1)
   }
+  return [
+    '整份文件未导入',
+    ...Array.from(counts, ([reason, count]) => `有 ${count} ${reason}`),
+    '请核对盘点表后重新上传',
+  ].join('。') + '。'
 }
 
 const handleImportFile = async (event: Event) => {
-  if (!can('edit_inventory')) return
+  if (!can('edit_inventory') || importBusy.value) return
   const input = event.target as HTMLInputElement
-  if (importPickerCancelTimer !== null) {
-    clearTimeout(importPickerCancelTimer)
-    importPickerCancelTimer = null
-  }
   const file = input.files?.[0]
-  if (!file || !importingTaskId.value) {
+  const taskId = importingTaskId.value
+  if (!file || !taskId) {
     importingTaskId.value = null
     input.value = ''
     return
@@ -533,12 +549,6 @@ const handleImportFile = async (event: Event) => {
   if (ext !== 'xlsx' && ext !== 'xls') {
     ElMessage.warning('请上传 Excel 文件（.xlsx 或 .xls）')
     importingTaskId.value = null
-    input.value = ''
-    return
-  }
-
-  const taskId = importingTaskId.value
-  if (!taskId) {
     input.value = ''
     return
   }
@@ -555,6 +565,8 @@ const handleImportFile = async (event: Event) => {
         distinguishCancelAndClose: true,
       },
     )
+    if (importingTaskId.value !== taskId) return
+    importUploading.value = true
   } catch (error) {
     importingTaskId.value = null
     input.value = ''
@@ -570,7 +582,7 @@ const handleImportFile = async (event: Event) => {
     const { data } = await importInventoryResult(taskId, file)
     const result = data as any
     if (result.errors?.length > 0) {
-      const message = ['文件存在错误，整份文件未导入', ...result.errors].join('；')
+      const message = summarizeImportErrors(result.errors)
       ElMessageBox.alert(message, '盘点结果未导入', {
         confirmButtonText: '关闭',
         type: 'error',
@@ -589,9 +601,9 @@ const handleImportFile = async (event: Event) => {
       ? responseData.errors.filter((item): item is string => typeof item === 'string')
       : []
     if (rowErrors.length) {
-      const message = [responseData?.detail, responseData?.hint, ...rowErrors]
+      const message = [summarizeImportErrors(rowErrors), responseData?.hint]
         .filter((item): item is string => Boolean(item))
-        .join('；')
+        .join('\n')
       ElMessageBox.alert(message, '盘点结果未导入', {
         confirmButtonText: '关闭',
         type: 'error',
@@ -600,10 +612,16 @@ const handleImportFile = async (event: Event) => {
       ElMessage.error(handleApiError(error))
     }
   } finally {
+    importUploading.value = false
     importingTaskId.value = null
     input.value = ''
   }
 }
+
+onBeforeUnmount(() => {
+  importingTaskId.value = null
+  if (importFileInput.value) importFileInput.value.value = ''
+})
 
 // ========== 查看报告 ==========
 const viewReport = (task: any) => {
@@ -685,6 +703,7 @@ onMounted(() => {
         accept=".xlsx,.xls"
         style="display: none"
         @change="handleImportFile"
+        @cancel="handleImportCancel"
         :disabled="importBusy"
       />
     </template>
