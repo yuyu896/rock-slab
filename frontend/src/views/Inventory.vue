@@ -601,6 +601,7 @@ const handleImportFile = async (event: Event) => {
     }
   } finally {
     importingTaskId.value = null
+    input.value = ''
   }
 }
 
