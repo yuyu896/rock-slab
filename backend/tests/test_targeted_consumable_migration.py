@@ -72,6 +72,46 @@ def _pending_assign(branch, item):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('action_type', 'expected_hint'),
+    [
+        (Transfer.ACTION_ASSIGN, '消耗品领用扣在库'),
+        (Transfer.ACTION_TRANSFER, '批准时按当时管理方式和回收去向计算台账'),
+        (Transfer.ACTION_RECOVERY, '回收入库可能因在用量不足'),
+    ],
+)
+def test_pending_preview_hint_supports_current_document_types(
+    branch, second_branch, action_type, expected_hint,
+):
+    from apps.categories.consumable_migration import _pending_rows
+
+    item = Category.objects.create(
+        asset_category='测试类目',
+        item_category='测试分类',
+        asset_name='迁移预览类型测试品目',
+        asset_code=f'TCM-PENDING-{action_type}',
+        unit='个',
+        management_type=Category.MANAGEMENT_QUANTITY,
+    )
+    transfer = Transfer.objects.create(
+        action_type=action_type,
+        调拨日期=date(2026, 10, 1),
+        调出分公司=branch.name,
+        调入分公司=second_branch.name,
+        from_branch=branch,
+        to_branch=second_branch if action_type == Transfer.ACTION_TRANSFER else None,
+        审批状态='待审批',
+        单据编号=f'PENDING-{action_type}',
+    )
+    TransferLine.objects.create(transfer=transfer, item=item, 行号=1, 数量=2)
+
+    rows = _pending_rows([item.pk])
+
+    assert len(rows) == 1
+    assert expected_hint in rows[0]['future_effect']
+
+
+@pytest.mark.django_db
 def test_dry_run_is_read_only_and_writes_complete_branch_workbook(tmp_path, branch, second_branch):
     items = _make_items()
     target = items[0]

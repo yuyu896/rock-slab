@@ -3,6 +3,7 @@ import pytest
 from rest_framework import status
 
 from apps.notifications.models import Notification
+from apps.transfers.models import Transfer
 
 
 def _user(phone, name, role='manager', branch=None, scope_branch=None,
@@ -54,6 +55,27 @@ def _ledger_item(code):
                   'asset_name': f'品目 {code}', 'unit': '台', 'management_type': 'ledger'},
     )
     return item
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('action_type', 'text_field'),
+    [
+        (Transfer.ACTION_PURCHASE, '调入分公司'),
+        (Transfer.ACTION_ASSIGN, '调出分公司'),
+        (Transfer.ACTION_TRANSFER, '调出分公司'),
+        (Transfer.ACTION_RECOVERY, '调出分公司'),
+    ],
+)
+def test_notification_branch_fallback_supports_current_document_types(
+    branch, action_type, text_field,
+):
+    from apps.notifications.signals import _routing_branch
+
+    transfer = Transfer(action_type=action_type)
+    setattr(transfer, text_field, branch.name)
+
+    assert _routing_branch(transfer) == branch
 
 
 def _web_purchase(client, item, branch):

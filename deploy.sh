@@ -116,17 +116,53 @@ docker exec root-nginx-1 nginx -s reload
 
 # 10. Health check
 echo "==== 健康检查 ===="
-sleep 5
-HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8002/api/health/)
-if [ "$HEALTH" = "200" ]; then
+HEALTH_DEADLINE=$((SECONDS + 60))
+HEALTH="000"
+HEALTH_CURL_STATUS=0
+DEPLOY_STATUS=1
+while true; do
+    HEALTH_REMAINING=$((HEALTH_DEADLINE - SECONDS))
+    if [ "$HEALTH_REMAINING" -le 0 ]; then
+        break
+    fi
+    HEALTH_REQUEST_TIMEOUT=5
+    if [ "$HEALTH_REMAINING" -lt "$HEALTH_REQUEST_TIMEOUT" ]; then
+        HEALTH_REQUEST_TIMEOUT="$HEALTH_REMAINING"
+    fi
+
+    if HEALTH=$(curl --silent --show-error --connect-timeout 3 \
+        --max-time "$HEALTH_REQUEST_TIMEOUT" --output /dev/null \
+        --write-out "%{http_code}" http://localhost:8002/api/health/); then
+        HEALTH_CURL_STATUS=0
+        if [ "$HEALTH" = "200" ]; then
+            DEPLOY_STATUS=0
+            break
+        fi
+    else
+        HEALTH_CURL_STATUS=$?
+    fi
+    echo "健康检查未通过，HTTP 状态码: ${HEALTH:-000}，curl 退出码: $HEALTH_CURL_STATUS"
+
+    HEALTH_REMAINING=$((HEALTH_DEADLINE - SECONDS))
+    if [ "$HEALTH_REMAINING" -le 0 ]; then
+        break
+    fi
+    HEALTH_RETRY_DELAY=5
+    if [ "$HEALTH_REMAINING" -lt "$HEALTH_RETRY_DELAY" ]; then
+        HEALTH_RETRY_DELAY="$HEALTH_REMAINING"
+    fi
+    sleep "$HEALTH_RETRY_DELAY"
+done
+
+if [ "$DEPLOY_STATUS" -eq 0 ]; then
     echo ""
     echo "========== 部署成功 =========="
     echo "访问地址: https://qhpanpan.top"
     echo "健康检查: OK"
 else
     echo ""
-    echo "========== 部署完成（健康检查异常）=========="
-    echo "健康检查返回状态码: $HEALTH"
+    echo "========== 部署失败（健康检查未通过）=========="
+    echo "60 秒内未就绪，最后一次 HTTP 状态码: ${HEALTH:-000}，curl 退出码: $HEALTH_CURL_STATUS"
     echo "请检查后端日志: docker compose logs backend"
 fi
 
@@ -136,3 +172,5 @@ echo "部署前 commit : $PRE_DEPLOY_COMMIT"
 echo "部署前备份    : $PRE_DEPLOY_BACKUP"
 echo "代码回滚: git reset --hard $PRE_DEPLOY_COMMIT && docker compose build backend && (cd frontend && npm run build && cd ..) && docker compose up -d --no-build backend && docker exec root-nginx-1 nginx -s reload"
 echo "数据回滚: docker compose stop backend && gunzip -c $PRE_DEPLOY_BACKUP | docker exec -i root-db-1 psql -U rock_slab_user -d rock_slab && git reset --hard $PRE_DEPLOY_COMMIT && docker compose up -d backend"
+
+exit "$DEPLOY_STATUS"

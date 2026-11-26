@@ -74,13 +74,13 @@ describe('generateReconciliationTemplate', () => {
 })
 
 describe('generateTransferTemplate', () => {
-  it('领用模板不再包含用途列', async () => {
+  it('生成包含内部编号列的领用模板', async () => {
     const { generateTransferTemplate } = await import('@/utils/importTemplate')
     await generateTransferTemplate('领用模板', 'assign')
 
     expect(worksheetLog[0].title).toBe('领用出库')
     expect(worksheetLog[0].rows[0]).toEqual([
-      '分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '备注',
+      '分公司', '日期', '资产编号', '内部编号', '领用数量', '使用人', '领用部门', '备注',
     ])
   })
 })

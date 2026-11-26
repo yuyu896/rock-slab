@@ -157,8 +157,6 @@ def _pending_rows(item_ids, lock_rows=False):
                 'future_effect': (
                     '批准时按当时管理方式计算台账；消耗品领用扣在库、不进在用'
                     if transfer.action_type == Transfer.ACTION_ASSIGN
-                    else '迁移后在用量为零，归还单可能因在用量不足不能通过台账校验'
-                    if transfer.action_type == Transfer.ACTION_RETURN
                     else '迁移后在用量为零，回收入库可能因在用量不足不能通过台账校验；直接处置按新类型核对在库'
                     if transfer.action_type == Transfer.ACTION_RECOVERY
                     else '批准时按当时管理方式和回收去向计算台账；请人工核对'

@@ -46,6 +46,26 @@ def _upload_url(client, url, buf, params=None):
     return client.post(url, {'file': buf}, format='multipart', QUERY_STRING=params or '')
 
 
+def _create_instance_import_target(branch, asset_code='IMP-INSTANCE-001', internal_code='IMP-IN-001', status='在库'):
+    from apps.assets.models import FixedAsset
+    from apps.categories.models import Category
+
+    item = Category.objects.create(
+        asset_category='测试类目', item_category='实例导入测试',
+        asset_name='实例导入测试品目', asset_code=asset_code,
+        unit='台', management_type='instance',
+    )
+    instance = FixedAsset.objects.create(
+        item=item, 内部编号=internal_code, 当前状态=status, branch=branch,
+    )
+    return item, instance
+
+
+def _assign_import_row(branch, asset_code, internal_code, quantity=1):
+    return [branch.name, '2026-03-01', asset_code, internal_code, quantity,
+            '张三', '行政部', '实例导入测试']
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -269,9 +289,8 @@ TRANSFER_TYPE_TEMPLATES = {
         'item_check_fields': {},
     },
     'assign': {
-        # 领用行使用人/部门必填（修订 2.2）：导入模板加"使用人"列，领用部门解析行级外键
-        'template_headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '备注'],
-        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', 5, '张三', '行政部', '工位配置'],
+        'template_headers': ['分公司', '日期', '资产编号', '内部编号', '领用数量', '使用人', '领用部门', '备注'],
+        'sample_row': ['测试分公司', '2026-03-01', 'AST-TEST-001', '', 5, '张三', '行政部', '工位配置'],
         'check_fields': {},
         'line_check_fields': {'数量': 5, '使用人': '张三', '备注': '工位配置'},
         'item_check_fields': {},
@@ -345,6 +364,7 @@ class TestTransferImport:
             assert actual == expected, f"[{ttype}] item {field}: '{actual}' != '{expected}'"
         if ttype == 'assign':
             assert t.调出部门 == '' and t.用途 == '' and t.备注 == ''
+            assert line.instances.count() == 0
 
     def test_assign_import_ignores_legacy_purpose_column(self, admin_client, test_branch):
         from apps.organizations.models import Department
@@ -361,6 +381,22 @@ class TestTransferImport:
         line = document.lines.get()
         assert line.用途 == ''
         assert line.备注 == '设备备注'
+
+    def test_assign_import_accepts_legacy_template_without_internal_number(self, admin_client, test_branch):
+        from apps.organizations.models import Department
+        from apps.transfers.models import Transfer
+
+        Department.objects.get_or_create(name='行政部')
+        headers = ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '备注']
+        row = [test_branch.name, '2026-03-01', 'AST-TEST-001', 1, '张三', '行政部', '旧模板']
+        response = _upload_url(
+            admin_client, '/api/transfers/import', _make_xlsx(headers, [row]), 'type=assign',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['imported'] == 1
+        line = Transfer.objects.filter(action_type='assign').latest('created_at').lines.get()
+        assert line.数量 == 1 and line.instances.count() == 0
 
     def test_recovery_import_retired(self, admin_client):
         """回收批量导入已下线（recovery-stock-source-and-cleanup）：导入/模板端点一律 400。"""
@@ -385,7 +421,7 @@ class TestTransferImport:
         assert resp.data['imported'] == 0
         assert any('不存在的分公司' in e for e in resp.data['errors'])
 
-    @pytest.mark.parametrize(('column_index', 'missing_field'), [(4, '使用人'), (5, '领用部门')])
+    @pytest.mark.parametrize(('column_index', 'missing_field'), [(5, '使用人'), (6, '领用部门')])
     def test_assign_import_requires_user_and_department(
         self, admin_client, test_branch, column_index, missing_field,
     ):
@@ -405,12 +441,175 @@ class TestTransferImport:
         """领用部门不在部门字典（全集团扁平）→ 报错点名部门。"""
         tpl = TRANSFER_TYPE_TEMPLATES['assign']
         row = list(tpl['sample_row'])
-        row[5] = '不存在部'  # 领用部门
+        row[6] = '不存在部'  # 领用部门
         buf = _make_xlsx(tpl['template_headers'], [row])
         resp = _upload_url(admin_client, '/api/transfers/import', buf, params='type=assign')
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.data['imported'] == 0
         assert any('不存在部' in e for e in resp.data['errors'])
+
+    def test_assign_import_binds_instance_by_internal_code(self, admin_client, test_branch):
+        from apps.organizations.models import Department
+        from apps.transfers.models import Transfer
+
+        Department.objects.get_or_create(name='行政部')
+        item, instance = _create_instance_import_target(test_branch)
+        headers = TRANSFER_TYPE_TEMPLATES['assign']['template_headers']
+        row = _assign_import_row(test_branch, item.asset_code, instance.内部编号)
+
+        response = _upload_url(
+            admin_client, '/api/transfers/import', _make_xlsx(headers, [row]), 'type=assign',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['imported'] == 1 and response.data['imported_lines'] == 1
+        line = Transfer.objects.filter(action_type='assign').latest('created_at').lines.get()
+        assert line.数量 == 1
+        assert list(line.instances.values_list('pk', flat=True)) == [instance.pk]
+
+    def test_assign_instance_import_requires_quantity_one(self, admin_client, test_branch):
+        from apps.organizations.models import Department
+
+        Department.objects.get_or_create(name='行政部')
+        item, instance = _create_instance_import_target(test_branch)
+        row = _assign_import_row(test_branch, item.asset_code, instance.内部编号, quantity=2)
+        response = _upload_url(
+            admin_client,
+            '/api/transfers/import',
+            _make_xlsx(TRANSFER_TYPE_TEMPLATES['assign']['template_headers'], [row]),
+            'type=assign',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['imported'] == 0
+        assert any('实例管理品目每行数量必须为 1' in error for error in response.data['errors'])
+
+    @pytest.mark.parametrize('failure', ['blank', 'not_found', 'wrong_branch', 'wrong_item', 'wrong_status'])
+    def test_assign_instance_import_rejects_invalid_instance(self, admin_client, test_branch, failure):
+        from apps.categories.models import Category
+        from apps.organizations.models import Branch, Department
+
+        Department.objects.get_or_create(name='行政部')
+        item, instance = _create_instance_import_target(test_branch)
+        code = instance.内部编号
+        expected = ''
+        if failure == 'blank':
+            code = ''
+            expected = '实例管理品目必须选择与数量等长的实例'
+        elif failure == 'not_found':
+            code = 'IMP-IN-MISSING'
+            expected = f'编号 {code} 在 {test_branch.name} 不存在'
+        elif failure == 'wrong_branch':
+            other_branch = Branch.objects.create(
+                name='实例导入其他分公司', code='IMP-OTHER', team=test_branch.team,
+            )
+            instance.branch = other_branch
+            instance.save(update_fields=['branch'])
+            expected = f'编号 {code} 在 {test_branch.name} 不存在'
+        elif failure == 'wrong_item':
+            other_item = Category.objects.create(
+                asset_category='测试类目', item_category='实例导入测试',
+                asset_name='其他实例品目', asset_code='IMP-INSTANCE-OTHER',
+                unit='台', management_type='instance',
+            )
+            instance.item = other_item
+            instance.save(update_fields=['item'])
+            expected = f'编号 {code} 品目不符'
+        else:
+            instance.当前状态 = '在用'
+            instance.save(update_fields=['当前状态'])
+            expected = '状态 在用'
+
+        row = _assign_import_row(test_branch, item.asset_code, code)
+        response = _upload_url(
+            admin_client,
+            '/api/transfers/import',
+            _make_xlsx(TRANSFER_TYPE_TEMPLATES['assign']['template_headers'], [row]),
+            'type=assign',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['imported'] == 0
+        assert any(expected in error for error in response.data['errors'])
+
+    def test_assign_instance_import_rejects_duplicate_code_in_batch(self, admin_client, test_branch):
+        from apps.organizations.models import Department
+
+        Department.objects.get_or_create(name='行政部')
+        item, instance = _create_instance_import_target(test_branch)
+        row = _assign_import_row(test_branch, item.asset_code, instance.内部编号)
+        response = _upload_url(
+            admin_client,
+            '/api/transfers/import',
+            _make_xlsx(TRANSFER_TYPE_TEMPLATES['assign']['template_headers'], [row, row]),
+            'type=assign',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['imported'] == 0
+        assert any(
+            f'第 3 行: 编号 {instance.内部编号} 与第 2 行重复引用' in error
+            for error in response.data['errors']
+        )
+
+    def test_assign_instance_import_rejects_pending_occupation(self, admin_client, test_branch):
+        from datetime import date
+        from apps.organizations.models import Department
+        from apps.transfers.models import Transfer, TransferLine, TransferLineInstance
+
+        Department.objects.get_or_create(name='行政部')
+        item, instance = _create_instance_import_target(test_branch)
+        occupied = Transfer.build(
+            Transfer.ACTION_ASSIGN,
+            {
+                '调拨日期': date(2026, 3, 1), '单据编号': 'LY-OCCUPIED-001',
+                '审批状态': '待审批', '创建人': '占用测试',
+            },
+            所属分公司=test_branch,
+        )
+        occupied.save()
+        line = TransferLine.objects.create(transfer=occupied, item=item, 行号=1, 数量=1)
+        TransferLineInstance.objects.create(line=line, instance=instance)
+
+        response = _upload_url(
+            admin_client,
+            '/api/transfers/import',
+            _make_xlsx(
+                TRANSFER_TYPE_TEMPLATES['assign']['template_headers'],
+                [_assign_import_row(test_branch, item.asset_code, instance.内部编号)],
+            ),
+            'type=assign',
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert any('已被待审批单 LY-OCCUPIED-001 占用' in error for error in response.data['errors'])
+
+    def test_assign_instance_import_requires_view_instances(self, test_branch):
+        from apps.organizations.models import Department
+        from apps.permissions.models import ManagementScope, OperationGrant
+        from apps.users.models import User
+
+        Department.objects.get_or_create(name='行政部')
+        item, instance = _create_instance_import_target(test_branch)
+        user = User.objects.create_user(
+            phone='13900001001', name='无实例查看权限', password='test123456',
+            role='manager', status='active',
+        )
+        ManagementScope.objects.create(user=user, branch=test_branch)
+        for code in ('edit_assignment', 'view_assignment', 'view_asset_ledger'):
+            OperationGrant.objects.create(user=user, code=code)
+        response = _upload_url(
+            _client_for(user),
+            '/api/transfers/import',
+            _make_xlsx(
+                TRANSFER_TYPE_TEMPLATES['assign']['template_headers'],
+                [_assign_import_row(test_branch, item.asset_code, instance.内部编号)],
+            ),
+            'type=assign',
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert '查看实例档案权限' in response.data['detail']
 
     def test_purchase_import_autofills_amount(self, admin_client, test_branch):
         """采购模板无金额列 → 落库金额 = 单价 × 数量自动计算。"""
@@ -717,9 +916,9 @@ class TestImportMergeDocs:
         Department.objects.get_or_create(name='研发部')
         headers = TRANSFER_TYPE_TEMPLATES['assign']['template_headers']
         rows = [
-            [test_branch.name, '2026-09-14', 'AST-TEST-001', 1, '张三', '行政部', '工位配置'],
-            [test_branch.name, '2026-09-14', 'AST-TEST-001', 1, '李四', '研发部', '测试设备'],
-            [test_branch.name, '2026-09-14', 'AST-TEST-001', 1, '王五', '行政部', '存放于前台'],
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', '', 1, '张三', '行政部', '工位配置'],
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', '', 1, '李四', '研发部', '测试设备'],
+            [test_branch.name, '2026-09-14', 'AST-TEST-001', '', 1, '王五', '行政部', '存放于前台'],
         ]
         buf = _make_xlsx(headers, rows)
         resp = _upload_url(admin_client, '/api/transfers/import', buf, 'type=assign')

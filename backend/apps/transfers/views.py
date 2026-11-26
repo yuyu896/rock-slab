@@ -82,7 +82,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             'filename': 'purchase_template.xlsx',
         },
         'assign': {
-            'headers': ['分公司', '日期', '资产编号', '领用数量', '使用人', '领用部门', '备注'],
+            'headers': ['分公司', '日期', '资产编号', '内部编号', '领用数量', '使用人', '领用部门', '备注'],
             'sheet': '领用出库',
             'filename': 'assign_template.xlsx',
         },
@@ -1187,6 +1187,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         from datetime import datetime as dt
         from django.db import transaction
         from apps.categories.models import Category
+        from apps.assets.models import FixedAsset
         from apps.organizations.models import Branch, Department
         from apps.organizations.utils import get_branch_name_set, branch_validation_error
 
@@ -1230,8 +1231,11 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         expected_headers = self.TYPE_TEMPLATES.get(template_type, {}).get('headers', [])
         accepted_header_sets = [set(expected_headers)]
         if template_type == 'assign':
-            # 旧领用模板可能含用途列；兼容上传但不再读取该字段。
+            # 旧版数量品模板仍可使用；新旧模板里的用途列都只兼容、不再读取。
+            legacy_headers = set(expected_headers) - {'内部编号'}
+            accepted_header_sets.append(legacy_headers)
             accepted_header_sets.append(set(expected_headers) | {'用途'})
+            accepted_header_sets.append(legacy_headers | {'用途'})
         if set(header_cells) not in accepted_header_sets:
             missing = [h for h in expected_headers if h not in header_cells]
             extra = [h for h in header_cells if h not in expected_headers]
@@ -1268,6 +1272,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
         imported_lines = 0
         errors = []
         doc_groups = {}
+        seen_instance_codes = {}
         creator = request.user.name or request.user.phone
         valid_branches = get_branch_name_set()
         branch_cache = {b.name: b for b in Branch.objects.all()}
@@ -1377,7 +1382,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                         }
                         action = Transfer.ACTION_PURCHASE
 
-                    # 领用列：分公司|日期|资产编号|数量|使用人|领用部门|备注
+                    # 领用列：分公司|日期|资产编号|内部编号|数量|使用人|领用部门|备注
                     elif template_type == 'assign':
                         branch_name = _cell(row, '分公司')
                         header = {
@@ -1401,7 +1406,10 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                             continue
                         qty = _qty(row, '领用数量')
                         if qty is None:
-                            errors.append(f'第 {i} 行: 领用数量必须为正整数（不支持小数与空值）')
+                            if item.management_type == 'instance':
+                                errors.append(f'第 {i} 行: 实例管理品目每行数量必须为 1')
+                            else:
+                                errors.append(f'第 {i} 行: 领用数量必须为正整数（不支持小数与空值）')
                             continue
                         line_kwargs = {
                             'item': item,
@@ -1448,7 +1456,52 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                     # leave this import validated against a stale item type.
                     lock_line_item_categories([line_kwargs])
                     item = line_kwargs['item']
-                    # 实例引用预检：实例管理品目的绑定类单据无法在 Excel 表达，引导走页面
+                    if action == Transfer.ACTION_ASSIGN:
+                        internal_code = _cell(row, '内部编号')
+                        if item.management_type == 'instance':
+                            if not request.user.can('view_instances'):
+                                raise PermissionDenied('创建含实例管理品目的单据需要查看实例档案权限')
+                            if internal_code:
+                                first_row = seen_instance_codes.get(internal_code)
+                                if first_row is not None:
+                                    errors.append(
+                                        f'第 {i} 行: 编号 {internal_code} 与第 {first_row} 行重复引用'
+                                    )
+                                    continue
+                                seen_instance_codes[internal_code] = i
+                            if qty != 1:
+                                errors.append(f'第 {i} 行: 实例管理品目每行数量必须为 1')
+                                continue
+                            if internal_code:
+                                branch = branch_cache.get(branch_name)
+                                instance = FixedAsset.objects.filter(
+                                    branch=branch,
+                                    内部编号=internal_code,
+                                ).first()
+                                if instance is None:
+                                    errors.append(
+                                        f'第 {i} 行: 编号 {internal_code} 在 {branch_name} 不存在'
+                                    )
+                                    continue
+                                line_kwargs['instances'] = [instance]
+                        elif internal_code:
+                            errors.append(f'第 {i} 行: 非实例管理品目不能填写内部编号')
+                            continue
+
+                    lock_line_item_instances([line_kwargs])
+                    instances = line_kwargs.get('instances') or []
+                    if instances and action == Transfer.ACTION_ASSIGN:
+                        instance = instances[0]
+                        branch = branch_cache.get(branch_name)
+                        if instance.内部编号 != internal_code or instance.branch_id != branch.pk:
+                            errors.append(
+                                f'第 {i} 行: 编号 {internal_code} 在 {branch_name} 不存在'
+                            )
+                            continue
+                        if instance.item_id != item.pk:
+                            errors.append(f'第 {i} 行: 编号 {internal_code} 品目不符')
+                            continue
+
                     validate_line_items_instances(
                         action,
                         branch_cache.get(header.get('调出分公司', '')),
@@ -1499,6 +1552,8 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
                 detail = e.detail
                 msg = detail.get('detail') if isinstance(detail, dict) else detail
                 errors.append(f'第 {i} 行: {msg}')
+            except PermissionDenied:
+                raise
             except Exception as e:
                 errors.append(f'第 {i} 行: {str(e)}')
 
@@ -1521,6 +1576,7 @@ class TransferViewSet(DataScopeMixin, viewsets.ModelViewSet):
             header = dict(bucket['header'])
             with transaction.atomic():
                 lock_line_item_categories(bucket['lines'])
+                lock_line_item_instances(bucket['lines'])
                 _from_b = branch_cache.get(header.get('调出分公司', ''))
                 _to_b = branch_cache.get(header.get('调入分公司', '')) if header.get('调入分公司') else None
                 for line in bucket['lines']:

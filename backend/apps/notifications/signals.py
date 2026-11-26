@@ -109,13 +109,13 @@ def _locate_creator(instance):
 
 
 def _routing_branch(instance):
-    """路由分公司：业务分公司 FK 优先（purchase/return=调入方，其余=调出方），
+    """路由分公司：业务分公司 FK 优先（采购取调入方，其余取调出方），
     文本快照兜底（ORM 直造/存量单据可能只有文本无 FK）。解析失败返回 None。"""
     branch = instance.业务分公司
     if branch is not None:
         return branch
     from apps.organizations.models import Branch
-    if instance.action_type in (Transfer.ACTION_PURCHASE, Transfer.ACTION_RETURN):
+    if instance.action_type == Transfer.ACTION_PURCHASE:
         text = instance.调入分公司
     else:
         text = instance.调出分公司
